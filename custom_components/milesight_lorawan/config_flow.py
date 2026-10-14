@@ -181,8 +181,10 @@ class MilesightOptionsFlow(OptionsFlow):
             }
             return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
 
-        features = MODELS[entry.data[CONF_MODEL]].features
+        model = opts.get(CONF_MODEL, entry.data[CONF_MODEL])
+        features = MODELS[model].features
         schema = {
+            vol.Required(CONF_MODEL, default=model): _model_selector(),
             vol.Required(CONF_MAX_GAP_MIN, default=opts.get(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)): _int_box(5, 1440),
         }
         if "door" in features:

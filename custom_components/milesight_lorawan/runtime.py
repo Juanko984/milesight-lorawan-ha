@@ -66,7 +66,7 @@ class DeviceRuntime:
         self.hass = hass
         self.entry = entry
         self.deveui: str = entry.data[CONF_DEVEUI]
-        self.model: Model = MODELS[entry.data[CONF_MODEL]]
+        self.model: Model = MODELS[entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])]
         self.cal = Calendar(dt_util.get_time_zone(hass.config.time_zone) or dt_util.UTC)
         self.store: Store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{self.deveui}")
         self.raw: dict[str, Any] = {}
@@ -142,7 +142,7 @@ class DeviceRuntime:
     @callback
     def handle_uplink(self, up: Uplink) -> None:
         try:
-            decoded = up.predecoded if up.predecoded is not None else self.model.decoder(up.raw or b"")
+            decoded = self.model.decoder(up.raw) if up.raw else (up.predecoded or {})
         except Exception:  # noqa: BLE001 - never let one bad payload break the device
             _LOGGER.exception("Failed to decode uplink from %s", self.deveui)
             return

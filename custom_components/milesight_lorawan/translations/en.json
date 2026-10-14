@@ -54,6 +54,7 @@
       "init": {
         "title": "Settings",
         "data": {
+          "model": "Model",
           "topic": "Uplink MQTT topic",
           "payload_encoding": "Payload encoding",
           "max_gap_min": "Offline gap (minutes)",
@@ -66,7 +67,8 @@
         "data_description": {
           "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
           "open_hour": "Used for utilisation %.",
-          "close_hour": "Use 24 for midnight."
+          "close_hour": "Use 24 for midnight.",
+          "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page."
         }
       }
     }
