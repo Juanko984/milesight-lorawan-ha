@@ -57,6 +57,14 @@ BINARY_FEATURES: dict[str, tuple[Callable[[dict, float], bool | None], str, str]
 }
 
 
+# VS373 alarm type -> flag key in values
+ALARM_FLAGS = {
+    "fall": "alarm_fall", "motionless": "alarm_motionless", "out_of_bed": "alarm_out_of_bed",
+    "dwell": "alarm_dwell", "lying_down": "alarm_lying_down",
+    "bradynea": "alarm_breathing", "tachypnea": "alarm_breathing",
+}
+
+
 def _co2_text(co2: Any) -> str | None:
     if not isinstance(co2, (int, float)):
         return None
@@ -166,17 +174,40 @@ class DeviceRuntime:
             _LOGGER.exception("Failed to decode uplink from %s", self.deveui)
             return
         ts = self._uplink_ts(up)
-        self.raw.update({k: v for k, v in decoded.items() if k != "history"})
+        self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events")})
+        if "vs373" in self.model.features:
+            self._handle_vs373(decoded, ts)
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
 
         for feature, tracker in self.binary.items():
             tracker.update(ts, BINARY_FEATURES[feature][0](decoded, self.co2_limit))
         if self.minmax is not None:
             self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
-        if self.occupancy is not None and isinstance(decoded.get("people_count_all"), int):
-            self.occupancy.update(ts, decoded["people_count_all"])
+        if self.occupancy is not None and self.model.occupancy_fn is not None:
+            count = self.model.occupancy_fn(decoded)
+            if count is not None:
+                self.occupancy.update(ts, count)
 
         self._publish(ts)
+
+    def _handle_vs373(self, decoded: dict[str, Any], ts: float) -> None:
+        """Keep alarm flags until the device reports them deactivated, and fire HA events."""
+        for f in ALARM_FLAGS.values():
+            self.raw.setdefault(f, False)
+        if decoded.get("detection_status") == "fall":
+            self.raw["alarm_fall"] = True
+        for ev in decoded.get("events", []):
+            atype, status = ev.get("alarm_type"), ev.get("alarm_status")
+            flag = ALARM_FLAGS.get(atype)
+            if flag and status in ("alarm_triggered", "alarm_deactivated", "alarm_ignored"):
+                self.raw[flag] = status == "alarm_triggered"
+            if status == "alarm_triggered":
+                self.raw["last_alarm"] = "bradypnea" if atype == "bradynea" else atype
+                self.raw["last_alarm_at"] = ts
+            self.hass.bus.async_fire(f"{DOMAIN}_alarm", {
+                "deveui": self.deveui, "device": self.entry.title, "model": self.model.key,
+                "alarm_type": atype, "alarm_status": status, "region_id": ev.get("region_id"),
+            })
 
     @callback
     def _tick(self, _now: datetime | None) -> None:
@@ -225,7 +256,9 @@ class DeviceRuntime:
                     v["occ_status"] = f"Occupied since {self._hhmm(ov['occupied_since'])} (checking if empty)"
                 else:
                     n = ov["people_count"]
-                    v["occ_status"] = f"Occupied since {self._hhmm(ov['occupied_since'])} ({n} {'person' if n == 1 else 'people'})"
+                    since = f"Occupied since {self._hhmm(ov['occupied_since'])}"
+                    v["occ_status"] = (f"{since} ({n} {'person' if n == 1 else 'people'})"
+                                       if self.model.counting else since)
             else:
                 v["occ_status"] = "Empty" if self.meta.get("last_seen") else "Waiting for data"
 

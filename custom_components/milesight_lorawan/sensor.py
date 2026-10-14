@@ -49,4 +49,6 @@ class MilesightSensor(MilesightEntity, SensorEntity):
             return dt_util.utc_from_timestamp(v)
         if kind == "text":
             return str(v)[:255]
+        if kind == "label":
+            return str(v).replace("_", " ").capitalize()[:255]
         return v

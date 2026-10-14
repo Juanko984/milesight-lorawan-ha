@@ -4,7 +4,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .decoders import decode_am300, decode_em300, decode_vs121
+from .decoders import (
+    decode_am300,
+    decode_em300,
+    decode_vs121,
+    decode_vs321,
+    decode_vs373,
+    decode_vs_occupancy,
+)
 
 
 @dataclass(frozen=True)
@@ -14,7 +21,7 @@ class EntitySpec:
     key: str                       # key in the runtime values dict
     name: str
     platform: str = "sensor"       # "sensor" | "binary_sensor"
-    kind: str = "plain"            # plain | duration (seconds -> min) | timestamp (epoch) | text
+    kind: str = "plain"            # plain | duration (s -> min) | timestamp (epoch) | text | label ("in_bed" -> "In bed")
     unit: str | None = None
     device_class: str | None = None
     state_class: str | None = None
@@ -32,14 +39,44 @@ class Model:
     features: frozenset[str] = field(default_factory=frozenset)
     beta: bool = False
     minmax_fields: tuple[str, ...] = ("temperature", "humidity")
+    # occupancy: decoded payload -> people count (or 1/0 for presence sensors); None = not in this uplink
+    occupancy_fn: Callable[[dict], int | None] | None = None
+    counting: bool = True          # True = real people count, False = presence only
 
 
 _EM = frozenset({"env", "battery"})
+
+
+def _count(d: dict) -> int | None:
+    v = d.get("people_count_all")
+    return v if isinstance(v, int) else None
+
+
+def _presence(d: dict) -> int | None:
+    return d["occupancy"] if "occupancy" in d else None
+
+
+def _vs373_presence(d: dict) -> int | None:
+    s = d.get("detection_status")
+    return None if s in (None, "unknown") else int(s != "vacant")
+
 _AM_MINMAX = ("temperature", "humidity", "co2", "pm2_5")
 _AM_BASE = {"env", "pir", "light", "co2", "co2high", "tvoc", "pressure"}
 
 MODELS: dict[str, Model] = {
-    "VS121": Model("VS121", "VS121 AI people counter", decode_vs121, frozenset({"occupancy"}), minmax_fields=()),
+    "VS121": Model("VS121", "VS121 AI people counter", decode_vs121, frozenset({"occupancy"}),
+                   minmax_fields=(), occupancy_fn=_count),
+    "VS321": Model("VS321", "VS321 AI occupancy & people counting (with temperature/humidity)", decode_vs321,
+                   frozenset({"occupancy", "env", "battery", "illuminance", "regions10"}), occupancy_fn=_count),
+    "VS340": Model("VS340", "VS340 desk/seat occupancy (PIR)", decode_vs_occupancy,
+                   frozenset({"occupancy", "battery"}), minmax_fields=(), occupancy_fn=_presence, counting=False),
+    "VS341": Model("VS341", "VS341 desk/seat occupancy (thermopile)", decode_vs_occupancy,
+                   frozenset({"occupancy", "battery"}), minmax_fields=(), occupancy_fn=_presence, counting=False),
+    "VS370": Model("VS370", "VS370 radar occupancy (with light level)", decode_vs_occupancy,
+                   frozenset({"occupancy", "battery", "illuminance"}), minmax_fields=(), occupancy_fn=_presence,
+                   counting=False),
+    "VS373": Model("VS373", "VS373 radar fall detection", decode_vs373,
+                   frozenset({"occupancy", "vs373"}), minmax_fields=(), occupancy_fn=_vs373_presence, counting=False),
     "EM300-TH": Model("EM300-TH", "EM300-TH temperature & humidity", decode_em300, _EM),
     "EM300-MCS": Model("EM300-MCS", "EM300-MCS magnetic contact (door/window)", decode_em300, _EM | {"door"}),
     "EM300-SLD": Model("EM300-SLD", "EM300-SLD spot leak detector", decode_em300, _EM | {"leak"}),
@@ -67,6 +104,18 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
+    v373 = decode_vs373(raw)
+    if any(k in v373 for k in ("detection_status", "events", "respiratory_status", "region_1_type")) \
+            or any(k.endswith("_out_of_bed_time") for k in v373):
+        return "VS373", ["VS373"]
+    v321 = decode_vs321(raw)
+    if any(k in v321 for k in ("people_count_all", "region_1", "detection_status", "illuminance", "device_timestamp")):
+        return "VS321", ["VS321"]
+    vo = decode_vs_occupancy(raw)
+    if "occupancy" in vo:
+        if "illuminance" in vo:
+            return "VS370", ["VS370"]
+        return "VS340", ["VS340", "VS341", "VS370"]
     am = decode_am300(raw)
     if any(f in am for f in _AM_FIELDS):
         am_all = [k for k in MODELS if k.startswith("AM")]
@@ -165,6 +214,32 @@ def _air(f: frozenset[str]) -> list[EntitySpec]:
     return specs
 
 
+def _vs373() -> list[EntitySpec]:
+    dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
+    specs = [
+        EntitySpec("alarm_fall", "Fall detected", platform="binary_sensor", device_class="safety", icon="mdi:human-handsdown"),
+        EntitySpec("alarm_motionless", "Motionless alarm", platform="binary_sensor", device_class="problem"),
+        EntitySpec("alarm_out_of_bed", "Out of bed alarm", platform="binary_sensor", device_class="problem", icon="mdi:bed-empty"),
+        EntitySpec("alarm_dwell", "Dwell alarm", platform="binary_sensor", device_class="problem"),
+        EntitySpec("alarm_lying_down", "Lying down alarm", platform="binary_sensor", device_class="problem"),
+        EntitySpec("alarm_breathing", "Abnormal breathing", platform="binary_sensor", device_class="problem", icon="mdi:lungs"),
+        EntitySpec("last_alarm", "Last alarm", kind="label", icon="mdi:alarm-light"),
+        EntitySpec("last_alarm_at", "Last alarm time", kind="timestamp", device_class="timestamp"),
+        EntitySpec("detection_status", "Room status", kind="label", icon="mdi:home-account"),
+        EntitySpec("target_status", "Person status", kind="label", icon="mdi:human"),
+        EntitySpec("respiratory_status", "Breathing", kind="label", icon="mdi:lungs"),
+        EntitySpec("respiratory_rate", "Respiratory rate", unit="br/min", state_class="measurement", icon="mdi:lungs", precision=1),
+        EntitySpec("use_time_now", "Room in use now", icon="mdi:timer-sand", **dur),
+        EntitySpec("use_time_today", "Room in use today (device)", icon="mdi:calendar-today", **dur),
+    ]
+    for r in range(1, 7):
+        specs.append(EntitySpec(f"region_{r}_occupancy", f"Region {r} occupied", platform="binary_sensor",
+                                device_class="occupancy", enabled_default=False))
+        specs.append(EntitySpec(f"region_{r}_out_of_bed_time", f"Region {r} out of bed", icon="mdi:bed-empty",
+                                enabled_default=False, **dur))
+    return specs
+
+
 def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None,
                   icon_on: str, with_left_open: bool) -> list[EntitySpec]:
     """Stats for a binary input. noun='Door', verb_on='open' -> 'Door open today'."""
@@ -202,7 +277,16 @@ def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None
     return specs
 
 
-def _occupancy() -> list[EntitySpec]:
+def _occupancy(counting: bool = True) -> list[EntitySpec]:
+    specs = _occupancy_all()
+    if counting:
+        return specs
+    people_only = {"people_count_all", "region_count", "occ_peak_today", "occ_peak_today_at", "occ_peak_yesterday",
+                   "occ_person_minutes_today", "occ_person_minutes_yesterday", "occ_avg_people_today"}
+    return [s for s in specs if s.key not in people_only]
+
+
+def _occupancy_all() -> list[EntitySpec]:
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     return [
         EntitySpec("occ_occupied", "Occupied", platform="binary_sensor", device_class="occupancy"),
@@ -238,7 +322,14 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     f = model.features
     specs: list[EntitySpec] = []
     if "occupancy" in f:
-        specs += _occupancy()
+        specs += _occupancy(model.counting)
+    if "illuminance" in f:
+        specs.append(EntitySpec("illuminance", "Light", kind="label", icon="mdi:brightness-6"))
+    if "regions10" in f:
+        specs += [EntitySpec(f"region_{r}", f"Region {r} occupied", platform="binary_sensor",
+                             device_class="occupancy", enabled_default=False) for r in range(1, 11)]
+    if "vs373" in f:
+        specs += _vs373()
     if "env" in f:
         specs += _env()
     if "battery" in f:

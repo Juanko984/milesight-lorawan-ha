@@ -347,3 +347,168 @@ def decode_am300(b: bytes) -> dict[str, Any]:
         else:
             break  # history / downlink response / unknown – stop safely
     return out
+
+
+# --------------------------------------------------------------------------
+# VS-series (radar / ToF / PIR occupancy) – checked against Milesight-IoT/SensorDecoders
+# --------------------------------------------------------------------------
+_OCC = {0: "vacant", 1: "occupied"}
+_ILLUM = {0: "dim", 1: "bright", 254: "disable"}
+
+
+def _map(m: dict, v: int) -> str:
+    return m.get(v, "unknown")
+
+
+def decode_vs_occupancy(b: bytes) -> dict[str, Any]:
+    """VS340 / VS341 desk occupancy, VS370 radar occupancy (+ illuminance)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x00 and _need(b, i, 1):
+            out["occupancy"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid == 0x04 and ctype == 0x00 and _need(b, i, 1):
+            out["illuminance"] = _map(_ILLUM, b[i])
+            i += 1
+        else:
+            break
+    return out
+
+
+def decode_vs321(b: bytes) -> dict[str, Any]:
+    """VS321 AI occupancy & people counting sensor (with temperature / humidity)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid in (0x03, 0x83) and ctype == 0x67 and _need(b, i, 2):
+            if cid == 0x03 and _u16le(b, i) == 0xFFFF:
+                out["temperature_sensor_status"] = "read_failed"
+            else:
+                out["temperature"] = _i16le(b, i) / 10
+            i += 2
+            if cid == 0x83 and _need(b, i, 1):
+                out["temperature_alarm"] = b[i]
+                i += 1
+        elif cid in (0x04, 0x84) and ctype == 0x68 and _need(b, i, 1):
+            if cid == 0x04 and b[i] == 0xFF:
+                out["humidity_sensor_status"] = "read_failed"
+            else:
+                out["humidity"] = b[i] / 2
+            i += 1
+            if cid == 0x84 and _need(b, i, 1):
+                out["humidity_alarm"] = b[i]
+                i += 1
+        elif cid == 0x05 and ctype == 0xFD and _need(b, i, 2):
+            out["people_count_all"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x06 and ctype == 0xFE and _need(b, i, 4):
+            mask, data = _u16le(b, i), _u16le(b, i + 2)
+            for r in range(10):
+                out[f"region_{r + 1}_enable"] = "enable" if (mask >> r) & 1 else "disable"
+                out[f"region_{r + 1}"] = (data >> r) & 1
+            i += 4
+        elif cid == 0x07 and ctype == 0xFF and _need(b, i, 1):
+            out["illuminance"] = _map(_ILLUM, b[i])
+            i += 1
+        elif cid == 0x08 and ctype == 0xF4 and _need(b, i, 2):
+            out["detection_status"] = _map({0: "normal", 1: "unavailable"}, b[i + 1])
+            i += 2
+        elif cid == 0x0A and ctype == 0xEF and _need(b, i, 4):
+            out["device_timestamp"] = _u32le(b, i)
+            i += 4
+        else:
+            break
+    return out
+
+
+_VS373_DETECTION = {0: "normal", 1: "vacant", 2: "in_bed", 3: "out_of_bed", 4: "fall"}
+_VS373_TARGET = {0: "normal", 1: "motionless", 2: "abnormal", 3: "lying_down"}
+_VS373_BREATH = {1: "no_data_input", 2: "normal", 3: "tachypnea", 4: "bradypnea", 5: "undetectable"}
+_VS373_REGION_TYPE = {0: "custom", 1: "bed", 2: "door", 3: "ignore", 255: "unset"}
+VS373_ALARM_TYPE = {0: "fall", 1: "motionless", 2: "dwell", 3: "out_of_bed", 4: "occupied",
+                    5: "vacant", 6: "bradynea", 7: "tachypnea", 8: "lying_down"}
+VS373_ALARM_STATUS = {1: "alarm_triggered", 2: "alarm_deactivated", 3: "alarm_ignored", 4: "respiratory_status"}
+
+
+def _u24le(b: bytes, i: int) -> int:
+    return b[i] | (b[i + 1] << 8) | (b[i + 2] << 16)
+
+
+def decode_vs373(b: bytes) -> dict[str, Any]:
+    """VS373 radar fall detection sensor."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x03 and ctype == 0xF8 and _need(b, i, 6):          # firmware v1.0.1
+            out["detection_status"] = _map(_VS373_DETECTION, b[i])
+            out["target_status"] = _map(_VS373_TARGET, b[i + 1])
+            out["use_time_now"] = _u16le(b, i + 2)
+            out["use_time_today"] = _u16le(b, i + 4)
+            i += 6
+        elif cid == 0x07 and ctype == 0xB0 and _need(b, i, 8):          # firmware v1.0.2+
+            out["detection_status"] = _map(_VS373_DETECTION, b[i])
+            out["target_status"] = _map(_VS373_TARGET, b[i + 1])
+            out["use_time_now"] = _u24le(b, i + 2)
+            out["use_time_today"] = _u24le(b, i + 5)
+            i += 8
+        elif cid == 0x04 and ctype == 0xF9 and _need(b, i, 4):          # v1.0.1: 0 = occupied
+            for r in range(4):
+                out[f"region_{r + 1}_occupancy"] = 0 if b[i + r] == 1 else 1
+            i += 4
+        elif cid == 0x09 and ctype == 0xB2 and _need(b, i, 6):
+            for r in range(6):
+                out[f"region_{r + 1}_type"] = _map(_VS373_REGION_TYPE, b[i + r])
+            i += 6
+        elif cid == 0x0A and ctype == 0xB3 and _need(b, i, 5):
+            data = _u32le(b, i + 1)
+            for r in range(b[i]):
+                out[f"region_{r + 1}_occupancy"] = (data >> r) & 1
+            i += 5
+        elif cid == 0x05 and ctype == 0xFA and _need(b, i, 8):
+            for r in range(4):
+                out[f"region_{r + 1}_out_of_bed_time"] = _u16le(b, i + 2 * r)
+            i += 8
+        elif cid in (0x0B, 0x0C) and ctype == 0xB4 and _need(b, i, 9):
+            base = 1 if cid == 0x0B else 4
+            for r in range(3):
+                out[f"region_{base + r}_out_of_bed_time"] = _u24le(b, i + 3 * r)
+            i += 9
+        elif cid == 0x06 and ctype == 0xFB and _need(b, i, 5):
+            ev: dict[str, Any] = {
+                "alarm_id": _u16le(b, i),
+                "alarm_type": _map(VS373_ALARM_TYPE, b[i + 2]),
+                "alarm_status": _map(VS373_ALARM_STATUS, b[i + 3]),
+            }
+            if b[i + 2] in (3, 6, 7):
+                ev["region_id"] = b[i + 4]
+            out.setdefault("events", []).append(ev)
+            i += 5
+        elif cid == 0x08 and ctype == 0xB1 and _need(b, i, 3):
+            out["respiratory_status"] = _map(_VS373_BREATH, b[i])
+            out["respiratory_rate"] = _u16le(b, i + 1) / 100
+            i += 3
+        else:
+            break
+    return out
