@@ -1,0 +1,87 @@
+{
+  "config": {
+    "flow_title": "{name} ({deveui})",
+    "step": {
+      "user": {
+        "title": "Milesight LoRaWAN",
+        "menu_options": {
+          "manual": "Add a device manually",
+          "hub": "Add another gateway / MQTT topic"
+        }
+      },
+      "hub": {
+        "title": "Connect your Milesight gateway",
+        "description": "Enter the MQTT topic your gateway publishes uplinks to (Milesight gateway: Network Server > Applications > Data Transmission > MQTT). New devices will then appear automatically under Discovered.",
+        "data": {
+          "topic": "Uplink MQTT topic",
+          "payload_encoding": "Payload encoding"
+        },
+        "data_description": {
+          "topic": "Wildcards are allowed, e.g. milesight/uplink/#",
+          "payload_encoding": "How the gateway encodes the raw payload in the 'data' field (Base64 is the Milesight default)."
+        }
+      },
+      "manual": {
+        "title": "Add a device",
+        "data": {
+          "deveui": "DevEUI",
+          "model": "Model",
+          "name": "Name"
+        },
+        "data_description": {
+          "deveui": "16 hex characters, printed on the device label."
+        }
+      },
+      "confirm": {
+        "title": "New LoRaWAN device found",
+        "description": "DevEUI **{deveui}** is sending data.\n\nDetected model: **{guess}** (possible: {candidates}). Check the model on the device label and give it a name, e.g. the room or door it monitors.",
+        "data": {
+          "model": "Model",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "invalid_deveui": "A DevEUI must be 16 hexadecimal characters."
+    },
+    "abort": {
+      "already_configured": "This device or gateway is already set up.",
+      "already_in_progress": "Setup for this device is already in progress."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "data": {
+          "topic": "Uplink MQTT topic",
+          "payload_encoding": "Payload encoding",
+          "max_gap_min": "Offline gap (minutes)",
+          "left_open_min": "Door left open after (minutes)",
+          "empty_grace_min": "Count as empty after (minutes at 0 people)",
+          "open_hour": "Opening hour",
+          "close_hour": "Closing hour",
+          "open_days": "Open days"
+        },
+        "data_description": {
+          "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
+          "open_hour": "Used for utilisation %.",
+          "close_hour": "Use 24 for midnight."
+        }
+      }
+    }
+  },
+  "selector": {
+    "weekday": {
+      "options": {
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday",
+        "sun": "Sunday"
+      }
+    }
+  }
+}

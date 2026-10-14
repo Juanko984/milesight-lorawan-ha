@@ -1,0 +1,48 @@
+"""Shared entity base."""
+from __future__ import annotations
+
+from homeassistant.core import callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import Entity, EntityCategory
+
+from .const import DOMAIN, MANUFACTURER, SIGNAL_UPDATE
+from .models import EntitySpec
+from .runtime import DeviceRuntime
+
+
+class MilesightEntity(Entity):
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, runtime: DeviceRuntime, spec: EntitySpec) -> None:
+        self.runtime = runtime
+        self.spec = spec
+        self._attr_unique_id = f"{runtime.deveui}_{spec.key}"
+        self._attr_name = spec.name
+        if spec.icon:
+            self._attr_icon = spec.icon
+        if spec.diagnostic:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_entity_registry_enabled_default = spec.enabled_default
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, runtime.deveui)},
+            name=runtime.entry.title,
+            manufacturer=MANUFACTURER,
+            model=runtime.model.key,
+            serial_number=runtime.deveui.upper(),
+            sw_version=runtime.raw.get("firmware_version"),
+            hw_version=runtime.raw.get("hardware_version"),
+        )
+
+    @property
+    def raw_value(self):
+        return self.runtime.values.get(self.spec.key)
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, SIGNAL_UPDATE.format(self.runtime.deveui), self._handle_update))
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
