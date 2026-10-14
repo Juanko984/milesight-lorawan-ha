@@ -174,6 +174,8 @@ class DeviceRuntime:
             _LOGGER.exception("Failed to decode uplink from %s", self.deveui)
             return
         ts = self._uplink_ts(up)
+        for k, v in self.model.defaults:
+            self.raw.setdefault(k, v)
         self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events")})
         if "vs373" in self.model.features:
             self._handle_vs373(decoded, ts)

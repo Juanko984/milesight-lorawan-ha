@@ -9,6 +9,14 @@ from .decoders import (
     decode_em300,
     decode_em500,
     decode_em500_smtc,
+    decode_ts60x,
+    decode_ts101,
+    decode_ts201,
+    decode_ts301,
+    decode_ts301_v1,
+    decode_ts302,
+    decode_ts302_v1,
+    ts60x_parses_completely,
     decode_vs121,
     decode_vs321,
     decode_vs373,
@@ -44,9 +52,14 @@ class Model:
     # occupancy: decoded payload -> people count (or 1/0 for presence sensors); None = not in this uplink
     occupancy_fn: Callable[[dict], int | None] | None = None
     counting: bool = True          # True = real people count, False = presence only
+    defaults: tuple[tuple[str, object], ...] = ()   # values assumed until the device reports otherwise
 
 
 _EM = frozenset({"env", "battery"})
+_TS_DEF = (("temperature_alarm_active", False), ("humidity_alarm_active", False))
+_TS2_DEF = (("temperature_1_alarm_active", False), ("temperature_2_alarm_active", False),
+            ("humidity_1_alarm_active", False), ("humidity_2_alarm_active", False))
+_TS60_DEF = _TS_DEF + (("tilt_alarm_active", False), ("light_alarm_active", False), ("battery_low_alarm", False))
 
 
 def _count(d: dict) -> int | None:
@@ -93,6 +106,24 @@ MODELS: dict[str, Model] = {
                        frozenset({"battery", "depth", "sensor_error"}), minmax_fields=("depth",)),
     "EM500-UDL": Model("EM500-UDL", "EM500-UDL ultrasonic distance / level", decode_em500,
                        frozenset({"battery", "distance"}), minmax_fields=("distance",)),
+    "TS101": Model("TS101", "TS101 insertion temperature", decode_ts101,
+                   frozenset({"battery", "ts", "ts_temp"}), minmax_fields=("temperature",), defaults=_TS_DEF),
+    "TS201": Model("TS201", "TS201 / TS201 v2 temperature (& humidity) probe", decode_ts201,
+                   frozenset({"battery", "ts", "ts_temp", "ts_hum", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS_DEF),
+    "TS301": Model("TS301", "TS301 temperature / contact probe (current firmware)", decode_ts301,
+                   frozenset({"battery", "ts", "ts_temp", "ts_hum", "ts_contact", "sensor_error"}),
+                   minmax_fields=("temperature", "humidity"), defaults=_TS_DEF),
+    "TS301-V1": Model("TS301-V1", "TS301 temperature / contact probe (older firmware)", decode_ts301_v1,
+                      frozenset({"battery", "ts", "ts_temp", "ts_contact"}), minmax_fields=("temperature",), defaults=_TS_DEF),
+    "TS302": Model("TS302", "TS302 dual-probe temperature / contact (current firmware)", decode_ts302,
+                   frozenset({"battery", "ts", "ts_dual", "ts_hum", "ts_contact", "sensor_error"}),
+                   minmax_fields=("temperature_1", "temperature_2"), defaults=_TS2_DEF),
+    "TS302-V1": Model("TS302-V1", "TS302 dual-probe temperature / contact (older firmware)", decode_ts302_v1,
+                      frozenset({"battery", "ts", "ts_dual", "ts_contact"}), minmax_fields=("temperature_1", "temperature_2"), defaults=_TS2_DEF),
+    "TS601": Model("TS601", "TS601 cold-chain temperature sensor", decode_ts60x,
+                   frozenset({"battery", "ts60x", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS60_DEF),
+    "TS602": Model("TS602", "TS602 cold-chain temperature & humidity sensor (display)", decode_ts60x,
+                   frozenset({"battery", "ts60x", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS60_DEF),
     "VS373": Model("VS373", "VS373 radar fall detection", decode_vs373,
                    frozenset({"occupancy", "vs373"}), minmax_fields=(), occupancy_fn=_vs373_presence, counting=False),
     "EM300-TH": Model("EM300-TH", "EM300-TH temperature & humidity", decode_em300, _EM),
@@ -129,11 +160,14 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     v321 = decode_vs321(raw)
     if any(k in v321 for k in ("people_count_all", "region_1", "detection_status", "illuminance", "device_timestamp")):
         return "VS321", ["VS321"]
+    ts = _guess_ts(raw)
+    if ts:
+        return ts
     vo = decode_vs_occupancy(raw)
     if "occupancy" in vo:
         if "illuminance" in vo:
-            return "VS370", ["VS370"]
-        return "VS340", ["VS340", "VS341", "VS370"]
+            return "VS370", ["VS370", "TS302"]
+        return "VS340", ["VS340", "VS341", "VS370", "TS301"]
     e5 = decode_em500(raw)
     if "co2" in e5 or "pressure" in e5:
         return "EM500-CO2", ["EM500-CO2"]
@@ -168,10 +202,32 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     if "input_05" in em:
         return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-DI"]
     if "temperature" in em and "humidity" not in em:
-        return "EM500-PT100", ["EM500-PT100", "EM300-TH", "EM500-SMTC"]
+        return "EM500-PT100", ["EM500-PT100", "TS101", "TS201", "TS301", "EM300-TH", "EM500-SMTC"]
     if "temperature" in em or "humidity" in em:
-        return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + [k for k in MODELS if k.startswith("AM")]
+        return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + ["TS201"] + [k for k in MODELS if k.startswith("AM")]
+    if ts60x_parses_completely(raw) and any(
+            k in decode_ts60x(raw) for k in ("temperature", "humidity", "probe_connected", "latitude", "temperature_alarm_status")):
+        return "TS601", ["TS601", "TS602"]
     return None, list(MODELS)
+
+
+def _guess_ts(raw: bytes) -> tuple[str, list[str]] | None:
+    """TS101 / TS201 / TS301 / TS302 signatures (channel format)."""
+    older = bytes([0x93, 0xD7]) in raw or bytes([0x94, 0xD7]) in raw
+    d2 = decode_ts302(raw)
+    has_probe_value = any(k.startswith(("temperature", "humidity")) for k in d2)
+    if has_probe_value and any(k in d2 for k in ("temperature_2", "humidity_2", "magnet_status_2")):
+        return ("TS302-V1", ["TS302-V1", "TS302"]) if older else ("TS302", ["TS302", "TS302-V1"])
+    d1 = decode_ts301(raw)
+    if "magnet_status" in d1 and "temperature" in d1:
+        return ("TS301-V1", ["TS301-V1", "TS301"]) if older else ("TS301", ["TS301", "TS301-V1"])
+    if bytes([0x03, 0x9A]) in raw or any(k.endswith("_sensor_status") for k in d1):
+        return "TS301", ["TS301", "TS201"]
+    if any(k.endswith("_alarm_status") for k in d1):
+        if older:
+            return "TS301-V1", ["TS301-V1", "TS101", "TS302-V1"]
+        return "TS301", ["TS301", "TS201", "TS101", "TS301-V1"]
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -280,6 +336,56 @@ def _em500(f: frozenset[str]) -> list[EntitySpec]:
         specs += _measure("distance", "Distance", "mm", "distance", icon="mdi:arrow-expand-vertical")
     if "sensor_error" in f:
         specs.append(EntitySpec("sensor_error", "Sensor status", kind="text", icon="mdi:alert-circle-outline", diagnostic=True))
+    return specs
+
+
+def _alarm(key: str, label: str, enabled: bool = True) -> list[EntitySpec]:
+    return [
+        EntitySpec(f"{key}_alarm_active", f"{label} alarm", platform="binary_sensor", device_class="problem",
+                   enabled_default=enabled),
+        EntitySpec(f"{key}_alarm_status", f"{label} alarm status", kind="label", icon="mdi:alarm-light-outline",
+                   enabled_default=enabled),
+    ]
+
+
+def _ts(f: frozenset[str]) -> list[EntitySpec]:
+    specs: list[EntitySpec] = []
+    if "ts_temp" in f:
+        specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
+        specs += _alarm("temperature", "Temperature")
+        if "ts_hum" in f:
+            specs += [EntitySpec("humidity", "Humidity", unit="%", device_class="humidity", state_class="measurement",
+                                 enabled_default=False)]
+            specs += _alarm("humidity", "Humidity", enabled=False)
+        if "ts_contact" in f:
+            specs.append(EntitySpec("magnet_status", "Contact", platform="binary_sensor", device_class="door",
+                                    enabled_default=False))
+    if "ts_dual" in f:
+        for n in (1, 2):
+            specs += _measure(f"temperature_{n}", f"Temperature {n}", "°C", "temperature", precision=1)
+            specs += _alarm(f"temperature_{n}", f"Temperature {n}")
+            if "ts_hum" in f:
+                specs += [EntitySpec(f"humidity_{n}", f"Humidity {n}", unit="%", device_class="humidity",
+                                     state_class="measurement", enabled_default=False)]
+                specs += _alarm(f"humidity_{n}", f"Humidity {n}", enabled=False)
+            specs.append(EntitySpec(f"magnet_status_{n}", f"Contact {n}", platform="binary_sensor", device_class="door",
+                                    enabled_default=False))
+    if "ts60x" in f:
+        specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
+        specs += _measure("humidity", "Humidity", "%", "humidity", precision=1)
+        specs += _alarm("temperature", "Temperature") + _alarm("humidity", "Humidity")
+        specs += _alarm("tilt", "Tilt") + _alarm("light", "Light")
+        specs += [
+            EntitySpec("probe_connected", "Probe connected", platform="binary_sensor", device_class="connectivity"),
+            EntitySpec("battery_low_alarm", "Battery low", platform="binary_sensor", device_class="battery"),
+            EntitySpec("airplane_mode", "Airplane mode", platform="binary_sensor", icon="mdi:airplane", diagnostic=True,
+                       enabled_default=False),
+            EntitySpec("probe_type", "Probe type", diagnostic=True, icon="mdi:thermometer-probe", enabled_default=False),
+            EntitySpec("latitude", "Latitude", unit="°", icon="mdi:crosshairs-gps", enabled_default=False, precision=6),
+            EntitySpec("longitude", "Longitude", unit="°", icon="mdi:crosshairs-gps", enabled_default=False, precision=6),
+        ]
+        specs += [EntitySpec(f"angle_{a}", f"Angle {a.upper()}", unit="°", icon="mdi:angle-acute",
+                             state_class="measurement", enabled_default=False) for a in "xyz"]
     return specs
 
 
@@ -400,6 +506,8 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     if "vs373" in f:
         specs += _vs373()
     specs += _em500(f)
+    if "ts" in f or "ts60x" in f:
+        specs += _ts(f)
     if "env" in f:
         specs += _env()
     if "battery" in f:

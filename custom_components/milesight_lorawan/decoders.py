@@ -601,3 +601,282 @@ def decode_em500(b: bytes, soil: bool = False) -> dict[str, Any]:
 def decode_em500_smtc(b: bytes) -> dict[str, Any]:
     """EM500-SMTC soil sensor: 0x04/0x68 is soil moisture, not air humidity."""
     return decode_em500(b, soil=True)
+
+
+# --------------------------------------------------------------------------
+# TS range – TS101 / TS201 / TS301 / TS302 (channel format) and TS601 / TS602 (command format)
+# Checked against Milesight-IoT/SensorDecoders (ts-series). Alarm codes are normalised to
+#   <name>_alarm_active (True / False) and <name>_alarm_status (text)
+# --------------------------------------------------------------------------
+# Older firmware (TS101, TS201, TS301/TS302 v1): 0 = release, 1 = threshold alarm, 2 = mutation alarm
+_TS_ALARM_OLD = {0: ("threshold_alarm_release", False), 1: ("threshold_alarm", True), 2: ("mutation_alarm", None)}
+# Current firmware (TS301/TS302 v2)
+_TS_ALARM_NEW = {
+    0: ("above_threshold_alarm", True), 1: ("above_threshold_alarm_release", False),
+    2: ("below_threshold_alarm", True), 3: ("below_threshold_alarm_release", False),
+    4: ("between_threshold_alarm", True), 5: ("between_threshold_alarm_release", False),
+    6: ("outside_threshold_alarm", True), 7: ("outside_threshold_alarm_release", False),
+    8: ("mutation_alarm", None),
+}
+_TS_STATUS_OLD = {0: "read error", 1: "out of range"}                         # TS201
+_TS_STATUS_NEW = {0: "collection failed", 1: "over range", 2: "under range"}  # TS301/302 v2
+
+
+def _ts_alarm(out: dict, name: str, code: int, table: dict) -> None:
+    text, active = table.get(code, ("unknown", None))
+    out[f"{name}_alarm_status"] = text
+    if active is not None:
+        out[f"{name}_alarm_active"] = active
+
+
+def _decode_ts(b: bytes, *, dual: bool, new_alarms: bool, status_map: dict) -> dict[str, Any]:
+    alarms = _TS_ALARM_NEW if new_alarms else _TS_ALARM_OLD
+    out: dict[str, Any] = {}
+
+    def key(base: str, cid: int) -> str:
+        if not dual:
+            return base
+        return f"{base}_{(cid & 0x0F) - 2}"          # 0x?3 -> _1, 0x?4 -> _2
+
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        hi = cid & 0xF0
+        lo = cid & 0x0F
+        if n is not None:
+            i += n
+        elif cid == 0xFF and ctype == 0xA0 and _need(b, i, 9):        # probe sensor ID
+            out["probe_sn"] = b[i + 1:i + 9].hex()
+            i += 9
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif lo in (3, 4) and hi in (0x00, 0x80, 0x90, 0xB0) and (
+                (dual and ctype != 0x68) or (not dual and (lo == 3 or ctype == 0x68))):
+            # TS302 never uses 0x68; single-probe models only use channel 4 for TS201 v2 humidity (0x68)
+            # 0x03/0x04 data, 0x83/0x84 threshold alarm, 0x93/0x94 mutation alarm, 0xB3/0xB4 sensor status
+            if ctype == 0x67:
+                name, size, read = "temperature", 2, lambda j: _i16le(b, j) / 10
+            elif ctype == 0x9A:
+                name, size, read = "humidity", 2, lambda j: _i16le(b, j) / 10
+            elif ctype == 0x68:
+                name, size, read = "humidity", 1, lambda j: b[j] / 2
+            elif ctype == 0xD7 and hi == 0x90:                          # older mutation alarm (/100)
+                name, size, read = "temperature", 2, lambda j: _i16le(b, j) / 10
+            elif ctype == 0x00 and hi == 0x00:
+                if not _need(b, i, 1):
+                    break
+                out[key("magnet_status", cid)] = 1 if b[i] else 0
+                i += 1
+                continue
+            else:
+                break
+            k = key(name, cid)
+            if hi == 0xB0:                                               # sensor status
+                if not _need(b, i, 1):
+                    break
+                out[f"{k}_sensor_status"] = status_map.get(b[i], "unknown")
+                out["sensor_error"] = f"{k.replace('_', ' ').capitalize()}: {status_map.get(b[i], 'unknown')}"
+                i += 1
+                continue
+            if not _need(b, i, size):
+                break
+            out[k] = read(i)
+            i += size
+            if hi == 0x80:                                               # threshold alarm: value + code
+                if not _need(b, i, 1):
+                    break
+                _ts_alarm(out, k, b[i], alarms)
+                i += 1
+            elif hi == 0x90:                                             # mutation alarm
+                if ctype == 0xD7:
+                    if not _need(b, i, 3):
+                        break
+                    out[f"{k}_mutation"] = _i16le(b, i) / 100
+                    _ts_alarm(out, k, b[i + 2], alarms)
+                    i += 3
+                elif ctype == 0x68:                                      # TS201 v2 humidity mutation
+                    if not _need(b, i, 2):
+                        break
+                    out[f"{k}_mutation"] = b[i] / 2
+                    _ts_alarm(out, k, b[i + 1], alarms)
+                    i += 2
+                else:
+                    if not _need(b, i, 3):
+                        break
+                    out[f"{k}_mutation"] = _i16le(b, i) / 10
+                    _ts_alarm(out, k, 8 if new_alarms else b[i + 2], alarms)
+                    i += 3
+        else:
+            break   # history / downlink response / unknown – stop safely
+    if "sensor_error" not in out and any(k.startswith("temperature") and isinstance(v, float) for k, v in out.items()):
+        out["sensor_error"] = "OK"
+    return out
+
+
+def decode_ts101(b: bytes) -> dict[str, Any]:
+    return _decode_ts(b, dual=False, new_alarms=False, status_map=_TS_STATUS_OLD)
+
+
+def decode_ts201(b: bytes) -> dict[str, Any]:
+    return _decode_ts(b, dual=False, new_alarms=False, status_map=_TS_STATUS_OLD)
+
+
+def decode_ts301(b: bytes) -> dict[str, Any]:
+    return _decode_ts(b, dual=False, new_alarms=True, status_map=_TS_STATUS_NEW)
+
+
+def decode_ts301_v1(b: bytes) -> dict[str, Any]:
+    return _decode_ts(b, dual=False, new_alarms=False, status_map=_TS_STATUS_NEW)
+
+
+def decode_ts302(b: bytes) -> dict[str, Any]:
+    return _decode_ts(b, dual=True, new_alarms=True, status_map=_TS_STATUS_NEW)
+
+
+def decode_ts302_v1(b: bytes) -> dict[str, Any]:
+    return _decode_ts(b, dual=True, new_alarms=False, status_map=_TS_STATUS_NEW)
+
+
+# ---- TS601 / TS602 (single-byte command format) ---------------------------
+_TS60X_LEVEL_ALARM = {
+    0x00: ("collection_error", None), 0x01: ("below_range_error", None), 0x02: ("above_range_error", None),
+    0x03: ("no_data", None),
+    0x10: ("below_alarm_released", False), 0x11: ("below_alarm", True),
+    0x12: ("above_alarm_released", False), 0x13: ("above_alarm", True),
+    0x14: ("between_alarm_released", False), 0x15: ("between_alarm", True),
+    0x16: ("exceed_tolerance_alarm_released", False), 0x17: ("exceed_tolerance_alarm", True),
+    0x20: ("mutation_alarm", None), 0x30: ("mutation_alarm", None),
+}
+_TS60X_TILT_ALARM = {0x00: ("collection_error", None), 0x01: ("below_range_error", None),
+                     0x02: ("above_range_error", None), 0x03: ("no_data", None),
+                     0x10: ("tilt_alarm_released", False), 0x11: ("tilt_alarm", True), 0x21: ("falling_alarm", None)}
+_TS60X_LIGHT_ALARM = {0x00: ("collection_error", None), 0x01: ("below_range_error", None),
+                      0x02: ("above_range_error", None), 0x03: ("no_data", None),
+                      0x10: ("bright_to_dark", False), 0x11: ("dark_to_bright", True)}
+_TS60X_SENSOR_TYPE = {0: "none", 1: "PT100", 2: "SHT41", 3: "DS18B20"}
+
+
+def _i32le(b: bytes, i: int) -> int:
+    v = _u32le(b, i)
+    return v - 0x100000000 if v > 0x7FFFFFFF else v
+
+
+def decode_ts60x(b: bytes) -> dict[str, Any]:
+    """TS601 / TS602 cold-chain sensor. Stops at history records and configuration replies."""
+    return _parse_ts60x(b)[0]
+
+
+def ts60x_parses_completely(b: bytes) -> bool:
+    out, consumed = _parse_ts60x(b)
+    return consumed >= len(b) and bool(out)
+
+
+def _parse_ts60x(b: bytes) -> tuple[dict[str, Any], int]:
+    out: dict[str, Any] = {}
+    i = 0
+
+    def alarm(name: str, code: int, table: dict) -> None:
+        text, active = table.get(code, ("unknown", None))
+        out[f"{name}_alarm_status"] = text
+        if active is not None:
+            out[f"{name}_alarm_active"] = active
+        if code in (0x00, 0x01, 0x02):
+            out["sensor_error"] = f"{name.capitalize()}: {text.replace('_', ' ')}"
+
+    fixed = {0xDF: 2, 0xDE: 32, 0xDD: 32, 0xDB: 8, 0xDA: 8, 0xD9: 2, 0xC9: 1, 0xC8: 1, 0xD8: 16}
+    while i < len(b):
+        cmd = b[i]
+        i += 1
+        if cmd in fixed and _need(b, i, fixed[cmd]):
+            if cmd == 0xDA:
+                out["hardware_version"] = f"v{b[i]}.{b[i + 1]}"
+                out["firmware_version"] = ".".join(str(x) for x in b[i + 2:i + 8] if x) or None
+            elif cmd == 0xDB:
+                out["sn"] = b[i:i + 8].hex()
+            i += fixed[cmd]
+        elif cmd == 0x01 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cmd == 0x03 and _need(b, i, 9):
+            out["probe_type"] = _TS60X_SENSOR_TYPE.get(b[i], "unknown")
+            out["probe_sn"] = b[i + 1:i + 9].hex()
+            i += 9
+        elif cmd == 0x04 and _need(b, i, 4):
+            out["temperature"] = round(_i32le(b, i) / 100, 2)
+            out.setdefault("sensor_error", "OK")
+            i += 4
+        elif cmd == 0x05 and _need(b, i, 2):
+            out["humidity"] = _u16le(b, i) / 10
+            i += 2
+        elif cmd == 0x06 and _need(b, i, 8):
+            out["latitude"] = _i32le(b, i) / 1_000_000
+            out["longitude"] = _i32le(b, i + 4) / 1_000_000
+            i += 8
+        elif cmd == 0x07 and _need(b, i, 1):
+            out["airplane_mode"] = b[i] == 0          # 0 = entered airplane mode
+            i += 1
+        elif cmd in (0x08, 0x1A) and _need(b, i, 1):  # temperature alarm (0x1A = type only)
+            code = b[i]
+            i += 1
+            alarm("temperature", code, _TS60X_LEVEL_ALARM)
+            if cmd == 0x08:
+                if 0x10 <= code <= 0x17 or code == 0x30:
+                    if not _need(b, i, 4):
+                        break
+                    out["temperature"] = round(_i32le(b, i) / 100, 2)
+                    i += 4
+                elif code == 0x20:
+                    if not _need(b, i, 8):
+                        break
+                    out["temperature"] = round(_i32le(b, i) / 100, 2)
+                    out["temperature_mutation"] = round(_i32le(b, i + 4) / 100, 2)
+                    i += 8
+        elif cmd in (0x09, 0x1B) and _need(b, i, 1):  # humidity alarm
+            code = b[i]
+            i += 1
+            alarm("humidity", code, _TS60X_LEVEL_ALARM)
+            if cmd == 0x09:
+                if 0x10 <= code <= 0x17 or code == 0x30:
+                    if not _need(b, i, 2):
+                        break
+                    out["humidity"] = _u16le(b, i) / 10
+                    i += 2
+                elif code == 0x20:
+                    if not _need(b, i, 4):
+                        break
+                    out["humidity"] = _u16le(b, i) / 10
+                    out["humidity_mutation"] = _u16le(b, i + 2) / 10
+                    i += 4
+        elif cmd in (0x0A, 0x1C) and _need(b, i, 1):
+            alarm("tilt", b[i], _TS60X_TILT_ALARM)
+            if b[i] == 0x21:
+                out["last_fall_alarm"] = True
+            i += 1
+        elif cmd in (0x0B, 0x1D) and _need(b, i, 1):
+            alarm("light", b[i], _TS60X_LIGHT_ALARM)
+            i += 1
+        elif cmd == 0x0C and _need(b, i, 1):
+            out["probe_connected"] = b[i] == 1
+            i += 1
+        elif cmd == 0x0D and _need(b, i, 6):
+            out["angle_x"] = _i16le(b, i) / 100
+            out["angle_y"] = _i16le(b, i + 2) / 100
+            out["angle_z"] = _i16le(b, i + 4) / 100
+            i += 6
+        elif cmd == 0x0E and _need(b, i, 1):
+            out["report_package_type"] = b[i]
+            i += 1
+        elif cmd == 0x11 and _need(b, i, 1):
+            code = b[i]
+            i += 1
+            if code == 0x10 and _need(b, i, 1):
+                out["battery_low_alarm"] = True
+                out["battery"] = b[i]
+                i += 1
+        else:
+            i -= 1
+            break   # history (0xED), configuration replies, unknown – stop safely
+    return out, i

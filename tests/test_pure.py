@@ -47,7 +47,19 @@ def test_envelope_chirpstack_and_garbage():
 
 def test_decode_em300_mcs():
     d = dec.decode_em300(base64.b64decode("AXVkA2cJAQRoTgYAAQ=="))
-    assert d == {"battery": 100, "temperature": 26.5, "humidity": 39.0, "status_input": 1}
+    assert d == {"battery": 100, "temperature": 26.5, "humidity": 39.0, "magnet_status": 1}
+
+
+def test_decode_em300_zld_official_sample():
+    # sample + expected values from Milesight's official em300-zld decoder
+    d = dec.decode_em300(bytes.fromhex("01755c03673401046865050000"))
+    assert d == {"battery": 92, "temperature": 30.8, "humidity": 50.5, "input_05": 0}
+
+
+def test_decode_am308_official_sample():
+    d = dec.decode_am300(bytes.fromhex("03670a0104685805000106cb01077dff02087de3000973fe270b7d07000c7d0800017562"))
+    assert d == {"temperature": 26.6, "humidity": 44.0, "pir": 1, "light_level": 1, "co2": 767,
+                 "tvoc_iaq": 2.27, "pressure": 1023.8, "pm2_5": 7, "pm10": 8, "battery": 98}
 
 
 def test_decode_em300_negative_and_unknown_channel():
@@ -63,9 +75,97 @@ def test_decode_vs121():
 def test_guess_model():
     assert mdl.guess_model(bytes([0x04, 0xC9, 1, 0, 0, 0]))[0] == "VS121"
     best, cands = mdl.guess_model(base64.b64decode("AXVkA2cJAQRoTgYAAQ=="))
-    assert best == "EM300-MCS" and "EM300-SLD" in cands
-    assert mdl.guess_model(bytes([0x03, 0x67, 0x09, 0x01]))[0] == "EM300-TH"
+    assert best == "EM300-MCS"
+    best, cands = mdl.guess_model(bytes([0x03, 0x67, 0x09, 0x01]))        # temperature only
+    assert best == "EM500-PT100" and "EM300-TH" in cands
+    assert mdl.guess_model(bytes.fromhex("0367090104684e"))[0] == "EM300-TH"
     assert mdl.guess_model(bytes([0x05, 0xC8, 1, 0, 0, 0]))[0] == "EM300-DI"
+    assert mdl.guess_model(bytes.fromhex("01755c03673401046865050000"))[0] == "EM300-SLD"
+    am = "03670a0104685805000106cb01077dff02087de3000973fe270b7d07000c7d0800017562"
+    assert mdl.guess_model(bytes.fromhex(am))[0] == "AM308"
+    assert mdl.guess_model(bytes.fromhex("077d2003"))[0] == "AM307"
+    assert mdl.guess_model(bytes.fromhex("077d20030a7d10000c7d0500"))[0] == "AM319-HCHO"
+    assert mdl.guess_model(bytes.fromhex("077d20030d7d1000"))[0] == "AM319-O3"
+
+
+def test_decode_vs_range():
+    assert dec.decode_vs_occupancy(bytes.fromhex("017564030001")) == {"battery": 100, "occupancy": 1}   # official VS340 sample
+    assert dec.decode_vs_occupancy(bytes.fromhex("0300010400 01".replace(" ", ""))) == {"occupancy": 1, "illuminance": "bright"}
+    d = dec.decode_vs321(bytes.fromhex("0367ffff05fd030006fe03000100"))
+    assert d["temperature_sensor_status"] == "read_failed" and d["people_count_all"] == 3
+    assert d["region_1"] == 1 and d["region_2"] == 0 and d["region_1_enable"] == "enable"
+    d = dec.decode_vs373(bytes.fromhex("07b0040010000020000006fb0100000101"))
+    assert d["detection_status"] == "fall" and d["use_time_now"] == 16 and d["use_time_today"] == 32
+    assert d["events"] == [{"alarm_id": 1, "alarm_type": "fall", "alarm_status": "alarm_triggered"}]
+
+
+def test_guess_vs_range():
+    assert mdl.guess_model(bytes.fromhex("017564030001"))[0] == "VS340"
+    assert mdl.guess_model(bytes.fromhex("030001040001"))[0] == "VS370"
+    assert mdl.guess_model(bytes.fromhex("0367f00005fd0200"))[0] == "VS321"
+    assert mdl.guess_model(bytes.fromhex("07b0010000000000000000"))[0] == "VS373"
+
+
+EM500_SAMPLES = {   # official sample payloads from Milesight's codec files
+    "EM500-CO2": ("01756403671901046873057D670406736827",
+                  {"battery": 100, "temperature": 28.1, "humidity": 57.5, "co2": 1127, "pressure": 1008.8}),
+    "EM500-LGT": ("017564039450000000", {"battery": 100, "illumination": 80}),
+    "EM500-PP": ("017564037B0A00", {"battery": 100, "pressure_kpa": 10}),
+    "EM500-PT100": ("01756403671901", {"battery": 100, "temperature": 28.1}),
+    "EM500-SMTC": ("01756403671901046873057FF000", {"battery": 100, "temperature": 28.1, "moisture": 57.5, "electricity": 240}),
+    "EM500-SWL": ("01756403770200", {"battery": 100, "depth": 2}),
+    "EM500-UDL": ("01756403821E00", {"battery": 100, "distance": 30}),
+}
+
+
+def test_em500_official_samples_and_guess():
+    for model, (hexstr, expected) in EM500_SAMPLES.items():
+        d = mdl.MODELS[model].decoder(bytes.fromhex(hexstr))
+        for k, v in expected.items():
+            assert d[k] == v, (model, k, d)
+        best, cands = mdl.guess_model(bytes.fromhex(hexstr))
+        assert model == best or model in cands, (model, best, cands)
+
+
+def test_em500_sensor_error():
+    d = dec.decode_em500(bytes.fromhex("0377ffff"))
+    assert "depth" not in d and d["depth_error"] == "collection failed" and d["sensor_error"] == "Depth: collection failed"
+    assert dec.decode_em500(bytes.fromhex("03770a00"))["sensor_error"] == "OK"
+
+
+def test_ts_alarm_normalisation():
+    # TS301 current firmware: code 2 = below threshold alarm (active), 3 = its release
+    d = dec.decode_ts301(bytes.fromhex("8367c8ff02"))
+    assert d["temperature"] == -5.6 and d["temperature_alarm_status"] == "below_threshold_alarm" and d["temperature_alarm_active"] is True
+    assert dec.decode_ts301(bytes.fromhex("8367c8ff03"))["temperature_alarm_active"] is False
+    # older firmware: code 0 = release, 1 = alarm
+    assert dec.decode_ts301_v1(bytes.fromhex("8367c8ff00"))["temperature_alarm_active"] is False
+    assert dec.decode_ts101(bytes.fromhex("8367c8ff01"))["temperature_alarm_active"] is True
+    # mutation alarm doesn't latch
+    d = dec.decode_ts101(bytes.fromhex("93d7c8ff2c0102"))
+    assert d["temperature_mutation"] == 3.0 and "temperature_alarm_active" not in d
+    # TS302 dual channels + contact
+    d = dec.decode_ts302(bytes.fromhex("0367fa000467e6ff030001"))
+    assert d["temperature_1"] == 25.0 and d["temperature_2"] == -2.6 and d["magnet_status_1"] == 1
+    # TS201 v2 sensor status
+    assert dec.decode_ts201(bytes.fromhex("b36700"))["sensor_error"] == "Temperature: read error"
+
+
+def test_ts60x():
+    raw = bytes.fromhex("016404ce09000005f4010c010811d0070000")
+    d = dec.decode_ts60x(raw)
+    assert d["battery"] == 100 and d["temperature"] == 20.0 and d["humidity"] == 50.0 and d["probe_connected"] is True
+    assert d["temperature_alarm_status"] == "below_alarm" and d["temperature_alarm_active"] is True
+    assert dec.ts60x_parses_completely(raw)
+    assert mdl.guess_model(raw)[0] == "TS601"
+
+
+def test_guess_ts():
+    assert mdl.guess_model(bytes.fromhex("017564036710010300 01".replace(" ", "")))[0] == "TS301"
+    assert mdl.guess_model(bytes.fromhex("0367fa000467e6ff"))[0] == "TS302"
+    assert mdl.guess_model(bytes.fromhex("0367fa0093d7fa002c0102"))[0] == "TS301-V1"
+    best, cands = mdl.guess_model(bytes.fromhex("0367fa00"))
+    assert "TS101" in cands
 
 
 def test_entity_specs_unique_keys():
