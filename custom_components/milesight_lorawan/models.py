@@ -7,6 +7,8 @@ from typing import Callable
 from .decoders import (
     decode_am300,
     decode_em300,
+    decode_em500,
+    decode_em500_smtc,
     decode_vs121,
     decode_vs321,
     decode_vs373,
@@ -75,6 +77,22 @@ MODELS: dict[str, Model] = {
     "VS370": Model("VS370", "VS370 radar occupancy (with light level)", decode_vs_occupancy,
                    frozenset({"occupancy", "battery", "illuminance"}), minmax_fields=(), occupancy_fn=_presence,
                    counting=False),
+    "EM500-CO2": Model("EM500-CO2", "EM500-CO2 CO2, temperature, humidity & pressure", decode_em500,
+                       frozenset({"env", "battery", "co2", "co2high", "pressure"}),
+                       minmax_fields=("temperature", "humidity", "co2")),
+    "EM500-LGT": Model("EM500-LGT", "EM500-LGT light (lux)", decode_em500,
+                       frozenset({"battery", "illumination"}), minmax_fields=("illumination",)),
+    "EM500-PP": Model("EM500-PP", "EM500-PP pipe pressure", decode_em500,
+                      frozenset({"battery", "pipe_pressure"}), minmax_fields=("pressure_kpa",)),
+    "EM500-PT100": Model("EM500-PT100", "EM500-PT100 temperature probe", decode_em500,
+                         frozenset({"battery", "temp_only", "sensor_error"}), minmax_fields=("temperature",)),
+    "EM500-SMTC": Model("EM500-SMTC", "EM500-SMTC soil moisture, temperature & EC", decode_em500_smtc,
+                        frozenset({"battery", "soil", "sensor_error"}),
+                        minmax_fields=("temperature", "moisture", "electricity")),
+    "EM500-SWL": Model("EM500-SWL", "EM500-SWL submersible water level", decode_em500,
+                       frozenset({"battery", "depth", "sensor_error"}), minmax_fields=("depth",)),
+    "EM500-UDL": Model("EM500-UDL", "EM500-UDL ultrasonic distance / level", decode_em500,
+                       frozenset({"battery", "distance"}), minmax_fields=("distance",)),
     "VS373": Model("VS373", "VS373 radar fall detection", decode_vs373,
                    frozenset({"occupancy", "vs373"}), minmax_fields=(), occupancy_fn=_vs373_presence, counting=False),
     "EM300-TH": Model("EM300-TH", "EM300-TH temperature & humidity", decode_em300, _EM),
@@ -116,6 +134,21 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
         if "illuminance" in vo:
             return "VS370", ["VS370"]
         return "VS340", ["VS340", "VS341", "VS370"]
+    e5 = decode_em500(raw)
+    if "co2" in e5 or "pressure" in e5:
+        return "EM500-CO2", ["EM500-CO2"]
+    if "illumination" in e5:
+        return "EM500-LGT", ["EM500-LGT"]
+    if "pressure_kpa" in e5:
+        return "EM500-PP", ["EM500-PP"]
+    if any(k in e5 for k in ("electricity", "electricity_error", "moisture", "moisture_error")):
+        return "EM500-SMTC", ["EM500-SMTC"]
+    if "depth" in e5 or "depth_error" in e5:
+        return "EM500-SWL", ["EM500-SWL"]
+    if "distance" in e5:
+        return "EM500-UDL", ["EM500-UDL"]
+    if "temperature_mutation" in e5 and "humidity" not in e5:
+        return "EM500-PT100", ["EM500-PT100", "EM500-SMTC"]
     am = decode_am300(raw)
     if any(f in am for f in _AM_FIELDS):
         am_all = [k for k in MODELS if k.startswith("AM")]
@@ -134,6 +167,8 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
         return "EM300-MCS", ["EM300-MCS"]
     if "input_05" in em:
         return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-DI"]
+    if "temperature" in em and "humidity" not in em:
+        return "EM500-PT100", ["EM500-PT100", "EM300-TH", "EM500-SMTC"]
     if "temperature" in em or "humidity" in em:
         return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + [k for k in MODELS if k.startswith("AM")]
     return None, list(MODELS)
@@ -211,6 +246,40 @@ def _air(f: frozenset[str]) -> list[EntitySpec]:
         ]
     if "pir" in f:
         specs.append(EntitySpec("buzzer", "Buzzer", platform="binary_sensor", diagnostic=True, enabled_default=False))
+    return specs
+
+
+def _measure(key: str, name: str, unit: str | None, device_class: str | None, icon: str | None = None,
+             precision: int | None = None, minmax: bool = True) -> list[EntitySpec]:
+    """A measurement plus its 'max today' / 'min today' companions."""
+    base = dict(unit=unit, device_class=device_class, precision=precision)
+    specs = [EntitySpec(key, name, state_class="measurement", icon=icon, **base)]
+    if minmax:
+        specs += [
+            EntitySpec(f"{key}_max_today", f"{name} max today", icon="mdi:arrow-collapse-up", **base),
+            EntitySpec(f"{key}_min_today", f"{name} min today", icon="mdi:arrow-collapse-down", **base),
+        ]
+    return specs
+
+
+def _em500(f: frozenset[str]) -> list[EntitySpec]:
+    specs: list[EntitySpec] = []
+    if "illumination" in f:
+        specs += _measure("illumination", "Illuminance", "lx", "illuminance")
+    if "pipe_pressure" in f:
+        specs += _measure("pressure_kpa", "Pressure", "kPa", "pressure", icon="mdi:gauge")
+    if "temp_only" in f:
+        specs += _measure("temperature", "Temperature", "°C", "temperature")
+    if "soil" in f:
+        specs += _measure("temperature", "Soil temperature", "°C", "temperature")
+        specs += _measure("moisture", "Soil moisture", "%", "moisture", precision=1)
+        specs += _measure("electricity", "Soil conductivity (EC)", "µS/cm", "conductivity", icon="mdi:flash-outline")
+    if "depth" in f:
+        specs += _measure("depth", "Water level", "cm", "distance", icon="mdi:waves-arrow-up")
+    if "distance" in f:
+        specs += _measure("distance", "Distance", "mm", "distance", icon="mdi:arrow-expand-vertical")
+    if "sensor_error" in f:
+        specs.append(EntitySpec("sensor_error", "Sensor status", kind="text", icon="mdi:alert-circle-outline", diagnostic=True))
     return specs
 
 
@@ -330,6 +399,7 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
                              device_class="occupancy", enabled_default=False) for r in range(1, 11)]
     if "vs373" in f:
         specs += _vs373()
+    specs += _em500(f)
     if "env" in f:
         specs += _env()
     if "battery" in f:

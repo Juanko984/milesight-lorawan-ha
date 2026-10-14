@@ -512,3 +512,92 @@ def decode_vs373(b: bytes) -> dict[str, Any]:
         else:
             break
     return out
+
+
+# --------------------------------------------------------------------------
+# EM500 range (CO2 / LGT / PP / PT100 / SMTC / SWL / UDL)
+# Checked against Milesight-IoT/SensorDecoders (em-series/em500-*).
+# --------------------------------------------------------------------------
+_SENSOR_ERR = {0xFFFF: "collection failed", 0xFFFD: "out of range"}
+
+
+def _em500_value(out: dict, key: str, raw: int, value: float | int) -> None:
+    """Store a reading, or a sensor error for Milesight's 0xFFFF / 0xFFFD markers."""
+    if raw in _SENSOR_ERR:
+        out[f"{key}_error"] = _SENSOR_ERR[raw]
+        out["sensor_error"] = f"{key.replace('_', ' ').capitalize()}: {_SENSOR_ERR[raw]}"
+    else:
+        out[key] = value
+
+
+def decode_em500(b: bytes, soil: bool = False) -> dict[str, Any]:
+    """Generic EM500 decoder. With ``soil`` (EM500-SMTC) 0x04/0x68 is soil moisture, not humidity."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0xFF and ctype == 0x1B and _need(b, i, 5):           # measuring equipment info
+            out["range_max"] = _i16le(b, i + 1)
+            out["range_min"] = _i16le(b, i + 3)
+            i += 5
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            _em500_value(out, "temperature", _u16le(b, i), _i16le(b, i) / 10)
+            i += 2
+        elif cid == 0x83 and ctype == 0xD7 and _need(b, i, 5):           # temperature with alarm
+            out["temperature"] = _i16le(b, i) / 10
+            out["temperature_mutation"] = _i16le(b, i + 2) / 10
+            out["temperature_alarm"] = b[i + 4]
+            i += 5
+        elif cid == 0x04 and ctype == 0x68 and _need(b, i, 1):
+            out["moisture" if soil else "humidity"] = b[i] / 2
+            i += 1
+        elif cid == 0x04 and ctype == 0xCA and _need(b, i, 2):           # EM500-SMTC moisture (new fw)
+            raw = _u16le(b, i)
+            _em500_value(out, "moisture", raw, raw / 100)
+            i += 2
+        elif cid == 0x05 and ctype == 0x7D and _need(b, i, 2):
+            out["co2"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x06 and ctype == 0x73 and _need(b, i, 2):
+            out["pressure"] = _u16le(b, i) / 10                          # hPa (EM500-CO2)
+            i += 2
+        elif cid == 0x03 and ctype == 0x7B and _need(b, i, 2):
+            out["pressure_kpa"] = _i16le(b, i)                           # kPa (EM500-PP)
+            i += 2
+        elif cid == 0x03 and ctype == 0x94 and _need(b, i, 4):
+            out["illumination"] = _u32le(b, i)
+            i += 4
+        elif cid == 0x05 and ctype == 0x7F and _need(b, i, 2):
+            raw = _u16le(b, i)
+            _em500_value(out, "electricity", raw, raw)
+            i += 2
+        elif cid == 0x03 and ctype == 0x77 and _need(b, i, 2):
+            raw = _u16le(b, i)
+            _em500_value(out, "depth", raw, raw)
+            i += 2
+        elif cid == 0x03 and ctype == 0x82 and _need(b, i, 2):
+            out["distance"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x83 and ctype == 0xE9 and _need(b, i, 5):           # distance with alarm
+            out["distance"] = _u16le(b, i) / 10
+            out["distance_mutation"] = _u16le(b, i + 2) / 10
+            out["distance_alarm"] = b[i + 4]
+            i += 5
+        else:
+            break
+    if not any(k.endswith("_error") for k in out) and any(
+            k in out for k in ("temperature", "moisture", "electricity", "depth")):
+        out["sensor_error"] = "OK"
+    return out
+
+
+def decode_em500_smtc(b: bytes) -> dict[str, Any]:
+    """EM500-SMTC soil sensor: 0x04/0x68 is soil moisture, not air humidity."""
+    return decode_em500(b, soil=True)
