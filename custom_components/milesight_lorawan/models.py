@@ -1,6 +1,7 @@
 """Device model registry and entity specifications (pure Python)."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -10,6 +11,15 @@ from .decoders import (
     decode_em500,
     decode_em500_smtc,
     decode_ts60x,
+    decode_uc11n1,
+    decode_uc11t1,
+    decode_uc11xx,
+    decode_uc50x,
+    decode_uc51x,
+    decode_uc100,
+    decode_uc100_v2,
+    decode_uc300,
+    decode_uc521,
     decode_ts101,
     decode_ts201,
     decode_ts301,
@@ -53,6 +63,7 @@ class Model:
     occupancy_fn: Callable[[dict], int | None] | None = None
     counting: bool = True          # True = real people count, False = presence only
     defaults: tuple[tuple[str, object], ...] = ()   # values assumed until the device reports otherwise
+    dynamic: bool = False          # entities are created per channel as data arrives (configurable controllers)
 
 
 _EM = frozenset({"env", "battery"})
@@ -124,6 +135,23 @@ MODELS: dict[str, Model] = {
                    frozenset({"battery", "ts60x", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS60_DEF),
     "TS602": Model("TS602", "TS602 cold-chain temperature & humidity sensor (display)", decode_ts60x,
                    frozenset({"battery", "ts60x", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS60_DEF),
+    "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
+                     frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
+    "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
+                    frozenset(), minmax_fields=(), dynamic=True),
+    "UC11-N1": Model("UC11-N1", "UC11-N1 I/O controller", decode_uc11n1, frozenset(), minmax_fields=(), dynamic=True),
+    "UC300": Model("UC300", "UC300 IoT controller (DI / DO / PT100 / analog / Modbus)", decode_uc300,
+                   frozenset(), minmax_fields=(), dynamic=True),
+    "UC501": Model("UC501", "UC501 multi-interface controller", decode_uc50x, frozenset(), minmax_fields=(), dynamic=True),
+    "UC502": Model("UC502", "UC502 multi-interface controller (solar)", decode_uc50x, frozenset(), minmax_fields=(),
+                   dynamic=True),
+    "UC511": Model("UC511", "UC511 solenoid valve controller", decode_uc51x, frozenset(), minmax_fields=(), dynamic=True),
+    "UC512": Model("UC512", "UC512 solenoid valve controller", decode_uc51x, frozenset(), minmax_fields=(), dynamic=True),
+    "UC521": Model("UC521", "UC521 motorised valve controller", decode_uc521, frozenset(), minmax_fields=(), dynamic=True),
+    "UC100": Model("UC100", "UC100 Modbus RTU converter (firmware v1)", decode_uc100, frozenset(), minmax_fields=(),
+                   dynamic=True),
+    "UC100-V2": Model("UC100-V2", "UC100 Modbus RTU converter (firmware v2)", decode_uc100_v2, frozenset(),
+                      minmax_fields=(), dynamic=True),
     "VS373": Model("VS373", "VS373 radar fall detection", decode_vs373,
                    frozenset({"occupancy", "vs373"}), minmax_fields=(), occupancy_fn=_vs373_presence, counting=False),
     "EM300-TH": Model("EM300-TH", "EM300-TH temperature & humidity", decode_em300, _EM),
@@ -153,6 +181,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
+    uc = _guess_uc(raw)
+    if uc:
+        return uc
     v373 = decode_vs373(raw)
     if any(k in v373 for k in ("detection_status", "events", "respiratory_status", "region_1_type")) \
             or any(k.endswith("_out_of_bed_time") for k in v373):
@@ -167,7 +198,7 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     if "occupancy" in vo:
         if "illuminance" in vo:
             return "VS370", ["VS370", "TS302"]
-        return "VS340", ["VS340", "VS341", "VS370", "TS301"]
+        return "VS340", ["VS340", "VS341", "VS370", "TS301", "UC11-N1"]
     e5 = decode_em500(raw)
     if "co2" in e5 or "pressure" in e5:
         return "EM500-CO2", ["EM500-CO2"]
@@ -209,6 +240,39 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
             k in decode_ts60x(raw) for k in ("temperature", "humidity", "probe_connected", "latitude", "temperature_alarm_status")):
         return "TS601", ["TS601", "TS602"]
     return None, list(MODELS)
+
+
+def _guess_uc(raw: bytes) -> tuple[str, list[str]] | None:
+    """UC-range signatures. Decoders parse from the first byte, so a key only appears when the
+    payload really starts with that controller's channel layout."""
+    def mod(d: dict) -> bool:
+        return any(k.startswith("modbus_chn_") for k in d)
+
+    if mod(decode_uc100_v2(raw)):
+        return "UC100-V2", ["UC100-V2", "UC100"]
+    u3 = decode_uc300(raw)
+    if any(k.startswith(("pt100", "adc", "adv")) for k in u3) or ("gpio_output_1" in u3 and "gpio_input_1" in u3):
+        return "UC300", ["UC300"]
+    if mod(decode_uc100(raw)):
+        return ("UC300", ["UC300", "UC100"]) if any(k.startswith("gpio") for k in u3) else ("UC100", ["UC100", "UC300", "UC100-V2"])
+    if decode_uc521(raw).keys() & {"valve_1_opening", "valve_2_opening", "valve_1_type", "valve_2_type",
+                                   "pressure_1", "pressure_2"}:
+        return "UC521", ["UC521"]
+    if decode_uc51x(raw).keys() & {"valve_1", "valve_2", "valve_1_pulse", "valve_2_pulse", "valve_1_result",
+                                   "valve_2_result"}:
+        return "UC511", ["UC511", "UC512"]
+    u50 = decode_uc50x(raw)
+    if any(k.startswith(("analog_input", "sdi12")) for k in u50):
+        return "UC501", ["UC501", "UC502"]
+    if decode_uc11t1(raw).keys() & {"temperature", "humidity"}:
+        return "UC11-T1", ["UC11-T1"]
+    n1 = decode_uc11n1(raw)
+    if mod(n1) or any(k.startswith("adc") for k in n1):
+        return "UC11-N1", ["UC11-N1", "UC501", "UC11XX"]
+    u11 = decode_uc11xx(raw)
+    if mod(u11) or any(k.startswith(("adc", "gpio_output")) for k in u11):
+        return "UC11XX", ["UC11XX", "UC11-N1"]
+    return None
 
 
 def _guess_ts(raw: bytes) -> tuple[str, list[str]] | None:
@@ -337,6 +401,73 @@ def _em500(f: frozenset[str]) -> list[EntitySpec]:
     if "sensor_error" in f:
         specs.append(EntitySpec("sensor_error", "Sensor status", kind="text", icon="mdi:alert-circle-outline", diagnostic=True))
     return specs
+
+
+_DYN = [   # (regex, builder) – applied to decoded keys of controllers with configurable channels
+    (r"battery", lambda m: EntitySpec("battery", "Battery", unit="%", device_class="battery",
+                                      state_class="measurement", diagnostic=True)),
+    (r"gpio_input_(\d+)", lambda m: EntitySpec(m[0], f"Digital input {m[1]}", platform="binary_sensor")),
+    (r"gpio_output_(\d+)", lambda m: EntitySpec(m[0], f"Digital output {m[1]}", platform="binary_sensor")),
+    (r"gpio_(\d+)", lambda m: EntitySpec(m[0], f"GPIO {m[1]}", platform="binary_sensor")),
+    (r"gpio_counter(?:_(\d+))?", lambda m: EntitySpec(m[0], f"Pulse counter {m[1] or ''}".strip(),
+                                                      state_class="total_increasing", icon="mdi:counter")),
+    (r"pt100_(\d+)", lambda m: EntitySpec(m[0], f"PT100 {m[1]}", unit="°C", device_class="temperature",
+                                          state_class="measurement", precision=1)),
+    (r"pt100_(\d+)_(min|max|avg)", lambda m: EntitySpec(m[0], f"PT100 {m[1]} {m[2]}", unit="°C",
+                                                        device_class="temperature", enabled_default=False)),
+    (r"adv_(\d+)", lambda m: EntitySpec(m[0], f"Analog voltage {m[1]}", unit="V", device_class="voltage",
+                                        state_class="measurement", precision=2)),
+    (r"(?:adc|analog_input)_(\d+)", lambda m: EntitySpec(m[0], f"Analog input {m[1]}", state_class="measurement",
+                                                         icon="mdi:sine-wave", precision=2)),
+    (r"(adc|adv|analog_input)_(\d+)_(min|max|avg)", lambda m: EntitySpec(
+        m[0], f"{'Analog voltage' if m[1] == 'adv' else 'Analog input'} {m[2]} {m[3]}", enabled_default=False,
+        icon="mdi:sine-wave", precision=2)),
+    (r"analog_input_(\d+)_type", lambda m: EntitySpec(m[0], f"Analog input {m[1]} type", kind="label", diagnostic=True)),
+    (r"(analog_input_\d+|modbus_chn_\d+(?:_reg_\d+)?)_alarm", lambda m: EntitySpec(
+        m[0], f"{_dyn_label(m[1])} alarm", kind="label", icon="mdi:alarm-light-outline")),
+    (r"modbus_chn_(\d+)(?:_reg_(\d+))?", lambda m: EntitySpec(
+        m[0], f"Modbus channel {m[1]}" + (f" register {m[2]}" if m[2] else ""), state_class="measurement",
+        icon="mdi:lan")),
+    (r"modbus_chn_.*_mutation", lambda m: EntitySpec(m[0], f"{_dyn_label(m[0][:-9])} change", enabled_default=False)),
+    (r"sdi12_(\d+)", lambda m: EntitySpec(m[0], f"SDI-12 sensor {m[1]}", kind="text", icon="mdi:text-box-outline")),
+    (r"valve_(\d+)", lambda m: EntitySpec(m[0], f"Valve {m[1]}", platform="binary_sensor", device_class="opening",
+                                          icon="mdi:valve")),
+    (r"valve_(\d+)_opening", lambda m: EntitySpec(m[0], f"Valve {m[1]} opening", unit="%", state_class="measurement",
+                                                  icon="mdi:valve")),
+    (r"valve_(\d+)_pulse", lambda m: EntitySpec(m[0], f"Valve {m[1]} pulses", state_class="total_increasing",
+                                                icon="mdi:counter")),
+    (r"valve_(\d+)_(type|direction|result)", lambda m: EntitySpec(m[0], f"Valve {m[1]} {m[2]}", kind="label",
+                                                                  diagnostic=True)),
+    (r"valve_(\d+)_sensor_status", lambda m: EntitySpec(m[0], f"Valve {m[1]} sensor status", diagnostic=True,
+                                                        enabled_default=False)),
+    (r"valve_(\d+)_opening_duration", lambda m: EntitySpec(m[0], f"Valve {m[1]} opening duration",
+                                                           enabled_default=False)),
+    (r"pressure(?:_(\d+))?", lambda m: EntitySpec(m[0], f"Pipe pressure {m[1] or ''}".strip(), unit="kPa",
+                                                  device_class="pressure", state_class="measurement")),
+    (r"pressure(?:_(\d+))?_sensor_status", lambda m: EntitySpec(m[0], f"Pressure sensor {m[1] or ''} status".replace("  ", " "),
+                                                                diagnostic=True)),
+    (r"pressure(?:_(\d+))?_alarm_active", lambda m: EntitySpec(m[0], f"Pressure {m[1] or ''} alarm".replace("  ", " "),
+                                                               platform="binary_sensor", device_class="problem")),
+    (r"pressure(?:_(\d+))?_alarm_status", lambda m: EntitySpec(m[0], f"Pressure {m[1] or ''} alarm status".replace("  ", " "),
+                                                               kind="label", icon="mdi:alarm-light-outline")),
+]
+
+
+def _dyn_label(key: str) -> str:
+    m = re.fullmatch(r"modbus_chn_(\d+)(?:_reg_(\d+))?", key)
+    if m:
+        return f"Modbus channel {m[1]}" + (f" register {m[2]}" if m[2] else "")
+    m = re.fullmatch(r"analog_input_(\d+)", key)
+    return f"Analog input {m[1]}" if m else key
+
+
+def dynamic_spec(key: str) -> EntitySpec | None:
+    """Entity description for a decoded key of a configurable controller (None = not exposed)."""
+    for pattern, build in _DYN:
+        m = re.fullmatch(pattern, key)
+        if m:
+            return build(m)
+    return None
 
 
 def _alarm(key: str, label: str, enabled: bool = True) -> list[EntitySpec]:
@@ -508,6 +639,9 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     specs += _em500(f)
     if "ts" in f or "ts60x" in f:
         specs += _ts(f)
+    if "uc11t1" in f:
+        specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
+        specs += _measure("humidity", "Humidity", "%", "humidity", precision=1)
     if "env" in f:
         specs += _env()
     if "battery" in f:

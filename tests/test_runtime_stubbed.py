@@ -27,9 +27,9 @@ class Store:
     async def async_remove(self): pass
 
 class StrE(str, enum.Enum): pass
-SensorDeviceClass = StrE("SDC", {k.upper(): k for k in ["temperature","humidity","battery","signal_strength","timestamp","duration","carbon_dioxide","volatile_organic_compounds","atmospheric_pressure","pm25","pm10","illuminance","pressure","distance","moisture","conductivity"]})
+SensorDeviceClass = StrE("SDC", {k.upper(): k for k in ["temperature","humidity","battery","signal_strength","timestamp","duration","voltage","carbon_dioxide","volatile_organic_compounds","atmospheric_pressure","pm25","pm10","illuminance","pressure","distance","moisture","conductivity"]})
 SensorStateClass = StrE("SSC", {k.upper(): k for k in ["measurement","total_increasing"]})
-BinarySensorDeviceClass = StrE("BDC", {k.upper(): k for k in ["door","moisture","occupancy","problem","motion","safety","connectivity","battery"]})
+BinarySensorDeviceClass = StrE("BDC", {k.upper(): k for k in ["door","moisture","occupancy","problem","motion","safety","connectivity","battery","opening"]})
 EntityCategory = StrE("EC", {"DIAGNOSTIC": "diagnostic"})
 callback = lambda f: f
 
@@ -55,7 +55,8 @@ mod("homeassistant.helpers.entity", Entity=Entity, EntityCategory=EntityCategory
 mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 mod("homeassistant.components.sensor", SensorDeviceClass=SensorDeviceClass, SensorEntity=object, SensorStateClass=SensorStateClass)
 mod("homeassistant.components.binary_sensor", BinarySensorDeviceClass=BinarySensorDeviceClass, BinarySensorEntity=object)
-mod("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BINARY_SENSOR="binary_sensor"))
+mod("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BINARY_SENSOR="binary_sensor"),
+    EntityCategory=EntityCategory)
 mod("homeassistant.exceptions", ConfigEntryNotReady=Exception)
 
 # Load modules directly (skip package __init__)
@@ -201,3 +202,42 @@ for i, (model, raw) in enumerate(samples.items()):
 st = states(make_device("0000000000000000", "VS121")[1])
 assert st["occ_occupied"] is True and st["people_count_all"] == 2 and "2 people" in st["occ_status"]
 print("all models ok")
+
+
+# ---------------- UC range: entities appear per channel as data arrives ----------------
+def dynamic_device(deveui, model):
+    e = types.SimpleNamespace(data={"entry_type": "device", "deveui": deveui, "model": model}, options={},
+                              title=f"{model} test", async_on_unload=lambda f: None)
+    rt = runtime.DeviceRuntime(hass, e)
+    asyncio.run(rt.async_load()); entries.known.add(deveui)
+    e.runtime_data = rt
+    ents = []
+    for plat, cls in (("sensor", sensor.MilesightSensor), ("binary_sensor", binary_sensor.MilesightBinarySensor)):
+        entity.setup_platform_entities(e, lambda new: ents.extend(list(new)), plat, cls)
+    rt.async_start()
+    return rt, ents
+
+uc_samples = {
+    "UC300": "030001070101096735000b02e8030000ff1900040200fa00ff1501",
+    "UC501": "017564030001ff1410050288130000000000000000000808db00302b31322e352b332e3200000000000000000000000000000000000000000000000000",
+    "UC511": "0175500301010409640000000701010097b2c00"[:0] + "01755003010104c86400000007010109 7b2c01".replace(" ", ""),
+    "UC521": "01755003f600320af6013a097bf4010b f50002000000000100 01".replace(" ", ""),
+    "UC100": "ff190004067b000000",
+    "UC100-V2": "f97300030a00",
+    "UC11XX": "010001090100ff0e010214 00".replace(" ", ""),
+    "UC11-N1": "0175640300010401",
+}
+for i, (model, hexstr) in enumerate(uc_samples.items()):
+    raw = bytes.fromhex(hexstr)
+    best, cands = models.guess_model(raw)
+    assert model == best or model in cands, (model, best, cands)
+    dev = f"00000000000001{i:02x}"
+    rt, ents = dynamic_device(dev, model)
+    before = {e.spec.key for e in ents}
+    send(dev, raw)
+    after = {e.spec.key: (e.native_value if hasattr(e, "native_value") else e.is_on) for e in ents}
+    new = sorted(set(after) - before)
+    assert new, (model, "no channel entities created")
+    assert all(after[k] is not None for k in new), (model, {k: after[k] for k in new})
+    print(model, "->", {k: after[k] for k in new})
+print("uc ok")

@@ -106,6 +106,31 @@ TS60X = [
     lambda: bytes([0x1A, random.choice([0, 3, 0x11])]), lambda: bytes([0x1B, random.choice([0, 3, 0x13])]),
 ]
 
+R = random.randint
+def seg(*parts): return lambda: b"".join(p() if callable(p) else bytes(p) for p in parts)
+def rb(n): return lambda: bytes(R(0, 255) for _ in range(n))
+def f16_safe(): return u16(R(0, 0x7BFF) | (R(0, 1) << 15))
+def mb_val(dtype, wide=False):
+    sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 6: 4, 5: 4, 7: 4, 8: 4, 9: 4, 10: 4, 11: 4, 12: 8, 14: 8, 13: 8, 15: 8}
+    if dtype in (5, 7): return struct.pack("<f", random.uniform(-1000, 1000))
+    if dtype in (13, 15): return struct.pack("<d", random.uniform(-1000, 1000))
+    if dtype in (12, 14): return struct.pack("<q", R(-10**9, 10**9))
+    if dtype in (0, 1): return bytes([R(0, 1) if dtype == 0 else R(0, 255)])
+    return bytes(R(0, 255) for _ in range(sizes[dtype]))
+def uc11_mb(offset): 
+    def g():
+        dt = R(0, 7); return bytes([0xFF, 0x0E, R(1, 8) + offset, dt]) + mb_val(dt)
+    return g
+def mb19(types):
+    def g():
+        dt = random.choice(types); return bytes([0xFF, 0x19, R(0, 15), 4, dt | (R(0, 1) << 7)]) + mb_val(dt)
+    return g
+UC50X_MB = lambda: (lambda dt, cid: bytes([cid, 0x0E, R(7, 20), dt]) + mb_val(dt) + (bytes([R(1, 2)]) if cid == 0x80 else b""))(R(0, 7), random.choice([0xFF, 0x80]))
+def uc100v2():
+    dt = random.choice([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    return bytes([0xF9, 0x73, R(0, 255), (R(0, 1) << 7) | (R(0, 3) << 5) | dt]) + mb_val(dt)
+UC_STAT = lambda cid: seg([cid, 0xE2], f16_safe, f16_safe, f16_safe, f16_safe)
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -153,6 +178,31 @@ MODELS = {
                                   lambda: bytes([0xB4, 0x67, random.randint(0, 2)])]),
  "ts-series/ts601": ("ts60x", TS60X),
  "ts-series/ts602": ("ts60x", TS60X),
+ "uc-series/uc11-t1": ("uc11t1", [seg([3, 0x75], rb(1)), seg([1, 0x67], lambda: i16(R(-300, 600))), seg([2, 0x68], rb(1))]),
+ "uc-series/uc11xx": ("uc11xx", [seg([1, 0], lambda: bytes([R(0, 1)])), seg([2, 0], lambda: bytes([R(0, 1)])), seg([1, 0xC8], rb(4)), seg([2, 0xC8], rb(4)),
+                                 seg([9, 1], lambda: bytes([R(0, 1)])), seg([0x0A, 1], lambda: bytes([R(0, 1)])), seg([0x11, 2], rb(8)), seg([0x12, 2], rb(8)), uc11_mb(0)]),
+ "uc-series/uc11-n1": ("uc11n1", [seg([1, 0x75], rb(1)), seg([3, 0], lambda: bytes([R(0, 1)])), seg([4, 0], lambda: bytes([R(0, 1)])), seg([4, 0xC8], rb(4)),
+                                  seg([5, 2], rb(8)), seg([6, 2], rb(8)), uc11_mb(6)]),
+ "uc-series/uc300": ("uc300", [seg([R(3, 6), 0], lambda: bytes([R(0, 1)])), seg([5, 0xC8], rb(4)), seg([7, 1], lambda: bytes([R(0, 1)])), seg([8, 1], lambda: bytes([R(0, 1)])),
+                               seg([9, 0x67], lambda: i16(R(-500, 2000))), seg([0x0B, 2], rb(4)), seg([0x0E, 2], rb(4)), UC_STAT(0x0A), UC_STAT(0x0C), UC_STAT(0x0D),
+                               mb19([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), seg([0xFF, 0x15], lambda: bytes([R(0, 15)]))]),
+ "uc-series/uc501": ("uc50x", [seg([1, 0x75], rb(1)), seg([3, 0], lambda: bytes([R(0, 1)])), seg([4, 1], lambda: bytes([R(0, 1)])), seg([3, 0xC8], rb(4)),
+                               seg([0xFF, 0x14], lambda: bytes([(R(1, 2) << 4) | R(0, 1)])), seg([5, 2], rb(8)), UC_STAT(0x06),
+                               seg([0x85, 0xE2], f16_safe, f16_safe, f16_safe, f16_safe, lambda: bytes([R(1, 2)])),
+                               seg([8, 0xDB], lambda: bytes([R(0, 3)]) + b"0+12.5+3.2".ljust(36, b"\x00")), UC50X_MB, seg([0xFF, 0x15], lambda: bytes([R(7, 20)]))]),
+ "uc-series/uc511": ("uc51x", [seg([1, 0x75], rb(1)), seg([3, 1], lambda: bytes([random.choice([0, 1, 0xFF])])), seg([5, 1], lambda: bytes([R(0, 1)])),
+                               seg([4, 0xC8], rb(4)), seg([6, 0xC8], rb(4)), seg([7, 1], lambda: bytes([R(0, 1)])), seg([9, 0x7B], rb(2)),
+                               seg([0xB9, 0x7B], lambda: bytes([1])), seg([0x0B, 0xF5], rb(8), lambda: bytes([R(0, 1)])), seg([0x0E, 0xAF], rb(3))]),
+ "uc-series/uc512": ("uc51x", [seg([1, 0x75], rb(1)), seg([3, 1], lambda: bytes([R(0, 1)])), seg([4, 0xC8], rb(4)), seg([8, 1], lambda: bytes([R(0, 1)])), seg([9, 0x7B], rb(2))]),
+ "uc-series/uc521": ("uc521", [seg([1, 0x75], rb(1)), seg([3, 0xF6], lambda: bytes([R(0, 1), R(0, 200)])), seg([5, 0xF6], lambda: bytes([R(0, 1), R(0, 100)])),
+                               seg([4, 0xC8], rb(4)), seg([8, 1], lambda: bytes([R(0, 1)])), seg([9, 0x7B], rb(2)), seg([0x0A, 0x7B], rb(2)),
+                               seg([0x0C, 0xF5], lambda: bytes([R(0, 3), R(0, 4)]), rb(6), lambda: bytes([R(0, 1)])), seg([0x0D, 0xE3], rb(4)),
+                               seg([0xB3, 0xF6], lambda: bytes([R(0, 1), R(0, 3)])), seg([0xBA, 0x7B], lambda: bytes([R(0, 2)])), seg([0x0F, 0x01], rb(1))]),
+ "uc-series/uc100": ("uc100", [mb19([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), seg([0xFF, 0x15], lambda: bytes([R(0, 31)])),
+                               lambda: (lambda dt: bytes([0xFF, 0xEE, R(0, 255), 4, dt | (R(0, 1) << 7)]) + mb_val(dt))(random.choice([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])),
+                               seg([0xF9, 0x5F], lambda: bytes([R(0, 255), 0, 0]), lambda: struct.pack("<f", random.uniform(-100, 100)))]),
+ "uc-series/uc100-v2": ("uc100_v2", [uc100v2, seg([0xFF, 0x15], lambda: bytes([R(0, 31)])),
+                                     seg([0xF9, 0x74], lambda: bytes([R(0, 255)]), lambda: struct.pack("<d", random.uniform(-100, 100)))]),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -192,6 +242,12 @@ for folder,(kind,chans) in MODELS.items():
             if "relative_surface_info" in r:
                 for a in ("x", "y", "z"): exp[f"angle_{a}"] = r["relative_surface_info"][f"angle_{a}"]
             r = {}
+        if kind.startswith("uc"):
+            r = {k: v for k, v in r.items() if k not in ("event", "history") and not isinstance(v, (dict, list))
+                 and not (kind == "uc521" and k.endswith("_sensor_status"))
+                 # UC100 v2: we also expose event alarms as <chn>_alarm (official only lists them under "event")
+                 and not (kind == "uc100_v2" and k.endswith("_alarm"))}
+            r = {k: (STR[v] if isinstance(v, str) and v in STR and v != "normal" else v) for k, v in r.items()}
         if kind.startswith("ts") and kind != "ts60x":
             r2 = {}
             for k, v in r.items():
@@ -217,9 +273,17 @@ for folder,(kind,chans) in MODELS.items():
                     v = STR_VS[v]
                 if kind == "vs_occupancy" and k == "occupancy" and v == "unknown": v = 0
                 # detection_status / illuminance etc. stay strings on both sides
-            elif isinstance(v,str) and v in STR: v = STR[v]
+            elif isinstance(v,str) and v in STR and not (kind.startswith("uc") and v == "normal"): v = STR[v]
             exp[k2] = v
-        diffs = {k:(exp[k], mine.get(k)) for k in exp if not (k in mine and (abs(mine[k]-exp[k])<1e-3 if isinstance(exp[k],(int,float)) and isinstance(mine.get(k),(int,float)) else mine[k]==exp[k]))}
+        def same(a, b):
+            if b == "unknown":                     # official returns "unknown" for out-of-range enum bytes
+                return True
+            if isinstance(a, int) and isinstance(b, int) and kind == "uc50x" and (a - b) % 2**32 == 0:
+                return True                        # uc501/502 official readUInt32LE returns signed values
+            if isinstance(b, (int, float)) and isinstance(a, (int, float)):
+                return abs(a - b) <= max(1e-3, 1e-9 * abs(b))
+            return a == b
+        diffs = {k: (exp[k], mine.get(k)) for k in exp if not (k in mine and same(mine[k], exp[k]))}
         if diffs:
             bad += 1
             if bad <= 8: print(folder, h, diffs)

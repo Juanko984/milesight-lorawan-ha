@@ -3,9 +3,9 @@
 [![Release](https://img.shields.io/github/v/release/Juanko984/milesight-lorawan-ha?label=version)](https://github.com/Juanko984/milesight-lorawan-ha/releases)
 [![HACS](https://img.shields.io/badge/HACS-custom-orange.svg)](https://hacs.xyz)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
-![Models](https://img.shields.io/badge/supported%20models-31-brightgreen.svg)
+![Models](https://img.shields.io/badge/supported%20models-42-brightgreen.svg)
 
-**Current version: 0.5.0** · [Version history](#version-history)
+**Current version: 0.6.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -20,6 +20,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
 | **TS** – temperature probes & cold chain | TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602 | Fridges, freezers, cold rooms, transport |
+| **UC** – controllers | UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2) | Digital / analog I/O, PT100, pulse counting, Modbus RS485, SDI-12, irrigation valves |
 
 Every decoder is checked against Milesight's official decoders ([Milesight-IoT/SensorDecoders](https://github.com/Milesight-IoT/SensorDecoders)) on thousands of payloads before each release.
 
@@ -79,6 +80,25 @@ Statistics are stored by Home Assistant and survive restarts.
 | **TS301** / **TS301 (older firmware)** | As TS201 plus contact for magnetic-contact probes (disabled by default) |
 | **TS302** / **TS302 (older firmware)** | Two probes: temperature 1 & 2 (+ min/max), alarm per probe, humidity / contact per probe (disabled by default), battery |
 | **TS601 / TS602** | Temperature, humidity (+ min/max), temperature / humidity / tilt / light alarms, probe connected, battery low, probe status; location and tilt angles (disabled by default) |
+
+### UC range – controllers
+
+Controllers are configured per site (which inputs are wired, which Modbus registers are read), so their entities are
+created **per channel the first time it reports** – unused channels never show up as *unknown*.
+
+| Model | What you get |
+|---|---|
+| **UC11-T1** | Temperature, humidity (+ min/max), battery |
+| **UC11xx** (UC1114 / UC1122 / UC1152 …) | Digital inputs / outputs, pulse counters, analog inputs (+ min / max / avg, disabled by default), Modbus channels |
+| **UC11-N1** | GPIO 1 / 2, pulse counter, analog inputs, Modbus channels, battery |
+| **UC300** | Digital inputs 1–4, pulse counters, digital outputs 1–2, PT100 1–2, analog current 1–2, analog voltage 1–2 (+ statistics), Modbus channels 1–16 with read-error status |
+| **UC501 / UC502** | Digital inputs / outputs, pulse counters, analog inputs 1–2 (+ type and statistics, threshold alarms), SDI-12 readings, Modbus channels with alarms, battery |
+| **UC511 / UC512** | Valve 1 / 2 open / closed, valve pulse counts (flow), GPIO 1 / 2, pipe pressure + pressure alarm, battery |
+| **UC521** | Valve 1 / 2 opening %, valve type and direction, valve pulses, GPIO, pipe pressure 1 / 2 + alarms, battery |
+| **UC100** / **UC100 v2** | Every configured Modbus channel (v2 also register 2–4 of multi-register channels and 64-bit values), alarm status per channel |
+
+Modbus values are shown as the controller reports them (raw register value); set a unit or scaling with a
+template sensor if needed. The UC711 thermostat controller is not supported yet.
 
 ## Requirements
 
@@ -184,6 +204,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.6.0** | UC range added: UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2). Controllers get entities per channel as data arrives. |
 | **0.5.0** | TS range added: TS101, TS201 / TS201 v2, TS301, TS302 (current and older firmware), TS601, TS602. Alarm states default to *off* instead of *unknown*. |
 | **0.4.0** | EM500 range added: EM500-CO2, LGT, PP, PT100, SMTC, SWL, UDL. Probe error markers shown as *Sensor status*. |
 | **0.3.0** | VS range added: VS321, VS340, VS341, VS370, VS373 (fall detection, alarm events for automations). |

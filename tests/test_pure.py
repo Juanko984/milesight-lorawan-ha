@@ -168,6 +168,21 @@ def test_guess_ts():
     assert "TS101" in cands
 
 
+def test_uc_dynamic_specs_and_guess():
+    s = mdl.dynamic_spec("modbus_chn_3_reg_2")
+    assert s.name == "Modbus channel 3 register 2" and s.platform == "sensor"
+    assert mdl.dynamic_spec("gpio_input_2").platform == "binary_sensor"
+    assert mdl.dynamic_spec("pt100_1").unit == "°C"
+    assert mdl.dynamic_spec("adc_1_max").enabled_default is False
+    assert mdl.dynamic_spec("modbus_chn_4_alarm").name == "Modbus channel 4 alarm"
+    assert mdl.dynamic_spec("firmware_version") is None
+    assert mdl.guess_model(bytes.fromhex("f97300030a00"))[0] == "UC100-V2"
+    assert mdl.guess_model(bytes.fromhex("0967350007010100"))[0] == "UC300"
+    assert mdl.guess_model(bytes.fromhex("01673501026850037564"))[0] == "UC11-T1"
+    d = dec.decode_uc300(bytes.fromhex("ff1900040b0000a040"))          # Modbus float type 11? -> hi word
+    assert "modbus_chn_1" in d
+
+
 def test_entity_specs_unique_keys():
     for m in mdl.MODELS:
         keys = [s.key for s in mdl.entity_specs(m)]

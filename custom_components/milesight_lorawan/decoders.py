@@ -9,6 +9,7 @@ import binascii
 import json
 import re
 import struct
+from decimal import ROUND_HALF_UP, Decimal
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -880,3 +881,499 @@ def _parse_ts60x(b: bytes) -> tuple[dict[str, Any], int]:
             i -= 1
             break   # history (0xED), configuration replies, unknown – stop safely
     return out, i
+
+
+# --------------------------------------------------------------------------
+# UC range – controllers (UC11xx, UC11-N1, UC11-T1, UC300, UC501/502, UC511/512, UC521, UC100)
+# Checked against Milesight-IoT/SensorDecoders (uc-series). Channel sets depend on how the
+# controller is configured, so these decoders produce numbered keys (gpio_input_1, modbus_chn_3 …)
+# and the integration creates entities as keys appear.
+# --------------------------------------------------------------------------
+def _to_fixed2(f: float) -> float:
+    """JavaScript Number(f.toFixed(2)): exact ties round away from zero (Python's round() doesn't)."""
+    if f != f or f in (float("inf"), float("-inf")):
+        return f
+    return float(Decimal(f).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _f32(b: bytes, i: int, rnd: bool) -> float:
+    bits = _u32le(b, i)
+    sign = -1.0 if bits >> 31 else 1.0
+    e = (bits >> 23) & 0xFF
+    m = (bits & 0x7FFFFF) << 1 if e == 0 else (bits & 0x7FFFFF) | 0x800000
+    f = sign * m * 2.0 ** (e - 150)
+    return _to_fixed2(f) if rnd else f
+
+
+def _f16(b: bytes, i: int, rnd: bool) -> float:
+    bits = _u16le(b, i)
+    sign = -1.0 if bits >> 15 else 1.0
+    e = (bits >> 10) & 0x1F
+    m = (bits & 0x3FF) << 1 if e == 0 else (bits & 0x3FF) | 0x400
+    f = sign * m * 2.0 ** (e - 25)
+    return _to_fixed2(f) if rnd else f
+
+
+def _f64(b: bytes, i: int) -> float:
+    return struct.unpack_from("<d", b, i)[0]
+
+
+def _i8(v: int) -> int:
+    return v - 0x100 if v > 0x7F else v
+
+
+def _modbus_value(b: bytes, i: int, dtype: int, sign: bool, rnd: bool, *,
+                  bool_types: tuple[int, ...] = (0,), raw_bytes: bool = False,
+                  hi_word: bool = False) -> tuple[Any, int] | None:
+    """Milesight Modbus data types → (value, bytes consumed).
+
+    bool_types: data types reported as on/off (1/0); raw_bytes: types 0/1 as the raw byte (UC11xx);
+    hi_word: types 9/11 take the upper 16 bits of a 32-bit register pair (UC300).
+    """
+    if not _need(b, i, 1):
+        return None
+    if dtype in (0, 1):
+        if raw_bytes:
+            return b[i], 1
+        if dtype in bool_types:
+            return (1 if b[i] == 1 else 0), 1
+        return (_i8(b[i]) if sign else b[i]), 1
+    if dtype in (2, 3):
+        return (_i16le(b, i) if sign else _u16le(b, i)), 2
+    if dtype in (4, 6):
+        return (_i32le(b, i) if sign else _u32le(b, i)), 4
+    if dtype in (8, 9, 10, 11):
+        j = i + 2 if hi_word and dtype in (9, 11) else i
+        return (_i16le(b, j) if sign else _u16le(b, j)), 4
+    if dtype in (5, 7):
+        return _f32(b, i, rnd), 4
+    if dtype in (12, 14) and _need(b, i, 8):
+        v = int.from_bytes(b[i:i + 8], "little", signed=sign)
+        return v, 8
+    if dtype in (13, 15) and _need(b, i, 8):
+        return _f64(b, i), 8
+    return None
+
+
+def _adc4(out: dict, name: str, b: bytes, i: int, div: float) -> None:
+    out[name] = _i16le(b, i) / div
+    out[f"{name}_min"] = _i16le(b, i + 2) / div
+    out[f"{name}_max"] = _i16le(b, i + 4) / div
+    out[f"{name}_avg"] = _i16le(b, i + 6) / div
+
+
+def _stats16(out: dict, name: str, b: bytes, i: int, rnd: bool, order=("", "_max", "_min", "_avg")) -> None:
+    for k, suffix in enumerate(order):
+        out[f"{name}{suffix}"] = _f16(b, i + 2 * k, rnd)
+
+
+def decode_uc11t1(b: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x03 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x01 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x02 and ctype == 0x68 and _need(b, i, 1):
+            out["humidity"] = b[i] / 2
+            i += 1
+        else:
+            break
+    return out
+
+
+def _uc11_modbus(out: dict, b: bytes, i: int, offset: int) -> int | None:
+    if not _need(b, i, 3):
+        return None
+    chn = b[i] - offset
+    dtype = b[i + 1] & 0x07
+    res = _modbus_value(b, i + 2, dtype, False, False, raw_bytes=True)
+    if res is None or not _need(b, i + 2, res[1]):
+        return None
+    out[f"modbus_chn_{chn}"] = res[0]
+    return i + 2 + res[1]
+
+
+def decode_uc11xx(b: bytes) -> dict[str, Any]:
+    """UC11xx I/O controller (UC1114, UC1122, UC1152 …)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype != 0x0E else None
+        if n is not None:
+            i += n
+        elif cid in (0x01, 0x02) and ctype == 0xC8 and _need(b, i, 4):
+            out[f"gpio_counter_{cid}"] = _u32le(b, i)
+            i += 4
+        elif cid in (0x01, 0x02) and _need(b, i, 1):
+            out[f"gpio_input_{cid}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x09, 0x0A) and _need(b, i, 1):
+            out[f"gpio_output_{cid - 8}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x11, 0x12) and _need(b, i, 8):
+            _adc4(out, f"adc_{cid - 0x10}", b, i, 100)
+            i += 8
+        elif cid == 0xFF and ctype == 0x0E:
+            nxt = _uc11_modbus(out, b, i, 0)
+            if nxt is None:
+                break
+            i = nxt
+        else:
+            break
+    return out
+
+
+def decode_uc11n1(b: bytes) -> dict[str, Any]:
+    """UC11-N1 I/O controller."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype != 0x0E else None
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x04 and ctype == 0xC8 and _need(b, i, 4):
+            out["gpio_counter"] = _u32le(b, i)
+            i += 4
+        elif cid in (0x03, 0x04) and _need(b, i, 1):
+            out[f"gpio_{cid - 2}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x05, 0x06) and _need(b, i, 8):
+            _adc4(out, f"adc_{cid - 4}", b, i, 100)
+            i += 8
+        elif cid == 0xFF and ctype == 0x0E:
+            nxt = _uc11_modbus(out, b, i, 6)
+            if nxt is None:
+                break
+            i = nxt
+        else:
+            break
+    return out
+
+
+def _modbus_19(out: dict, b: bytes, i: int, rnd: bool, **kw: Any) -> int | None:
+    """0xFF 0x19: channel id, data length, data type (+sign bit)."""
+    if not _need(b, i, 3):
+        return None
+    chn, ddef = b[i] + 1, b[i + 2]
+    res = _modbus_value(b, i + 3, ddef & 0x7F, bool(ddef >> 7), rnd, **kw)
+    if res is None or not _need(b, i + 3, res[1]):
+        return None
+    out[f"modbus_chn_{chn}"] = res[0]
+    return i + 3 + res[1]
+
+
+def decode_uc300(b: bytes) -> dict[str, Any]:
+    """UC300 IoT controller: 4 DI, 2 DO, 2 PT100, 2 AI (mA), 2 AV (V), Modbus."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype not in (0x19, 0x15) else None
+        if n is not None:
+            i += n
+        elif 0x03 <= cid <= 0x06 and ctype == 0x00 and _need(b, i, 1):
+            out[f"gpio_input_{cid - 2}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif 0x03 <= cid <= 0x06 and ctype == 0xC8 and _need(b, i, 4):
+            out[f"gpio_counter_{cid - 2}"] = _u32le(b, i)
+            i += 4
+        elif cid in (0x07, 0x08) and ctype == 0x01 and _need(b, i, 1):
+            out[f"gpio_output_{cid - 6}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x09, 0x0A) and ctype == 0x67 and _need(b, i, 2):
+            out[f"pt100_{cid - 8}"] = _i16le(b, i) / 10
+            i += 2
+        elif cid in (0x0B, 0x0C) and ctype == 0x02 and _need(b, i, 4):
+            out[f"adc_{cid - 0x0A}"] = _u32le(b, i) / 100
+            i += 4
+        elif cid in (0x0D, 0x0E) and ctype == 0x02 and _need(b, i, 4):
+            out[f"adv_{cid - 0x0C}"] = _u32le(b, i) / 100
+            i += 4
+        elif cid in (0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E) and ctype == 0xE2 and _need(b, i, 8):
+            name = {0x09: "pt100_1", 0x0A: "pt100_2", 0x0B: "adc_1", 0x0C: "adc_2", 0x0D: "adv_1", 0x0E: "adv_2"}[cid]
+            _stats16(out, name, b, i, True)
+            i += 8
+        elif cid == 0xFF and ctype == 0x19:
+            nxt = _modbus_19(out, b, i, True, hi_word=True)
+            if nxt is None:
+                break
+            i = nxt
+        elif cid == 0xFF and ctype == 0x15 and _need(b, i, 1):
+            out[f"modbus_chn_{b[i] + 1}_alarm"] = "read error"
+            i += 1
+        else:
+            break
+    return out
+
+
+def decode_uc50x(b: bytes) -> dict[str, Any]:
+    """UC501 / UC502 multi-interface controller: GPIO, analog inputs, SDI-12, Modbus."""
+    out: dict[str, Any] = {}
+    alarm_map = {1: "threshold alarm", 2: "value change alarm"}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype not in (0x0E, 0x14, 0x15) else None
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid in (0x03, 0x04) and ctype == 0x00 and _need(b, i, 1):
+            out[f"gpio_input_{cid - 2}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x03, 0x04) and ctype == 0x01 and _need(b, i, 1):
+            out[f"gpio_output_{cid - 2}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x03, 0x04) and ctype == 0xC8 and _need(b, i, 4):
+            out[f"gpio_counter_{cid - 2}"] = _u32le(b, i)
+            i += 4
+        elif cid == 0xFF and ctype == 0x14 and _need(b, i, 1):
+            out[f"analog_input_{b[i] >> 4}_type"] = {0: "current", 1: "voltage"}.get(b[i] & 0x0F, "unknown")
+            i += 1
+        elif cid in (0x05, 0x06) and ctype == 0x02 and _need(b, i, 8):
+            _adc4(out, f"analog_input_{cid - 4}", b, i, 1000)
+            i += 8
+        elif cid in (0x05, 0x06, 0x85, 0x86) and ctype == 0xE2 and _need(b, i, 8):
+            name = f"analog_input_{(cid & 0x0F) - 4}"
+            _stats16(out, name, b, i, False, order=("", "_min", "_max", "_avg"))
+            i += 8
+            if cid & 0x80:
+                if not _need(b, i, 1):
+                    break
+                out[f"{name}_alarm"] = alarm_map.get(b[i], "unknown")
+                i += 1
+        elif cid == 0x08 and ctype == 0xDB and _need(b, i, 37):
+            raw = b[i + 1:i + 37].split(b"\x00", 1)[0]
+            out[f"sdi12_{b[i] + 1}"] = raw.decode("latin-1")
+            i += 37
+        elif cid in (0xFF, 0x80) and ctype == 0x0E and _need(b, i, 3):
+            chn = f"modbus_chn_{b[i] - 6}"
+            dtype = b[i + 1] & 0x07
+            res = _modbus_value(b, i + 2, dtype, False, False, bool_types=(0, 1))
+            if res is None or not _need(b, i + 2, res[1]):
+                break
+            out[chn] = res[0]
+            i += 2 + res[1]
+            if cid == 0x80:
+                if not _need(b, i, 1):
+                    break
+                out[f"{chn}_alarm"] = alarm_map.get(b[i], "unknown")
+                i += 1
+        elif cid == 0xFF and ctype == 0x15 and _need(b, i, 1):
+            out[f"modbus_chn_{b[i] - 6}_alarm"] = "read error"
+            i += 1
+        else:
+            break
+    return out
+
+
+def _pressure_alarm(out: dict, name: str, b: bytes, i: int, release_text: str, alarm_text: str,
+                    overwrite: bool = False) -> None:
+    # UC521 reports the alarm pressure as the current value; UC511/512 keep the regular reading
+    if overwrite:
+        out[name] = _u16le(b, i + 6)
+    else:
+        out.setdefault(name, _u16le(b, i + 6))
+    code = b[i + 8]
+    out[f"{name}_alarm_status"] = {0: release_text, 1: alarm_text}.get(code, "unknown")
+    if code in (0, 1):
+        out[f"{name}_alarm_active"] = code == 1
+
+
+def decode_uc51x(b: bytes) -> dict[str, Any]:
+    """UC511 / UC512 solenoid valve controller."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid in (0x03, 0x05) and ctype == 0x01 and _need(b, i, 1):
+            v = 1 if cid == 0x03 else 2
+            if b[i] == 0xFF:
+                out[f"valve_{v}_result"] = "failed"
+            else:
+                out[f"valve_{v}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x04, 0x06) and ctype == 0xC8 and _need(b, i, 4):
+            out[f"valve_{cid // 2 - 1}_pulse"] = _u32le(b, i)
+            i += 4
+        elif cid in (0x07, 0x08) and ctype == 0x01 and _need(b, i, 1):
+            out[f"gpio_{cid - 6}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid == 0x09 and ctype == 0x7B and _need(b, i, 2):
+            out["pressure"] = _u16le(b, i)
+            i += 2
+        elif cid == 0xB9 and ctype == 0x7B and _need(b, i, 1):
+            out["pressure_sensor_status"] = {1: "sensor error"}.get(b[i], "unknown")
+            i += 1
+        elif cid == 0x0B and ctype == 0xF5 and _need(b, i, 9):
+            _pressure_alarm(out, "pressure", b, i, "release alarm", "trigger alarm")
+            i += 9
+        elif cid in (0x0E, 0x0F) and ctype == 0xAF and _need(b, i, 3):
+            i += 3                       # valve task status (hardware v4+) – not used
+        else:
+            break
+    return out
+
+
+def decode_uc521(b: bytes) -> dict[str, Any]:
+    """UC521 motorised ball-valve controller."""
+    out: dict[str, Any] = {}
+    vtype = {0: "2_way_ball_valve", 1: "3_way_ball_valve"}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype != 0x2A else None
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid in (0x03, 0x05) and ctype == 0xF6 and _need(b, i, 2):
+            v = 1 if cid == 0x03 else 2
+            t, opening = b[i], b[i + 1]
+            if t in (0, 1):
+                out[f"valve_{v}_type"] = vtype[t]
+                if t == 1 and opening > 100:
+                    out[f"valve_{v}_opening"] = opening - 100
+                    out[f"valve_{v}_direction"] = "right"
+                else:
+                    out[f"valve_{v}_opening"] = opening
+                    if t == 1:
+                        out[f"valve_{v}_direction"] = "left"
+            i += 2
+        elif cid in (0x04, 0x06) and ctype == 0xC8 and _need(b, i, 4):
+            out[f"valve_{cid // 2 - 1}_pulse"] = _u32le(b, i)
+            i += 4
+        elif cid in (0x07, 0x08) and ctype == 0x01 and _need(b, i, 1):
+            out[f"gpio_{cid - 6}"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid in (0x09, 0x0A) and ctype == 0x7B and _need(b, i, 2):
+            out[f"pressure_{cid - 8}"] = _u16le(b, i)
+            i += 2
+        elif cid in (0x0B, 0x0C) and ctype == 0xF5 and _need(b, i, 9):
+            _pressure_alarm(out, f"pressure_{cid - 0x0A}", b, i,
+                            "pipe pressure threshold alarm release", "pipe pressure threshold alarm", overwrite=True)
+            i += 9
+        elif cid == 0x0D and ctype == 0xE3 and _need(b, i, 4):
+            i += 4                       # valve calibration event – not used
+        elif cid in (0xB3, 0xB5) and ctype == 0xF6 and _need(b, i, 2):
+            v = 1 if cid == 0xB3 else 2
+            out[f"valve_{v}_type"] = vtype.get(b[i], "unknown")
+            out[f"valve_{v}_sensor_status"] = b[i + 1]
+            i += 2
+        elif cid in (0xB9, 0xBA) and ctype == 0x7B and _need(b, i, 1):
+            out[f"pressure_{cid - 0xB8}_sensor_status"] = b[i]
+            i += 1
+        elif cid in (0x0E, 0x0F) and ctype == 0x01 and _need(b, i, 1):
+            out[f"valve_{cid - 0x0D}_opening_duration"] = b[i]
+            i += 1
+        else:
+            break
+    return out
+
+
+_UC100_ALARM = {0: "normal", 1: "threshold alarm", 2: "threshold release alarm", 3: "mutation alarm"}      # firmware v1
+_UC100_V2_ALARM = {0: "normal", 1: "threshold alarm", 2: "threshold alarm release", 3: "mutation alarm"}   # firmware v2
+
+
+def decode_uc100(b: bytes) -> dict[str, Any]:
+    """UC100 Modbus RTU → LoRaWAN converter (firmware v1)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype not in (0x19, 0x15, 0xEE) else None
+        if n is not None:
+            i += n
+        elif cid == 0xFF and ctype == 0x19:
+            nxt = _modbus_19(out, b, i, True, bool_types=(0, 1))
+            if nxt is None:
+                break
+            i = nxt
+        elif cid == 0xFF and ctype == 0x15 and _need(b, i, 1):
+            out[f"modbus_chn_{b[i] + 1}_alarm"] = "read error"
+            i += 1
+        elif cid == 0xFF and ctype == 0xEE and _need(b, i, 3):
+            chn = f"modbus_chn_{(b[i] & 0x3F) + 1}"
+            out[f"{chn}_alarm"] = _UC100_ALARM.get(b[i] >> 6, "unknown")
+            ddef = b[i + 2]
+            res = _modbus_value(b, i + 3, ddef & 0x7F, bool(ddef >> 7), True, bool_types=(0, 1))
+            if res is None or not _need(b, i + 3, res[1]):
+                break
+            out[chn] = res[0]
+            i += 3 + res[1]
+        elif cid == 0xF9 and ctype == 0x5F and _need(b, i, 7):
+            chn = f"modbus_chn_{(b[i] & 0x3F) + 1}"
+            if b[i] >> 6 == 3:
+                out[f"{chn}_alarm"] = _UC100_ALARM[3]
+                out[f"{chn}_mutation"] = _f32(b, i + 3, True)
+            i += 7
+        else:
+            break
+    return out
+
+
+def decode_uc100_v2(b: bytes) -> dict[str, Any]:
+    """UC100 Modbus RTU → LoRaWAN converter (firmware v2, register offsets, 64-bit values)."""
+    out: dict[str, Any] = {}
+
+    def name(chn_byte_low6: int, offset: int) -> str:
+        n = chn_byte_low6 + 1
+        return f"modbus_chn_{n}" if offset == 0 else f"modbus_chn_{n}_reg_{offset + 1}"
+
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype != 0x15 else None
+        if n is not None:
+            i += n
+        elif cid == 0xF9 and ctype == 0x73 and _need(b, i, 2):
+            v1, v2 = b[i], b[i + 1]
+            chn = name(v1 & 0x3F, (v2 >> 5) & 0x03)
+            res = _modbus_value(b, i + 2, v2 & 0x1F, bool(v2 >> 7), True, bool_types=(0, 1))
+            if res is None or not _need(b, i + 2, res[1]):
+                break
+            out[chn] = res[0]
+            alarm = (v1 >> 6) & 0x03
+            if alarm:
+                out[f"{chn}_alarm"] = _UC100_V2_ALARM.get(alarm, "unknown")
+            i += 2 + res[1]
+        elif cid == 0xFF and ctype == 0x15 and _need(b, i, 1):
+            out[f"modbus_chn_{b[i] + 1}_alarm"] = "read error"
+            i += 1
+        elif cid == 0xF9 and ctype == 0x74 and _need(b, i, 9):
+            chn = name(b[i] & 0x3F, (b[i] >> 6) & 0x03)
+            out[f"{chn}_mutation"] = _f64(b, i + 1)
+            i += 9
+        else:
+            break
+    return out

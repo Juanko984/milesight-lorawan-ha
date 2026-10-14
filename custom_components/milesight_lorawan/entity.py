@@ -4,10 +4,11 @@ from __future__ import annotations
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import Entity, EntityCategory
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN, MANUFACTURER, SIGNAL_UPDATE
-from .models import EntitySpec
+from .models import EntitySpec, dynamic_spec, entity_specs
 from .runtime import DeviceRuntime
 
 
@@ -46,3 +47,33 @@ class MilesightEntity(Entity):
     @callback
     def _handle_update(self) -> None:
         self.async_write_ha_state()
+
+
+def setup_platform_entities(entry, async_add_entities, platform: str, factory) -> None:
+    """Add the model's fixed entities, plus – for controllers with configurable channels –
+    entities for every channel as soon as it first reports (no 'unknown' placeholders)."""
+    runtime: DeviceRuntime = entry.runtime_data
+    added: set[str] = set()
+    fixed = [s for s in entity_specs(runtime.model.key) if s.platform == platform]
+    added.update(s.key for s in fixed)
+    async_add_entities(factory(runtime, s) for s in fixed)
+    if not runtime.model.dynamic:
+        return
+
+    @callback
+    def _discover() -> None:
+        new = []
+        for key in list(runtime.values):
+            if key in added:
+                continue
+            spec = dynamic_spec(key)
+            if spec is None or spec.platform != platform:
+                continue
+            added.add(key)
+            new.append(factory(runtime, spec))
+        if new:
+            async_add_entities(new)
+
+    entry.async_on_unload(async_dispatcher_connect(
+        runtime.hass, SIGNAL_UPDATE.format(runtime.deveui), _discover))
+    _discover()

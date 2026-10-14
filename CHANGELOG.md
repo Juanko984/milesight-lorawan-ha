@@ -1,5 +1,21 @@
 # Changelog
 
+All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
+
+## 0.6.0
+### Added
+- UC range: UC11-T1, UC11xx (UC1114 / UC1122 / UC1152), UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521,
+  UC100 (firmware v1 and v2).
+- Per-channel entities for controllers: digital inputs / outputs, pulse counters, PT100, analog inputs (with
+  statistics), Modbus channels (incl. multi-register and 64-bit values on UC100 v2), SDI-12, valves, pipe pressure.
+- Entities for configurable controllers are created the first time a channel reports, so unused channels never
+  appear as *unknown*.
+- Crosscheck covers the UC decoders (now 8,400+ payloads against Milesight's official decoders).
+### Fixed
+- Floating-point values are rounded exactly like Milesight's decoders (ties away from zero).
+### Notes
+- UC711 (thermostat controller) is not supported yet.
+
 ## 0.5.0
 ### Added
 - TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602.

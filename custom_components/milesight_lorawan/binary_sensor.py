@@ -7,19 +7,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
-from .entity import MilesightEntity
-from .models import entity_specs
+from .entity import MilesightEntity, setup_platform_entities
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return
-    runtime = entry.runtime_data
-    async_add_entities(
-        MilesightBinarySensor(runtime, spec)
-        for spec in entity_specs(runtime.model.key) if spec.platform == "binary_sensor"
-    )
+    setup_platform_entities(entry, async_add_entities, "binary_sensor", MilesightBinarySensor)
 
 
 class MilesightBinarySensor(MilesightEntity, BinarySensorEntity):

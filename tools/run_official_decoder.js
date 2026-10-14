@@ -7,4 +7,4 @@ const out = inputs.map(h => {
   const bytes = Array.from(Buffer.from(h, 'hex'));
   try { return ctx.milesightDeviceDecode(bytes); } catch (e) { return {__error: String(e)}; }
 });
-console.log(JSON.stringify(out));
+console.log(JSON.stringify(out, (k, v) => typeof v === "bigint" ? Number(v) : v));
