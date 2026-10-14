@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .decoders import decode_em300, decode_vs121
+from .decoders import decode_am300, decode_em300, decode_vs121
 
 
 @dataclass(frozen=True)
@@ -31,16 +31,33 @@ class Model:
     decoder: Callable[[bytes], dict]
     features: frozenset[str] = field(default_factory=frozenset)
     beta: bool = False
+    minmax_fields: tuple[str, ...] = ("temperature", "humidity")
 
+
+_EM = frozenset({"env", "battery"})
+_AM_MINMAX = ("temperature", "humidity", "co2", "pm2_5")
+_AM_BASE = {"env", "pir", "light", "co2", "co2high", "tvoc", "pressure"}
 
 MODELS: dict[str, Model] = {
-    "VS121": Model("VS121", "VS121 AI people counter", decode_vs121, frozenset({"occupancy"})),
-    "EM300-TH": Model("EM300-TH", "EM300-TH temperature & humidity", decode_em300, frozenset({"env"})),
-    "EM300-MCS": Model("EM300-MCS", "EM300-MCS magnetic contact (door/window)", decode_em300, frozenset({"env", "door"})),
-    "EM300-SLD": Model("EM300-SLD", "EM300-SLD spot leak detector", decode_em300, frozenset({"env", "leak"})),
-    "EM300-ZLD": Model("EM300-ZLD", "EM300-ZLD zone leak detector", decode_em300, frozenset({"env", "leak"})),
-    "EM300-DI": Model("EM300-DI", "EM300-DI digital input / pulse (beta)", decode_em300, frozenset({"env", "input", "pulse"}), beta=True),
+    "VS121": Model("VS121", "VS121 AI people counter", decode_vs121, frozenset({"occupancy"}), minmax_fields=()),
+    "EM300-TH": Model("EM300-TH", "EM300-TH temperature & humidity", decode_em300, _EM),
+    "EM300-MCS": Model("EM300-MCS", "EM300-MCS magnetic contact (door/window)", decode_em300, _EM | {"door"}),
+    "EM300-SLD": Model("EM300-SLD", "EM300-SLD spot leak detector", decode_em300, _EM | {"leak"}),
+    "EM300-ZLD": Model("EM300-ZLD", "EM300-ZLD zone leak detector", decode_em300, _EM | {"leak"}),
+    "EM300-DI": Model("EM300-DI", "EM300-DI digital input / pulse counter", decode_em300, _EM | {"input", "pulse"}),
+    "AM307": Model("AM307", "AM307 / AM307L indoor air quality (7-in-1)", decode_am300,
+                   frozenset(_AM_BASE | {"battery"}), minmax_fields=_AM_MINMAX[:3]),
+    "AM308": Model("AM308", "AM308 / AM308L indoor air quality (9-in-1)", decode_am300,
+                   frozenset(_AM_BASE | {"battery", "pm"}), minmax_fields=_AM_MINMAX),
+    "AM319-HCHO": Model("AM319-HCHO", "AM319 HCHO / HCHO-IR / AM319L HCHO-IR (9-in-1)", decode_am300,
+                        frozenset(_AM_BASE | {"pm", "hcho"}), minmax_fields=_AM_MINMAX),
+    "AM319-HCHO-WELL": Model("AM319-HCHO-WELL", "AM319 HCHO (Well sensor)", decode_am300,
+                             frozenset(_AM_BASE | {"pm25_only", "hcho"}), minmax_fields=_AM_MINMAX),
+    "AM319-O3": Model("AM319-O3", "AM319 O3 / AM319L O3 (9-in-1)", decode_am300,
+                      frozenset(_AM_BASE | {"pm", "o3"}), minmax_fields=_AM_MINMAX),
 }
+
+_AM_FIELDS = ("co2", "pm2_5", "pm10", "tvoc", "tvoc_iaq", "pressure", "hcho", "o3", "light_level")
 
 
 def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
@@ -50,13 +67,26 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
+    am = decode_am300(raw)
+    if any(f in am for f in _AM_FIELDS):
+        am_all = [k for k in MODELS if k.startswith("AM")]
+        if "o3" in am:
+            return "AM319-O3", ["AM319-O3"]
+        if "hcho" in am:
+            best = "AM319-HCHO" if "pm10" in am else "AM319-HCHO-WELL"
+            return best, [best, "AM319-HCHO", "AM319-HCHO-WELL"]
+        if "pm2_5" in am:
+            return "AM308", ["AM308", "AM319-HCHO", "AM319-O3", "AM319-HCHO-WELL"]
+        return "AM307", am_all
     em = decode_em300(raw)
-    if "pulse_count" in em or "gpio" in em:
+    if "pulse_count" in em or "water" in em:
         return "EM300-DI", ["EM300-DI"]
-    if "status_input" in em:
-        return "EM300-MCS", ["EM300-MCS", "EM300-SLD", "EM300-ZLD"]
+    if "magnet_status" in em:
+        return "EM300-MCS", ["EM300-MCS"]
+    if "input_05" in em:
+        return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-DI"]
     if "temperature" in em or "humidity" in em:
-        return "EM300-TH", ["EM300-TH", "EM300-MCS", "EM300-SLD", "EM300-ZLD", "EM300-DI"]
+        return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + [k for k in MODELS if k.startswith("AM")]
     return None, list(MODELS)
 
 
@@ -78,13 +108,61 @@ def _env() -> list[EntitySpec]:
     return [
         EntitySpec("temperature", "Temperature", **t),
         EntitySpec("humidity", "Humidity", **h),
-        EntitySpec("battery", "Battery", unit="%", device_class="battery", state_class="measurement", diagnostic=True),
         EntitySpec("feels_like", "Feels like", icon="mdi:thermometer-check", **t),
         EntitySpec("temperature_min_today", "Temperature min today", icon="mdi:thermometer-low", **t),
         EntitySpec("temperature_max_today", "Temperature max today", icon="mdi:thermometer-high", **t),
         EntitySpec("humidity_min_today", "Humidity min today", icon="mdi:water-minus", **h),
         EntitySpec("humidity_max_today", "Humidity max today", icon="mdi:water-plus", **h),
     ]
+
+
+def _battery() -> list[EntitySpec]:
+    return [EntitySpec("battery", "Battery", unit="%", device_class="battery", state_class="measurement", diagnostic=True)]
+
+
+def _air(f: frozenset[str]) -> list[EntitySpec]:
+    m = dict(state_class="measurement")
+    specs: list[EntitySpec] = []
+    if "pir" in f:
+        specs.append(EntitySpec("pir", "Motion", platform="binary_sensor", device_class="motion"))
+    if "light" in f:
+        specs.append(EntitySpec("light_level", "Light level", icon="mdi:brightness-6", **m))
+    if "co2" in f:
+        specs += [
+            EntitySpec("co2", "CO2", unit="ppm", device_class="carbon_dioxide", **m),
+            EntitySpec("co2_status", "Air quality", kind="text", icon="mdi:air-filter"),
+            EntitySpec("co2_max_today", "CO2 max today", unit="ppm", device_class="carbon_dioxide", icon="mdi:molecule-co2"),
+        ]
+    if "tvoc" in f:
+        specs += [
+            EntitySpec("tvoc_iaq", "TVOC index", icon="mdi:air-filter", precision=2, **m),
+            EntitySpec("tvoc", "TVOC", unit="µg/m³", device_class="volatile_organic_compounds", enabled_default=False, **m),
+        ]
+    if "pressure" in f:
+        specs.append(EntitySpec("pressure", "Pressure", unit="hPa", device_class="atmospheric_pressure", **m))
+    if "pm" in f or "pm25_only" in f:
+        specs += [
+            EntitySpec("pm2_5", "PM2.5", unit="µg/m³", device_class="pm25", **m),
+            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="µg/m³", device_class="pm25", icon="mdi:blur"),
+        ]
+    if "pm" in f:
+        specs.append(EntitySpec("pm10", "PM10", unit="µg/m³", device_class="pm10", **m))
+    if "hcho" in f:
+        specs.append(EntitySpec("hcho", "Formaldehyde (HCHO)", unit="mg/m³", icon="mdi:chemical-weapon", precision=3, **m))
+    if "o3" in f:
+        specs.append(EntitySpec("o3", "Ozone", unit="ppm", icon="mdi:weather-hazy", precision=2, **m))
+    if "co2high" in f:
+        dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
+        specs += [
+            EntitySpec("co2high_active", "CO2 high", platform="binary_sensor", device_class="problem", icon="mdi:molecule-co2"),
+            EntitySpec("co2high_today_s", "CO2 above limit today", icon="mdi:calendar-today", state_class="total_increasing", **dur),
+            EntitySpec("co2high_yesterday_s", "CO2 above limit yesterday", icon="mdi:calendar-arrow-left", **dur),
+            EntitySpec("co2high_week_s", "CO2 above limit this week", icon="mdi:calendar-week", state_class="total_increasing", **dur),
+            EntitySpec("co2high_month_s", "CO2 above limit this month", icon="mdi:calendar-month", state_class="total_increasing", **dur),
+        ]
+    if "pir" in f:
+        specs.append(EntitySpec("buzzer", "Buzzer", platform="binary_sensor", diagnostic=True, enabled_default=False))
+    return specs
 
 
 def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None,
@@ -163,6 +241,9 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         specs += _occupancy()
     if "env" in f:
         specs += _env()
+    if "battery" in f:
+        specs += _battery()
+    specs += _air(f)
     if "door" in f:
         specs += _binary_event("door_", "Door", "open", "door", "mdi:door-open", with_left_open=True)
     if "leak" in f:
@@ -171,4 +252,6 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         specs += _binary_event("input_", "Input", "high", None, "mdi:electric-switch", with_left_open=False)
     if "pulse" in f:
         specs.append(EntitySpec("pulse_count", "Pulse count", state_class="total_increasing", icon="mdi:counter"))
+        specs.append(EntitySpec("water", "Water (converted)", state_class="total_increasing", icon="mdi:water",
+                                enabled_default=False))
     return specs + _common()

@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from .analytics import BinaryEventTracker, Calendar, MinMaxTracker, OccupancyTracker
 from .const import (
     CONF_CLOSE_HOUR,
+    CONF_CO2_LIMIT,
     CONF_DEVEUI,
     CONF_EMPTY_GRACE_MIN,
     CONF_LEFT_OPEN_MIN,
@@ -24,6 +25,7 @@ from .const import (
     CONF_OPEN_DAYS,
     CONF_OPEN_HOUR,
     DEFAULT_CLOSE_HOUR,
+    DEFAULT_CO2_LIMIT,
     DEFAULT_EMPTY_GRACE_MIN,
     DEFAULT_LEFT_OPEN_MIN,
     DEFAULT_MAX_GAP_MIN,
@@ -41,12 +43,28 @@ from .models import MODELS, Model
 
 _LOGGER = logging.getLogger(__name__)
 
-# feature -> (decoded field that drives it, status texts (on, off))
-BINARY_FEATURES: dict[str, tuple[str, str, str]] = {
-    "door": ("status_input", "Open since {t}", "Closed"),
-    "leak": ("status_input", "Leak since {t}", "Dry"),
-    "input": ("gpio", "High since {t}", "Low"),
+def _flag(v: Any) -> bool | None:
+    return None if v is None else bool(v)
+
+
+# feature -> (extract(decoded, co2_limit) -> bool | None, status text on, status text off)
+BINARY_FEATURES: dict[str, tuple[Callable[[dict, float], bool | None], str, str]] = {
+    "door": (lambda d, _: _flag(d.get("magnet_status")), "Open since {t}", "Closed"),
+    "leak": (lambda d, _: _flag(d.get("input_05")), "Leak since {t}", "Dry"),
+    "input": (lambda d, _: _flag(d.get("input_05")), "High since {t}", "Low"),
+    "co2high": (lambda d, lim: (d["co2"] >= lim) if isinstance(d.get("co2"), (int, float)) else None,
+                "Above limit since {t}", "OK"),
 }
+
+
+def _co2_text(co2: Any) -> str | None:
+    if not isinstance(co2, (int, float)):
+        return None
+    if co2 < 800:
+        return "Good"
+    if co2 < 1200:
+        return "Moderate"
+    return "Poor"
 MAX_CLOCK_SKEW_S = 600
 
 
@@ -95,7 +113,8 @@ class DeviceRuntime:
                     self.cal, trackers.get(feature), max_gap_s=max_gap_s,
                     left_open_s=float(self._opt(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN)) * 60,
                 )
-        if "env" in f:
+        self.co2_limit = float(self._opt(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT))
+        if self.model.minmax_fields:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
         if "occupancy" in f:
             days = self._opt(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)
@@ -151,10 +170,9 @@ class DeviceRuntime:
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
 
         for feature, tracker in self.binary.items():
-            field = BINARY_FEATURES[feature][0]
-            tracker.update(ts, bool(decoded[field]) if field in decoded else None)
+            tracker.update(ts, BINARY_FEATURES[feature][0](decoded, self.co2_limit))
         if self.minmax is not None:
-            self.minmax.update(ts, {k: decoded[k] for k in ("temperature", "humidity") if k in decoded})
+            self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
         if self.occupancy is not None and isinstance(decoded.get("people_count_all"), int):
             self.occupancy.update(ts, decoded["people_count_all"])
 
@@ -178,11 +196,13 @@ class DeviceRuntime:
         v.update(self.meta)
 
         if self.minmax is not None:
-            for f in ("temperature", "humidity"):
+            for f in self.model.minmax_fields:
                 v[f"{f}_min_today"] = self.minmax.get(ts, "min", f)
                 v[f"{f}_max_today"] = self.minmax.get(ts, "max", f)
-            if isinstance(v.get("temperature"), (int, float)) and isinstance(v.get("humidity"), (int, float)):
-                v["feels_like"] = _heat_index(v["temperature"], v["humidity"])
+        if isinstance(v.get("temperature"), (int, float)) and isinstance(v.get("humidity"), (int, float)):
+            v["feels_like"] = _heat_index(v["temperature"], v["humidity"])
+        if "co2" in v:
+            v["co2_status"] = _co2_text(v["co2"])
 
         for feature, tracker in self.binary.items():
             tv = tracker.values(ts)

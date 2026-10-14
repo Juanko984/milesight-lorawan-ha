@@ -8,6 +8,7 @@ import base64
 import binascii
 import json
 import re
+import struct
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -234,12 +235,13 @@ def decode_vs121(b: bytes) -> dict[str, Any]:
 
 # --------------------------------------------------------------------------
 # EM300 family (TH / MCS / SLD / ZLD / DI)
+# Channel map checked against Milesight-IoT/SensorDecoders (em-series).
 # --------------------------------------------------------------------------
 def decode_em300(b: bytes) -> dict[str, Any]:
     """Decode an EM300-family uplink.
 
-    Channel 0x06/0x00 is the 'status' input: magnet on EM300-MCS, leak on SLD/ZLD.
-    It is returned as ``status_input`` (0/1); the model maps it to a meaning.
+    0x06/0x00 = magnet (EM300-MCS, 1 = open)
+    0x05/0x00 = leak (EM300-SLD/ZLD, 1 = leak) or GPIO (EM300-DI) -> ``input_05``
     """
     out: dict[str, Any] = {}
     i = 0
@@ -255,30 +257,93 @@ def decode_em300(b: bytes) -> dict[str, Any]:
         elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
             out["temperature"] = _i16le(b, i) / 10
             i += 2
-        elif cid == 0x83 and ctype == 0x67 and _need(b, i, 3):   # temperature with alarm flag
-            out["temperature"] = _i16le(b, i) / 10
-            out["temperature_alarm"] = b[i + 2]
-            i += 3
         elif cid == 0x04 and ctype == 0x68 and _need(b, i, 1):
             out["humidity"] = b[i] / 2
             i += 1
         elif cid == 0x06 and ctype == 0x00 and _need(b, i, 1):
-            out["status_input"] = 1 if b[i] else 0
+            out["magnet_status"] = 1 if b[i] else 0
             i += 1
-        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):  # EM300-DI GPIO
-            out["gpio"] = 1 if b[i] else 0
+        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):
+            out["input_05"] = 1 if b[i] else 0
             i += 1
-        elif cid == 0x05 and ctype == 0xC8 and _need(b, i, 4):  # EM300-DI pulse counter
+        elif cid == 0x85 and ctype == 0x00 and _need(b, i, 2):   # EM300-DI GPIO alarm
+            out["input_05"] = 1 if b[i] else 0
+            out["gpio_alarm"] = b[i + 1]
+            i += 2
+        elif cid == 0x05 and ctype == 0xC8 and _need(b, i, 4):   # EM300-DI pulse counter
             out["pulse_count"] = _u32le(b, i)
             i += 4
-        elif cid == 0x20 and ctype == 0xCE and _need(b, i, 8):  # history record
-            out.setdefault("history", []).append({
-                "timestamp": _u32le(b, i),
-                "temperature": _i16le(b, i + 4) / 10,
-                "humidity": b[i + 6] / 2,
-                "status_input": 1 if b[i + 7] else 0,
-            })
+        elif cid in (0x05, 0x85) and ctype == 0xE1 and _need(b, i, 8):  # EM300-DI water meter (v1.3+)
+            out["water_conv"] = _u16le(b, i) / 10
+            out["pulse_conv"] = _u16le(b, i + 2) / 10
+            out["water"] = round(struct.unpack_from("<f", b, i + 4)[0], 2)
             i += 8
+            if cid == 0x85 and _need(b, i, 1):
+                out["water_alarm"] = b[i]
+                i += 1
         else:
-            break  # unknown channel / downlink response – stop safely
+            break  # history / downlink response / unknown – stop safely
+    return out
+
+
+# --------------------------------------------------------------------------
+# AM300 indoor air quality (AM307 / AM308 / AM319 incl. L variants)
+# Channel map checked against Milesight-IoT/SensorDecoders (am-series).
+# --------------------------------------------------------------------------
+def decode_am300(b: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x04 and ctype == 0x68 and _need(b, i, 1):
+            out["humidity"] = b[i] / 2
+            i += 1
+        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):
+            out["pir"] = 1 if b[i] else 0
+            i += 1
+        elif cid == 0x06 and ctype == 0xCB and _need(b, i, 1):
+            out["light_level"] = b[i]
+            i += 1
+        elif cid == 0x07 and ctype == 0x7D and _need(b, i, 2):
+            out["co2"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x08 and ctype == 0x7D and _need(b, i, 2):
+            out["tvoc_iaq"] = _u16le(b, i) / 100
+            i += 2
+        elif cid == 0x08 and ctype == 0xE6 and _need(b, i, 2):
+            out["tvoc"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x09 and ctype == 0x73 and _need(b, i, 2):
+            out["pressure"] = _u16le(b, i) / 10
+            i += 2
+        elif cid == 0x0A and ctype == 0x7D and _need(b, i, 2):
+            out["hcho"] = _u16le(b, i) / 100
+            i += 2
+        elif cid == 0x0B and ctype == 0x7D and _need(b, i, 2):
+            out["pm2_5"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x0C and ctype == 0x7D and _need(b, i, 2):
+            out["pm10"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x0D and ctype == 0x7D and _need(b, i, 2):
+            out["o3"] = _u16le(b, i) / 100
+            i += 2
+        elif cid == 0x0E and ctype == 0x01 and _need(b, i, 1):
+            out["buzzer"] = 1 if b[i] else 0
+            i += 1
+        elif cid == 0x0F and ctype == 0x7D and _need(b, i, 2):   # AM319 HCHO (Well sensor)
+            out["hcho"] = _u16le(b, i) / 1000
+            i += 2
+        else:
+            break  # history / downlink response / unknown – stop safely
     return out
