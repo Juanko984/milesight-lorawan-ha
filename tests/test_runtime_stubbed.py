@@ -44,7 +44,10 @@ dt_mod = types.SimpleNamespace(get_time_zone=lambda z: ZoneInfo(z), UTC=timezone
                                utc_from_timestamp=lambda ts: datetime.fromtimestamp(ts, timezone.utc))
 
 mod("homeassistant"); mod("homeassistant.components")
-mod("homeassistant.components.mqtt", ReceiveMessage=object, async_subscribe=None, async_wait_for_mqtt_client=None)
+PUBLISHED = []
+async def _publish(hass, topic, payload, qos=0, retain=False): PUBLISHED.append((topic, json.loads(payload)))
+mod("homeassistant.components.mqtt", ReceiveMessage=object, async_subscribe=None, async_wait_for_mqtt_client=None,
+    async_publish=_publish)
 mod("homeassistant.config_entries", ConfigEntry=object, SOURCE_INTEGRATION_DISCOVERY="integration_discovery")
 mod("homeassistant.core", HomeAssistant=object, callback=callback)
 mod("homeassistant.helpers"); mod("homeassistant.util", dt=dt_mod); mod("homeassistant.util.dt", **vars(dt_mod))
@@ -55,11 +58,15 @@ mod("homeassistant.helpers.device_registry", DeviceInfo=dict)
 mod("homeassistant.helpers.entity", Entity=Entity, EntityCategory=EntityCategory)
 mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 mod("homeassistant.components.sensor", SensorDeviceClass=SensorDeviceClass, SensorEntity=object, SensorStateClass=SensorStateClass)
+class _Ev:
+    def _trigger_event(self, t, a=None): self.last_event = t
+mod("homeassistant.components.switch", SwitchDeviceClass=StrE("SWDC", {"OUTLET": "outlet", "SWITCH": "switch"}), SwitchEntity=object)
+mod("homeassistant.components.event", EventDeviceClass=types.SimpleNamespace(BUTTON="button"), EventEntity=_Ev)
 mod("homeassistant.components.device_tracker", SourceType=types.SimpleNamespace(GPS="gps"), TrackerEntity=object)
 mod("homeassistant.components.binary_sensor", BinarySensorDeviceClass=BinarySensorDeviceClass, BinarySensorEntity=object)
 mod("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BINARY_SENSOR="binary_sensor"),
     EntityCategory=EntityCategory)
-mod("homeassistant.exceptions", ConfigEntryNotReady=Exception)
+mod("homeassistant.exceptions", ConfigEntryNotReady=Exception, HomeAssistantError=Exception)
 
 # Load modules directly (skip package __init__)
 import importlib.util
@@ -68,7 +75,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker"]:
+for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -98,7 +105,8 @@ def make_device(deveui, model):
     asyncio.run(rt.async_load()); entries.known.add(deveui); rt.async_start()
     ents = []
     for s in models.entity_specs(model):
-        cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker}.get(
+        cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker,
+               "switch": switch.MilesightSwitch, "event": event.MilesightButton}.get(
             s.platform, binary_sensor.MilesightBinarySensor)
         ents.append(cls(rt, s))
     return rt, ents
@@ -280,6 +288,30 @@ assert v["moving_active"] is True and v["away_active"] is True and v["away_statu
 assert 1.0 < v["distance_today_km"] < 1.2, v["distance_today_km"]
 assert tracker.extra_state_attributes == {"motion_status": "moving", "geofence_status": "outside"}
 print("at ok")
+
+# WS: button events, switch control via downlink, socket energy
+fired = []
+hass.bus.async_fire = lambda name, data: fired.append((name, data))
+rt, ents = make_device("0000000000000156", "WS156")
+btn2 = next(e for e in ents if e.spec.key == "button_2")
+btn2.hass = hass; asyncio.run(btn2.async_added_to_hass())
+send("0000000000000156", bytes.fromhex("01755cff34020302"))                     # button 2 long press
+assert btn2.last_event == "long_press" and fired[-1] == ("milesight_lorawan_button", {
+    "deveui": "0000000000000156", "device": "WS156 test", "model": "WS156", "button": "button_2", "event_type": "long_press"}), fired
+rt, ents = make_device("0000000000000503", "WS503-V4")
+sw3 = next(e for e in ents if e.spec.key == "switch_3")
+send("0000000000000503", bytes.fromhex("ff2901037454000480200000000581640683e8030000"))   # sw1 on; 84 V, 32 W, 1 kWh
+assert sw3.is_on is False and rt.values["switch_1"] is True and rt.values["energy"] == 1.0 and rt.values["voltage"] == 84
+asyncio.run(sw3.async_turn_on())
+assert PUBLISHED[-1] == ("milesight/downlink/0000000000000503", {"confirmed": False, "fPort": 85, "data": "/ylE"}), PUBLISHED
+assert sw3.is_on is True                                                           # optimistic until the device reports
+rt, ents = make_device("0000000000000523", "WS523")
+send("0000000000000523", bytes.fromhex("080701"))
+send("0000000000000523", bytes.fromhex("08700104800a00000007c9e803"))
+assert rt.values["switch_1"] is True and rt.values["power"] == 10 and rt.values["current"] == 1.0
+asyncio.run(next(e for e in ents if e.spec.key == "switch_1").async_turn_off())
+assert PUBLISHED[-1][1]["data"] == base64.b64encode(bytes.fromhex("0800ffff")).decode()
+print("ws ok")
 
 # every model's entities can be created with real HA device / state classes
 for i, model in enumerate(models.MODELS):

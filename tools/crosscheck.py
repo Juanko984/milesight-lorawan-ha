@@ -174,6 +174,35 @@ AT101 = [seg([1, 0x75], lambda: bytes([R(0, 100)])), seg([3, 0x67], lambda: i16(
          seg([6, 0xD9], lambda: bytes([R(0, 3)]), lambda: random.choice([b"\xff" * 6, rb(6)()]), rb(1), lambda: bytes([R(0, 3)])),
          seg([0x20, 0xCE], rb(4), lambda: i32(R(-180_000_000, 180_000_000)), lambda: i32(R(-90_000_000, 90_000_000)))]
 
+B1 = lambda: bytes([R(0, 1)])
+BAT = seg([1, 0x75], lambda: bytes([R(0, 100)]))
+WS = {
+ "ws101": [BAT, seg([0xFF, 0x2E], lambda: bytes([R(1, 3)]))],
+ "ws136": [BAT, seg([0xFF, 0x34], lambda: bytes([R(1, 6)]), rb(2))],
+ "ws156": [BAT, seg([0xFF, 0x34], lambda: bytes([R(1, 6), R(0, 3), R(0, 2)]))],
+ "ws201": [BAT, seg([3, 0x82], rb(2)), seg([4, 0xD6], lambda: bytes([R(0, 100)]))],
+ "ws202": [BAT, seg([3, 0], B1), seg([4, 0], B1)],
+ "ws203": [BAT, seg([3, 0x67], lambda: i16(R(-200, 600))), seg([4, 0x68], rb(1)), seg([5, 0], B1),
+           seg([0x83, 0x67], lambda: i16(R(-200, 600)), lambda: bytes([R(0, 1)])), seg([0x20, 0xCE], rb(9))],
+ "ws301": [BAT, seg([3, 0], B1), seg([4, 0], B1)],
+ "ws302": [BAT, seg([5, 0x5B], lambda: bytes([R(0, 2) | R(0, 2) << 2]), rb(6))],
+ "ws303": [BAT, seg([3, 0], B1)],
+}
+U32 = lambda: struct.pack("<I", R(0, 2**31 - 1))     # WS558's official readUInt32LE is signed above 2^31
+METER = [seg([3, 0x74], rb(2)), seg([4, 0x80], U32), seg([5, 0x81], lambda: bytes([R(0, 100)])), seg([6, 0x83], U32), seg([7, 0xC9], rb(2))]
+WS["ws50x"] = [seg([0xFF, 0x29], rb(1)), seg([0xFF, 0x2B], rb(1))]
+WS["ws50x_eu"] = METER + [seg([8, 0x29], rb(1))]
+WS["ws50x_cn"] = [seg([8, 0x29], rb(1))]
+WS["ws50x_v4"] = METER + [seg([0xFF, 0x29], rb(1)), seg([0x87, 0xC9], rb(2), lambda: bytes([1])), seg([0x88, 0x29], lambda: bytes([1])),
+                          seg([0x89, 0xDF], lambda: bytes([1]))] + [seg([c, t], lambda: bytes([1])) for c, t in ((0xB3, 0x74), (0xB4, 0x80), (0xB5, 0x81), (0xB6, 0x83), (0xB7, 0xC9))]
+WS["ws513"] = METER + [seg([8, 0x70], B1), seg([9, 0x67], lambda: random.choice([i16(R(-200, 900)), b"\xfd\xff", b"\xff\xff"])),
+                       seg([0x89, 0x67], lambda: i16(R(-200, 900)), lambda: bytes([R(0, 3)])), seg([0x99, 0x67], lambda: i16(R(-200, 900)) + i16(R(-200, 200)), rb(1))]
+WS["ws523"] = METER + [seg([8, 0x70], rb(1))]
+WS["ws513_v3"] = METER + [seg([8, 0x70], rb(1)), seg([9, 0x67], lambda: random.choice([i16(R(-200, 900)), b"\xfd\xff", b"\xff\xff"])),
+                          seg([0x89, 0x67], lambda: i16(R(-200, 900)), lambda: bytes([R(0, 2)])), seg([0x87, 0xC9], rb(2), lambda: bytes([R(0, 1)])),
+                          seg([0x88, 0x29], lambda: bytes([1])), seg([0xFF, 0x29], rb(1))]
+WS["ws558"] = METER + [seg([8, 0x31], rb(2)), seg([0xFF, 0x26], B1)]
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -268,6 +297,17 @@ MODELS = {
  "gs-series/gs524n": ("gs524n", GS524N),
  "gs-series/gs601": ("gs601", GS601),
  "at-series/at101": ("at101", AT101),
+ "ws-series/ws101": ("ws101", WS["ws101"]), "ws-series/ws136": ("ws136", WS["ws136"]), "ws-series/ws156": ("ws156", WS["ws156"]),
+ "ws-series/ws201": ("ws201", WS["ws201"]), "ws-series/ws202": ("ws202", WS["ws202"]), "ws-series/ws203": ("ws203", WS["ws203"]),
+ "ws-series/ws301": ("ws301", WS["ws301"]), "ws-series/ws302": ("ws302", WS["ws302"]), "ws-series/ws303": ("ws303", WS["ws303"]),
+ "ws-series/ws501": ("ws501", WS["ws50x"]), "ws-series/ws502": ("ws502", WS["ws50x"]), "ws-series/ws503": ("ws503", WS["ws50x"]),
+ "ws-series/ws501-eu": ("ws501", WS["ws50x_eu"]), "ws-series/ws501-us": ("ws501", WS["ws50x_eu"]), "ws-series/ws502-eu": ("ws502", WS["ws50x_eu"]),
+ "ws-series/ws501-cn": ("ws501", WS["ws50x_cn"]), "ws-series/ws502-cn": ("ws502", WS["ws50x_cn"]), "ws-series/ws503-cn": ("ws503", WS["ws50x_cn"]),
+ "ws-series/ws501-v4": ("ws501_v4", WS["ws50x_v4"]), "ws-series/ws502-v4": ("ws502_v4", WS["ws50x_v4"]), "ws-series/ws503-v4": ("ws503_v4", WS["ws50x_v4"]),
+ "ws-series/ws513": ("ws52x", WS["ws513"]), "ws-series/ws515": ("ws52x", WS["ws513"]),
+ "ws-series/ws523": ("ws52x", WS["ws523"]), "ws-series/ws525": ("ws52x", WS["ws523"]),
+ "ws-series/ws513-v3": ("ws52x_v3", WS["ws513_v3"]), "ws-series/ws515-v3": ("ws52x_v3", WS["ws513_v3"]),
+ "ws-series/ws558": ("ws558", WS["ws558"]),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -336,6 +376,50 @@ for folder,(kind,chans) in MODELS.items():
             r = {("temperature_alarm_status" if k == "temperature_alarm" else k): v for k, v in r.items()}
             if "wifi" in r:
                 r["wifi"] = [{kk: vv for kk, vv in w.items() if kk != "motion_status"} for w in r["wifi"]]
+        if kind.startswith("ws"):
+            v3 = kind == "ws52x_v3"
+            r2 = {}
+            for k, v in r.items():
+                if k.endswith(("_msgid", "_change", "_collect_error", "_collection_error_report", "_sensor_status", "_celsius", "_fahrenheit")) \
+                        or k.startswith(("celsius_", "fahrenheit_")) or k in ("history", "temperature_error"):
+                    continue
+                if re.fullmatch(r"button_\d+", k): continue
+                if k == "button_event": v = v["status"].replace(" ", "_")
+                elif k == "pir": v = v == "trigger"
+                elif k == "occupancy": v = {"vacant": 0, "occupied": 1}.get(v, v)
+                elif k == "tamper_status": k, v = "tamper", v == "uninstalled"
+                elif k == "leakage_status": k, v = "leak", {"normal": 0, "leak": 1}.get(v, v)
+                elif k == "magnet_status": v = {"close": 0, "open": 1}.get(v, v)
+                elif re.fullmatch(r"L[ZAC][IFS]", k): r2["sound_weighting"] = k; k = "sound_level"
+                elif re.fullmatch(r"L[ZAC]eq", k): k = "sound_level_eq"
+                elif re.fullmatch(r"L[ZAC][IFS]max", k): k = "sound_level_max"
+                elif re.fullmatch(r"switch_\d", k) or k == "socket_status" and isinstance(v, str):
+                    if v == "unknown": continue
+                    k, v = ("switch_1" if k == "socket_status" else k), v == "on"
+                elif k == "socket_status": k, v = "switch_1", v["switch_status_1"] == 1
+                elif k == "set_socket": k, v = "switch_1", v["status_1"] == 1
+                elif k in ("button_status", "button_status_control"):
+                    for kk, vv in v.items():
+                        m = re.fullmatch(r"button(?:_status)?(\d)", kk)
+                        if m: r2[f"switch_{m[1]}"] = vv == "on"
+                    continue
+                elif k == "function_key_event": v = v == "yes"
+                elif k == "power_consumption_enable": v = v == "enable"
+                elif k in ("active_power", "electric_power"): k = "power"
+                elif k == "power_consumption": k, v = "energy", (v if v3 else v / 1000)
+                elif k in ("current", "total_current", "current_rating"): k, v = "current", (v if v3 else v / 1000)
+                elif k == "overcurrent_alarm":
+                    r2["current"] = v["current"] if v3 else v["current"] / 1000
+                    k, v = "overcurrent_alarm", v["status"] in (1, "overcurrent")
+                elif k == "device_abnormal_alarm": k, v = "device_fault", v["status"] in (1, "abnormal")
+                elif k == "temperature_alarm" and isinstance(v, dict):
+                    if "status" in v: k, v = "overtemperature_alarm", v["status"] == "overtemperature"
+                    else:
+                        r2["temperature"] = v["temperature"]
+                        k, v = "temperature_alarm_status", {0: "threshold_alarm_release", 1: "threshold_alarm", 2: "overheat_alarm"}.get(v["alarm_type"], "unknown")
+                elif k == "temperature_alarm": k, v = "temperature_alarm_status", v.replace(" ", "_")
+                r2[k] = v
+            r = r2
         if kind.startswith("gs"):
             r2 = {}
             for k, v in r.items():
@@ -385,7 +469,7 @@ for folder,(kind,chans) in MODELS.items():
                     v = STR_VS[v]
                 if kind == "vs_occupancy" and k == "occupancy" and v == "unknown": v = 0
                 # detection_status / illuminance etc. stay strings on both sides
-            elif isinstance(v,str) and v in STR and not ((kind.startswith(("uc", "gs", "at")) or kind == "em400") and v == "normal"): v = STR[v]
+            elif isinstance(v,str) and v in STR and not ((kind.startswith(("uc", "gs", "at", "ws")) or kind == "em400") and v == "normal"): v = STR[v]
             exp[k2] = v
         def same(a, b):
             if b == "unknown":                     # official returns "unknown" for out-of-range enum bytes
@@ -399,6 +483,30 @@ for folder,(kind,chans) in MODELS.items():
         if diffs:
             bad += 1
             if bad <= 8: print(folder, h, diffs)
+
+# ---- downlinks: our switch commands vs Milesight's official encoders --------------------------
+ENC = [  # folder, encoder kind, gangs, payload builder(channel, on)
+ ("ws-series/ws501", "ff29", 1, lambda c, on: {f"switch_{c}": "on" if on else "off"}),
+ ("ws-series/ws503", "ff29", 3, lambda c, on: {f"switch_{c}": "on" if on else "off"}),
+ ("ws-series/ws502-eu", "0829", 2, lambda c, on: {f"switch_{c}": "on" if on else "off"}),
+ ("ws-series/ws501-us", "0829", 1, lambda c, on: {f"switch_{c}": "on" if on else "off"}),
+ ("ws-series/ws503-cn", "0829", 3, lambda c, on: {f"switch_{c}": "on" if on else "off"}),
+ ("ws-series/ws503-v4", "ff29", 3, lambda c, on: {"button_status_control": {f"button_status{c}": "on" if on else "off", f"button_status{c}_change": "yes"}}),
+ ("ws-series/ws513", "0870", 1, lambda c, on: {"socket_status": "on" if on else "off"}),
+ ("ws-series/ws525", "0870", 1, lambda c, on: {"socket_status": "on" if on else "off"}),
+ ("ws-series/ws515-v3", "ff29", 1, lambda c, on: {"set_socket": {"status_1": int(on)}}),
+ ("ws-series/ws558", "0831", 8, lambda c, on: {f"switch_{c}": "on" if on else "off"}),
+]
+for folder, ekind, gangs, build in ENC:
+    cases = [(c, on) for c in range(1, gangs + 1) for on in (True, False)]
+    inp = HERE / "_in.json"; json.dump([build(c, on) for c, on in cases], open(inp, "w"))
+    ref = json.loads(subprocess.check_output(["node", str(HERE / "run_official_encoder.js"),
+                                              str(next((MS / folder).glob("*-encoder.js"))), str(inp)]))
+    for (c, on), r in zip(cases, ref):
+        total += 1
+        mine = dec.encode_ws_switch(ekind, c, on).hex()
+        if mine != r:
+            bad += 1; print(folder, "downlink", c, on, mine, r)
 inp.unlink(missing_ok=True)
 print(f"{total} payloads checked, {bad} mismatches")
 sys.exit(1 if bad else 0)

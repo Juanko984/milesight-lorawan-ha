@@ -36,13 +36,14 @@ from .const import (
     DEFAULT_OPEN_HOUR,
     DEFAULT_RUN_THRESHOLD_A,
     DOMAIN,
+    SIGNAL_EVENT,
     SIGNAL_UPDATE,
     SIGNAL_UPLINK,
     STORAGE_VERSION,
     TICK_SECONDS,
     WEEKDAYS,
 )
-from .decoders import Uplink
+from .decoders import Uplink, encode_ws_switch
 from .models import MODELS, Model
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def _load_running(d: dict, lim: dict) -> bool | None:
 # feature -> (extract(decoded, limits) -> bool | None, status text on, status text off)
 BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]] = {
     "door": (lambda d, _: _flag(d.get("magnet_status")), "Open since {t}", "Closed"),
-    "leak": (lambda d, _: _flag(d.get("input_05")), "Leak since {t}", "Dry"),
+    "leak": (lambda d, _: _flag(d.get("leak", d.get("input_05"))), "Leak since {t}", "Dry"),
     "input": (lambda d, _: _flag(d.get("input_05")), "High since {t}", "Low"),
     "co2high": (lambda d, lim: (d["co2"] >= lim["co2"]) if isinstance(d.get("co2"), (int, float)) else None,
                 "Above limit since {t}", "OK"),
@@ -74,10 +75,12 @@ BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]]
                "Moving since {t}", "Stopped"),
     "away": (lambda d, _: {"outside": True, "inside": False}.get(d.get("geofence_status")),
                  "Outside since {t}", "Inside"),
+    "motion": (lambda d, _: _flag(d.get("pir")), "Motion since {t}", "Clear"),
+    "on": (lambda d, _: _flag(d.get("switch_1")), "On since {t}", "Off"),
     "vape": (lambda d, _: _flag(d.get("vaping_index_alarm_active")), "Vaping detected since {t}", "Clear"),
 }
 # alarm-style features: the state is latched in the stored values (devices only report changes)
-LATCHED_FEATURES = {"vape", "smoke"}
+LATCHED_FEATURES = {"vape", "smoke", "on"}
 
 
 # VS373 alarm type -> flag key in values
@@ -216,7 +219,9 @@ class DeviceRuntime:
         ts = self._uplink_ts(up)
         for k, v in self.model.defaults:
             self.raw.setdefault(k, v)
-        self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events", "wifi")})
+        self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events", "wifi", "button_events")})
+        for key, event_type in decoded.get("button_events", []):
+            self._fire_button(key, event_type)
         if "vs373" in self.model.features:
             self._handle_vs373(decoded, ts)
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
@@ -234,6 +239,28 @@ class DeviceRuntime:
                 self.occupancy.update(ts, count)
 
         self._publish(ts)
+
+    def _fire_button(self, key: str, event_type: str) -> None:
+        async_dispatcher_send(self.hass, SIGNAL_EVENT.format(self.deveui), key, event_type)
+        self.hass.bus.async_fire(f"{DOMAIN}_button", {
+            "deveui": self.deveui, "device": self.entry.title, "model": self.model.key,
+            "button": key, "event_type": event_type,
+        })
+
+    # --------------------------------------------------------------- control
+    async def async_set_switch(self, key: str, on: bool) -> None:
+        """Send a switch / socket command and show the new state until the device confirms it."""
+        if not self.model.control:
+            raise ValueError(f"{self.model.key} cannot be controlled")
+        channel = int(key.rsplit("_", 1)[1])
+        payload = encode_ws_switch(self.model.control, channel, on)
+        hubs = list(self.hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+        hub = next((h for h in hubs if self.deveui in h.last_uplink), hubs[0] if hubs else None)
+        if hub is None:
+            raise RuntimeError("No Milesight gateway configured")
+        await hub.async_send_downlink(self.deveui, payload)
+        self.raw[key] = on
+        self._publish(time.time())
 
     def _handle_vs373(self, decoded: dict[str, Any], ts: float) -> None:
         """Keep alarm flags until the device reports them deactivated, and fire HA events."""

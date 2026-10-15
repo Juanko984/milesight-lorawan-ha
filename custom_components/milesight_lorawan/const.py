@@ -11,6 +11,12 @@ ENTRY_TYPE_DEVICE = "device"
 # Hub settings
 CONF_TOPIC = "topic"
 CONF_PAYLOAD_ENCODING = "payload_encoding"
+CONF_DOWNLINK_TOPIC = "downlink_topic"
+CONF_DOWNLINK_FORMAT = "downlink_format"
+DEFAULT_DOWNLINK_TOPIC = "milesight/downlink/{deveui}"
+DOWNLINK_MILESIGHT = "milesight"
+DOWNLINK_CHIRPSTACK = "chirpstack"
+DOWNLINK_FPORT = 85
 DEFAULT_TOPIC = "milesight/uplink/#"
 ENCODING_BASE64 = "base64"
 ENCODING_HEX = "hex"
@@ -44,6 +50,7 @@ WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 # Dispatcher signals
 SIGNAL_UPLINK = f"{DOMAIN}_uplink_{{}}"   # .format(deveui)
 SIGNAL_UPDATE = f"{DOMAIN}_update_{{}}"   # .format(deveui)
+SIGNAL_EVENT = f"{DOMAIN}_event_{{}}"     # .format(deveui), args: key, event_type
 
 STORAGE_VERSION = 1
 TICK_SECONDS = 60

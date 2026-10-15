@@ -29,6 +29,8 @@ from .const import (
     CONF_MAINS_VOLTAGE,
     CONF_RUN_THRESHOLD_A,
     CONF_DEVEUI,
+    CONF_DOWNLINK_FORMAT,
+    CONF_DOWNLINK_TOPIC,
     CONF_EMPTY_GRACE_MIN,
     CONF_ENTRY_TYPE,
     CONF_LEFT_OPEN_MIN,
@@ -39,6 +41,9 @@ from .const import (
     CONF_PAYLOAD_ENCODING,
     CONF_TOPIC,
     DEFAULT_CLOSE_HOUR,
+    DEFAULT_DOWNLINK_TOPIC,
+    DOWNLINK_CHIRPSTACK,
+    DOWNLINK_MILESIGHT,
     DEFAULT_CO2_LIMIT,
     DEFAULT_EMPTY_GRACE_MIN,
     DEFAULT_LEFT_OPEN_MIN,
@@ -75,6 +80,25 @@ def _encoding_selector() -> SelectSelector:
     ))
 
 
+def _downlink_format_selector() -> SelectSelector:
+    return SelectSelector(SelectSelectorConfig(
+        options=[SelectOptionDict(value=DOWNLINK_MILESIGHT, label="Milesight gateway"),
+                 SelectOptionDict(value=DOWNLINK_CHIRPSTACK, label="ChirpStack v4")],
+        mode=SelectSelectorMode.DROPDOWN,
+    ))
+
+
+def _hub_schema(opts: dict) -> dict:
+    return {
+        vol.Required(CONF_TOPIC, default=opts.get(CONF_TOPIC, DEFAULT_TOPIC)): TextSelector(),
+        vol.Required(CONF_PAYLOAD_ENCODING, default=opts.get(CONF_PAYLOAD_ENCODING, ENCODING_BASE64)):
+            _encoding_selector(),
+        vol.Required(CONF_DOWNLINK_TOPIC, default=opts.get(CONF_DOWNLINK_TOPIC, DEFAULT_DOWNLINK_TOPIC)): TextSelector(),
+        vol.Required(CONF_DOWNLINK_FORMAT, default=opts.get(CONF_DOWNLINK_FORMAT, DOWNLINK_MILESIGHT)):
+            _downlink_format_selector(),
+    }
+
+
 def _int_box(lo: int, hi: int) -> NumberSelector:
     return NumberSelector(NumberSelectorConfig(min=lo, max=hi, step=1, mode=NumberSelectorMode.BOX))
 
@@ -105,13 +129,9 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             return self.async_create_entry(
                 title=f"Milesight gateway ({topic})",
-                data={CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: topic,
-                      CONF_PAYLOAD_ENCODING: user_input[CONF_PAYLOAD_ENCODING]},
+                data={CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, **user_input, CONF_TOPIC: topic},
             )
-        return self.async_show_form(step_id="hub", data_schema=vol.Schema({
-            vol.Required(CONF_TOPIC, default=DEFAULT_TOPIC): TextSelector(),
-            vol.Required(CONF_PAYLOAD_ENCODING, default=ENCODING_BASE64): _encoding_selector(),
-        }))
+        return self.async_show_form(step_id="hub", data_schema=vol.Schema(_hub_schema({})))
 
     async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -180,12 +200,7 @@ class MilesightOptionsFlow(OptionsFlow):
 
         opts = {**entry.data, **entry.options}
         if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-            schema = {
-                vol.Required(CONF_TOPIC, default=opts.get(CONF_TOPIC, DEFAULT_TOPIC)): TextSelector(),
-                vol.Required(CONF_PAYLOAD_ENCODING, default=opts.get(CONF_PAYLOAD_ENCODING, ENCODING_BASE64)):
-                    _encoding_selector(),
-            }
-            return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
+            return self.async_show_form(step_id="init", data_schema=vol.Schema(_hub_schema(opts)))
 
         model = opts.get(CONF_MODEL, entry.data[CONF_MODEL])
         features = MODELS[model].features

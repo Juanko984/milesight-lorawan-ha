@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.10.0** · [Version history](#version-history)
+**Current version: 0.11.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -18,6 +18,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **VS** – people counting & occupancy | VS121, VS321, VS340, VS341, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
 | **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
+| **WS** – buttons, sensors, switches & sockets | WS101, WS136, WS156, WS201, WS202, WS203, WS301, WS302, WS303, WS501 / WS502 / WS503 (v1–v3, EU / US, CN, v4), WS513, WS515 (incl. v3), WS523, WS525, WS558 | Scene buttons, washroom refills, motion, doors, noise, leaks, **switching lights and sockets** with energy metering |
 | **AT** – asset trackers | AT101 | Vehicles, containers, equipment, bins – position on the map, trips, distance, geofence |
 | **CT** – current transformers | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2) | Machine / pump / compressor run time, circuit load, energy (v2) |
 | **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
@@ -62,6 +63,34 @@ Statistics are stored by Home Assistant and survive restarts.
 | **EM300-MCS** door / window | As EM300-TH plus door open / closed, *door left open* alarm, open duration (live), open time & number of openings today / yesterday / this week / last week / this month / last month, longest & average opening |
 | **EM300-SLD / EM300-ZLD** leak | As EM300-TH plus leak detected and leak statistics (same periods as door) |
 | **EM300-DI** | As EM300-TH plus digital input statistics, pulse counter and converted water value |
+
+### WS range – buttons, sensors, wall switches, sockets
+
+| Model | What you get |
+|---|---|
+| **WS101** smart button | **Event entity** (short / double / long press) for automations, battery |
+| **WS136 / WS156** scene panels | One event entity per button (WS156: short / double / long press, WS136: press), battery |
+| **WS201** fill level monitor | Remaining % (tissue, soap, paper towels), distance, battery |
+| **WS202** PIR & light | **Motion** with statistics (motion now / since, time and events per day / week / month), light (dim / bright), battery |
+| **WS203** motion & T/H | **Occupancy statistics** (presence), temperature, humidity, feels-like, daily min/max, temperature alarm, battery |
+| **WS301** door / window | **Door statistics** (as EM300-MCS: open now / since, left open, open time and count per period), tamper, battery |
+| **WS302** sound level | Sound level (dB, with frequency / time weighting e.g. LAF) + daily min/max, Leq + daily max, period max, battery |
+| **WS303** leak | **Leak** with statistics, battery |
+| **WS501 / WS502 / WS503** wall switches | **Switch entities per gang – control from Home Assistant**; EU / US and v4 also power (W) + daily max, energy (kWh, Energy dashboard), voltage, current, power factor; v4 overcurrent, overtemperature and device fault alarms |
+| **WS513 / WS515** wall sockets | **Socket switch** (control), power, energy, voltage, current, power factor, temperature (+ alarms on v3), on-time statistics |
+| **WS523 / WS525** portable sockets | **Socket switch** (control), power, energy, voltage, current, power factor, on-time statistics |
+| **WS558** light controller | **8 switch entities** (control), power, energy, voltage, total current, power factor |
+
+Button presses also fire a `milesight_lorawan_button` event (`deveui`, `device`, `model`, `button`, `event_type`).
+
+**Switching:** turning a switch on/off sends a downlink (fPort 85) through the gateway – set the gateway's downlink
+topic (see step 1). The switch shows the new state immediately and the device confirms it with its next uplink.
+Class A devices only receive the command after their next uplink; WS switches and sockets are Class C, so commands
+are applied straight away. Firmware variants (v1–v3, EU/US, CN, v4, v3 sockets) use different commands – pick the
+matching model (the device label / gateway firmware info tells you; the integration suggests one).
+
+Tip: include the model in the device name on the gateway (e.g. *WS301 back door*) and discovery picks that model
+automatically – handy for devices whose messages look alike (WS301 / WS202 / VS370, WS303 / VS340 …).
 
 ### AT range – asset trackers
 
@@ -164,6 +193,9 @@ On the gateway: **Network Server → Applications → (your application) → Dat
 * Broker: the MQTT broker Home Assistant uses (e.g. the Mosquitto add-on), with a user/password.
 * **Uplink data topic**: e.g. `milesight/uplink/$deveui` (anything works – you enter it in step 2).
 * Payload: leave the default JSON with Base64 `data`. No payload codec is needed – the integration decodes.
+* **Downlink data topic** (only needed to switch WS wall switches / sockets from Home Assistant): e.g.
+  `milesight/downlink/$deveui`. In the integration's gateway settings the same topic is written as
+  `milesight/downlink/{deveui}` (the default).
 
 ## 2 – Install the integration (once per site)
 
@@ -259,6 +291,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.11.0** | WS range added (27 models): buttons as event entities, WS sensors, and wall switches / sockets / light controllers that can be switched from Home Assistant, with energy metering. |
 | **0.10.0** | AT range added: AT101 tracker with map position (device tracker), trips, distance travelled and geofence statistics. |
 | **0.9.0** | GS range added: GS101 gas, GS301 odour, GS524N smoke and GS601 vape detectors, with alarm statistics. |
 | **0.8.0** | CT range added: CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 and v2), with load run-time statistics and estimated power. |

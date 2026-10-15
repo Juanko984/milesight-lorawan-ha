@@ -323,6 +323,42 @@ def test_distance_tracker():
     assert dtk.values(T("2026-10-15T09:00:00"))["distance_yesterday_km"] == v["distance_today_km"]
 
 
+def test_decode_ws_range():
+    assert dec.decode_ws101(bytes.fromhex("01755CFF2E03"))["button_events"] == [("button", "double_press")]
+    assert dec.decode_ws136(bytes.fromhex("01755CFF34012150"))["button_events"] == [("button_1", "press")]
+    d = dec.decode_ws156(bytes.fromhex("01755CFF34010300FF34060201"))
+    assert d["button_events"] == [("button_1", "short_press"), ("button_6", "double_press")]
+    assert dec.decode_ws201(bytes.fromhex("01756403823E0004D645")) == {"battery": 100, "distance": 62, "remaining": 69}
+    assert dec.decode_ws202(bytes.fromhex("01755C030001040000")) == {"battery": 92, "pir": True, "daylight": "dim"}
+    d = dec.decode_ws203(bytes.fromhex("01756403673401046865050000"))
+    assert d == {"battery": 100, "temperature": 30.8, "humidity": 50.5, "occupancy": 0}
+    assert dec.decode_ws301(bytes.fromhex("01755D030001040000")) == {"battery": 93, "magnet_status": 1, "tamper": False}
+    d = dec.decode_ws302(bytes.fromhex("017564055B053F02DA016A02"))
+    assert d["sound_weighting"] == "LAF" and d["sound_level"] == 57.5 and d["sound_level_eq"] == 47.4 and d["sound_level_max"] == 61.8
+    assert dec.decode_ws303(bytes.fromhex("017564030001")) == {"battery": 100, "leak": 1}
+    d = dec.decode_ws52x(bytes.fromhex("08700105816407c9020003742e0906834a000000048000000000"))
+    assert d == {"switch_1": True, "power_factor": 100, "current": 0.002, "voltage": 235.0, "energy": 0.074, "power": 0}
+    d = dec.decode_ws558(bytes.fromhex("0831000105816407C902000374B208068301000000048001000000"))
+    assert d["switch_1"] is True and d["switch_2"] is False and d["voltage"] == 222.6 and d["power"] == 1 and d["current"] == 0.002
+    assert dec.decode_ws502(bytes.fromhex("FF2903")) == {"switch_1": True, "switch_2": True}
+    assert dec.encode_ws_switch("ff29", 3, True).hex() == "ff2944" and dec.encode_ws_switch("0831", 8, False).hex() == "088000"
+
+
+def test_guess_ws_range():
+    g = mdl.guess_model
+    assert g(bytes.fromhex("01755CFF2E03"))[0] == "WS101"
+    assert g(bytes.fromhex("01755CFF34010300FF34060201"))[0] == "WS156"
+    assert g(bytes.fromhex("01756403823E0004D645"))[0] == "WS201"
+    assert g(bytes.fromhex("017564055B053F02DA016A02"))[0] == "WS302"
+    assert g(bytes.fromhex("0831000105816407C902000374B208068301000000048001000000"))[0] == "WS558"
+    assert g(bytes.fromhex("08700105816407c9020003742e0906834a000000048000000000"))[0] == "WS523"
+    assert g(bytes.fromhex("08291105816407c902000374b208068301000000048001000000"))[0] == "WS501-EU"
+    assert g(bytes.fromhex("FF2903"))[0] == "WS501" and "WS502" in g(bytes.fromhex("FF2903"))[1]
+    assert "WS301" in g(bytes.fromhex("01755D030001040000"))[1] and "WS303" in g(bytes.fromhex("017564030001"))[1]
+    assert mdl.guess_from_name("WS301 - back door") == "WS301" and mdl.guess_from_name("ws513-v3 kettle") == "WS513-V3"
+    assert mdl.guess_from_name("Kitchen") is None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

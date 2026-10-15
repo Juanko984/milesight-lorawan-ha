@@ -37,6 +37,25 @@ from .decoders import (
     decode_ts302_v1,
     ts60x_parses_completely,
     decode_vs121,
+    ws_power_channels,
+    decode_ws101,
+    decode_ws136,
+    decode_ws156,
+    decode_ws201,
+    decode_ws202,
+    decode_ws203,
+    decode_ws301,
+    decode_ws302,
+    decode_ws303,
+    decode_ws501,
+    decode_ws502,
+    decode_ws503,
+    decode_ws501_v4,
+    decode_ws502_v4,
+    decode_ws503_v4,
+    decode_ws52x,
+    decode_ws52x_v3,
+    decode_ws558,
     decode_vs321,
     decode_vs373,
     decode_vs_occupancy,
@@ -73,6 +92,10 @@ class Model:
     counting: bool = True          # True = real people count, False = presence only
     defaults: tuple[tuple[str, object], ...] = ()   # values assumed until the device reports otherwise
     dynamic: bool = False          # entities are created per channel as data arrives (configurable controllers)
+    buttons: tuple[str, ...] = ()  # event entities (button presses)
+    event_types: tuple[str, ...] = ()
+    control: str | None = None     # downlink encoder kind for switch entities (see decoders.encode_ws_switch)
+    gangs: int = 0                 # number of switchable channels (switch_1 .. switch_n)
 
 
 _EM = frozenset({"env", "battery"})
@@ -97,6 +120,19 @@ def _vs373_presence(d: dict) -> int | None:
 
 _GS601_DEF = tuple((f"{k}_alarm_active", False) for k in ("vaping_index", "pm1_0", "pm2_5", "pm10", "temperature", "tvoc")) \
     + (("vaping_interference", False), ("burning_alarm", False), ("tamper_status", False))
+_PRESS3 = ("short_press", "double_press", "long_press")
+_PANEL = tuple(f"button_{n}" for n in range(1, 7))
+
+
+def _ws_switch(key: str, label: str, decoder, gangs: int, control: str, meter: bool = False,
+               extra: frozenset[str] = frozenset()) -> "Model":
+    f = {"switch"} | ({"meter"} if meter else set()) | set(extra)
+    if gangs == 1:
+        f.add("on")
+    return Model(key, label, decoder, frozenset(f), minmax_fields=("power",) if meter else (), control=control,
+                 gangs=gangs)
+
+
 _CT1 = frozenset({"ct", "load", "sensor_error"})
 _CT3 = frozenset({"ct", "ct3", "load", "sensor_error"})
 _CT1_DEF = (("current_alarm_active", False), ("temperature_alarm_active", False))
@@ -185,6 +221,51 @@ MODELS: dict[str, Model] = {
     "AT101": Model("AT101", "AT101 GNSS / Wi-Fi asset tracker", decode_at101,
                    frozenset({"at101", "battery", "moving", "away"}), minmax_fields=("temperature",),
                    defaults=(("temperature_alarm_active", False),)),
+    "WS101": Model("WS101", "WS101 smart button", decode_ws101, frozenset({"battery"}), minmax_fields=(),
+                   buttons=("button",), event_types=_PRESS3),
+    "WS136": Model("WS136", "WS136 smart scene panel", decode_ws136, frozenset({"battery"}), minmax_fields=(),
+                   buttons=_PANEL, event_types=("press",)),
+    "WS156": Model("WS156", "WS156 smart scene panel", decode_ws156, frozenset({"battery"}), minmax_fields=(),
+                   buttons=_PANEL, event_types=_PRESS3),
+    "WS201": Model("WS201", "WS201 fill level monitor (tissue / soap / towels)", decode_ws201,
+                   frozenset({"battery", "ws201"}), minmax_fields=()),
+    "WS202": Model("WS202", "WS202 PIR & light sensor", decode_ws202, frozenset({"battery", "ws202", "motion"}),
+                   minmax_fields=()),
+    "WS203": Model("WS203", "WS203 motion & temperature / humidity sensor", decode_ws203,
+                   frozenset({"battery", "env", "occupancy", "ws203"}), occupancy_fn=_presence, counting=False,
+                   defaults=(("temperature_alarm_active", False),)),
+    "WS301": Model("WS301", "WS301 magnetic contact switch (door/window)", decode_ws301,
+                   frozenset({"battery", "door", "tamper"}), minmax_fields=()),
+    "WS302": Model("WS302", "WS302 sound level sensor", decode_ws302, frozenset({"battery", "ws302"}),
+                   minmax_fields=("sound_level", "sound_level_eq")),
+    "WS303": Model("WS303", "WS303 mini leak detector", decode_ws303, frozenset({"battery", "leak"}), minmax_fields=()),
+    "WS501": _ws_switch("WS501", "WS501 1-gang wall switch (firmware v1-v3)", decode_ws501, 1, "ff29"),
+    "WS502": _ws_switch("WS502", "WS502 2-gang wall switch (firmware v1-v3)", decode_ws502, 2, "ff29"),
+    "WS503": _ws_switch("WS503", "WS503 3-gang wall switch (firmware v1-v3)", decode_ws503, 3, "ff29"),
+    "WS501-EU": _ws_switch("WS501-EU", "WS501 EU / US 1-gang wall switch (power metering)", decode_ws501, 1, "0829", meter=True),
+    "WS502-EU": _ws_switch("WS502-EU", "WS502 EU 2-gang wall switch (power metering)", decode_ws502, 2, "0829", meter=True),
+    "WS501-CN": _ws_switch("WS501-CN", "WS501 CN 1-gang wall switch", decode_ws501, 1, "0829"),
+    "WS502-CN": _ws_switch("WS502-CN", "WS502 CN 2-gang wall switch", decode_ws502, 2, "0829"),
+    "WS503-CN": _ws_switch("WS503-CN", "WS503 CN 3-gang wall switch", decode_ws503, 3, "0829"),
+    "WS501-V4": _ws_switch("WS501-V4", "WS501 1-gang wall switch (firmware v4)", decode_ws501_v4, 1, "ff29", meter=True,
+                           extra=frozenset({"ws_alarms"})),
+    "WS502-V4": _ws_switch("WS502-V4", "WS502 2-gang wall switch (firmware v4)", decode_ws502_v4, 2, "ff29", meter=True,
+                           extra=frozenset({"ws_alarms"})),
+    "WS503-V4": _ws_switch("WS503-V4", "WS503 3-gang wall switch (firmware v4)", decode_ws503_v4, 3, "ff29", meter=True,
+                           extra=frozenset({"ws_alarms"})),
+    "WS513": _ws_switch("WS513", "WS513 smart wall socket", decode_ws52x, 1, "0870", meter=True,
+                        extra=frozenset({"socket", "ws_temp", "sensor_error"})),
+    "WS515": _ws_switch("WS515", "WS515 smart wall socket", decode_ws52x, 1, "0870", meter=True,
+                        extra=frozenset({"socket", "ws_temp", "sensor_error"})),
+    "WS513-V3": _ws_switch("WS513-V3", "WS513 smart wall socket (firmware v3)", decode_ws52x_v3, 1, "ff29", meter=True,
+                           extra=frozenset({"socket", "ws_temp", "ws_alarms", "sensor_error"})),
+    "WS515-V3": _ws_switch("WS515-V3", "WS515 smart wall socket (firmware v3)", decode_ws52x_v3, 1, "ff29", meter=True,
+                           extra=frozenset({"socket", "ws_temp", "ws_alarms", "sensor_error"})),
+    "WS523": _ws_switch("WS523", "WS523 portable smart socket", decode_ws52x, 1, "0870", meter=True,
+                        extra=frozenset({"socket"})),
+    "WS525": _ws_switch("WS525", "WS525 portable smart socket", decode_ws52x, 1, "0870", meter=True,
+                        extra=frozenset({"socket"})),
+    "WS558": _ws_switch("WS558", "WS558 8-channel smart light controller", decode_ws558, 8, "0831", meter=True),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -231,6 +312,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
+    ws = _guess_ws(raw)
+    if ws:
+        return ws
     at = decode_at101(raw)
     if at.keys() & {"latitude", "wifi_scan_result", "tamper_status", "history"}:
         return "AT101", ["AT101"]
@@ -259,8 +343,8 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vo = decode_vs_occupancy(raw)
     if "occupancy" in vo:
         if "illuminance" in vo:
-            return "VS370", ["VS370", "TS302"]
-        return "VS340", ["VS340", "VS341", "VS370", "TS301", "UC11-N1"]
+            return "VS370", ["VS370", "WS202", "WS301", "TS302"]
+        return "VS340", ["VS340", "VS341", "VS370", "WS301", "WS202", "WS303", "TS301", "UC11-N1"]
     e5 = decode_em500(raw)
     if "co2" in e5 or "pressure" in e5:
         return "EM500-CO2", ["EM500-CO2"]
@@ -293,7 +377,7 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     if "magnet_status" in em:
         return "EM300-MCS", ["EM300-MCS"]
     if "input_05" in em:
-        return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-DI"]
+        return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-DI", "WS203"]
     if "temperature" in em and "humidity" not in em:
         return "EM500-PT100", ["EM500-PT100", "TS101", "TS201", "TS301", "EM300-TH", "EM500-SMTC"]
     if "temperature" in em or "humidity" in em:
@@ -311,6 +395,60 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     if gs601_parses_completely(raw) and "battery" in g6:
         return "GS601", ["GS601", "TS601", "TS602"]
     return None, list(MODELS)
+
+
+_WS_METER = {(0x03, 0x74), (0x04, 0x80), (0x05, 0x81), (0x06, 0x83), (0x07, 0xC9)}
+_WS_V4_ALARMS = {(0x87, 0xC9), (0x88, 0x29), (0x89, 0xDF), (0xB3, 0x74), (0xB4, 0x80), (0xB5, 0x81), (0xB6, 0x83),
+                 (0xB7, 0xC9)}
+_WS_TEMP = {(0x09, 0x67), (0x89, 0x67), (0x99, 0x67)}
+
+
+def _guess_ws(raw: bytes) -> tuple[str, list[str]] | None:
+    if "button_event" in decode_ws101(raw):
+        return "WS101", ["WS101"]
+    panel = decode_ws156(raw)
+    if any(k.endswith("_event") for k in panel):
+        if all(v != "unknown" for k, v in panel.items() if k.endswith(("_mode", "_event"))):
+            return "WS156", ["WS156", "WS136"]
+        return "WS136", ["WS136", "WS156"]
+    if "remaining" in decode_ws201(raw):
+        return "WS201", ["WS201"]
+    if "sound_level" in decode_ws302(raw):
+        return "WS302", ["WS302"]
+    ch = ws_power_channels(raw)
+    if (0x08, 0x31) in ch:
+        return "WS558", ["WS558"]
+    sockets = ["WS513", "WS515", "WS523", "WS525", "WS513-V3", "WS515-V3"]
+    if (0x08, 0x70) in ch:
+        if ch & _WS_V4_ALARMS or (0xFF, 0x29) in ch:
+            return "WS513-V3", ["WS513-V3", "WS515-V3"] + sockets[:4]
+        if ch & _WS_TEMP:
+            return "WS513", ["WS513", "WS515", "WS513-V3", "WS515-V3"]
+        return "WS523", sockets
+    if ch & _WS_TEMP and ch & _WS_METER:
+        return "WS513", ["WS513", "WS515", "WS513-V3", "WS515-V3"]
+    v1 = ["WS501", "WS502", "WS503"]
+    v4 = ["WS501-V4", "WS502-V4", "WS503-V4"]
+    eu = ["WS501-EU", "WS502-EU"]
+    cn = ["WS501-CN", "WS502-CN", "WS503-CN"]
+    if (0x08, 0x29) in ch:
+        return ("WS501-EU", eu + cn) if ch & _WS_METER else ("WS501-CN", cn + eu)
+    if (0xFF, 0x29) in ch or (0xFF, 0x2B) in ch or ch & _WS_V4_ALARMS:
+        return ("WS501-V4", v4 + v1) if ch & (_WS_METER | _WS_V4_ALARMS) else ("WS501", v1 + v4)
+    if ch & _WS_METER:
+        return "WS501-V4", v4 + eu + sockets + ["WS558"]
+    return None
+
+
+def guess_from_name(name: str | None) -> str | None:
+    """Model named in the gateway's device name, e.g. 'WS301 front door' -> WS301."""
+    if not name:
+        return None
+    norm = re.sub(r"[^A-Z0-9]", "", name.upper())
+    for key in sorted(MODELS, key=len, reverse=True):
+        if re.sub(r"[^A-Z0-9]", "", key) in norm:
+            return key
+    return None
 
 
 def _guess_gs(raw: bytes) -> tuple[str, list[str]] | None:
@@ -728,6 +866,68 @@ def _at101() -> list[EntitySpec]:
     return specs
 
 
+def _ws(model: "Model") -> list[EntitySpec]:
+    f = model.features
+    specs: list[EntitySpec] = []
+    for key in model.buttons:
+        label = "Button" if key == "button" else f"Button {key.split('_')[1]}"
+        specs.append(EntitySpec(key, label, platform="event"))
+    if "ws201" in f:
+        specs += [
+            EntitySpec("remaining", "Remaining", unit="%", state_class="measurement", icon="mdi:paper-roll"),
+            EntitySpec("distance", "Distance", unit="mm", device_class="distance", state_class="measurement",
+                       icon="mdi:arrow-expand-vertical", enabled_default=False),
+        ]
+    if "ws202" in f:
+        specs.append(EntitySpec("daylight", "Light", kind="label", icon="mdi:brightness-6"))
+    if "ws203" in f:
+        specs += _alarm("temperature", "Temperature", enabled=False)
+    if "tamper" in f:
+        specs.append(EntitySpec("tamper", "Tamper", platform="binary_sensor", device_class="tamper"))
+    if "ws302" in f:
+        db = dict(unit="dB", device_class="sound_pressure")
+        specs += _measure("sound_level", "Sound level", "dB", "sound_pressure", precision=1)
+        specs += [
+            EntitySpec("sound_level_eq", "Sound level (Leq)", state_class="measurement", precision=1, **db),
+            EntitySpec("sound_level_eq_max_today", "Sound level (Leq) max today", icon="mdi:arrow-collapse-up", precision=1, **db),
+            EntitySpec("sound_level_max", "Sound level max (period)", state_class="measurement", precision=1, **db),
+            EntitySpec("sound_weighting", "Sound weighting", kind="text", icon="mdi:tune-vertical", diagnostic=True),
+        ]
+    if "switch" in f:
+        n = model.gangs
+        dc = "outlet" if "socket" in f else "switch"
+        for g in range(1, n + 1):
+            label = ("Socket" if "socket" in f else "Switch") if n == 1 else f"Switch {g}"
+            specs.append(EntitySpec(f"switch_{g}", label, platform="switch", device_class=dc))
+        if model.control in ("ff29", "0829") and "ws_alarms" not in f and "socket" not in f:
+            specs.append(EntitySpec("function_key_event", "Function key pressed", platform="binary_sensor",
+                                    enabled_default=False, diagnostic=True))
+    if "meter" in f:
+        specs += _measure("power", "Power", "W", "power", precision=0)
+        specs += [
+            EntitySpec("energy", "Energy", unit="kWh", device_class="energy", state_class="total_increasing", precision=3),
+            EntitySpec("voltage", "Voltage", unit="V", device_class="voltage", state_class="measurement", precision=1),
+            EntitySpec("current", "Current", unit="A", device_class="current", state_class="measurement", precision=3),
+            EntitySpec("power_factor", "Power factor", unit="%", device_class="power_factor", state_class="measurement"),
+        ]
+    if "ws_temp" in f:
+        specs.append(EntitySpec("temperature", "Temperature", unit="°C", device_class="temperature",
+                                state_class="measurement", precision=1))
+        specs += _alarm("temperature", "Temperature", enabled=False)
+    if "ws_alarms" in f:
+        specs += [
+            EntitySpec("overcurrent_alarm", "Overcurrent", platform="binary_sensor", device_class="problem"),
+            EntitySpec("device_fault", "Device fault", platform="binary_sensor", device_class="problem"),
+        ]
+        if "socket" not in f:
+            specs.append(EntitySpec("overtemperature_alarm", "Overtemperature", platform="binary_sensor",
+                                    device_class="heat"))
+        if "sensor_error" not in f:
+            specs.append(EntitySpec("sensor_error", "Sensor status", kind="text", icon="mdi:alert-circle-outline",
+                                    diagnostic=True))
+    return specs
+
+
 def _vs373() -> list[EntitySpec]:
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     specs = [
@@ -864,6 +1064,14 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     if "ct" in f:
         specs += _ct(f)
     specs += _gs(f)
+    specs += _ws(model)
+    if "motion" in f:
+        specs += _binary_event("motion_", "Motion", "detected", "motion", "mdi:motion-sensor", with_left_open=False,
+                               off_label="Motion last cleared")
+    if "on" in f:
+        specs += [s for s in _binary_event("on_", "Load", "on", "power", "mdi:power-plug", with_left_open=False,
+                                             off_label="Load last switched off", events="switch-ons")
+                  if s.key not in ("on_active", "on_status")]
     if "at101" in f:
         specs += _at101()
     if "moving" in f:

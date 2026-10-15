@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.11.0
+### Added
+- WS range: WS101, WS136, WS156 buttons / scene panels; WS201, WS202, WS203, WS301, WS302, WS303 sensors;
+  WS501 / WS502 / WS503 wall switches (firmware v1–v3, EU / US, CN and v4); WS513 / WS515 (incl. v3) wall sockets;
+  WS523 / WS525 portable sockets; WS558 8-channel light controller.
+- **Control:** new switch platform – switches and sockets are switched from Home Assistant via gateway downlinks
+  (Milesight gateway or ChirpStack v4 format; new *Downlink MQTT topic* / *Downlink format* gateway settings).
+  Commands are checked against Milesight's official encoders.
+- New event platform: button presses as event entities, plus a `milesight_lorawan_button` bus event.
+- Power metering (power, energy for the Energy dashboard, voltage, current, power factor), socket on-time statistics,
+  motion statistics (WS202), door (WS301), leak (WS303) and occupancy (WS203) statistics.
+- Discovery picks the model named in the gateway's device name (e.g. "WS301 back door").
+- Crosscheck covers the WS decoders and downlinks (18,000+ payloads against Milesight's official decoders / encoders).
+
 ## 0.10.0
 ### Added
 - AT range: AT101 GNSS / Wi-Fi asset tracker.

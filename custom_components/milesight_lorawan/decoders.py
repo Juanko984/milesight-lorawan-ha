@@ -1794,3 +1794,330 @@ def decode_at101(b: bytes) -> dict[str, Any]:
         else:
             break
     return out
+
+
+# --------------------------------------------------------------------------
+# WS range – buttons, sensors, wall switches, sockets and light controllers
+# Checked against Milesight-IoT/SensorDecoders (ws-series).
+# Button presses are returned as  out["button_events"] = [(entity_key, event_type), ...]
+# --------------------------------------------------------------------------
+_WS101_EVENT = {1: "short_press", 2: "long_press", 3: "double_press"}
+_WS156_EVENT = {0: "short_press", 1: "double_press", 2: "long_press"}
+_WS156_MODE = {0: "short_press", 1: "short_press+double_press", 2: "short_press+long_press",
+               3: "short_press+double_press+long_press"}
+
+
+def _ws_battery(cid: int, ctype: int, b: bytes, i: int, out: dict) -> int | None:
+    if cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+        out["battery"] = b[i]
+        return 1
+    return None
+
+
+def decode_ws101(b: bytes) -> dict[str, Any]:
+    """WS101 smart button."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is None:
+            n = _ws_battery(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0xFF and ctype == 0x2E and _need(b, i, 1):
+            event = _WS101_EVENT.get(b[i], "unknown")
+            out["button_event"] = event
+            if event != "unknown":
+                out.setdefault("button_events", []).append(("button", event))
+            i += 1
+        else:
+            break
+    return out
+
+
+def _decode_ws_panel(b: bytes, with_mode: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is None:
+            n = _ws_battery(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0xFF and ctype == 0x34 and _need(b, i, 3):
+            key = f"button_{b[i]}"
+            if with_mode:
+                event = _WS156_EVENT.get(b[i + 2], "unknown")
+                out[f"{key}_mode"] = _WS156_MODE.get(b[i + 1], "unknown")
+                out[f"{key}_event"] = event
+            else:
+                event = "press"
+                out[f"{key}_d2d"] = _u16le(b, i + 1)
+            if event != "unknown":
+                out.setdefault("button_events", []).append((key, event))
+            i += 3
+        else:
+            break
+    return out
+
+
+def decode_ws136(b: bytes) -> dict[str, Any]:
+    """WS136 scene panel (press = one event per button)."""
+    return _decode_ws_panel(b, with_mode=False)
+
+
+def decode_ws156(b: bytes) -> dict[str, Any]:
+    """WS156 scene panel (short / double / long press)."""
+    return _decode_ws_panel(b, with_mode=True)
+
+
+def _decode_ws_sensor(b: bytes, handlers: dict) -> dict[str, Any]:
+    """Channel decoder for the simple WS sensors: handlers[(cid, ctype)] = (size, fn(out, b, i))."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is None:
+            n = _ws_battery(cid, ctype, b, i, out)
+        h = handlers.get((cid, ctype))
+        if n is not None:
+            i += n
+        elif h and _need(b, i, h[0]):
+            h[1](out, b, i)
+            i += h[0]
+        else:
+            break
+    return out
+
+
+def _set(key: str, fn):
+    def h(out, b, i):
+        out[key] = fn(b, i)
+    return h
+
+
+def decode_ws201(b: bytes) -> dict[str, Any]:
+    """WS201 fill level monitor (tissue / soap / paper towels)."""
+    return _decode_ws_sensor(b, {(0x03, 0x82): (2, _set("distance", _u16le)),
+                                 (0x04, 0xD6): (1, _set("remaining", lambda b, i: b[i]))})
+
+
+def _ws202_pir(out, b, i):
+    if b[i] in (0, 1):
+        out["pir"] = b[i] == 1
+
+
+def _ws202_light(out, b, i):
+    out["daylight"] = {0: "dim", 1: "bright"}.get(b[i], "unknown")
+
+
+def decode_ws202(b: bytes) -> dict[str, Any]:
+    """WS202 PIR & light sensor."""
+    return _decode_ws_sensor(b, {(0x03, 0x00): (1, _ws202_pir), (0x04, 0x00): (1, _ws202_light)})
+
+
+_WS_TEMP_ALARM = {0: ("threshold_alarm_release", False), 1: ("threshold_alarm", True),
+                  2: ("overheat_alarm", True), 3: ("mutation_alarm", None)}
+
+
+def _ws203_occ(out, b, i):
+    if b[i] in (0, 1):
+        out["occupancy"] = b[i]
+
+
+def _ws_temp_alarm(out, b, i):
+    out["temperature"] = _i16le(b, i) / 10
+    _ts_alarm(out, "temperature", b[i + 2], _WS_TEMP_ALARM)
+
+
+def decode_ws203(b: bytes) -> dict[str, Any]:
+    """WS203 motion & temperature / humidity sensor."""
+    return _decode_ws_sensor(b, {
+        (0x03, 0x67): (2, _set("temperature", lambda b, i: _i16le(b, i) / 10)),
+        (0x04, 0x68): (1, _set("humidity", lambda b, i: b[i] / 2)),
+        (0x05, 0x00): (1, _ws203_occ),
+        (0x83, 0x67): (3, _ws_temp_alarm),
+        (0x20, 0xCE): (9, lambda out, b, i: None),          # history record
+    })
+
+
+def _ws301_magnet(out, b, i):
+    if b[i] in (0, 1):
+        out["magnet_status"] = b[i]
+
+
+def _ws301_tamper(out, b, i):
+    if b[i] in (0, 1):
+        out["tamper"] = b[i] == 1
+
+
+def decode_ws301(b: bytes) -> dict[str, Any]:
+    """WS301 magnetic contact switch."""
+    return _decode_ws_sensor(b, {(0x03, 0x00): (1, _ws301_magnet), (0x04, 0x00): (1, _ws301_tamper)})
+
+
+def _ws302_sound(out, b, i):
+    w = b[i]
+    out["sound_weighting"] = "L" + {0: "Z", 1: "A", 2: "C"}.get(w & 0x03, "?") + {0: "I", 1: "F", 2: "S"}.get(w >> 2 & 0x03, "?")
+    out["sound_level"] = _u16le(b, i + 1) / 10
+    out["sound_level_eq"] = _u16le(b, i + 3) / 10
+    out["sound_level_max"] = _u16le(b, i + 5) / 10
+
+
+def decode_ws302(b: bytes) -> dict[str, Any]:
+    """WS302 sound level sensor."""
+    return _decode_ws_sensor(b, {(0x05, 0x5B): (7, _ws302_sound)})
+
+
+def _ws303_leak(out, b, i):
+    if b[i] in (0, 1):
+        out["leak"] = b[i]
+
+
+def decode_ws303(b: bytes) -> dict[str, Any]:
+    """WS303 mini leak detection sensor."""
+    return _decode_ws_sensor(b, {(0x03, 0x00): (1, _ws303_leak)})
+
+
+# ---- wall switches / sockets / light controller -----------------------------------
+def _ws_bits(out: dict, value: int, gangs: int, prefix: str = "switch") -> None:
+    for n in range(gangs):
+        out[f"{prefix}_{n + 1}"] = bool(value >> n & 1)
+
+
+def _decode_ws_power(b: bytes, *, gangs: int = 1, v_div: float = 10, wh_div: float = 1000,
+                     ma_div: float = 1000, seen: set | None = None) -> dict[str, Any]:
+    """Switches (ff29 / 0829 state), sockets (0870), WS558 (0831) and their metering / alarm channels.
+    ``seen`` collects the (channel id, type) pairs that were parsed (used for model detection)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid in (0xFF, 0x08) and ctype == 0x29 and _need(b, i, 1):
+            _ws_bits(out, b[i], gangs)
+            i += 1
+        elif cid == 0xFF and ctype == 0x2B and _need(b, i, 1):
+            out["function_key_event"] = True
+            i += 1
+        elif cid == 0x08 and ctype == 0x70 and _need(b, i, 1):
+            out["switch_1"] = bool(b[i] & 1)
+            i += 1
+        elif cid == 0x08 and ctype == 0x31 and _need(b, i, 2):
+            _ws_bits(out, b[i + 1], 8)
+            i += 2
+        elif cid == 0x03 and ctype == 0x74 and _need(b, i, 2):
+            out["voltage"] = _u16le(b, i) / v_div
+            i += 2
+        elif cid == 0x04 and ctype == 0x80 and _need(b, i, 4):
+            out["power"] = _u32le(b, i)
+            i += 4
+        elif cid == 0x05 and ctype == 0x81 and _need(b, i, 1):
+            out["power_factor"] = b[i]
+            i += 1
+        elif cid == 0x06 and ctype == 0x83 and _need(b, i, 4):
+            out["energy"] = _u32le(b, i) / wh_div
+            i += 4
+        elif cid == 0x07 and ctype == 0xC9 and _need(b, i, 2):
+            out["current"] = _u16le(b, i) / ma_div
+            i += 2
+        elif cid == 0x09 and ctype == 0x67 and _need(b, i, 2):
+            raw = _u16le(b, i)
+            if raw in (0xFFFD, 0xFFFF):
+                out["sensor_error"] = "Temperature: " + ("over range" if raw == 0xFFFD else "read failed")
+            else:
+                out["temperature"] = _i16le(b, i) / 10
+                out["sensor_error"] = "OK"
+            i += 2
+        elif cid == 0x89 and ctype == 0x67 and _need(b, i, 3):
+            _ws_temp_alarm(out, b, i)
+            i += 3
+        elif cid == 0x99 and ctype == 0x67 and _need(b, i, 5):
+            out["temperature"] = _i16le(b, i) / 10
+            out["temperature_mutation"] = _i16le(b, i + 2) / 10
+            _ts_alarm(out, "temperature", 3, _WS_TEMP_ALARM)
+            i += 5
+        elif cid == 0x87 and ctype == 0xC9 and _need(b, i, 3):
+            out["current"] = _u16le(b, i) / ma_div
+            out["overcurrent_alarm"] = b[i + 2] == 1
+            i += 3
+        elif cid == 0x88 and ctype == 0x29 and _need(b, i, 1):
+            out["device_fault"] = b[i] == 1
+            i += 1
+        elif cid == 0x89 and ctype == 0xDF and _need(b, i, 1):
+            out["overtemperature_alarm"] = b[i] == 1
+            i += 1
+        elif 0xB3 <= cid <= 0xB7 and ctype in (0x74, 0x80, 0x81, 0x83, 0xC9) and _need(b, i, 1):
+            name = {0xB3: "Voltage", 0xB4: "Power", 0xB5: "Power factor", 0xB6: "Energy", 0xB7: "Current"}[cid]
+            out["sensor_error"] = f"{name}: collection error"
+            i += 1
+        elif cid == 0xFF and ctype == 0x26 and _need(b, i, 1):
+            out["power_consumption_enable"] = b[i] == 1
+            i += 1
+        else:
+            break
+        if seen is not None:
+            seen.add((cid, ctype))
+    return out
+
+
+def ws_power_channels(b: bytes) -> set[tuple[int, int]]:
+    seen: set[tuple[int, int]] = set()
+    _decode_ws_power(b, gangs=8, seen=seen)
+    return seen
+
+
+def decode_ws50x(b: bytes, gangs: int = 1) -> dict[str, Any]:
+    """WS501 / WS502 / WS503 (firmware v1-v3 and EU / US / CN variants; switch state + metering)."""
+    return _decode_ws_power(b, gangs=gangs)
+
+
+def decode_ws50x_v4(b: bytes, gangs: int = 1) -> dict[str, Any]:
+    """WS501 / WS502 / WS503 firmware v4 (voltage in V, energy in Wh)."""
+    return _decode_ws_power(b, gangs=gangs, v_div=1)
+
+
+def decode_ws501(b): return decode_ws50x(b, 1)
+def decode_ws502(b): return decode_ws50x(b, 2)
+def decode_ws503(b): return decode_ws50x(b, 3)
+def decode_ws501_v4(b): return decode_ws50x_v4(b, 1)
+def decode_ws502_v4(b): return decode_ws50x_v4(b, 2)
+def decode_ws503_v4(b): return decode_ws50x_v4(b, 3)
+
+
+def decode_ws52x(b: bytes) -> dict[str, Any]:
+    """WS513 / WS515 / WS523 / WS525 smart sockets (switch_1 = socket)."""
+    return _decode_ws_power(b)
+
+
+def decode_ws52x_v3(b: bytes) -> dict[str, Any]:
+    """WS513 / WS515 firmware v3 (energy reported in 1/100000 kWh units)."""
+    return _decode_ws_power(b, v_div=1, wh_div=100000)   # current already in 1/1000 A as on v1
+
+
+def decode_ws558(b: bytes) -> dict[str, Any]:
+    """WS558 8-channel smart light controller."""
+    return _decode_ws_power(b, gangs=8)
+
+
+# Downlinks (fPort 85) – verified against Milesight's official encoders
+def encode_ws_switch(kind: str, channel: int, on: bool) -> bytes:
+    bit = 1 << (channel - 1)
+    if kind == "ff29":                   # WS50x v1-v4, WS513/515 v3
+        return bytes([0xFF, 0x29, bit << 4 | (bit if on else 0)])
+    if kind == "0829":                   # WS50x EU / US / CN
+        return bytes([0x08, bit << 4 | (bit if on else 0), 0xFF])
+    if kind == "0870":                   # WS513 / WS515 / WS523 / WS525
+        return bytes([0x08, 1 if on else 0, 0xFF, 0xFF])
+    if kind == "0831":                   # WS558
+        return bytes([0x08, bit, bit if on else 0])
+    raise ValueError(kind)

@@ -14,11 +14,15 @@
         "description": "Enter the MQTT topic your gateway publishes uplinks to (Milesight gateway: Network Server > Applications > Data Transmission > MQTT). New devices will then appear automatically under Discovered.",
         "data": {
           "topic": "Uplink MQTT topic",
-          "payload_encoding": "Payload encoding"
+          "payload_encoding": "Payload encoding",
+          "downlink_topic": "Downlink MQTT topic",
+          "downlink_format": "Downlink format"
         },
         "data_description": {
           "topic": "Wildcards are allowed, e.g. milesight/uplink/#",
-          "payload_encoding": "How the gateway encodes the raw payload in the 'data' field (Base64 is the Milesight default)."
+          "payload_encoding": "How the gateway encodes the raw payload in the 'data' field (Base64 is the Milesight default).",
+          "downlink_topic": "Used to switch WS wall switches and sockets. {deveui} is replaced by the device's DevEUI (Milesight gateway: set the downlink topic to e.g. milesight/downlink/$deveui).",
+          "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui)."
         }
       },
       "manual": {
@@ -66,7 +70,9 @@
           "co2_limit": "CO2 limit (ppm)",
           "install_height_mm": "Empty distance (mm)",
           "run_threshold_a": "Running above (A)",
-          "mains_voltage": "Voltage for power estimate (V)"
+          "mains_voltage": "Voltage for power estimate (V)",
+          "downlink_topic": "Downlink MQTT topic",
+          "downlink_format": "Downlink format"
         },
         "data_description": {
           "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
@@ -76,7 +82,9 @@
           "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline.",
           "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off.",
           "run_threshold_a": "The load counts as running while the current (any channel) is at or above this. Used for running time and start counts.",
-          "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, apparent power in VA). 0 = off."
+          "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, apparent power in VA). 0 = off.",
+          "downlink_topic": "Used to switch WS wall switches and sockets. {deveui} is replaced by the device's DevEUI (Milesight gateway: set the downlink topic to e.g. milesight/downlink/$deveui).",
+          "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui)."
         }
       }
     }
