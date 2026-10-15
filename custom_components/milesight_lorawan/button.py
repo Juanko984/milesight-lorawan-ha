@@ -32,6 +32,8 @@ class MilesightCommandButton(MilesightEntity, ButtonEntity):
         try:
             if command == "fetch_history":
                 await self.runtime.async_fetch_history()
+            elif command.startswith("display_"):
+                await self.runtime.async_display_command(command.removeprefix("display_"))
             else:
                 await self.runtime.async_command(command)
         except Exception as err:  # noqa: BLE001 - surface MQTT / config problems in the UI

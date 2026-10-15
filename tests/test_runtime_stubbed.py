@@ -71,6 +71,7 @@ class _Climate:
 mod("homeassistant.components.climate", ClimateEntity=_Climate, ClimateEntityFeature=_CF, HVACAction=_HA, HVACMode=_HV)
 mod("homeassistant.components.button", ButtonDeviceClass=StrE("BTDC", {"RESTART": "restart", "IDENTIFY": "identify", "UPDATE": "update"}), ButtonEntity=object)
 mod("homeassistant.components.select", SelectEntity=object)
+mod("homeassistant.components.text", TextEntity=object, TextMode=types.SimpleNamespace(TEXT="text"))
 mod("homeassistant.components.number", NumberEntity=object, NumberMode=types.SimpleNamespace(BOX="box"))
 mod("homeassistant.components.switch", SwitchDeviceClass=StrE("SWDC", {"OUTLET": "outlet", "SWITCH": "switch"}), SwitchEntity=object)
 mod("homeassistant.components.event", EventDeviceClass=types.SimpleNamespace(BUTTON="button"), EventEntity=_Ev)
@@ -87,7 +88,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select"]:
+for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -100,14 +101,19 @@ entries = FakeEntries(); entries.flow = FakeFlow(entries)
 fired = []
 hass = types.SimpleNamespace(bus=types.SimpleNamespace(async_fire=lambda e, d: fired.append((e, d))),
                              config=types.SimpleNamespace(time_zone="Africa/Johannesburg"),
-                             config_entries=entries, data={}, async_create_task=lambda c: None)
+                             config_entries=entries, data={}, async_create_task=lambda c: c.close() if asyncio.iscoroutine(c) else None)
 
-hub_entry = types.SimpleNamespace(data={"entry_type": "hub", "topic": "x/#", "payload_encoding": "base64"}, options={})
+hub_entry = types.SimpleNamespace(data={"entry_type": "hub", "topic": "x/#", "payload_encoding": "base64"}, options={},
+                                  entry_id="h", title="Site gateway")
 hb = hub.Hub(hass, hub_entry)
 hass.data["milesight_lorawan"] = {"hubs": {"h": hb}}
 
+FCNT = {}
 def send(deveui, raw, **kw):
-    msg = {"devEUI": deveui.upper(), "data": base64.b64encode(raw).decode(), "rssi": -95, "snr": 7.0, **kw}
+    FCNT[deveui] = FCNT.get(deveui, 0) + 1
+    msg = {"devEUI": deveui.upper(), "data": base64.b64encode(raw).decode(), "fCnt": FCNT[deveui],
+           "rxInfo": [{"mac": "24e124fffef00001", "name": "Local Gateway", "rssi": -95, "loRaSNR": 7.0}],
+           "txInfo": {"frequency": 868100000, "dataRate": {"spreadFactor": 9}}, **kw}
     hb._message_received(types.SimpleNamespace(payload=json.dumps(msg)))
 
 def make_device(deveui, model):
@@ -120,8 +126,9 @@ def make_device(deveui, model):
         cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker,
                "switch": switch.MilesightSwitch, "event": event.MilesightButton,
                "climate": climate.MilesightClimate, "button": button.MilesightCommandButton,
-               "number": number.MilesightNumber, "select": select.MilesightSettingSelect}.get(
-            s.platform, binary_sensor.MilesightBinarySensor)
+               "number": number.MilesightNumber, "text": text.DisplayText,
+               "select": select.DisplayTemplateSelect if s.key == "display_template" else select.MilesightSettingSelect,
+               }.get(s.platform, binary_sensor.MilesightBinarySensor)
         ents.append(cls(rt, s))
     return rt, ents
 
@@ -192,7 +199,7 @@ for i, (model, raw) in enumerate(samples.items()):
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
         empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill")]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status")]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -202,7 +209,7 @@ for i, (model, raw) in enumerate(samples.items()):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
                  and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill")]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status")]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -422,9 +429,12 @@ rt.meta["last_seen"] -= rt.max_gap_s + 60
 rt._tick(None)
 assert rt.values["online"] is False
 asyncio.run(rt.async_command("report_interval", 600))
-assert rt.values["last_command"] == "report interval: sent" and rt.meta["confirmed"]["report_interval"] is False
+assert rt.values["last_command"] == "report interval: pending" and rt.meta["confirmed"]["report_interval"] is False
+assert rt.values["command_status"] == "pending"
 send("00000000000f0300", bytes.fromhex("01755aff035802"))          # device echoes the new interval
 assert rt.values["last_command"] == "report interval: confirmed" and rt.meta["confirmed"]["report_interval"] is True
+assert rt.values["command_status"] == "confirmed" and rt.commands.echoes is True
+assert [e for e in fired if e[0] == "milesight_lorawan_command"][-1][1]["status"] == "confirmed"
 assert rt.values["online"] is True and rt.values["battery_low"] is False
 
 # Fleet sensors
@@ -436,7 +446,9 @@ hub_entry = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="h1", tit
 fake = types.SimpleNamespace(config_entries=types.SimpleNamespace(async_entries=lambda d: [hub_entry, dev_entry]))
 devs = fleet.fleet_devices(fake, hub_entry)
 assert devs == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
-                 "battery": 90, "battery_low": False, "rssi": -95, "snr": 7.0, "last_seen": devs[0]["last_seen"]}], devs
+                 "battery": 90, "battery_low": False, "rssi": -95, "snr": 7.0, "sf": 9, "gateway": "Local Gateway",
+                 "gateways_heard": 1, "signal": "excellent", "packet_loss": 0.0, "command": "confirmed",
+                 "last_seen": devs[0]["last_seen"]}], devs
 print("fleet ok")
 
 # Settings (alarm thresholds, LED / child lock), stored history, pulse meter
@@ -475,3 +487,112 @@ print("settings / history / meter ok")
 assert fleet.comfort_score(22, 45, 600) == 100 and fleet.comfort_score(27, 45, 1300) == 63
 assert fleet.comfort_score(None, None, None) is None
 print("analytics ok")
+
+# ---------------- 0.18: downlink confirmation, signal quality, DS3604, gateway health ----------------
+hass.async_create_task = lambda c: asyncio.run(c) if asyncio.iscoroutine(c) else None
+fired.clear()
+# switch command confirmed by the status report
+rt, ents = make_device("0000000000180503", "WS503-V4")
+sw3 = next(e for e in ents if e.spec.key == "switch_3")
+send("0000000000180503", bytes.fromhex("ff2901"))
+asyncio.run(sw3.async_turn_on())
+assert rt.values["command_status"] == "pending" and sw3.is_on is True
+send("0000000000180503", bytes.fromhex("ff2905"))                       # sw1 + sw3 on
+assert rt.values["command_status"] == "confirmed" and rt.values["last_command"] == "switch 3: confirmed"
+# not switched: resent once (retries=1), then failed and the optimistic state is undone
+rt.entry.options = {"downlink_retries": 1}
+n0 = len(PUBLISHED)
+asyncio.run(next(e for e in ents if e.spec.key == "switch_2").async_turn_on())
+for _ in range(2):
+    send("0000000000180503", bytes.fromhex("ff2905"))
+assert len(PUBLISHED) == n0 + 2 and PUBLISHED[-1] == PUBLISHED[-2]             # the retry
+for _ in range(2):
+    send("0000000000180503", bytes.fromhex("ff2905"))
+assert rt.values["command_status"] == "failed" and rt.values["switch_2"] is False, rt.values["last_command"]
+ev = [d for e, d in fired if e == "milesight_lorawan_command"]
+assert [d["status"] for d in ev] == ["confirmed", "failed"] and ev[-1]["attempts"] == 2
+print("confirmation ok")
+
+# confirmed downlinks + network ACK (Milesight ACK notification on an extra topic)
+rt, ents = make_device("0000000000180300", "EM300-TH")
+rt.entry.options = {"confirmed_downlinks": True}
+send("0000000000180300", bytes.fromhex("0175640367100104686000"))
+asyncio.run(rt.async_command("reboot"))
+assert PUBLISHED[-1][1]["confirmed"] is True
+hb._message_received(types.SimpleNamespace(payload=json.dumps(
+    {"applicationID": 1, "devEUI": "0000000000180300", "acknowledged": True, "fcnt": 12})))
+assert rt.values["command_status"] == "confirmed" and rt.values["last_ack"] == "acknowledged"
+assert hb.stats.counts["acks"] == 1 and hb.stats.counts["downlinks"] >= 1
+hb._message_received(types.SimpleNamespace(payload=json.dumps({"devEUI": "0000000000180300", "devAddr": "01020304"})))
+assert fired[-1][0] == "milesight_lorawan_device_joined" and hb.stats.counts["joins"] == 1
+print("ack / join ok")
+
+# signal quality, packet loss, duplicates
+send("0000000000180300", bytes.fromhex("0175640367100104686000"))           # first frame after the join
+FCNT["0000000000180300"] += 3                                              # 3 frames lost
+send("0000000000180300", bytes.fromhex("0175640367100104686000"))
+up_before = rt.link.received
+hb._message_received(types.SimpleNamespace(payload=json.dumps({        # same frame via a second gateway
+    "devEUI": "0000000000180300", "data": base64.b64encode(bytes.fromhex("0175640367100104686000")).decode(),
+    "fCnt": FCNT["0000000000180300"], "rxInfo": [{"mac": "24e124fffef00002", "name": "Roof", "rssi": -118,
+                                                    "loRaSNR": -9}]})))
+assert rt.link.received == up_before and hb.stats.counts["duplicates"] == 1
+by_key = {e.spec.key: e for e in ents}
+assert rt.values["packet_loss_today"] == 50.0 and rt.values["gateways_heard"] == 2, (rt.values["packet_loss_today"], rt.values["gateways_heard"], rt.link.to_dict())
+assert rt.values["signal_quality"] == "excellent" and rt.values["spreading_factor"] == 9
+assert [g["name"] for g in by_key["gateway"].extra_state_attributes["gateways"]] == ["Local Gateway", "Roof"]
+assert "lost" in by_key["signal_quality"].extra_state_attributes["advice"]
+print("signal ok")
+
+# DS3604: blocks packed into downlinks, confirmed per block, failures reported
+rt, ents = make_device("0000000000183604", "DS3604")
+by_key = {e.spec.key: e for e in ents}
+send("0000000000183604", bytes.fromhex("017564"))
+n0 = len(PUBLISHED)
+sent = asyncio.run(rt.async_display(1, {"text_1": "Meeting room 1", "text_2": "Free",
+                                        "text_3": "Next: 14:00 Board meeting"}, show=True))
+frames = [base64.b64decode(p[1]["data"]).hex() for p in PUBLISHED[n0:]]
+assert sent == 2 and all(len(f) // 2 <= 51 for f in frames), frames
+assert "".join(frames) == (dec := sys.modules["milesight_lorawan.decoders"]).encode_ds3604_content(
+    1, "text_1", "Meeting room 1").hex() + dec.encode_ds3604_content(1, "text_2", "Free").hex() + \
+    dec.encode_ds3604_content(1, "text_3", "Next: 14:00 Board meeting").hex() + "ff7300"
+assert by_key["display_t1_text_2"].native_value == "Free"
+send("0000000000183604", bytes.fromhex("fa010000fa010100"))              # text_1 + text_2 updated
+assert rt.values["command_status"] == "confirmed"
+send("0000000000183604", bytes.fromhex("fa010203"))                       # text_3 too long
+assert rt.values["command_status"] == "failed" and rt.values["display_error"] == "text_3: content is too long"
+send("0000000000183604", bytes.fromhex("fb010204" + b"Busy".hex()))       # device reports its content
+assert by_key["display_t1_text_3"].native_value == "Busy"
+asyncio.run(by_key["display_t1_text_1"].async_set_value("Room 2"))
+assert base64.b64decode(PUBLISHED[-1][1]["data"]) == dec.encode_ds3604_content(1, "text_1", "Room 2")
+asyncio.run(by_key["display_template"].async_select_option("2"))
+assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "ff7301" and by_key["display_template"].current_option == "2"
+asyncio.run(by_key["cmd_display_refresh"].async_press())
+assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "ff3d02"
+print("ds3604 ok")
+
+# Gateway health: per-gateway devices from traffic + status reports
+gw = sys.modules["milesight_lorawan.gateway"]
+added = []
+hub_entry = hb.entry
+hub_entry.runtime_data = hb
+hub_entry.async_on_unload = lambda f: None
+gw.async_setup_gateway_entities(hass, hub_entry, lambda es: added.extend(es), "sensor")
+gw.async_setup_gateway_entities(hass, hub_entry, lambda es: added.extend(es), "binary_sensor")
+names = {(getattr(e, "gid", None), e._attr_name) for e in added}
+assert ("24e124fffef00001", "Packets today") in names and ("24e124fffef00002", "Online") in names
+online = next(e for e in added if getattr(e, "gid", None) == "24e124fffef00001" and e._attr_name == "Online")
+assert online.is_on is True and online.extra_state_attributes["source"] == "device traffic"
+pk = next(e for e in added if getattr(e, "gid", None) == "24e124fffef00001" and e._attr_name == "Packets today")
+assert pk.native_value == hb.stats.gateways["24e124fffef00001"]["packets_today"] > 5
+gwon = next(e for e in added if getattr(e, "kind", None) == "gateways_online")
+assert gwon.native_value == 2
+hb._message_received(types.SimpleNamespace(payload=json.dumps({"device_info": {
+    "eui": "24E124FFFEF00009", "model": "UG63", "firmware_version": "64.0.0.5", "cpu_tempeture": "51"}})))
+cpu = next(e for e in added if getattr(e, "gid", None) == "24e124fffef00009" and e.kind == "cpu_temperature")
+assert cpu.native_value == 51.0 and cpu._attr_device_info["model"] == "UG63"
+hb._tick()                                                                 # baseline: everything online
+hb.stats.gateways["24e124fffef00002"]["last_heard"] -= 3600
+hb._tick()
+assert fired[-1][0] == "milesight_lorawan_gateway_offline" and fired[-1][1]["gateway"] == "Roof", fired[-1]
+print("gateway ok")

@@ -809,8 +809,27 @@ def _command_specs(model_key: str) -> list[EntitySpec]:
     return specs
 
 
+def _ds3604() -> list[EntitySpec]:
+    """DS3604 e-ink display: text / QR-code blocks of both templates, template select, display buttons."""
+    specs = [EntitySpec("display_template", "Displayed template", platform="select", icon="mdi:page-layout-body"),
+             EntitySpec("cmd_display_refresh", "Refresh display", platform="button", icon="mdi:monitor-shimmer"),
+             EntitySpec("cmd_display_beep", "Beep", platform="button", icon="mdi:volume-high", diagnostic=True),
+             EntitySpec("cmd_display_report_display", "Read display content", platform="button",
+                        icon="mdi:monitor-arrow-down", diagnostic=True),
+             EntitySpec("display_error", "Display error", kind="text", icon="mdi:monitor-off", diagnostic=True)]
+    for t in (1, 2):
+        for n in range(1, 11):
+            specs.append(EntitySpec(f"display_t{t}_text_{n}", f"Template {t} text {n}", platform="text",
+                                    icon="mdi:form-textbox", enabled_default=t == 1 and n <= 3))
+        specs.append(EntitySpec(f"display_t{t}_qrcode", f"Template {t} QR code", platform="text", icon="mdi:qrcode",
+                                enabled_default=False))
+    return specs
+
+
 _SETTING_LABEL = {"child_lock": ("Child lock", "mdi:lock"), "child_lock_feature": ("Child lock feature", "mdi:lock-check"),
-                  "led_indicator": ("LED indicator", "mdi:led-on"), "buzzer": ("Buzzer", "mdi:volume-high")}
+                  "led_indicator": ("LED indicator", "mdi:led-on"), "buzzer": ("Buzzer", "mdi:volume-high"),
+                  "button": ("Button", "mdi:gesture-tap-button"),
+                  "template_button": ("Template switch button", "mdi:swap-horizontal")}
 _FIELD_LABEL = {"min": "low", "max": "high", "condition": "", "enable": "enabled", "level1": "level 1", "level2": "level 2",
                 "threshold": "threshold", "threshold_in": "in threshold", "threshold_out": "out threshold"}
 _MAIN_FIELDS = ("condition", "enable", "min", "max", "level1", "level2", "threshold", "threshold_in", "threshold_out",
@@ -908,6 +927,19 @@ def _common() -> list[EntitySpec]:
                    state_class="measurement", diagnostic=True),
         EntitySpec("snr", "SNR", unit="dB", state_class="measurement", icon="mdi:access-point", diagnostic=True),
         EntitySpec("last_seen", "Last seen", kind="timestamp", device_class="timestamp", diagnostic=True),
+        EntitySpec("signal_quality", "Signal quality", kind="label", icon="mdi:signal-cellular-2", diagnostic=True),
+        EntitySpec("spreading_factor", "Spreading factor", state_class="measurement", icon="mdi:sine-wave",
+                   diagnostic=True),
+        EntitySpec("link_margin", "Link margin", unit="dB", state_class="measurement", icon="mdi:signal-distance-variant",
+                   diagnostic=True, enabled_default=False),
+        EntitySpec("gateway", "Gateway", kind="text", icon="mdi:router-wireless", diagnostic=True),
+        EntitySpec("gateways_heard", "Gateways in range", state_class="measurement", icon="mdi:router-network",
+                   diagnostic=True),
+        EntitySpec("packet_loss_today", "Packet loss today", unit="%", state_class="measurement",
+                   icon="mdi:package-variant-remove", diagnostic=True, precision=1),
+        EntitySpec("uplinks_today", "Uplinks today", icon="mdi:upload", diagnostic=True, enabled_default=False),
+        EntitySpec("frequency", "Frequency", unit="MHz", icon="mdi:sine-wave", diagnostic=True, enabled_default=False),
+        EntitySpec("frame_counter", "Frame counter", icon="mdi:counter", diagnostic=True, enabled_default=False),
     ]
 
 
@@ -1479,7 +1511,7 @@ def _new_ranges(model: "Model") -> list[EntitySpec]:
         if "co2" in f:
             specs += _alarm("co2", "CO2")
     if "ds3604" in f:
-        specs.append(EntitySpec("current_template_id", "Template", icon="mdi:page-layout-body", diagnostic=True))
+        specs += _ds3604()
     if "em300cl" in f:
         specs += [
             EntitySpec("liquid", "Liquid level", kind="label", icon="mdi:waves"),
@@ -1758,6 +1790,8 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
                                 diagnostic=True))
     if downlinks(model_key):
         specs.append(EntitySpec("last_command", "Last command", kind="text", icon="mdi:message-arrow-right-outline",
+                                diagnostic=True))
+        specs.append(EntitySpec("command_status", "Command status", kind="label", icon="mdi:message-check-outline",
                                 diagnostic=True))
     return specs + _common()
 

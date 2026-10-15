@@ -14,15 +14,15 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_DEVEUI, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_HUB, STORAGE_VERSION
+from .const import CONF_DEVEUI, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_HUB, MANUFACTURER, STORAGE_VERSION
 from .hub import Hub
 from .runtime import DeviceRuntime
 from .services import async_register_services
 
-HUB_PLATFORMS = [Platform.SENSOR]          # fleet overview
+HUB_PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]   # fleet overview, gateway health
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.EVENT, Platform.CLIMATE, Platform.BUTTON, Platform.NUMBER, Platform.SELECT]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.EVENT, Platform.CLIMATE, Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.TEXT]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -40,6 +40,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if _is_hub(entry):
         if not await mqtt.async_wait_for_mqtt_client(hass):
             raise ConfigEntryNotReady("MQTT integration is not available")
+        # the gateway devices are linked to the hub device (via_device), so it must exist first
+        from homeassistant.helpers import device_registry as dr
+        dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,
+                                               identifiers={(DOMAIN, f"hub_{entry.entry_id}")},
+                                               name=entry.title, manufacturer=MANUFACTURER, model="LoRaWAN gateway")
         hub = Hub(hass, entry)
         await hub.async_start()
         entry.runtime_data = hub

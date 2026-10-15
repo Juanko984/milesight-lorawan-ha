@@ -17,13 +17,17 @@
           "topic": "Uplink MQTT topic",
           "payload_encoding": "Payload encoding",
           "downlink_topic": "Downlink MQTT topic",
-          "downlink_format": "Downlink format"
+          "downlink_format": "Downlink format",
+          "extra_topics": "Notification / gateway status topics",
+          "gateway_offline_min": "Gateway offline after (minutes)"
         },
         "data_description": {
           "topic": "Wildcards are allowed, e.g. milesight/uplink/#",
           "payload_encoding": "How the gateway encodes the raw payload in the 'data' field (Base64 is the Milesight default).",
           "downlink_topic": "Used to switch WS wall switches and sockets. {deveui} is replaced by the device's DevEUI (Milesight gateway: set the downlink topic to e.g. milesight/downlink/$deveui).",
-          "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui)."
+          "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui).",
+          "extra_topics": "Optional, comma separated, wildcards allowed. Point the gateway's ACK Notification, Join Notification and Gateway Information MQTT topics here (e.g. milesight/ack, milesight/join, milesight/gateway) – or ChirpStack gateway/+/event/stats, application/+/device/+/event/ack.",
+          "gateway_offline_min": "A gateway is shown offline when it has forwarded nothing (and sent no status report) for this long."
         }
       },
       "manual": {
@@ -93,7 +97,12 @@
           "meter_pulses_per_unit": "Pulses per unit",
           "meter_offset": "Meter reading at start",
           "meter_source": "Counter (advanced)",
-          "auto_backfill": "Fetch stored data after an outage"
+          "auto_backfill": "Fetch stored data after an outage",
+          "extra_topics": "Notification / gateway status topics",
+          "gateway_offline_min": "Gateway offline after (minutes)",
+          "confirmed_downlinks": "Confirmed downlinks (network ACK)",
+          "downlink_retries": "Retries for unanswered commands",
+          "display_max_bytes": "Max bytes per display downlink"
         },
         "data_description": {
           "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
@@ -111,7 +120,12 @@
           "meter_pulses_per_unit": "e.g. 1 pulse per litre with unit L = 1; 100 pulses per m³ = 100.",
           "meter_offset": "Reading of the physical meter when counting started, so Home Assistant shows the same number.",
           "meter_source": "Leave empty (pulse_count / gpio_counter_1). For a second UC counter enter e.g. gpio_counter_2.",
-          "auto_backfill": "When the device comes back after a gap, ask it to resend what it stored and fill the history graphs."
+          "auto_backfill": "When the device comes back after a gap, ask it to resend what it stored and fill the history graphs.",
+          "extra_topics": "Optional, comma separated, wildcards allowed. Point the gateway's ACK Notification, Join Notification and Gateway Information MQTT topics here (e.g. milesight/ack, milesight/join, milesight/gateway) – or ChirpStack gateway/+/event/stats, application/+/device/+/event/ack.",
+          "gateway_offline_min": "A gateway is shown offline when it has forwarded nothing (and sent no status report) for this long.",
+          "confirmed_downlinks": "Ask the device to acknowledge every downlink (LoRaWAN confirmed). Needs the gateway's ACK notification topic under the gateway's settings. Uses a little more airtime.",
+          "downlink_retries": "Commands the device does not answer within two uplinks are sent again this many times, then marked failed. 0 = never retry.",
+          "display_max_bytes": "Text blocks are packed into downlinks of at most this size. 51 works at every EU868 data rate; raise it (up to 222) for displays close to a gateway, lower it to 11 for US915 SF10."
         }
       }
     }
@@ -175,6 +189,84 @@
         "value": {
           "name": "Value",
           "description": "Duration, pulse count or opening % depending on the action."
+        }
+      }
+    },
+    "display_content": {
+      "name": "Display content",
+      "description": "Send text and a QR code to DS3604 e-ink displays. Blocks match the template layout set in Milesight ToolBox; leave a block out to keep it.",
+      "fields": {
+        "device_id": {
+          "name": "Display",
+          "description": "One or more DS3604 displays."
+        },
+        "template": {
+          "name": "Template",
+          "description": "Template 1 or 2."
+        },
+        "text_1": {
+          "name": "Text 1",
+          "description": "Content of text block 1 (templates allowed in automations)."
+        },
+        "text_2": {
+          "name": "Text 2",
+          "description": "Content of text block 2 (templates allowed in automations)."
+        },
+        "text_3": {
+          "name": "Text 3",
+          "description": "Content of text block 3 (templates allowed in automations)."
+        },
+        "text_4": {
+          "name": "Text 4",
+          "description": "Content of text block 4 (templates allowed in automations)."
+        },
+        "text_5": {
+          "name": "Text 5",
+          "description": "Content of text block 5 (templates allowed in automations)."
+        },
+        "text_6": {
+          "name": "Text 6",
+          "description": "Content of text block 6 (templates allowed in automations)."
+        },
+        "text_7": {
+          "name": "Text 7",
+          "description": "Content of text block 7 (templates allowed in automations)."
+        },
+        "text_8": {
+          "name": "Text 8",
+          "description": "Content of text block 8 (templates allowed in automations)."
+        },
+        "text_9": {
+          "name": "Text 9",
+          "description": "Content of text block 9 (templates allowed in automations)."
+        },
+        "text_10": {
+          "name": "Text 10",
+          "description": "Content of text block 10 (templates allowed in automations)."
+        },
+        "qrcode": {
+          "name": "QR code",
+          "description": "Text or URL encoded in the QR code block."
+        },
+        "show": {
+          "name": "Show template",
+          "description": "Switch the display to this template."
+        },
+        "refresh": {
+          "name": "Refresh display",
+          "description": "Force a full screen refresh afterwards."
+        },
+        "beep": {
+          "name": "Beep",
+          "description": "Beep once when the content arrives."
+        },
+        "content": {
+          "name": "Content",
+          "description": "All blocks at once as a mapping, e.g. {text_1: Room 1, text_2: Free, qrcode: https://…}. Empty values are skipped."
+        },
+        "force": {
+          "name": "Send unchanged blocks",
+          "description": "Also send blocks that already show this text (normally skipped to save battery and airtime)."
         }
       }
     }

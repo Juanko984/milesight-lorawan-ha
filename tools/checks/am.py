@@ -186,6 +186,12 @@ def normalise(model: str, js: dict) -> dict:
             out["button_event"] = js["button_status"]
         if "current_template_id" in js:
             out["current_template_id"] = js["current_template_id"]
+        for k in ("template_1", "template_2", "template_3", "template_4"):
+            if js.get(k):                      # JS creates an empty dict for image / unknown blocks
+                out[k] = js[k]
+        if "update_content_result" in js:      # JS keeps a stale block_name (function-scoped var) for ids > 10
+            out["update_content_result"] = [{k: v for k, v in r.items() if k != "block_name" or r["block_id"] <= 10}
+                                            for r in js["update_content_result"]]
     return out
 
 

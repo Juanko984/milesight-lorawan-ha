@@ -41,3 +41,82 @@ output_command:
           min: 0
           max: 4294967295
           mode: box
+display_content:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: milesight_lorawan
+              model: DS3604
+    template:
+      default: 1
+      selector:
+        select:
+          options: ["1", "2"]
+    text_1:
+      example: "Meeting room 1"
+      selector:
+        text:
+    text_2:
+      example: "Free"
+      selector:
+        text:
+    text_3:
+      example: "Next: 14:00 Board meeting"
+      selector:
+        text:
+    text_4:
+      example: "Text 4"
+      selector:
+        text:
+    text_5:
+      example: "Text 5"
+      selector:
+        text:
+    text_6:
+      example: "Text 6"
+      selector:
+        text:
+    text_7:
+      example: "Text 7"
+      selector:
+        text:
+    text_8:
+      example: "Text 8"
+      selector:
+        text:
+    text_9:
+      example: "Text 9"
+      selector:
+        text:
+    text_10:
+      example: "Text 10"
+      selector:
+        text:
+    qrcode:
+      example: "https://example.com/book/room-1"
+      selector:
+        text:
+    content:
+      example: '{"text_1": "Room 1", "text_2": "Free"}'
+      selector:
+        object:
+    force:
+      default: false
+      selector:
+        boolean:
+    show:
+      default: true
+      selector:
+        boolean:
+    refresh:
+      default: false
+      selector:
+        boolean:
+    beep:
+      default: false
+      selector:
+        boolean:

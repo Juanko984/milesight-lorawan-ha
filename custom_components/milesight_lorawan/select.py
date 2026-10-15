@@ -17,7 +17,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return
-    setup_platform_entities(entry, async_add_entities, "select", MilesightSettingSelect)
+    setup_platform_entities(entry, async_add_entities, "select",
+                            lambda rt, spec: DisplayTemplateSelect(rt, spec) if spec.key == "display_template"
+                            else MilesightSettingSelect(rt, spec))
+
+
+class DisplayTemplateSelect(MilesightEntity, SelectEntity):
+    """DS3604: which of the two templates is shown."""
+
+    _attr_options = ["1", "2"]
+
+    @property
+    def current_option(self) -> str | None:
+        v = self.runtime.values.get("current_template_id")
+        return str(v) if v in (1, 2) else None
+
+    async def async_select_option(self, option: str) -> None:
+        try:
+            await self.runtime.async_display(int(option), {}, show=True)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(f"Could not switch the template on {self.runtime.entry.title}: {err}") from err
 
 
 class MilesightSettingSelect(MilesightEntity, SelectEntity):

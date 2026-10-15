@@ -41,6 +41,9 @@ def fleet_devices(hass: HomeAssistant, hub_entry: ConfigEntry) -> list[dict[str,
             "area": entry.data.get("area"), "online": bool(v.get("online")),
             "battery": v.get("battery"), "battery_low": bool(v.get("battery_low")),
             "rssi": rt.meta.get("rssi"), "snr": rt.meta.get("snr"),
+            "sf": rt.meta.get("spreading_factor"), "gateway": v.get("gateway"),
+            "gateways_heard": v.get("gateways_heard"), "signal": v.get("signal_quality"),
+            "packet_loss": v.get("packet_loss_today"), "command": v.get("command_status"),
             "last_seen": dt_util.utc_from_timestamp(last).isoformat() if last else None,
         })
     return sorted(out, key=lambda d: (d["online"], d["name"].lower()))

@@ -34,6 +34,11 @@ class Uplink:
     fport: int | None = None
     device_name: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    # radio metadata (all gateways that heard this uplink, best first)
+    gateways: list[dict[str, Any]] = field(default_factory=list)
+    sf: int | None = None
+    frequency: int | None = None
+    fcnt: int | None = None
 
 
 def _first(d: dict, *keys: str) -> Any:
@@ -109,17 +114,140 @@ def parse_envelope(payload: str | bytes, encoding: str = "base64") -> Uplink | N
     if isinstance(obj, dict) and up.predecoded is None:
         up.predecoded = obj
 
-    rx = msg.get("rxInfo")
-    rx0 = rx[0] if isinstance(rx, list) and rx and isinstance(rx[0], dict) else {}
-    ttn_rx = ttn_up.get("rx_metadata") if isinstance(ttn_up.get("rx_metadata"), list) else []
-    ttn_rx0 = ttn_rx[0] if ttn_rx and isinstance(ttn_rx[0], dict) else {}
-
-    up.rssi = _first(msg, "rssi") or _first(rx0, "rssi") or _first(ttn_rx0, "rssi")
-    up.snr = _first(msg, "snr", "loRaSNR") or _first(rx0, "snr", "loRaSNR") or _first(ttn_rx0, "snr")
+    up.gateways = _gateways(msg, ttn_up)
+    best = up.gateways[0] if up.gateways else {}
+    up.rssi = _first(msg, "rssi") if _first(msg, "rssi") is not None else best.get("rssi")
+    up.snr = _first(msg, "snr", "loRaSNR") if _first(msg, "snr", "loRaSNR") is not None else best.get("snr")
     up.time = _parse_time(_first(msg, "time", "received_at"))
     up.fport = _first(msg, "fPort", "fport", "port") or _first(ttn_up, "f_port")
     up.device_name = _first(msg, "deviceName", "device_name") or _first(dev_info, "deviceName")
+    up.sf, up.frequency = _tx_info(msg, ttn_up)
+    fcnt = _first(msg, "fCnt", "fcnt", "f_cnt")
+    fcnt = fcnt if fcnt is not None else _first(ttn_up, "f_cnt")
+    up.fcnt = int(fcnt) if isinstance(fcnt, (int, float)) else None
     return up
+
+
+def _num(v: Any) -> float | None:
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _gateways(msg: dict, ttn_up: dict) -> list[dict[str, Any]]:
+    """Every gateway that heard the uplink: id, name, rssi, snr – strongest first.
+    Milesight (mac / loRaSNR), ChirpStack v3 (gatewayID / loRaSNR), v4 (gatewayId / snr), TTN (rx_metadata)."""
+    out: list[dict[str, Any]] = []
+    rx = msg.get("rxInfo")
+    for r in rx if isinstance(rx, list) else []:
+        if not isinstance(r, dict):
+            continue
+        gid = _first(r, "gatewayID", "gatewayId", "gateway_id", "mac")
+        meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+        out.append({"id": str(gid).lower() if gid is not None else None,
+                    "name": _first(r, "name") or meta.get("gateway_name"),
+                    "rssi": _num(_first(r, "rssi")), "snr": _num(_first(r, "loRaSNR", "snr"))})
+    ttn_rx = ttn_up.get("rx_metadata") if isinstance(ttn_up.get("rx_metadata"), list) else []
+    for r in ttn_rx:
+        if not isinstance(r, dict):
+            continue
+        ids = r.get("gateway_ids") if isinstance(r.get("gateway_ids"), dict) else {}
+        gid = ids.get("eui") or ids.get("gateway_id")
+        out.append({"id": str(gid).lower() if gid else None, "name": ids.get("gateway_id"),
+                    "rssi": _num(_first(r, "rssi", "channel_rssi")), "snr": _num(_first(r, "snr"))})
+    for g in out:
+        if g["name"] is None and g["id"]:
+            g["name"] = g["id"]
+    out.sort(key=lambda g: (g["rssi"] is None, -(g["rssi"] or 0), -(g["snr"] or 0)))
+    return out
+
+
+def _tx_info(msg: dict, ttn_up: dict) -> tuple[int | None, int | None]:
+    """(spreading factor, frequency in Hz) from the network server's tx metadata."""
+    tx = msg.get("txInfo") if isinstance(msg.get("txInfo"), dict) else {}
+    sf = None
+    for path in (("dataRate", "spreadFactor"), ("loRaModulationInfo", "spreadingFactor"),
+                 ("modulation", "lora", "spreadingFactor")):
+        d: Any = tx
+        for k in path:
+            d = d.get(k) if isinstance(d, dict) else None
+        if isinstance(d, (int, float)):
+            sf = int(d)
+            break
+    settings = ttn_up.get("settings") if isinstance(ttn_up.get("settings"), dict) else {}
+    if sf is None:
+        lora = ((settings.get("data_rate") or {}).get("lora") or {}) if isinstance(settings.get("data_rate"), dict) else {}
+        if isinstance(lora.get("spreading_factor"), (int, float)):
+            sf = int(lora["spreading_factor"])
+    freq = _first(tx, "frequency") or _first(settings, "frequency")
+    try:
+        freq = int(freq) if freq is not None else None
+    except (TypeError, ValueError):
+        freq = None
+    return sf, freq
+
+
+def _dev_eui(msg: dict) -> str | None:
+    dev_info = msg.get("deviceInfo") if isinstance(msg.get("deviceInfo"), dict) else {}
+    ids = msg.get("end_device_ids") if isinstance(msg.get("end_device_ids"), dict) else {}
+    v = _first(msg, "devEUI", "deveui", "devEui", "dev_eui", "DevEUI") or _first(dev_info, "devEui") or \
+        _first(ids, "dev_eui")
+    return v.lower().replace(":", "").replace("-", "") if isinstance(v, str) else None
+
+
+def parse_notification(payload: str | bytes) -> dict[str, Any] | None:
+    """Network-server notifications that are not device uplinks.
+
+    Returns {"kind": ...} with kind one of
+      ack           – confirmed-downlink ACK (Milesight ACK notification, ChirpStack ack event): deveui, acknowledged, fcnt
+      txack         – downlink transmitted by the gateway (ChirpStack txack): deveui, fcnt
+      join          – device (re)joined: deveui, dev_addr
+      error         – network-server error for a device: deveui, error
+      gateway_info  – Milesight gateway information report: gateway_id, info{...}
+      gateway_stats – ChirpStack gateway stats: gateway_id, rx_received, rx_ok, tx_received, tx_emitted
+      gateway_state – ChirpStack gateway connection state: gateway_id, online
+    or None for anything else (device uplinks are handled by parse_envelope).
+    """
+    if isinstance(payload, bytes):
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    try:
+        msg = json.loads(payload)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(msg, dict):
+        return None
+    deveui = _dev_eui(msg)
+    has_data = any(k in msg for k in ("data", "fPort", "fport", "object", "uplink_message"))
+    if deveui and "acknowledged" in msg and not has_data:
+        fcnt = _first(msg, "fcnt", "fCnt", "fCntDown")
+        return {"kind": "ack", "deveui": deveui, "acknowledged": bool(msg["acknowledged"]),
+                "fcnt": fcnt if isinstance(fcnt, int) else None, "time": _parse_time(_first(msg, "time"))}
+    if deveui and "queueItemId" in msg and "fCntDown" in msg and not has_data:
+        return {"kind": "txack", "deveui": deveui, "fcnt": msg.get("fCntDown")}
+    if deveui and "devAddr" in msg and not has_data and "fCnt" not in msg:
+        return {"kind": "join", "deveui": deveui, "dev_addr": msg.get("devAddr"),
+                "time": _parse_time(_first(msg, "time"))}
+    if deveui and not has_data and ("error" in msg or msg.get("type") in ("UPLINK_CODEC", "DOWNLINK_CODEC",
+                                                                           "OTAA", "UPLINK_FCNT_RESET")):
+        return {"kind": "error", "deveui": deveui, "error": str(msg.get("error") or msg.get("type"))}
+    info = msg.get("device_info")
+    if isinstance(info, dict) and (info.get("gateway_id") or info.get("eui")):
+        gid = str(info.get("eui") or info.get("gateway_id")).lower()
+        flat: dict[str, Any] = {}
+        for section in ("device_info", "network_info", "battery_info"):
+            if isinstance(msg.get(section), dict):
+                flat.update(msg[section])
+        return {"kind": "gateway_info", "gateway_id": gid, "info": flat}
+    gid = _first(msg, "gatewayID", "gatewayId", "gateway_id")
+    if gid and "rxPacketsReceived" in msg:
+        return {"kind": "gateway_stats", "gateway_id": str(gid).lower(),
+                "rx_received": msg.get("rxPacketsReceived"),
+                "rx_ok": _first(msg, "rxPacketsReceivedOK", "rxPacketsReceivedOk"),
+                "tx_received": msg.get("txPacketsReceived"), "tx_emitted": msg.get("txPacketsEmitted")}
+    if gid and isinstance(msg.get("state"), str) and msg["state"].upper() in ("ONLINE", "OFFLINE"):
+        return {"kind": "gateway_state", "gateway_id": str(gid).lower(), "online": msg["state"].upper() == "ONLINE"}
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -3114,6 +3242,66 @@ def _decode_am30xl(b: bytes, co2: bool) -> dict[str, Any]:
 # Display content / template config / update results are skipped.
 # --------------------------------------------------------------------------
 _DS3604_BUTTON = {0: "single_click", 1: "double_click", 2: "short_press", 3: "long_press"}
+_DS3604_RESULT = {0: "success", 1: "template id not exist", 2: "block id not exist", 3: "content is too long",
+                  4: "block unable to modify"}
+_DS3604_BLOCKS = {**{f"text_{n}": n - 1 for n in range(1, 11)}, "qrcode": 10}
+_DS3604_VISIBLE = {**_DS3604_BLOCKS, "image_1": 11, "image_2": 12, "battery_status": 13, "connect_status": 14}
+
+
+def encode_ds3604_content(template: int, block: str, text: str) -> bytes:
+    """One display block (text_1..text_10 / qrcode) of template 1 or 2 – frame FB 01 <tpl<<6|block> <len> <utf-8>."""
+    if template not in (1, 2):
+        raise ValueError("template must be 1 or 2")
+    if block not in _DS3604_BLOCKS:
+        raise ValueError(f"unknown display block {block}")
+    data = str(text).encode("utf-8")
+    if len(data) > 255:
+        raise ValueError("display text is longer than 255 bytes")
+    return bytes([0xFB, 0x01, ((template - 1) << 6) | _DS3604_BLOCKS[block], len(data)]) + data
+
+
+def encode_ds3604(cmd: str, value: Any = None) -> bytes:
+    """DS3604 commands: template (1/2), refresh, beep, buzzer (bool), button (bool), template_button (bool),
+    report_display, visible ({block: bool})."""
+    if cmd == "template":
+        if value not in (1, 2):
+            raise ValueError("template must be 1 or 2")
+        return bytes([0xFF, 0x73, value - 1])
+    if cmd == "refresh":
+        return bytes.fromhex("ff3d02")
+    if cmd == "beep":
+        return bytes.fromhex("ff3d01")
+    if cmd == "report_display":
+        return bytes.fromhex("ff2803")
+    if cmd in ("buzzer", "button", "template_button"):
+        return bytes([0xFF, {"buzzer": 0x3E, "button": 0x25, "template_button": 0x90}[cmd], 1 if value else 0])
+    if cmd == "visible":
+        mask = data = 0
+        for k, v in value.items():
+            if k not in _DS3604_VISIBLE:
+                raise ValueError(f"unknown display block {k}")
+            mask |= 1 << _DS3604_VISIBLE[k]
+            data |= (1 if v else 0) << _DS3604_VISIBLE[k]
+        return bytes([0xFF, 0x89, 0x02]) + mask.to_bytes(2, "little") + data.to_bytes(2, "little")
+    raise ValueError(f"unknown DS3604 command {cmd}")
+
+
+def ds3604_frames(frames: list[bytes], max_size: int) -> list[bytes]:
+    """Pack command frames into as few downlinks of at most max_size bytes as possible (frames are never split)."""
+    out: list[bytes] = []
+    cur = b""
+    for f in frames:
+        if len(f) > max_size:
+            raise ValueError(f"display block of {len(f)} bytes does not fit in a {max_size}-byte downlink")
+        if cur and len(cur) + len(f) > max_size:
+            out.append(cur)
+            cur = b""
+        cur += f
+    if cur:
+        out.append(cur)
+    return out
+
+
 _DS3604_CFG = {0x03: 2, 0x10: 1, 0x25: 1, 0x27: 1, 0x28: 1, 0x3E: 1, 0x3D: 1, 0x66: 1, 0x82: 1, 0x89: 5,
                0x90: 1}
 
@@ -3143,13 +3331,24 @@ def decode_ds3604(b: bytes) -> dict[str, Any]:
             out["current_template_id"] = b[i] + 1
             i += 1
         elif cid == 0xFB and ctype == 0x01 and _need(b, i, 1):       # block content (text / QR code)
-            block = b[i] & 0x3F
+            tpl, block = (b[i] >> 6) + 1, b[i] & 0x3F
             i += 1
             if block <= 10:
                 if not _need(b, i, 1) or not _need(b, i + 1, b[i]):
                     break
-                i += 1 + b[i]
-        elif cid == 0xFA and ctype in (0x01, 0x02, 0x03) and _need(b, i, 2):   # update results
+                n = b[i]
+                name = f"text_{block + 1}" if block < 10 else "qrcode"
+                out.setdefault(f"template_{tpl}", {})[name] = b[i + 1:i + 1 + n].decode("utf-8", "replace")
+                i += 1 + n
+        elif cid == 0xFA and ctype == 0x01 and _need(b, i, 2):   # content update result
+            tpl, block = (b[i] >> 6) + 1, b[i] & 0x3F
+            res: dict[str, Any] = {"template_id": tpl, "block_id": block}
+            if block <= 10:
+                res["block_name"] = f"text_{block + 1}" if block < 10 else "qrcode"
+            res["result"] = _DS3604_RESULT.get(b[i + 1], "unknown")
+            out.setdefault("update_content_result", []).append(res)
+            i += 2
+        elif cid == 0xFA and ctype in (0x02, 0x03) and _need(b, i, 2):   # image / template update result
             i += 2
         elif cid in (0xFE, 0xFF) and ctype in _DS3604_CFG and _need(b, i, _DS3604_CFG[ctype]):
             i += _DS3604_CFG[ctype]

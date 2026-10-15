@@ -19,7 +19,7 @@ def _load(name):
     spec = importlib.util.spec_from_file_location(f"mlw.{name}", PKG / f"{name}.py")
     mod = importlib.util.module_from_spec(spec); sys.modules[f"mlw.{name}"] = mod
     spec.loader.exec_module(mod); return mod
-dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models")
+dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -460,6 +460,194 @@ bad, EM300-TH
     assert devices[0] == {"deveui": "24e124136b322135", "model": "EM300-MCS", "name": "Back door", "area": "Warehouse"}
     assert devices[1]["name"] == "Light" and devices[1]["area"] is None and devices[2]["name"] is None
     assert len(errors) == 3 and "invalid DevEUI" in errors[0] and "unknown model" in errors[1] and "twice" in errors[2]
+
+
+
+def test_envelope_radio_metadata():
+    ms = {"devEUI": "24E124126B316403", "fCnt": 12, "fPort": 85, "data": "AXVk",
+          "rxInfo": [{"loRaSNR": -3, "mac": "24e124fffefa0aaa", "rssi": -110},
+                     {"loRaSNR": 6.2, "mac": "24e124fffefa0fa8", "name": "Local Gateway", "rssi": -49}],
+          "txInfo": {"frequency": 904700000, "dataRate": {"modulation": "LORA", "bandwidth": 125, "spreadFactor": 8}}}
+    up = dec.parse_envelope(json.dumps(ms))
+    assert [g["id"] for g in up.gateways] == ["24e124fffefa0fa8", "24e124fffefa0aaa"]      # strongest first
+    assert up.rssi == -49 and up.snr == 6.2 and up.sf == 8 and up.frequency == 904700000 and up.fcnt == 12
+    cs = {"deviceInfo": {"devEui": "0102030405060708"}, "fCnt": 5, "data": "AXVk",
+          "rxInfo": [{"gatewayId": "0016C001FF10A235", "rssi": -80, "snr": 9.5}],
+          "txInfo": {"modulation": {"lora": {"spreadingFactor": 12}}}}
+    up = dec.parse_envelope(json.dumps(cs))
+    assert up.gateways[0]["id"] == "0016c001ff10a235" and up.sf == 12
+    ttn = {"end_device_ids": {"dev_eui": "0102030405060709"},
+           "uplink_message": {"frm_payload": "AXVk", "f_cnt": 7,
+                              "rx_metadata": [{"gateway_ids": {"gateway_id": "roof", "eui": "B827EBFFFE000001"},
+                                               "rssi": -101, "snr": 2.5}],
+                              "settings": {"data_rate": {"lora": {"spreading_factor": 10}}, "frequency": "868300000"}}}
+    up = dec.parse_envelope(json.dumps(ttn))
+    assert up.gateways == [{"id": "b827ebfffe000001", "name": "roof", "rssi": -101, "snr": 2.5}]
+    assert up.sf == 10 and up.fcnt == 7 and up.frequency == 868300000
+
+
+def test_notifications():
+    ack = dec.parse_notification(json.dumps({"applicationID": 1, "devEUI": "24E124527F418093", "acknowledged": True,
+                                             "fcnt": 4996, "time": "2026-03-12T06:10:30Z"}))
+    assert ack["kind"] == "ack" and ack["deveui"] == "24e124527f418093" and ack["acknowledged"] and ack["fcnt"] == 4996
+    join = dec.parse_notification(json.dumps({"devEUI": "24e124527f418093", "devAddr": "0642fa41"}))
+    assert join["kind"] == "join" and join["dev_addr"] == "0642fa41"
+    info = dec.parse_notification(json.dumps({"tunnel_support": True, "device_info": {
+        "eui": "24E124FFFEF00001", "model": "UG63", "firmware_version": "64.0.0.5", "cpu_tempeture": "47"},
+        "network_info": {"wan_status": 1, "wan_ip": "10.0.0.2"}}))
+    assert info["kind"] == "gateway_info" and info["gateway_id"] == "24e124fffef00001"
+    assert info["info"]["cpu_tempeture"] == "47" and info["info"]["wan_ip"] == "10.0.0.2"
+    st = dec.parse_notification(json.dumps({"gatewayId": "0016c001ff10a235", "rxPacketsReceived": 10,
+                                            "rxPacketsReceivedOk": 9, "txPacketsReceived": 2, "txPacketsEmitted": 2}))
+    assert st == {"kind": "gateway_stats", "gateway_id": "0016c001ff10a235", "rx_received": 10, "rx_ok": 9,
+                  "tx_received": 2, "tx_emitted": 2}
+    conn = dec.parse_notification(json.dumps({"gatewayId": "0016c001ff10a235", "state": "OFFLINE"}))
+    assert conn == {"kind": "gateway_state", "gateway_id": "0016c001ff10a235", "online": False}
+    # device uplinks are not notifications
+    assert dec.parse_notification(json.dumps({"devEUI": "24e1", "data": "AXVk", "fCnt": 1})) is None
+    assert dec.parse_notification(json.dumps({"deviceInfo": {"devEui": "0102"}, "devAddr": "01", "fCnt": 3,
+                                              "data": "AXVk"})) is None
+
+
+def test_commands_echo_retry_fail():
+    pc = lnk.PendingCommands()
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 0)
+    # first uplink after sending (delivers the downlink) – nothing yet
+    assert pc.on_uplink("017564", {}, 10, retries=2) == ([], [])
+    # device never answered a setting so far -> unconfirmable: 'sent', and it learns the device does not echo
+    resend, done = pc.on_uplink("017564", {}, 20, retries=2)
+    assert not resend and done[0]["status"] == "sent" and pc.echoes is False
+    # a device that does echo: retried twice, then failed
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 0)
+    statuses = []
+    for t in range(1, 8):
+        resend, done = pc.on_uplink("017564", {}, t, retries=2)
+        statuses += [("resend", r["attempts"]) for r in resend] + [(d["status"], d["attempts"]) for d in done]
+    assert statuses == [("resend", 2), ("resend", 3), ("failed", 3)], statuses
+    # echo on fe channel confirms
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 100)
+    resend, done = pc.on_uplink("0175" + "fe035802", {}, 101, retries=2)
+    assert done[0]["status"] == "confirmed" and pc.last["status"] == "confirmed" and not pc.items
+
+
+def test_commands_state_ack_display():
+    pc = lnk.PendingCommands()
+    pc.add("switch_1", bytes.fromhex("080100ff"), 85, 0, state={"switch_1": True}, prev={"switch_1": False})
+    _, done = pc.on_uplink("", {"switch_1": "on"}, 1, retries=1)
+    assert done[0]["status"] == "confirmed" and done[0]["detail"] == "device reports the new state"
+    # still the old state after two uplinks -> resent, then failed with prev kept for the revert
+    pc.add("switch_1", bytes.fromhex("080100ff"), 85, 0, state={"switch_1": True}, prev={"switch_1": False})
+    r1, _ = pc.on_uplink("", {"switch_1": False}, 1, retries=1)
+    r2, _ = pc.on_uplink("", {"switch_1": False}, 2, retries=1)
+    assert not r1 and r2 and r2[0]["attempts"] == 2
+    pc.on_uplink("", {}, 3, retries=1)
+    _, done = pc.on_uplink("", {}, 4, retries=1)
+    assert done[0]["status"] == "failed" and done[0]["prev"] == {"switch_1": False}
+    # confirmed downlink with nothing else to check: the network ACK confirms it
+    pc = lnk.PendingCommands({"echoes": False})
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 0, confirmed=True)
+    done = pc.on_ack(True, 5)
+    assert done[0]["status"] == "confirmed" and done[0]["detail"] == "acknowledged by the device"
+    # NACK -> resent at the next uplink
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 10, confirmed=True)
+    assert pc.on_ack(False, 11) == [] and pc.items["reboot"]["status"] == "not acknowledged"
+    resend, _ = pc.on_uplink("", {}, 12, retries=2)
+    assert resend and resend[0]["attempts"] == 2
+    # DS3604: per-block results
+    pc = lnk.PendingCommands()
+    pc.add("display text_1, text_2", b"\xfb\x01", 85, 0, results=[[1, 0], [1, 1]])
+    _, done = pc.on_uplink("", {"update_content_result": [{"template_id": 1, "block_id": 0, "result": "success"}]}, 1, 2)
+    assert not done and pc.items["display text_1, text_2"]["results"] == [[1, 1]]
+    _, done = pc.on_uplink("", {"update_content_result": [{"template_id": 1, "block_id": 1, "block_name": "text_2",
+                                                            "result": "content is too long"}]}, 2, 2)
+    assert done[0]["status"] == "failed" and done[0]["detail"] == "text_2: content is too long"
+    # migration from the 0.17 format
+    meta = {"pending": {"report_interval": {"hex": "ff035802", "value": 600, "sent": 5}}}
+    pc = lnk.PendingCommands.from_meta(meta)
+    assert pc.items["report_interval"]["value"] == 600 and "pending" not in meta
+
+
+def test_commands_regressions():
+    # a device that echoes settings must not get a reboot resent (reboot is never echoed)
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 0, echo=False)
+    pc.on_uplink("017564", {}, 1, retries=2)
+    resend, done = pc.on_uplink("017564", {}, 2, retries=2)
+    assert not resend and done[0]["status"] == "sent" and pc.echoes is True
+    # an un-echoed reboot does not teach "this device never echoes"
+    pc = lnk.PendingCommands()
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 0, echo=False)
+    pc.on_uplink("", {}, 1, 2); pc.on_uplink("", {}, 2, 2)
+    assert pc.echoes is None
+    # the ACK of a resend belongs to the resend, not to the next command
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 0, confirmed=True)
+    pc.on_ack(True, 1)                                       # delivered, waiting for the echo
+    pc.on_uplink("", {}, 2, 2)
+    resend, _ = pc.on_uplink("", {}, 3, 2)                   # no echo -> resent
+    pc.add("led_indicator", bytes.fromhex("ff2f01"), 85, 4, confirmed=True)
+    pc.on_ack(True, 5)
+    assert pc.items["report_interval"]["status"] == "delivered" and "delivered" not in pc.items["led_indicator"]
+    # byte-aligned echo match only
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("x", bytes.fromhex("ff0358"), 85, 0)
+    _, done = pc.on_uplink("0ff03580", {}, 1, 2)             # 'ff0358' appears half a byte off
+    assert not done
+
+
+def test_link_stats_and_quality():
+    ls = lnk.LinkStats()
+    for f in (1, 2, 3, 6, 7):                       # 4 and 5 lost
+        ls.update("2026-10-15", f * 600.0, f, [{"id": "gw1", "name": "Roof", "rssi": -100, "snr": 3}])
+    assert ls.received == 5 and ls.expected == 7 and ls.loss() == 28.6
+    assert ls.is_duplicate(7, 7 * 600.0 + 2) and not ls.is_duplicate(8, 7 * 600.0 + 2)
+    ls.update("2026-10-15", 5000.0, 1, [])           # counter reset (rejoin) is not loss
+    assert ls.expected == 8 and ls.received == 6
+    ls.update("2026-10-16", 90000.0, 2, [])
+    assert ls.loss_yesterday == 25.0 and ls.received == 1 and ls.heard_by(90000.0, 86400)[0]["name"] == "Roof"
+    assert lnk.link_quality(-60, 9, 7) == "excellent"        # margin 16.5
+    assert lnk.link_quality(-110, -6, 12) == "good"          # margin 14
+    assert lnk.link_quality(-115, -14, 12) == "fair"         # margin 6
+    assert lnk.link_quality(-121, -18, 12) == "poor"
+    assert lnk.link_quality(-127, 9, 7) == "poor"            # RSSI cap
+    assert lnk.link_quality(None, None, 7) is None
+    assert "SF12" in lnk.link_advice("fair", 12, None, 1) and lnk.link_advice("excellent", 7, 0, 2) == "OK"
+
+
+def test_gateway_stats():
+    gs = lnk.GatewayStats()
+    rx = [{"id": "gw1", "name": "Local Gateway", "rssi": -60}, {"id": "gw2", "name": None, "rssi": -100}]
+    assert gs.uplink("2026-10-15", 3600 * 10 + 5, "dev1", rx) == ["gw1", "gw2"]
+    assert gs.uplink("2026-10-15", 3600 * 10 + 65, "dev2", rx[:1]) == []
+    gs.uplink("2026-10-15", 3600 * 10 + 70, "dev2", rx[:1], duplicate=True)
+    assert gs.counts["uplinks"] == 2 and gs.counts["duplicates"] == 1
+    assert gs.gateways["gw1"]["packets_today"] == 3 and gs.gateways["gw1"]["devices_today"] == ["dev1", "dev2"]
+    assert gs.packets_last_hour("gw1", 3600 * 10 + 100) == 3 and gs.hourly("gw1", 3600 * 10 + 100)[-1] == 3
+    assert gs.online("gw2", 3600 * 10 + 300, 900) is True and gs.online("gw2", 3600 * 12, 900) is False
+    gs.state("gw2", 3600 * 12 + 1, True)                      # ChirpStack connection state wins
+    assert gs.online("gw2", 3600 * 12 + 2, 900) is True
+    assert gs.info("gw3", 50000, {"model": "UG63", "cpu_tempeture": "45"}) and gs.gateways["gw3"]["name"] == "UG63 gw3"
+    gs.count("joins", "2026-10-16")
+    assert gs.counts == {"uplinks": 0, "duplicates": 0, "downlinks": 0, "joins": 1, "acks": 0, "nacks": 0,
+                         "errors": 0} and gs.gateways["gw1"]["packets_today"] == 0
+
+
+def test_ds3604_encode_and_decode():
+    f = dec.encode_ds3604_content(2, "text_3", "Free")
+    assert f.hex() == "fb0142" + "04" + b"Free".hex()
+    d = dec.decode_ds3604(bytes.fromhex("fb0100054d696c6573" + "fa010000" + "fa010a03" + "ff7301"))
+    assert d["template_1"] == {"text_1": "Miles"} and d["current_template_id"] == 2
+    assert d["update_content_result"] == [{"template_id": 1, "block_id": 0, "block_name": "text_1", "result": "success"},
+                                          {"template_id": 1, "block_id": 10, "block_name": "qrcode",
+                                           "result": "content is too long"}]
+    frames = [dec.encode_ds3604_content(1, f"text_{n}", "x" * 20) for n in range(1, 6)]   # 24 bytes each
+    assert [len(p) for p in dec.ds3604_frames(frames, 51)] == [48, 48, 24]
+    try:
+        dec.ds3604_frames([dec.encode_ds3604_content(1, "text_1", "x" * 60)], 51)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
 
 
 if __name__ == "__main__":

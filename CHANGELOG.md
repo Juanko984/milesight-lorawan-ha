@@ -2,6 +2,30 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.18.0
+### Added
+- Command confirmation: every command, setting and display update is tracked (*Command status*: pending /
+  retrying / delivered / confirmed / failed / sent) and confirmed by the device's echo, its status report
+  (switches, outputs, valves, thermostat target) or the DS3604's update result. Unanswered commands are resent
+  after two uplinks (Configure → Retries, default 2); failed switches / outputs fall back to the reported state.
+  Optional LoRaWAN confirmed downlinks with network ACKs. `milesight_lorawan_command` event and
+  *Command not confirmed* blueprint.
+- Signal quality per device: Signal quality (with advice), Spreading factor, Gateway (all gateways in range as an
+  attribute), Gateways in range, Packet loss today (from frame-counter gaps); link margin, uplinks today,
+  frequency, frame counter (disabled by default). Duplicate frames from several gateways are counted once.
+  Installer dashboard dashboards/signal_quality.yaml; the fleet device list includes the signal data.
+- DS3604 display content: text entities per block (both templates, QR code), Displayed template select,
+  Refresh / Beep / Read display content buttons, Button and Template switch button switches, service
+  `milesight_lorawan.display_content` (packs blocks into as few downlinks as fit, skips unchanged blocks) and the
+  *DS3604 room sign* blueprint. Encoders checked against Milesight's ds3604-encoder.js (tools/checks/ds3604_enc.py);
+  the decoder now reads display content and update results.
+- Gateway health: a device per gateway (Online, Packets today / this hour, Devices heard today, Last packet; CPU
+  temperature, firmware and WAN / cellular status from Milesight Gateway Information reports; ChirpStack gateway
+  stats and connection state), network counters on the gateway entry (Gateways online, Uplinks, Downlinks, Joins,
+  ACKs today), gateway offline / online events and blueprint. ACK, join and gateway status topics are set under the
+  gateway entry's *Notification / gateway status topics*.
+- Join notifications fire `milesight_lorawan_device_joined`.
+
 ## 0.17.0
 ### Added
 - Device settings as entities for 89 models: child lock, LED indicator, buzzer switches and alarm thresholds

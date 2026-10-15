@@ -79,7 +79,8 @@ Statistics are stored by Home Assistant and survive restarts.
 
 ### DS3604 e-ink display
 
-Button presses as an event entity (single / double click, short / long press), current template, battery.
+Button presses as an event entity (single / double click, short / long press), current template, battery – and
+the screen content from Home Assistant, see [DS3604 display content](#ds3604-display-content).
 
 ### WS range – buttons, sensors, wall switches, sockets
 
@@ -247,9 +248,13 @@ On the gateway: **Network Server → Applications → (your application) → Dat
 * Broker: the MQTT broker Home Assistant uses (e.g. the Mosquitto add-on), with a user/password.
 * **Uplink data topic**: e.g. `milesight/uplink/$deveui` (anything works – you enter it in step 2).
 * Payload: leave the default JSON with Base64 `data`. No payload codec is needed – the integration decodes.
-* **Downlink data topic** (only needed to switch WS wall switches / sockets from Home Assistant): e.g.
+* **Downlink data topic** (needed for any command from Home Assistant): e.g.
   `milesight/downlink/$deveui`. In the integration's gateway settings the same topic is written as
   `milesight/downlink/{deveui}` (the default).
+* Optional, for [command confirmation](#command-confirmation) and [gateway health](#gateway-health):
+  **ACK Notification** → `milesight/ack`, **Join Notification** → `milesight/join`, and – on gateways that have it
+  (UG63, SG50) – **Gateway Information** → `milesight/gateway`. Enter these under the integration's gateway
+  settings as *Notification / gateway status topics*: `milesight/ack, milesight/join, milesight/gateway`.
 
 ## 2 – Install the integration (once per site)
 
@@ -333,6 +338,9 @@ Import with one click (or copy the files from [`blueprints/`](blueprints/automat
 | [Temperature out of range](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/temperature_out_of_range.yaml) | Fridges, freezers, server rooms – low / high limit for N minutes |
 | [Button actions](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/button_actions.yaml) | Short / double / long press → actions (WS101, WS156, WS136, DS3604, WT401) |
 | [Irrigation / valve schedule](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/valve_schedule.yaml) | Open a UC511 / UC512 / UC521 valve or UC300 output at set times for a duration |
+| [Command not confirmed](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/command_failed.yaml) | Notify when a command / setting fails after its retries |
+| [Gateway offline / back online](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/gateway_offline.yaml) | Notify when a gateway stops forwarding packets |
+| [DS3604 room sign](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/ds3604_room_status.yaml) | Room name, free / occupied, current or next meeting and booking QR code on a DS3604 |
 
 Each one has an editable action list (notification by default) – point it at your phone, Telegram, e-mail etc.
 
@@ -426,6 +434,93 @@ Two services are available for automations and scripts:
 UC11xx / UC11-N1 / UC11-T1: Milesight publishes no downlink encoder for these, so their outputs stay read-only (use
 `send_downlink` with the commands from the user guide if needed).
 
+## Command confirmation
+
+Every command, setting and display update is tracked until the device answers it. The **Command status** sensor
+(diagnostic) shows the latest one:
+
+| Status | Meaning |
+|---|---|
+| *pending* | Sent to the gateway, waiting for the device (Class A devices pick it up after their next uplink) |
+| *retrying* | No answer after two uplinks – sent again (default 2 retries, **Configure → Retries**) |
+| *delivered* | Confirmed downlink acknowledged by the device's radio, waiting for its status report |
+| *confirmed* | The device echoed the setting, its status report shows the new state (switches, outputs, valves, thermostat target), the DS3604 reported the block updated, or – for commands nothing else can check – the network ACK arrived |
+| *failed* | No answer after all retries, or rejected by the device (e.g. DS3604 *content is too long*). Switches and outputs fall back to the last reported state |
+| *sent* | The device does not answer this kind of command and confirmed downlinks are off – nothing to check |
+
+The integration learns per device whether it echoes settings (most current Milesight firmware does; older EM300
+firmware does not), so devices that never answer are not retried pointlessly. **Configure → Confirmed downlinks**
+asks for a LoRaWAN ACK on every command (needs the gateway's ACK notification topic, step 1). Each final state also
+fires a `milesight_lorawan_command` event (`command`, `status`, `attempts`, `detail`) – the
+[Command not confirmed](#blueprints) blueprint notifies on failures.
+
+## Signal quality
+
+Every device gets diagnostic sensors that help installers place sensors and gateways:
+
+| Sensor | |
+|---|---|
+| **Signal quality** | excellent / good / fair / poor from the *link margin* (SNR above what the spreading factor needs) and RSSI. Attribute `advice` says what to do, e.g. "Weak link: move the sensor … or add a gateway" |
+| **RSSI**, **SNR** | Best gateway; kept in the history / long-term statistics |
+| **Spreading factor** | SF7 – SF12 (higher = slower, more battery) |
+| **Gateway** | The gateway that heard it best; attribute `gateways` lists every gateway in range with RSSI / SNR |
+| **Gateways in range** | How many gateways heard it in the last 24 h |
+| **Packet loss today** | From gaps in the frame counter (a rejoin is not counted); yesterday's value as an attribute |
+| *Link margin*, *Uplinks today*, *Frequency*, *Frame counter* | Disabled by default |
+
+The same frame forwarded by two gateways is counted once. Dashboard for installers:
+[`dashboards/signal_quality.yaml`](dashboards/signal_quality.yaml) – gateways, weak / lossy devices, all devices.
+
+## DS3604 display content
+
+The DS3604 shows two templates designed in Milesight ToolBox, each with up to 10 text blocks and a QR code.
+Home Assistant fills the blocks:
+
+* **Template 1 text 1 – 3** text entities on the device page (all other blocks and template 2 can be enabled) –
+  type a value and it is sent. The entity shows what the display reports, or what was last sent.
+* **Displayed template** select, **Refresh display**, **Beep** and **Read display content** buttons.
+* Service `milesight_lorawan.display_content` for automations (templates allowed):
+  ```yaml
+  action: milesight_lorawan.display_content
+  data:
+    device_id: <your display(s)>
+    template: 1
+    content:
+      text_1: Meeting room 1
+      text_2: "{{ 'Occupied' if is_state('binary_sensor.room_1_occupancy', 'on') else 'Free' }}"
+      text_3: "Next: {{ state_attr('calendar.room_1', 'message') }}"
+      qrcode: https://example.com/book/room-1
+  ```
+  Unchanged blocks are skipped (saves battery and airtime; `force: true` sends them anyway). Blocks are packed
+  into as few downlinks as fit – at most 51 bytes each by default, which works at every EU868 data rate
+  (**Configure → Max bytes per display downlink**; up to 222 near a gateway, 11 for US915 SF10).
+* Blueprint [DS3604 room sign](#blueprints): room name, free / occupied from a sensor or the calendar, the
+  current or next meeting, booking QR code.
+
+Each block update is confirmed by the display itself (*Command status*); a rejected block shows in
+**Display error** (e.g. "text_3: content is too long" – the text does not fit the block in the template).
+
+## Gateway health
+
+Each LoRaWAN gateway that forwards packets appears as its own device (linked to the gateway entry), with:
+
+* **Online** – off when the gateway has forwarded nothing for *Gateway offline after* minutes (default 15,
+  gateway settings) – or, with status reports, when it reports itself offline. Fires
+  `milesight_lorawan_gateway_offline` / `_online` events ([blueprint](#blueprints)).
+* **Packets today**, **Packets this hour** (attribute: last 24 hours), **Devices heard today** (with names),
+  **Last packet**.
+* With status reports: **CPU temperature**, firmware / model on the device page, WAN / cellular status as
+  attributes (Milesight *Gateway Information*, UG63 / SG50), **Radio packets received / sent today** (ChirpStack
+  gateway stats, topic `gateway/+/event/stats` with the JSON marshaler, and connection state
+  `gateway/+/state/conn`).
+
+The gateway entry itself gets **Gateways online**, **Uplinks today** (duplicates / errors as attributes),
+**Downlinks today**, **Joins today** and **Downlink ACKs today**.
+
+UG65 / UG56 / UG67 do not publish their own status over MQTT; for them everything is derived from the packets
+they forward, which is reliable as long as some devices report more often than the offline time. (Their HTTP API
+needs a password copied from the browser's developer tools, so it is not used.)
+
 ## Settings per device
 
 Open the device's integration entry → **Configure** (⚙️). Picked the wrong model during onboarding? Change **Model** here; afterwards delete the old, now-unavailable entities from the device page.
@@ -440,6 +535,12 @@ Open the device's integration entry → **Configure** (⚙️). Picked the wrong
 | Voltage for power estimate (V) | CT range | 0 (off) |
 | Count as empty after (min at 0 people / vacant) | VS121, VS321, VS340, VS341, VS370, VS373, GS601 | 2 |
 | Opening hour / closing hour / open days (for utilisation %) | VS-range, GS601 | 08–17, Mon–Fri |
+| Confirmed downlinks (network ACK) | devices with commands | off |
+| Retries for unanswered commands | devices with commands | 2 |
+| Max bytes per display downlink | DS3604 | 51 |
+
+Gateway entry → **Configure**: uplink / downlink topics, *Notification / gateway status topics* (ACK, join,
+gateway information – comma separated, wildcards allowed) and *Gateway offline after* (min, default 15).
 
 ## Troubleshooting
 
@@ -481,6 +582,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.18.0** | Command confirmation with retries (pending / confirmed / failed, network ACKs), signal quality per device (gateways in range, SF, packet loss, advice) with installer dashboard, DS3604 display content (text entities, service, room-sign blueprint), gateway health (a device per gateway: online, packets, devices heard, status reports). |
 | **0.17.0** | Device settings as entities (alarm thresholds, child lock, LED, buzzer), stored-data backfill into long-term statistics, pulse counters as water / gas / energy meters for the Energy dashboard, building analytics (area comfort, occupancy heat map, utilisation) with dashboard. |
 | **0.16.0** | Rollout tools: bulk onboarding with areas, fleet overview sensors + dashboard, online / battery-low sensors and events, 8 blueprints, settings confirmation. |
 | **0.15.0** | Device commands: reboot, time sync, request update, reporting / collection interval, UC output and valve switches, UC521 valve opening; output_command and send_downlink services. |

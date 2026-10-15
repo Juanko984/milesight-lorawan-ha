@@ -1,0 +1,43 @@
+# Milesight LoRaWAN – signal quality & gateways (installer view)
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# Replace sensor.milesight_gateway_devices with the entity id of YOUR gateway's "Devices" sensor
+# (Settings → Devices → Milesight gateway). The gateway tables find their sensors by themselves.
+title: LoRaWAN signal
+views:
+  - title: Signal
+    path: signal
+    cards:
+      - type: markdown
+        title: Gateways
+        content: |
+          {% set hubs = states.sensor | selectattr('attributes.gateways', 'defined')
+             | selectattr('attributes.gateways', 'iterable') | list %}
+          {% set gws = hubs | map(attribute='attributes.gateways') | sum(start=[]) | selectattr('packets_today', 'defined') | list %}
+          {% if not gws %}No gateways seen yet – they appear with the first uplink that lists them (rxInfo).{% else %}
+          | | Gateway | Packets today | Devices today |
+          |---|---|---|---|
+          {% for g in gws | sort(attribute='name') %}| {{ '🟢' if g.online else ('🔴' if g.online is false else '⚪') }} | {{ g.name }} | {{ g.packets_today }} | {{ g.devices_today }} |
+          {% endfor %}{% endif %}
+      - type: markdown
+        title: Weak or lossy devices
+        content: |
+          {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
+          {% set bad = devs | selectattr('signal', 'in', ['poor', 'fair']) | list
+             + (devs | selectattr('packet_loss', 'defined') | rejectattr('packet_loss', 'none')
+                | selectattr('packet_loss', 'ge', 10) | list) %}
+          {% if not bad %}All devices have a good link ✅{% else %}
+          | Device | Area | Signal | RSSI | SNR | SF | Loss today | Gateway |
+          |---|---|---|---|---|---|---|---|
+          {% for d in bad | unique(attribute='deveui') | sort(attribute='name') %}| {{ d.name }} | {{ d.area or '' }} | {{ d.signal or '–' }} | {{ d.rssi if d.rssi is not none else '' }} | {{ d.snr if d.snr is not none else '' }} | {{ d.sf or '' }} | {{ (d.packet_loss ~ ' %') if d.packet_loss is not none else '' }} | {{ d.gateway or '' }} |
+          {% endfor %}{% endif %}
+      - type: markdown
+        title: All devices
+        content: |
+          {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
+          {% set icon = {'excellent': '🟢', 'good': '🟢', 'fair': '🟡', 'poor': '🔴'} %}
+          | | Device | Model | RSSI | SNR | SF | Gateways | Loss | Last command |
+          |---|---|---|---|---|---|---|---|---|
+          {% for d in devs | sort(attribute='name') %}| {{ icon.get(d.signal, '⚪') }} | {{ d.name }} | {{ d.model }} | {{ d.rssi if d.rssi is not none else '' }} | {{ d.snr if d.snr is not none else '' }} | {{ d.sf or '' }} | {{ d.gateways_heard or '' }} | {{ (d.packet_loss ~ ' %') if d.packet_loss is not none else '' }} | {{ d.command or '' }} |
+          {% endfor %}
+
+          🟢 good / excellent · 🟡 fair · 🔴 poor (link margin = SNR above what the spreading factor needs)

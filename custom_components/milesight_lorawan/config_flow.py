@@ -26,6 +26,14 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_AUTO_BACKFILL,
+    CONF_CONFIRMED_DOWNLINKS,
+    CONF_DISPLAY_MAX_BYTES,
+    CONF_EXTRA_TOPICS,
+    CONF_GATEWAY_OFFLINE_MIN,
+    CONF_RETRIES,
+    DEFAULT_DISPLAY_MAX_BYTES,
+    DEFAULT_GATEWAY_OFFLINE_MIN,
+    DEFAULT_RETRIES,
     CONF_METER_OFFSET,
     CONF_METER_PPU,
     CONF_METER_SOURCE,
@@ -110,6 +118,9 @@ def _hub_schema(opts: dict) -> dict:
         vol.Required(CONF_DOWNLINK_TOPIC, default=opts.get(CONF_DOWNLINK_TOPIC, DEFAULT_DOWNLINK_TOPIC)): TextSelector(),
         vol.Required(CONF_DOWNLINK_FORMAT, default=opts.get(CONF_DOWNLINK_FORMAT, DOWNLINK_MILESIGHT)):
             _downlink_format_selector(),
+        vol.Optional(CONF_EXTRA_TOPICS, default=opts.get(CONF_EXTRA_TOPICS, "")): TextSelector(),
+        vol.Required(CONF_GATEWAY_OFFLINE_MIN, default=opts.get(CONF_GATEWAY_OFFLINE_MIN, DEFAULT_GATEWAY_OFFLINE_MIN)):
+            _int_box(2, 1440),
     }
 
 
@@ -265,6 +276,13 @@ class MilesightOptionsFlow(OptionsFlow):
             schema[vol.Optional(CONF_METER_OFFSET, default=opts.get(CONF_METER_OFFSET, 0))] = NumberSelector(
                 NumberSelectorConfig(min=0, max=100_000_000, step="any", mode=NumberSelectorMode.BOX))
             schema[vol.Optional(CONF_METER_SOURCE, default=opts.get(CONF_METER_SOURCE, ""))] = TextSelector()
+        if downlinks(model):
+            schema[vol.Required(CONF_CONFIRMED_DOWNLINKS, default=opts.get(CONF_CONFIRMED_DOWNLINKS, False))] = \
+                BooleanSelector()
+            schema[vol.Required(CONF_RETRIES, default=opts.get(CONF_RETRIES, DEFAULT_RETRIES))] = _int_box(0, 5)
+        if "ds3604" in features:
+            schema[vol.Required(CONF_DISPLAY_MAX_BYTES, default=opts.get(CONF_DISPLAY_MAX_BYTES,
+                                                                         DEFAULT_DISPLAY_MAX_BYTES))] = _int_box(11, 242)
         hist = downlinks(model).get("history") or {}
         if hist.keys() & {"fetch", "fetch_since"}:
             schema[vol.Required(CONF_AUTO_BACKFILL, default=opts.get(CONF_AUTO_BACKFILL, True))] = BooleanSelector()

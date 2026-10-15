@@ -2374,6 +2374,22 @@
     "off": {
      "hex": "ff3e00"
     }
+   },
+   "button": {
+    "on": {
+     "hex": "ff2501"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "template_button": {
+    "on": {
+     "hex": "ff9001"
+    },
+    "off": {
+     "hex": "ff9000"
+    }
    }
   }
  },
