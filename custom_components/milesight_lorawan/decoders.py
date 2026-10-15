@@ -159,7 +159,7 @@ def _decode_common(cid: int, ctype: int, b: bytes, i: int, out: dict) -> int | N
         out["sn"] = b[i:i + 8].hex()
         return 8
     if ctype == 0x09 and _need(b, i, 2):
-        out["hardware_version"] = f"v{b[i]:x}.{b[i + 1] >> 4:x}"
+        out["hardware_version"] = f"v{b[i]:x}.{b[i + 1] >> 4}"
         return 2
     if ctype == 0x0A and _need(b, i, 2):
         out["firmware_version"] = f"v{b[i]:x}.{b[i + 1]:x}"
@@ -277,7 +277,7 @@ def decode_em300(b: bytes) -> dict[str, Any]:
         elif cid in (0x05, 0x85) and ctype == 0xE1 and _need(b, i, 8):  # EM300-DI water meter (v1.3+)
             out["water_conv"] = _u16le(b, i) / 10
             out["pulse_conv"] = _u16le(b, i + 2) / 10
-            out["water"] = round(struct.unpack_from("<f", b, i + 4)[0], 2)
+            out["water"] = _f32(b, i + 4, True)
             i += 8
             if cid == 0x85 and _need(b, i, 1):
                 out["water_alarm"] = b[i]
@@ -2744,10 +2744,6 @@ _CTH_SKIP = {
 }
 
 
-def _u24le(b: bytes, i: int) -> int:
-    return b[i] | b[i + 1] << 8 | b[i + 2] << 16
-
-
 def _cth_value(out: dict, key: str, raw: int, sentinel: int, div: float, errors: list) -> None:
     if raw == sentinel:
         errors.append(key)
@@ -2877,3 +2873,863 @@ def _parse_cth01(b: bytes) -> tuple[dict[str, Any], bool]:
     elif measured:
         out["sensor_error"] = "OK"
     return out, clean
+
+
+# --------------------------------------------------------------------------
+# AM100 / AM300L ranges and DS3604 display – checked against Milesight-IoT/SensorDecoders (tools/checks/am.py)
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# AM102 / AM102L / AM103 / AM103L / AM104 / AM107 (AM100 range, IPSO channel format)
+# Checked against Milesight-IoT/SensorDecoders (am-series).
+# Config replies (0xFF/0xFE + type) are skipped with the lengths the official decoders use;
+# history records (0x20 0xCE) are skipped, not output.
+# --------------------------------------------------------------------------
+def _hw_version_dec(b: bytes, i: int) -> str:
+    """Official AM10x / DS3604 hardware version: major in hex, minor = high nibble in decimal."""
+    return f"v{b[i]:x}.{b[i + 1] >> 4}"
+
+
+# downlink-response type -> fixed length (variable ones are handled in _am10x_config_len)
+_AM10X_CFG = {0x03: 2, 0x06: 9, 0x10: 1, 0x11: 4, 0x17: 2, 0x27: 1, 0x2D: 1, 0x2F: 1, 0x3B: 1, 0x56: 1,
+              0x57: 1, 0x59: 1, 0x5A: 2, 0x68: 1, 0x69: 1, 0x6A: 3, 0x75: 7, 0x85: 1, 0x86: 1,
+              0x39: 5, 0x54: 5, 0x87: 3, 0xF0: 4}
+_AM10X_CO2_CFG = frozenset({0x1A, 0x39, 0x54, 0x87})   # only on the CO2 models (AM103/AM103L/AM107)
+
+
+def _am10x_config_len(ctype: int, b: bytes, i: int, co2: bool) -> int | None:
+    if ctype in _AM10X_CO2_CFG and not co2:
+        return None
+    if ctype == 0x3A:                       # report schedule: count + 6 bytes per entry
+        if not _need(b, i, 1):
+            return None
+        n = 1 + 6 * b[i]
+    elif ctype == 0x1A:                     # CO2 calibration: mode (+ value when mode 2)
+        if not _need(b, i, 1):
+            return None
+        n = 3 if b[i] == 2 else 1
+    else:
+        n = _AM10X_CFG.get(ctype)
+    return n if n is not None and _need(b, i, n) else None
+
+
+def _decode_am10x(b: bytes, *, sn_type: int, hist_len: int | None, co2: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        if cid == 0xFF and ctype == 0x09 and _need(b, i, 2):
+            out["hardware_version"] = _hw_version_dec(b, i)
+            i += 2
+        elif cid == 0xFF and ctype in (0x01, 0x0A, 0xFF, sn_type, 0x0F, 0xFE, 0x0B) and \
+                (n := _decode_common(cid, ctype, b, i, out)) is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x04 and ctype == 0x68 and _need(b, i, 1):
+            out["humidity"] = b[i] / 2
+            i += 1
+        elif hist_len is None and cid == 0x05 and ctype == 0x6A and _need(b, i, 2):   # AM104 / AM107
+            out["pir_activity"] = _u16le(b, i)
+            i += 2
+        elif hist_len is None and cid == 0x06 and ctype == 0x65 and _need(b, i, 6):
+            out["illuminance_lux"] = _u16le(b, i)
+            out["infrared_and_visible"] = _u16le(b, i + 2)
+            out["infrared"] = _u16le(b, i + 4)
+            i += 6
+        elif co2 and cid == 0x07 and ctype == 0x7D and _need(b, i, 2):
+            out["co2"] = _u16le(b, i)
+            i += 2
+        elif co2 and hist_len is None and cid == 0x08 and ctype == 0x7D and _need(b, i, 2):   # AM107: ppb
+            out["tvoc_ppb"] = _u16le(b, i)
+            i += 2
+        elif co2 and hist_len is None and cid == 0x09 and ctype == 0x73 and _need(b, i, 2):
+            out["pressure"] = _u16le(b, i) / 10
+            i += 2
+        elif hist_len is not None and cid == 0x20 and ctype == 0xCE and _need(b, i, hist_len):
+            i += hist_len                                         # history record – skipped
+        elif cid == 0xFF and ctype == 0x18 and _need(b, i, 2):    # sensor enable (config)
+            i += 2
+        elif cid in (0xFE, 0xFF) and (n := _am10x_config_len(ctype, b, i, co2)) is not None:
+            i += n                                                # downlink response – skipped
+        else:
+            break
+    return out
+
+
+def decode_am102(b: bytes) -> dict[str, Any]:
+    """AM102 / AM102L temperature & humidity sensor (e-ink)."""
+    return _decode_am10x(b, sn_type=0x16, hist_len=7, co2=False)
+
+
+def decode_am103(b: bytes) -> dict[str, Any]:
+    """AM103 / AM103L temperature, humidity & CO2 sensor (e-ink)."""
+    return _decode_am10x(b, sn_type=0x16, hist_len=9, co2=True)
+
+
+def decode_am104(b: bytes) -> dict[str, Any]:
+    """AM104 temperature, humidity, PIR activity & light sensor."""
+    return _decode_am10x(b, sn_type=0x08, hist_len=None, co2=False)
+
+
+def decode_am107(b: bytes) -> dict[str, Any]:
+    """AM107 7-in-1 (temperature, humidity, PIR activity, light, CO2, TVOC ppb, pressure)."""
+    return _decode_am10x(b, sn_type=0x08, hist_len=None, co2=True)
+
+
+# --------------------------------------------------------------------------
+# AM304L / AM305L (new AM300L range, IPSO channel format with event channels)
+# Checked against Milesight-IoT/SensorDecoders (am-series). AM304L = AM305L without CO2.
+# --------------------------------------------------------------------------
+_AM30XL_TEMP_ALARM = {
+    16: ("below_threshold_alarm_release", False), 17: ("below_threshold_alarm", True),
+    18: ("above_threshold_alarm_release", False), 19: ("above_threshold_alarm", True),
+    20: ("between_threshold_alarm_release", False), 21: ("between_threshold_alarm", True),
+    22: ("exceed_tolerance_alarm_release", False), 23: ("exceed_tolerance_alarm", True),
+}
+_AM30XL_LUX_ALARM = {16: ("dim", None), 17: ("bright", None)}
+_AM30XL_CO2_ALARM = {16: ("polluted_alarm_release", False), 17: ("polluted_alarm", True),
+                     18: ("bad_alarm_release", False), 19: ("bad_alarm", True)}
+_AM30XL_ANOMALY = {(0xB3, 0x67): "Temperature", (0xB4, 0x68): "Humidity", (0xB6, 0xCB): "Illuminance level",
+                   (0xB6, 0x9D): "Illuminance", (0xB7, 0x7D): "CO2"}
+_AM30XL_ANOMALY_TEXT = {0: "collection failed", 1: "out of range"}
+# config replies: (cid, ctype) -> length, or a dict {first byte: length} (other first bytes consume 0)
+_AM30XL_CFG: dict[tuple[int, int], Any] = {
+    (0xFF, 0xFE): 1, (0xFF, 0xF2): 2, (0xFF, 0xF5): 1, (0xFF, 0x2E): 1, (0xFF, 0x25): 1, (0xFF, 0x06): 9,
+    (0xFF, 0x18): {3: 2, 4: 2}, (0xFF, 0x95): 2, (0xFF, 0xEA): "ea", (0xFF, 0x96): 8, (0xFF, 0x68): 1,
+    (0xFF, 0x69): 1, (0xFF, 0x6A): {0: 3, 1: 3}, (0xFF, 0x27): 1, (0xFF, 0x10): 1, (0xFF, 0x4A): 1,
+    (0xF9, 0xBD): 3, (0xF9, 0xBE): 4, (0xF9, 0xC0): {0: 2, 1: 2}, (0xF9, 0xBC): {0: 2, 1: 2}, (0xF9, 0xBF): 5,
+    (0xF9, 0x63): 4, (0xF9, 0x66): 1,
+    (0xFD, 0x6B): 4, (0xFD, 0x6C): 8, (0xFD, 0x6D): 1,
+}
+_AM305L_CFG: dict[tuple[int, int], Any] = {      # AM305L only (CO2)
+    **_AM30XL_CFG, (0xFF, 0x18): {3: 2, 4: 2, 5: 2}, (0xFF, 0x39): 5, (0xFF, 0x87): 3,
+    (0xFF, 0x1A): {0: 1, 3: 1}, (0xF9, 0xC4): 6,
+}
+
+
+def _am30xl_cfg_len(cid: int, ctype: int, b: bytes, i: int, co2: bool) -> int | None:
+    spec = (_AM305L_CFG if co2 else _AM30XL_CFG).get((cid, ctype))
+    if spec is None or not _need(b, i, 1):
+        return None
+    if spec == "ea":                                    # calibration: id in low 7 bits (2 = CO2, AM305L)
+        spec = {0: 3, 1: 3, 2: 3 if co2 else 0}.get(b[i] & 0x7F, 0)
+    elif isinstance(spec, dict):
+        spec = spec.get(b[i], 0)
+    return spec if _need(b, i, spec) else None
+
+
+def decode_am304l(b: bytes) -> dict[str, Any]:
+    """AM304L temperature, humidity, PIR & light sensor."""
+    return _decode_am30xl(b, co2=False)
+
+
+def decode_am305l(b: bytes) -> dict[str, Any]:
+    """AM305L temperature, humidity, PIR, light & CO2 sensor."""
+    return _decode_am30xl(b, co2=True)
+
+
+def _decode_am30xl(b: bytes, co2: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        if cid == 0xFF and ctype == 0x0B and _need(b, i, 1):
+            out["device_status"] = "on" if b[i] else "off"
+            i += 1
+        elif cid == 0xFF and ctype == 0x01 and _need(b, i, 1):
+            out["protocol_version"] = b[i]
+            i += 1
+        elif cid == 0xFF and ctype == 0x09 and _need(b, i, 2):
+            out["hardware_version"] = f"v{b[i]}.{b[i + 1]}"
+            i += 2
+        elif cid == 0xFF and ctype in (0x16, 0xFF, 0x0A, 0x0F) and \
+                (n := _decode_common(cid, ctype, b, i, out)) is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x04 and ctype == 0x68 and _need(b, i, 1):
+            out["humidity"] = b[i] / 2
+            i += 1
+        elif cid == 0x05 and ctype == 0x9F and _need(b, i, 2):
+            v = _u16le(b, i)
+            out["pir"] = bool(v >> 15)
+            out["occupancy"] = v >> 15
+            out["pir_count"] = v & 0x7FFF
+            i += 2
+        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):     # PIR status change event
+            out["pir"] = b[i] == 1
+            out["occupancy"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid == 0x06 and ctype == 0xCB and _need(b, i, 1):
+            out["light_level"] = b[i]
+            i += 1
+        elif cid == 0x06 and ctype == 0x9D and _need(b, i, 2):
+            out["illuminance_lux"] = _u16le(b, i)
+            i += 2
+        elif co2 and cid == 0x07 and ctype == 0x7D and _need(b, i, 2):
+            out["co2"] = _u16le(b, i)
+            i += 2
+        elif (cid, ctype) in _AM30XL_ANOMALY and (co2 or cid != 0xB7) and _need(b, i, 1):
+            errors[_AM30XL_ANOMALY[(cid, ctype)]] = _AM30XL_ANOMALY_TEXT.get(b[i], "unknown")
+            i += 1
+        elif cid == 0x83 and ctype == 0x67 and _need(b, i, 3):
+            out["temperature"] = _i16le(b, i) / 10
+            _ts_alarm(out, "temperature", b[i + 2], _AM30XL_TEMP_ALARM)
+            i += 3
+        elif cid == 0x86 and ctype == 0x9D and _need(b, i, 3):
+            out["illuminance_lux"] = _u16le(b, i)
+            _ts_alarm(out, "illuminance", b[i + 2], _AM30XL_LUX_ALARM)
+            i += 3
+        elif co2 and cid == 0x87 and ctype == 0x7D and _need(b, i, 3):
+            out["co2"] = _u16le(b, i)
+            _ts_alarm(out, "co2", b[i + 2], _AM30XL_CO2_ALARM)
+            i += 3
+        elif cid in (0x20, 0x21) and ctype == 0xCE and _need(b, i, 18 if co2 else 15):
+            i += 18 if co2 else 15                                 # history record – skipped
+        elif (n := _am30xl_cfg_len(cid, ctype, b, i, co2)) is not None:
+            i += n                                                 # config reply – skipped
+        else:
+            break
+    if errors:
+        out["sensor_error"] = ", ".join(f"{k}: {v}" for k, v in errors.items())
+    elif any(k in out for k in ("temperature", "humidity", "co2", "light_level", "illuminance_lux")):
+        out["sensor_error"] = "OK"
+    return out
+
+
+# --------------------------------------------------------------------------
+# DS3604 e-ink display (IPSO channel format). Telemetry: battery, button presses, current template.
+# Display content / template config / update results are skipped.
+# --------------------------------------------------------------------------
+_DS3604_BUTTON = {0: "single_click", 1: "double_click", 2: "short_press", 3: "long_press"}
+_DS3604_CFG = {0x03: 2, 0x10: 1, 0x25: 1, 0x27: 1, 0x28: 1, 0x3E: 1, 0x3D: 1, 0x66: 1, 0x82: 1, 0x89: 5,
+               0x90: 1}
+
+
+def decode_ds3604(b: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        if cid == 0xFF and ctype == 0x09 and _need(b, i, 2):
+            out["hardware_version"] = _hw_version_dec(b, i)
+            i += 2
+        elif cid == 0xFF and ctype in (0x01, 0x0A, 0xFF, 0x16, 0x0F, 0xFE, 0x0B) and \
+                (n := _decode_common(cid, ctype, b, i, out)) is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0xFF and ctype == 0x2E and _need(b, i, 1):
+            event = _DS3604_BUTTON.get(b[i], "unknown")
+            out["button_event"] = event
+            if event != "unknown":
+                out.setdefault("button_events", []).append(("button", event))
+            i += 1
+        elif cid in (0xFE, 0xFF) and ctype == 0x73 and _need(b, i, 1):
+            out["current_template_id"] = b[i] + 1
+            i += 1
+        elif cid == 0xFB and ctype == 0x01 and _need(b, i, 1):       # block content (text / QR code)
+            block = b[i] & 0x3F
+            i += 1
+            if block <= 10:
+                if not _need(b, i, 1) or not _need(b, i + 1, b[i]):
+                    break
+                i += 1 + b[i]
+        elif cid == 0xFA and ctype in (0x01, 0x02, 0x03) and _need(b, i, 2):   # update results
+            i += 2
+        elif cid in (0xFE, 0xFF) and ctype in _DS3604_CFG and _need(b, i, _DS3604_CFG[ctype]):
+            i += _DS3604_CFG[ctype]
+        else:
+            break  # image data / template config / unknown – stop safely
+    return out
+
+
+# --------------------------------------------------------------------------
+# EM300-CL / -MLD, EM310 / EM320, EM410 / EM411 ranges – checked against Milesight-IoT/SensorDecoders (tools/checks/em.py)
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# EM range additions (EM300-CL / EM300-MLD / EM310-TILT / EM320-TILT / EM310-UDL /
+# EM320-TH v2 / EM410-RDL / EM411-RDL).
+# Checked against Milesight-IoT/SensorDecoders (em-series).
+# Not here because an existing decoder already handles the format:
+#   EM300-DI-HALL -> decode_em300 (same channels as EM300-DI; pulse_count, input_05, water ...)
+#   EM320-TH (v1) -> decode_em300 (battery / temperature / humidity, same as EM300-TH)
+# --------------------------------------------------------------------------
+_EM300_CL_LIQUID = {0: "uncalibrated", 1: "full", 2: "critical", 255: "error"}
+_EM300_CL_ALARM = {0: ("critical_liquid_level_alarm_release", False), 1: ("critical_liquid_level_alarm", True)}
+
+
+def _em300_cl_liquid(out: dict, code: int) -> None:
+    out["liquid"] = _EM300_CL_LIQUID.get(code, "unknown")
+    if code in (1, 2):
+        out["liquid_critical"] = code == 2
+    out["sensor_error"] = "Liquid: error" if code == 255 else "OK"
+
+
+def decode_em300_cl(b: bytes) -> dict[str, Any]:
+    """EM300-CL capacitive liquid level switch (full / critical level)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0xED and _need(b, i, 1):
+            _em300_cl_liquid(out, b[i])
+            i += 1
+        elif cid == 0x83 and ctype == 0xED and _need(b, i, 2):
+            _em300_cl_liquid(out, b[i])
+            _ts_alarm(out, "liquid", b[i + 1], _EM300_CL_ALARM)
+            i += 2
+        elif cid == 0x04 and ctype == 0xEE and _need(b, i, 1):
+            out["calibration_result"] = {0: "failed", 1: "success"}.get(b[i], "unknown")
+            i += 1
+        else:
+            break
+    return out
+
+
+def decode_em300_mld(b: bytes) -> dict[str, Any]:
+    """EM300-MLD membrane leak sensor: EM300 format, 0x05/0x00 (0x06/0x00 per README) = leak."""
+    out = decode_em300(b)
+    for src in ("input_05", "magnet_status"):
+        if src in out:
+            out["leak"] = out.pop(src)
+    return out
+
+
+def _tilt_out(out: dict, angles: tuple, flags: tuple) -> None:
+    for axis, angle, flag in zip("xyz", angles, flags):
+        out[f"angle_{axis}"] = angle
+        out[f"angle_{axis}_alarm"] = bool(flag)
+    out["tilt"] = any(flags)
+
+
+def _decode_tilt(b: bytes, em320: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif not em320 and cid == 0x03 and ctype == 0xCF and _need(b, i, 7):
+            # int16/100 per axis + status byte (bit0..2 = x/y/z threshold alarm)
+            _tilt_out(out, tuple(_i16le(b, i + 2 * k) / 100 for k in range(3)),
+                      tuple(b[i + 6] >> k & 1 for k in range(3)))
+            i += 7
+        elif em320 and cid == 0x03 and ctype == 0xD4 and _need(b, i, 6):
+            # per axis int16: bits 15..1 = angle * 100, bit 0 = threshold alarm
+            _tilt_out(out, tuple((_i16le(b, i + 2 * k) >> 1) / 100 for k in range(3)),
+                      tuple(b[i + 2 * k] & 1 for k in range(3)))
+            i += 6
+        else:
+            break
+    return out
+
+
+def decode_em310_tilt(b: bytes) -> dict[str, Any]:
+    return _decode_tilt(b, em320=False)
+
+
+def decode_em320_tilt(b: bytes) -> dict[str, Any]:
+    return _decode_tilt(b, em320=True)
+
+
+def decode_em310_udl(b: bytes) -> dict[str, Any]:
+    """EM310-UDL ultrasonic distance: distance 0x03/0x82 (mm), position 0x04/0x00."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x82 and _need(b, i, 2):
+            out["distance"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x04 and ctype == 0x00 and _need(b, i, 1):
+            out["position"] = {0: "normal", 1: "tilt"}.get(b[i], "unknown")
+            out["tilted"] = b[i] == 1
+            i += 1
+        else:
+            break
+    return out
+
+
+# EM320-TH v2 -------------------------------------------------------------------
+_EM320_ALARM = {
+    1: ("below_threshold_alarm", True), 2: ("above_threshold_alarm", True),
+    3: ("between_threshold_alarm", True), 4: ("outside_threshold_alarm", True),
+    6: ("below_threshold_alarm_release", False), 7: ("above_threshold_alarm_release", False),
+    8: ("between_threshold_alarm_release", False), 9: ("outside_threshold_alarm_release", False),
+}
+_EM320_TEMP_ERR = {1: "collection error", 2: "lower range error", 3: "over range error"}
+_EM320_STORAGE = {1: "sufficient", 2: "less than 10 percent", 3: "full", 4: "overwritten"}
+# configuration echoes on 0xF9 (skipped): type -> length
+_EM320_F9_SKIP = {0xC9: 1, 0x39: 2, 0x0B: 7, 0x0C: 4, 0xD9: 1, 0x69: 1, 0x66: 1, 0x63: 4}
+
+
+def _em320_err(out: dict, key: str, text: str) -> None:
+    out.pop(key, None)
+    out[f"{key}_error"] = text
+    out["sensor_error"] = f"{key.capitalize()}: {text}"
+
+
+def decode_em320_th_v2(b: bytes) -> dict[str, Any]:
+    """EM320-TH (v2 firmware): 0.1 % humidity, sensor-error markers, threshold/mutation alarms."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            raw = _u16le(b, i)
+            if raw in (0x8001, 0x8002, 0x8003):
+                _em320_err(out, "temperature", _EM320_TEMP_ERR[raw - 0x8000])
+            else:
+                out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x04 and ctype == 0x9A and _need(b, i, 2):
+            raw = _u16le(b, i)
+            if raw == 0xFFFF:
+                _em320_err(out, "humidity", "collection error")
+            else:
+                out["humidity"] = raw / 10
+            i += 2
+        elif cid == 0x04 and ctype == 0x68 and _need(b, i, 1):
+            if b[i] == 0xFF:
+                _em320_err(out, "humidity", "collection error")
+            else:
+                out["humidity"] = b[i] / 2
+            i += 1
+        elif cid == 0x05 and ctype == 0x6B and _need(b, i, 1):
+            out["trigger_type"] = {1: "external trigger"}.get(b[i], "unknown")
+            i += 1
+        elif cid == 0x05 and ctype == 0x9C and _need(b, i, 1):
+            out["storage_status"] = _EM320_STORAGE.get(b[i], "unknown")
+            i += 1
+        elif cid == 0x83 and ctype == 0x67 and _need(b, i, 3):
+            out["temperature"] = _i16le(b, i) / 10
+            _ts_alarm(out, "temperature", b[i + 2], _EM320_ALARM)
+            i += 3
+        elif cid == 0x93 and ctype == 0x67 and _need(b, i, 5):
+            out["temperature"] = _i16le(b, i) / 10
+            out["temperature_change"] = _i16le(b, i + 2) / 10
+            if b[i + 4] == 0:
+                _ts_alarm(out, "temperature", 0, {0: ("mutation_alarm", None)})
+            i += 5
+        elif cid == 0x84 and ctype == 0x9A and _need(b, i, 3):
+            out["humidity"] = _i16le(b, i) / 10
+            _ts_alarm(out, "humidity", b[i + 2], _EM320_ALARM)
+            i += 3
+        elif cid == 0x84 and ctype == 0x68 and _need(b, i, 2):
+            out["humidity"] = b[i] / 2
+            _ts_alarm(out, "humidity", b[i + 1], _EM320_ALARM)
+            i += 2
+        elif cid == 0x94 and ctype == 0x9A and _need(b, i, 5):
+            out["humidity"] = _i16le(b, i) / 10
+            out["humidity_change"] = _i16le(b, i + 2) / 10
+            if b[i + 4] == 0:
+                _ts_alarm(out, "humidity", 0, {0: ("mutation_alarm", None)})
+            i += 5
+        elif cid == 0x94 and ctype == 0x68 and _need(b, i, 3):
+            out["humidity"] = b[i] / 2
+            out["humidity_change"] = b[i + 1] / 2
+            if b[i + 2] == 0:
+                _ts_alarm(out, "humidity", 0, {0: ("mutation_alarm", None)})
+            i += 3
+        elif cid == 0xB3 and ctype == 0x67 and _need(b, i, 2):
+            _em320_err(out, "temperature", _EM320_TEMP_ERR.get(b[i], "unknown"))
+            i += 2
+        elif cid == 0xB4 and ctype in (0x68, 0x9A) and _need(b, i, 2):
+            _em320_err(out, "humidity", {1: "collection error"}.get(b[i], "unknown"))
+            i += 2
+        elif cid == 0xF9 and ctype in _EM320_F9_SKIP and _need(b, i, _EM320_F9_SKIP[ctype]):
+            i += _EM320_F9_SKIP[ctype]
+        else:
+            break   # history (0x20 0xCE), downlink replies, unknown – stop safely
+    if "sensor_error" not in out and ("temperature" in out or "humidity" in out):
+        out["sensor_error"] = "OK"
+    return out
+
+
+# EM410-RDL / EM411-RDL radar distance --------------------------------------------
+_RDL_ALARM = {0: ("threshold_alarm_release", False), 1: ("threshold_alarm", True), 2: ("mutation_alarm", None)}
+_RDL_EXCEPTION = {0: ("blind_spot_alarm_release", False), 1: ("blind_spot_alarm", True),
+                  2: ("no_target", None), 3: ("sensor_exception", None)}
+_RDL_SENTINEL = {0xFFFD: "no target", 0xFFFE: "disabled", 0xFFFF: "sensor exception"}
+
+
+def _rdl_distance(out: dict, b: bytes, i: int) -> None:
+    raw = _u16le(b, i)
+    if raw in _RDL_SENTINEL:
+        out.pop("distance", None)
+        out["sensor_error"] = f"Distance: {_RDL_SENTINEL[raw]}"
+    else:
+        out["distance"] = _i16le(b, i)
+        out["sensor_error"] = "OK"
+
+
+def decode_em410_rdl(b: bytes) -> dict[str, Any]:
+    """EM410-RDL / EM411-RDL radar distance (mm) with threshold, mutation and blind-spot alarms."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x04 and ctype == 0x82 and _need(b, i, 2):
+            _rdl_distance(out, b, i)
+            i += 2
+        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):
+            out["position"] = {0: "normal", 1: "tilt"}.get(b[i], "unknown")
+            out["tilted"] = b[i] == 1
+            i += 1
+        elif cid == 0x06 and ctype == 0xC7 and _need(b, i, 2):
+            out["radar_signal_rssi"] = _i16le(b, i) / 100
+            i += 2
+        elif cid == 0x84 and ctype == 0x82 and _need(b, i, 3):
+            _rdl_distance(out, b, i)
+            _ts_alarm(out, "distance", b[i + 2], _RDL_ALARM)
+            i += 3
+        elif cid == 0x94 and ctype == 0x82 and _need(b, i, 5):
+            _rdl_distance(out, b, i)
+            out["distance_mutation"] = _i16le(b, i + 2)
+            _ts_alarm(out, "distance", b[i + 4], _RDL_ALARM)
+            i += 5
+        elif cid == 0xB4 and ctype == 0x82 and _need(b, i, 3):
+            code = b[i + 2]
+            _ts_alarm(out, "distance_exception", code, _RDL_EXCEPTION)
+            if code in (2, 3):
+                out["sensor_error"] = "Distance: " + ("no target" if code == 2 else "sensor exception")
+            i += 3
+        else:
+            break   # history (0x20 0xCE), downlink replies (0xFE/0xFF/0xF8/0xF9), unknown
+    return out
+
+
+def decode_em411_rdl(b: bytes) -> dict[str, Any]:
+    """EM411-RDL: identical payload format to EM410-RDL."""
+    return decode_em410_rdl(b)
+
+
+# --------------------------------------------------------------------------
+# VS13x / VS330 / VS35x / VS360 people counters – checked against Milesight-IoT/SensorDecoders (tools/checks/vs.py)
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# VS132 / VS133 / VS135 / VS330 / VS350 / VS351 / VS360
+# Checked against Milesight-IoT/SensorDecoders (vs-series).
+# --------------------------------------------------------------------------
+def _vs_skip(cid: int, ctype: int, b: bytes, i: int, std: dict, ext: dict | None = None) -> int | None:
+    """Length of a configuration (downlink) response we do not decode, or None if unknown.
+
+    std: {ctype: length} for 0xFF / 0xFE responses, ext: {ctype: length} for 0xF8 / 0xF9
+    responses (0xF8 carries one extra result byte).
+    """
+    if cid in (0xFF, 0xFE):
+        n = std.get(ctype)
+    elif ext is not None and cid in (0xF8, 0xF9):
+        n = ext.get(ctype)
+        if n is not None and cid == 0xF8:
+            n += 1
+    else:
+        return None
+    return n if n is not None and _need(b, i, n) else None
+
+
+def _vs_hw_version(cid: int, ctype: int, b: bytes, i: int, out: dict) -> int | None:
+    """0xFF 0x09 as the newer official decoders print it: major in hex, minor (high nibble) in decimal.
+
+    (_decode_common prints the minor in hex, which differs for minor >= 10.)"""
+    if cid == 0xFF and ctype == 0x09 and _need(b, i, 2):
+        out["hardware_version"] = f"v{b[i]:x}.{b[i + 1] >> 4}"
+        return 2
+    return None
+
+
+# VS132 ToF people counter ---------------------------------------------------
+_VS132_SKIP = {0x03: 2, 0x04: 1, 0x10: 1, 0x40: 1, 0x42: 1, 0x43: 1, 0x51: 1}
+
+
+def decode_vs132(b: bytes) -> dict[str, Any]:
+    """VS132 3D ToF people counter (single line, in / out)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        if cid == 0xFF and ctype == 0x09 and _need(b, i, 2):           # VS132 prints "a.b" (decimal)
+            out["hardware_version"] = f"{b[i]}.{b[i + 1]}"
+            i += 2
+            continue
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x03 and ctype == 0xD2 and _need(b, i, 4):
+            out["people_total_in"] = _u32le(b, i)
+            i += 4
+        elif cid == 0x04 and ctype == 0xD2 and _need(b, i, 4):
+            out["people_total_out"] = _u32le(b, i)
+            i += 4
+        elif cid == 0x05 and ctype == 0xCC and _need(b, i, 4):
+            out["people_in"] = _u16le(b, i)
+            out["people_out"] = _u16le(b, i + 2)
+            i += 4
+        elif (n := _vs_skip(cid, ctype, b, i, _VS132_SKIP)) is not None:
+            i += n
+        else:
+            break
+    return out
+
+
+# VS133 / VS135 AI ToF people counter (4 lines, 4 regions, child counting) ---
+_VS133_ALARM = {0: ("alarm_released", False), 1: ("alarm_triggered", True)}
+_VS133_SKIP = {0x03: 2, 0x04: 1, 0x10: 1, 0x11: 4, 0x27: 1, 0x40: 1, 0x42: 1, 0x43: 1, 0x44: 1,
+               0x51: 1, 0x68: 1, 0x69: 1, 0x6A: 3, 0x6D: 1}
+_VS133_SKIP_EXT = {0x84: 3, 0x85: 2, 0x86: 1, 0x87: 1, 0x88: 2}
+_VS133_HISTORY_9 = set(range(0x03, 0x10)) | set(range(0x11, 0x1E))
+_VS133_HISTORY_8 = {0x10, 0x20, 0x1E, 0x3C}
+
+
+def decode_vs133(b: bytes) -> dict[str, Any]:
+    """VS133 / VS135 AI ToF people counter (identical payload format)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        if cid == 0xFF and ctype == 0x09 and _need(b, i, 2):
+            out["hardware_version"] = f"v{b[i]}.{b[i + 1]}"
+            i += 2
+        elif cid == 0xFF and ctype == 0x1F and _need(b, i, 4):
+            out["firmware_version"] = "v" + ".".join(str(x) for x in b[i:i + 4])
+            i += 4
+        elif cid == 0xFF and ctype == 0xD4 and _need(b, i, 5):
+            out["device_version"] = f"V{b[i]}_{b[i + 1]}.{b[i + 2]}.{b[i + 3]}.{b[i + 4]}"
+            i += 5
+        elif (n := _decode_common(cid, ctype, b, i, out)) is not None:
+            i += n
+        elif ctype == 0xD2 and (0x03 <= cid <= 0x0D or 0x11 <= cid <= 0x1B) and \
+                ((cid - 0x0E) if cid >= 0x11 else cid) % 3 != 2 and _need(b, i, 4):
+            # total in: 0x03/06/09/0C, total out: 0x04/07/0A/0D, child: +0x0E
+            child = cid >= 0x11
+            base = cid - (0x0E if child else 0)
+            line = (base - 0x03) // 3 + 1
+            direction = "in" if base % 3 == 0 else "out"
+            key = f"line_{line}_child_total_{direction}" if child else f"line_{line}_total_{direction}"
+            out[key] = _u32le(b, i)
+            if line == 1 and not child:
+                out[f"people_total_{direction}"] = out[key]
+            i += 4
+        elif ctype == 0xCC and cid in (0x05, 0x08, 0x0B, 0x0E, 0x13, 0x16, 0x19, 0x1C) and _need(b, i, 4):
+            child = cid >= 0x13
+            line = (cid - (0x13 if child else 0x05)) // 3 + 1
+            pre = f"line_{line}_child" if child else f"line_{line}"
+            out[f"{pre}_in"] = _u16le(b, i)
+            out[f"{pre}_out"] = _u16le(b, i + 2)
+            if line == 1 and not child:
+                out["people_in"], out["people_out"] = out[f"{pre}_in"], out[f"{pre}_out"]
+            i += 4
+        elif cid in (0x0F, 0x1D) and ctype == 0xE3 and _need(b, i, 4):
+            suffix = "child_count" if cid == 0x1D else "count"
+            for r in range(4):
+                out[f"region_{r + 1}_{suffix}"] = b[i + r]
+            i += 4
+        elif cid in (0x10, 0x1E) and ctype == 0xE4 and _need(b, i, 5):
+            pre = f"region_{b[i]}_child" if cid == 0x1E else f"region_{b[i]}"
+            out[f"{pre}_dwell_time_avg"] = _u16le(b, i + 1)
+            out[f"{pre}_dwell_time_max"] = _u16le(b, i + 3)
+            i += 5
+        elif cid == 0x50 and ctype == 0xFC and _need(b, i, 3):
+            node = "master" if b[i + 1] == 0 else f"node_{b[i + 1]}"
+            _ts_alarm(out, f"{node}_occlusion", b[i + 2], _VS133_ALARM)
+            i += 3
+        elif cid == 0x20 and ctype == 0xCE and _need(b, i, 5):         # history record: skipped
+            dtype = b[i + 4]
+            n = 9 if dtype in _VS133_HISTORY_9 else 8 if dtype in _VS133_HISTORY_8 else 0
+            if not _need(b, i, n):
+                break
+            i += n
+        elif (n := _vs_skip(cid, ctype, b, i, _VS133_SKIP, _VS133_SKIP_EXT)) is not None:
+            i += n
+        else:
+            break
+    return out
+
+
+def decode_vs135(b: bytes) -> dict[str, Any]:
+    return decode_vs133(b)
+
+
+# VS330 bathroom occupancy (ToF distance) -----------------------------------
+_VS330_SKIP = {0x02: 2, 0x03: 2, 0x10: 1, 0x70: 2, 0x71: 1, 0x72: 2, 0x7A: 3}
+
+
+def decode_vs330(b: bytes) -> dict[str, Any]:
+    """VS330 bathroom occupancy sensor."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _vs_hw_version(cid, ctype, b, i, out)
+        if n is None:
+            n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x02 and ctype == 0x82 and _need(b, i, 2):
+            out["distance"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x03 and ctype == 0x8E and _need(b, i, 1):
+            out["occupancy"] = 1 if b[i] == 1 else 0
+            i += 1
+        elif cid == 0x04 and ctype == 0x8E and _need(b, i, 1):
+            out["calibration_status"] = _map({0: "failed", 1: "success"}, b[i])
+            i += 1
+        elif (n := _vs_skip(cid, ctype, b, i, _VS330_SKIP)) is not None:
+            i += n
+        else:
+            break
+    return out
+
+
+# VS350 / VS351 / VS360 people counters --------------------------------------
+_VS35X_ALARM = {0: ("threshold_alarm_release", False), 1: ("threshold_alarm", True),
+                3: ("high_temperature_alarm", True), 4: ("high_temperature_alarm_release", False)}
+_VS360_ALARM = {1: ("threshold_alarm", True)}
+_VS360_EVENT = {0: "counting_anomaly", 1: "node_device_without_response", 2: "devices_misaligned"}
+_VS360_EVENT_STATUS = {0: ("alarm_release", False), 1: ("alarm", True)}
+_VS351_POWER = {0: "battery supply", 1: "external power supply", 2: "battery charging"}
+_VS350_SKIP = {0x06: 9, 0x10: 1, 0x28: 1, 0x35: 8, 0x4A: 1, 0x68: 1, 0x69: 1, 0x6A: 3, 0x6B: 1, 0x6D: 1,
+               0x84: 1, 0x8E: 3, 0x96: 8, 0xA6: 1, 0xA7: 2, 0xA8: 1, 0xA9: 1, 0xAA: 1, 0xAB: 3, 0xBD: 2,
+               0xEF: 3, 0xAC: 5, 0xAD: 1}
+_VS351_SKIP = {0x04: 1, 0x05: 3, 0x06: 9, 0x10: 1, 0x27: 1, 0x28: 1, 0x35: 8, 0x40: 1, 0x41: 1, 0x68: 1,
+               0x69: 1, 0x6A: 3, 0x75: 6, 0x77: 2, 0x84: 1, 0x8F: 2, 0x8E: 3, 0x96: 8, 0x97: 1, 0xA6: 1,
+               0xA8: 1, 0xA9: 1, 0xAA: 1, 0xAB: 3, 0xEC: 1, 0xED: 3}
+_VS351_SKIP_EXT = {0x10: 1, 0x85: 2, 0x86: 1, 0x87: 1, 0x8B: 1, 0x8C: 1, 0x8D: 4, 0xA2: 1, 0xA3: 1}
+_VS360_SKIP = {0x06: 9, 0x10: 1, 0x28: 1, 0x35: 8, 0x4A: 1, 0x68: 1, 0x69: 1, 0x6A: 3, 0x6D: 1, 0x75: 6,
+               0x84: 1, 0x8E: 3, 0x96: 8, 0xA6: 1, 0xA9: 1, 0xBD: 2, 0xA8: 1, 0xED: 3, 0xFC: 1, 0xFD: 1}
+_VS_EXT_REPORT_TYPE = {0x10: 1}
+
+
+def _decode_vs35x(b: bytes, model: str) -> dict[str, Any]:
+    if model == "vs350":
+        skip, ext, alarms = _VS350_SKIP, _VS_EXT_REPORT_TYPE, _VS35X_ALARM
+    elif model == "vs351":
+        skip, ext, alarms = _VS351_SKIP, _VS351_SKIP_EXT, _VS35X_ALARM
+    else:
+        skip, ext, alarms = _VS360_SKIP, _VS_EXT_REPORT_TYPE, _VS360_ALARM
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _vs_hw_version(cid, ctype, b, i, out)
+        if n is None:
+            n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]                      # VS360: main unit battery
+            i += 1
+        elif model == "vs360" and cid == 0x02 and ctype == 0x75 and _need(b, i, 1):
+            out["battery_node"] = b[i]
+            i += 1
+        elif model == "vs351" and cid == 0xFF and ctype == 0xCC and _need(b, i, 1):
+            out["power_status"] = _map(_VS351_POWER, b[i])
+            i += 1
+        elif model != "vs360" and cid in (0x03, 0x83) and ctype == 0x67 and _need(b, i, 3 if cid == 0x83 else 2):
+            out["temperature"] = _i16le(b, i) / 10
+            if cid == 0x83:
+                _ts_alarm(out, "temperature", b[i + 2], alarms)
+            i += 3 if cid == 0x83 else 2
+        elif model == "vs360" and cid == 0x03 and ctype == 0xF4 and _need(b, i, 2):
+            _ts_alarm(out, _map(_VS360_EVENT, b[i]), b[i + 1], _VS360_EVENT_STATUS)
+            i += 2
+        elif cid in (0x04, 0x84) and ctype == 0xCC and _need(b, i, 5 if cid == 0x84 else 4):
+            out["people_total_in"] = _u16le(b, i)
+            out["people_total_out"] = _u16le(b, i + 2)
+            if cid == 0x84:
+                _ts_alarm(out, "total_count", b[i + 4], alarms)
+            i += 5 if cid == 0x84 else 4
+        elif cid in (0x05, 0x85) and ctype == 0xCC and _need(b, i, 5 if cid == 0x85 else 4):
+            out["people_in"] = _u16le(b, i)
+            out["people_out"] = _u16le(b, i + 2)
+            if cid == 0x85:
+                _ts_alarm(out, "period_count", b[i + 4], alarms)
+            i += 5 if cid == 0x85 else 4
+        elif cid == 0x0A and ctype == 0xEF and _need(b, i, 4):
+            out["device_timestamp"] = _u32le(b, i)
+            i += 4
+        elif model == "vs350" and cid == 0x81 and ctype == 0xEE and _need(b, i, 1):
+            out["current_sensitivity"] = b[i]
+            i += 1
+        elif cid == 0x20 and ctype == 0xCE and _need(b, i, 5):         # history record: skipped
+            n = {0: 9, 1: 13}.get(b[i + 4], 0)
+            if not _need(b, i, n):
+                break
+            i += n
+        elif (n := _vs_skip(cid, ctype, b, i, skip, ext)) is not None:
+            i += n
+        else:
+            break
+    return out
+
+
+def decode_vs350(b: bytes) -> dict[str, Any]:
+    """VS350 passage people counter (radar, with temperature)."""
+    return _decode_vs35x(b, "vs350")
+
+
+def decode_vs351(b: bytes) -> dict[str, Any]:
+    """VS351 passage people counter (VS350 format + power status, no sensitivity channel)."""
+    return _decode_vs35x(b, "vs351")
+
+
+def decode_vs360(b: bytes) -> dict[str, Any]:
+    """VS360 passage people counter (main + node unit)."""
+    return _decode_vs35x(b, "vs360")

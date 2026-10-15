@@ -83,7 +83,8 @@ def test_guess_model():
     assert mdl.guess_model(bytes.fromhex("01755c03673401046865050000"))[0] == "EM300-SLD"
     am = "03670a0104685805000106cb01077dff02087de3000973fe270b7d07000c7d0800017562"
     assert mdl.guess_model(bytes.fromhex(am))[0] == "AM308"
-    assert mdl.guess_model(bytes.fromhex("077d2003"))[0] == "AM307"
+    assert mdl.guess_model(bytes.fromhex("077d2003"))[0] == "AM103"            # CO2 only: AM103 (AM307 also sends PIR / light)
+    assert mdl.guess_model(bytes.fromhex("0367f40004688005000106cb01077d2003"))[0] == "AM307"
     assert mdl.guess_model(bytes.fromhex("077d20030a7d10000c7d0500"))[0] == "AM319-HCHO"
     assert mdl.guess_model(bytes.fromhex("077d20030d7d1000"))[0] == "AM319-O3"
 
@@ -412,6 +413,37 @@ def test_decode_cth01():
     assert d["power_loss_alarm"] is True
     assert mdl.guess_model(bytes.fromhex(CTH_EX[0]))[0] == "CTH01"
     assert dec.cth01_parses_cleanly(bytes.fromhex(CTH_EX[1])) and not dec.cth01_parses_cleanly(bytes.fromhex("99016aff"))
+
+
+NEW_SAMPLES = {   # official codec.json samples -> expected model
+    "0175640367040104687B077DAC02": "AM103",
+    "0175640367000104688206653100c2001b00056a0000": "AM104",
+    "01756403ED01": "EM300-CL",
+    "01756403D4000001005046": "EM320-TILT",
+    "01755C03824408040001": "EM310-UDL",
+    "01756202820F00038E01048E01": "VS330",
+    "03D24800000004D2C800000006D20000000007D20000000009D2000000000AD2000000000CD2B41400000DD28D1A0000": "VS133",
+    "01756403670C0184CC011108110185CCE803E90301": "VS350",
+}
+
+
+def test_guess_new_ranges():
+    for hx, model in NEW_SAMPLES.items():
+        best, cands = mdl.guess_model(bytes.fromhex(hx))
+        assert best == model, (hx, best, cands)
+
+
+def test_decode_new_ranges():
+    d = dec.decode_am104(bytes.fromhex("0175640367000104688206653100c2001b00056a0000"))
+    assert d["illuminance_lux"] == 49 and d["pir_activity"] == 0 and d["temperature"] == 25.6
+    d = dec.decode_vs330(bytes.fromhex("01756202820F00038E01048E01"))
+    assert d["occupancy"] == 1 and d["distance"] == 15 and d["battery"] == 98
+    d = dec.decode_vs350(bytes.fromhex("01756403670C0184CC011108110185CCE803E90301"))
+    assert d["people_total_in"] == 4353 and d["people_in"] == 1000 and d["people_out"] == 1001
+    d = dec.decode_vs133(bytes.fromhex("03D24800000004D2C800000006D20000000007D20000000009D2000000000AD2000000000CD2B41400000DD28D1A0000"))
+    assert d["people_total_in"] == 72 and d["line_4_total_in"] == 5300
+    assert dec.decode_em300_cl(bytes.fromhex("01756403ED01"))["liquid"] == "full"
+    assert dec.decode_em300_mld(bytes.fromhex("0175640500 01".replace(" ", "")))["leak"] == 1
 
 
 if __name__ == "__main__":

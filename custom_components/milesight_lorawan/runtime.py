@@ -13,7 +13,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .analytics import BinaryEventTracker, Calendar, DistanceTracker, MinMaxTracker, OccupancyTracker
+from .analytics import BinaryEventTracker, Calendar, CounterTracker, DistanceTracker, MinMaxTracker, OccupancyTracker
 from .const import (
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
@@ -155,6 +155,7 @@ class DeviceRuntime:
         self.minmax: MinMaxTracker | None = None
         self.occupancy: OccupancyTracker | None = None
         self.distance: DistanceTracker | None = None
+        self.counters: CounterTracker | None = None
         self._unsubs: list[Callable[[], None]] = []
 
     # ------------------------------------------------------------------ setup
@@ -181,6 +182,8 @@ class DeviceRuntime:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
         if "at101" in f:
             self.distance = DistanceTracker(self.cal, trackers.get("distance"))
+        if self.model.counters:
+            self.counters = CounterTracker(self.cal, self.model.counters, trackers.get("counters"))
         if "occupancy" in f:
             days = self._opt(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)
             self.occupancy = OccupancyTracker(
@@ -243,6 +246,8 @@ class DeviceRuntime:
         for feature, tracker in self.binary.items():
             src = self.raw if feature in LATCHED_FEATURES else decoded
             tracker.update(ts, BINARY_FEATURES[feature][0](src, self.limits))
+        if self.counters is not None:
+            self.counters.update(ts, decoded)
         if self.distance is not None and "latitude" in decoded:
             self.distance.update(ts, decoded.get("latitude"), decoded.get("longitude"))
         if self.minmax is not None:
@@ -357,6 +362,10 @@ class DeviceRuntime:
             self._ct_values(v)
         if self.distance is not None:
             v.update(self.distance.values(ts))
+        if self.counters is not None:
+            v.update(self.counters.values(ts))
+            if "people_in_today" in v and "people_out_today" in v:
+                v["people_net_today"] = max(0, v["people_in_today"] - v["people_out_today"])
         if isinstance(v.get("life_remain"), (int, float)):
             v["life_remain_days"] = round(v["life_remain"] / 86400)
         if isinstance(v.get("pm_sensor_working_time"), (int, float)):
@@ -416,6 +425,8 @@ class DeviceRuntime:
             trackers["occupancy"] = self.occupancy.s
         if self.distance is not None:
             trackers["distance"] = self.distance.s
+        if self.counters is not None:
+            trackers["counters"] = self.counters.s
         return {"raw": self.raw, "meta": self.meta, "trackers": trackers}
 
     def diagnostics(self) -> dict[str, Any]:

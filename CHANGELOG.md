@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.14.0
+### Added
+- AM range: AM102 / AM102L, AM103 / AM103L, AM104, AM107, AM304L, AM305L.
+- EM range: EM300-CL, EM300-MLD, EM300-DI-HALL, EM310-UDL, EM310-TILT, EM320-TILT, EM320-TH (firmware v1 and v2),
+  EM410-RDL, EM411-RDL.
+- VS range: VS132, VS133, VS135, VS330, VS350, VS351, VS360.
+- DS3604 e-ink display (button events).
+- People-counter statistics: people in / out today, yesterday, this / last week, this / last month and people
+  inside today; VS133 / VS135 lines and regions appear as they report.
+- Extra decoder checks (tools/checks/) against Milesight's official decoders for the new models, run in CI.
+### Fixed
+- Hardware version minor digit shown in decimal like Milesight's decoders (e.g. v1.10 instead of v1.a).
+- EM300-DI water value rounding matches the official decoder on exact ties.
+
 ## 0.13.0
 ### Added
 - CTH01 multi-circuit energy meter: current per CT (12), voltage per phase (3), active / reactive / apparent power,

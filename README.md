@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.13.0** · [Version history](#version-history)
+**Current version: 0.14.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -15,15 +15,15 @@ Connect the gateway once; every new sensor that sends data shows up under
 
 | Range | Models | Typical use |
 |---|---|---|
-| **VS** – people counting & occupancy | VS121, VS321, VS340, VS341, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
-| **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
-| **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
+| **VS** – people counting & occupancy | VS121, VS132, VS133, VS135, VS321, VS330, VS340, VS341, VS350, VS351, VS360, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
+| **AM** – indoor air quality | AM102 / AM102L, AM103 / AM103L, AM104, AM107, AM304L, AM305L, AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
+| **EM300 / EM310 / EM320** – environment, contacts, level & tilt | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-MLD, EM300-DI, EM300-DI-HALL, EM300-CL, EM310-UDL, EM310-TILT, EM320-TH (v1 / v2), EM320-TILT | Temperature & humidity, doors / windows, leaks, pulse meters |
 | **WS** – buttons, sensors, switches & sockets | WS101, WS136, WS156, WS201, WS202, WS203, WS301, WS302, WS303, WS501 / WS502 / WS503 (v1–v3, EU / US, CN, v4), WS513, WS515 (incl. v3), WS523, WS525, WS558 | Scene buttons, washroom refills, motion, doors, noise, leaks, **switching lights and sockets** with energy metering |
 | **WT** – thermostats & radiator valves | WT101, WT102, WT201 (v1 / v2), WT211, WT301, WT302, WT303, WT304, WT401 | **Thermostat control from Home Assistant** – radiators, HVAC, fan coils; heating / cooling run time |
 | **AT** – asset trackers | AT101 | Vehicles, containers, equipment, bins – position on the map, trips, distance, geofence |
 | **CT** – current transformers & energy meter | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2), CTH01 | Machine / pump / compressor run time, circuit load, energy (v2); CTH01: 12-circuit sub-metering with power, energy and power quality |
 | **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
-| **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
+| **EM400 / EM410** – ultrasonic & radar distance, bins | EM400-UDL, EM400-TLD, EM400-MUD, EM410-RDL, EM411-RDL | Tank / silo level, waste-bin fill level, distance |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
 | **TS** – temperature probes & cold chain | TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602 | Fridges, freezers, cold rooms, transport |
 | **UC** – controllers | UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2) | Digital / analog I/O, PT100, pulse counting, Modbus RS485, SDI-12, irrigation valves |
@@ -44,9 +44,21 @@ Statistics are stored by Home Assistant and survive restarts.
 | **VS321** occupancy & people counting | Everything the VS121 has, plus temperature, humidity, battery, light (dim / bright) and occupancy per region (10 regions, disabled by default) |
 | **VS340 / VS341** desk occupancy | Occupied (debounced), occupied since / duration, last & longest session, occupied today / yesterday, sessions, utilisation %, battery |
 | **VS370** radar occupancy | As VS340 plus light (dim / bright) |
+| **VS132 / VS133 / VS135** ToF people counters | People in / out per report, device totals, **people in / out today, yesterday, this / last week, this / last month**, people inside (in − out today); VS133 / VS135 also per line (4) and per region (people, children, dwell times) and lens-blocked alarms |
+| **VS350 / VS351 / VS360** passage people counters | As above (in / out statistics), count alarms, temperature (VS350 / VS351), power source (VS351), receiver battery and alignment alarms (VS360) |
+| **VS330** bathroom occupancy | Occupancy statistics (occupied since, sessions, utilisation), distance, battery |
 | **VS373** radar fall detection | Fall detected, motionless / out-of-bed / dwell / lying-down / abnormal-breathing alarms, last alarm + time, room status, person status, breathing + respiratory rate, room in use now / today, occupancy statistics, per-region occupancy and out-of-bed time (disabled by default) |
 
-### AM300 range – indoor air quality
+### AM range – indoor air quality
+
+| Model | What you get |
+|---|---|
+| **AM102 / AM102L** | Temperature, humidity, feels-like, daily min / max, battery |
+| **AM103 / AM103L** | As AM102 plus CO2 (+ air quality, daily max, time above limit) |
+| **AM104** | As AM102 plus illuminance (lx) and motion activity |
+| **AM107** | As AM104 plus CO2, TVOC (ppb) and pressure |
+| **AM304L / AM305L** | Temperature, humidity, motion + **occupancy statistics**, light level, illuminance, motion count, temperature alarm; AM305L also CO2 + CO2 alarm |
+| **AM307 – AM319** | see below |
 
 | Model | What you get |
 |---|---|
@@ -64,6 +76,10 @@ Statistics are stored by Home Assistant and survive restarts.
 | **EM300-MCS** door / window | As EM300-TH plus door open / closed, *door left open* alarm, open duration (live), open time & number of openings today / yesterday / this week / last week / this month / last month, longest & average opening |
 | **EM300-SLD / EM300-ZLD** leak | As EM300-TH plus leak detected and leak statistics (same periods as door) |
 | **EM300-DI** | As EM300-TH plus digital input statistics, pulse counter and converted water value |
+
+### DS3604 e-ink display
+
+Button presses as an event entity (single / double click, short / long press), current template, battery.
 
 ### WS range – buttons, sensors, wall switches, sockets
 
@@ -153,6 +169,17 @@ Gas, smoke and vape alarms stay on until the device reports the all-clear, and e
 door sensors (detected since, duration, today / yesterday / week / month, number of events, longest).
 The odour level is a rough guide (Strong from 5 ppm NH3 or 0.1 ppm H2S, Noticeable from 1 ppm NH3 or 0.02 ppm H2S).
 
+### EM300 / EM310 / EM320 additions
+
+| Model | What you get |
+|---|---|
+| **EM300-MLD** membrane leak | Leak with statistics (as EM300-SLD), battery |
+| **EM300-DI-HALL** pulse counter | As EM300-DI |
+| **EM300-CL** capacitive level | Liquid level (full / critical / uncalibrated), critical-level alarm, calibration result |
+| **EM310-UDL** ultrasonic distance | Distance + daily min / max, tilted |
+| **EM310-TILT / EM320-TILT** | Angle X / Y / Z, per-axis threshold alarms, tilted |
+| **EM320-TH** (v1 / v2) | Temperature, humidity, feels-like, daily min / max; v2 also temperature / humidity alarms |
+
 ### EM400 range – ultrasonic distance & bins
 
 | Model | What you get |
@@ -160,6 +187,9 @@ The odour level is a rough guide (Strong from 5 ppm NH3 or 0.1 ppm H2S, Noticeab
 | **EM400-UDL** | Distance (mm) + daily min/max, distance alarm, temperature, tilt alarm, battery; level % (disabled by default) |
 | **EM400-TLD** trash bin | As UDL, plus **fill level %** |
 | **EM400-MUD** multifunctional | As UDL, plus **fill level %** |
+
+**EM410-RDL / EM411-RDL** radar sensors get the same entities as the EM400-UDL plus radar signal strength,
+distance change and blind-spot / no-target alarms.
 
 Fill level needs the *empty distance* (sensor to the bottom of the empty bin / tank, in mm): open the device →
 **Configure** → *Empty distance (mm)*. 0 % = empty, 100 % = surface at the sensor.
@@ -315,6 +345,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.14.0** | 25 more models: AM102 / 103 / 104 / 107, AM304L / 305L, EM300-CL / -MLD / -DI-HALL, EM310-UDL / -TILT, EM320-TH (v1 / v2) / -TILT, EM410 / 411-RDL, VS132 / 133 / 135 / 330 / 350 / 351 / 360, DS3604. People-counter statistics. |
 | **0.13.0** | CTH01 multi-circuit energy meter added (CT range). |
 | **0.12.0** | WT range added (WT101, WT102, WT201 v1 / v2, WT211, WT301, WT302, WT303, WT304, WT401) with thermostat control from Home Assistant. |
 | **0.11.0** | WS range added (27 models): buttons as event entities, WS sensors, and wall switches / sockets / light controllers that can be switched from Home Assistant, with energy metering. |

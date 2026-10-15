@@ -378,3 +378,9 @@ assert "active_power_a" in keys and keys["active_power_a"].spec.unit == "kW" and
 assert keys["forward_active_energy_ct1"].spec.device_class == "energy" and keys["power_factor_b"].native_value == 0.9
 print("cth ok")
 
+# VS350: people in / out summed per day
+rt, ents = make_device("00000000000d0350", "VS350")
+send("00000000000d0350", bytes.fromhex("05cc03000200"))
+send("00000000000d0350", bytes.fromhex("05cc04000100"))
+assert rt.values["people_in_today"] == 7 and rt.values["people_out_today"] == 3 and rt.values["people_net_today"] == 4, rt.values
+print("people counter ok")
