@@ -1,0 +1,330 @@
+# Milesight LoRaWAN – Building dashboard (example of what the gateway's 'Update building dashboard' button creates)
+# You normally don't need this file: the button builds the dashboard with your own entities and areas.
+# To use it by hand: Settings → Dashboards → Add dashboard → open it → ⋮ → Edit → ⋮ → Raw configuration editor,
+# paste, and replace the entity ids.
+title: Building – Milesight gateway
+views:
+- type: sections
+  title: Overview
+  path: overview
+  icon: mdi:office-building
+  max_columns: 4
+  badges:
+  - type: entity
+    entity: sensor.outside_temperature
+    name: Outside
+    show_name: true
+  - type: entity
+    entity: sensor.milesight_gateway_building_health
+    name: Building health
+    show_name: true
+  - type: entity
+    entity: sensor.milesight_gateway_people_in_building
+    name: People in building
+    show_name: true
+  - type: entity
+    entity: sensor.milesight_gateway_devices_online
+    name: Devices online
+    show_name: true
+  - type: entity
+    entity: sensor.milesight_gateway_alerts
+    name: Alerts
+    show_name: true
+  sections:
+  - type: grid
+    cards:
+    - type: markdown
+      content: |-
+        {% set s = "sensor.milesight_gateway_site" %}
+        <table width="100%"><tr>
+        <td width="100">{% if state_attr(s, 'logo') %}<img src="{{ state_attr(s, 'logo') }}" width="84" alt="Logo">{% endif %}</td>
+        <td>
+        <h2>{{ states(s) }}</h2>
+        {{ state_attr(s, 'site') }}{% if state_attr(s, 'address') %} · {{ state_attr(s, 'address') }}{% endif %}<br>
+        {% set c = [state_attr(s, 'contact'), state_attr(s, 'phone')] | select | list %}
+        {% if c or state_attr(s, 'email') %}Facilities: {{ c | join(' · ') }}{% if state_attr(s, 'email') %}{{ ' · ' if c else '' }}<a href="mailto:{{ state_attr(s, 'email') }}">{{ state_attr(s, 'email') }}</a>{% endif %}{% endif %}
+        </td>
+        <td align="right">{{ now().strftime('%A %-d %B %Y · %H:%M') }}</td>
+        </tr></table>
+        {% if (state_attr(s, 'alerts') or 0) > 0 %}<ha-alert alert-type="warning">{{ state_attr(s, 'status') }}</ha-alert>{% else %}<ha-alert alert-type="success">All systems normal</ha-alert>{% endif %}
+      grid_options:
+        columns: full
+    column_span: 4
+  - type: grid
+    cards:
+    - type: heading
+      heading: Overall health
+      icon: mdi:heart-pulse
+    - type: gauge
+      entity: sensor.milesight_gateway_building_health
+      name: Building health
+      min: 0
+      max: 100
+      severity:
+        green: 80
+        yellow: 60
+        red: 0
+      grid_options:
+        columns: full
+    - type: tile
+      entity: sensor.milesight_gateway_building_comfort
+      name: Comfort
+      grid_options:
+        columns: 6
+      icon: mdi:emoticon-happy-outline
+    - type: tile
+      entity: sensor.milesight_gateway_air_quality
+      name: Air quality
+      grid_options:
+        columns: 6
+      icon: mdi:air-filter
+    - type: tile
+      entity: sensor.milesight_gateway_systems_health
+      name: Systems
+      grid_options:
+        columns: 6
+      icon: mdi:router-network
+    - type: tile
+      entity: sensor.milesight_gateway_people_in_building
+      name: Occupancy
+      grid_options:
+        columns: 6
+      icon: mdi:account-group
+  - type: grid
+    cards:
+    - type: heading
+      heading: Air quality
+      icon: mdi:air-filter
+    - type: gauge
+      entity: sensor.milesight_gateway_average_co2
+      name: CO₂
+      min: 400
+      max: 2000
+      needle: true
+      segments:
+      - from: 400
+        color: var(--success-color)
+      - from: 800
+        color: var(--warning-color)
+      - from: 1200
+        color: var(--error-color)
+      grid_options:
+        columns: 6
+    - type: gauge
+      entity: sensor.milesight_gateway_average_pm2_5
+      name: PM2.5
+      min: 0
+      max: 75
+      needle: true
+      segments:
+      - from: 0
+        color: var(--success-color)
+      - from: 12
+        color: var(--warning-color)
+      - from: 35
+        color: var(--error-color)
+      grid_options:
+        columns: 6
+    - type: gauge
+      entity: sensor.milesight_gateway_average_tvoc
+      name: TVOC
+      min: 0
+      max: 1000
+      needle: true
+      segments:
+      - from: 0
+        color: var(--success-color)
+      - from: 300
+        color: var(--warning-color)
+      - from: 500
+        color: var(--error-color)
+      grid_options:
+        columns: 6
+    - type: gauge
+      entity: sensor.milesight_gateway_average_humidity
+      name: Humidity
+      min: 0
+      max: 100
+      needle: true
+      segments:
+      - from: 0
+        color: var(--warning-color)
+      - from: 30
+        color: var(--success-color)
+      - from: 60
+        color: var(--warning-color)
+      grid_options:
+        columns: 6
+    - type: history-graph
+      title: CO₂ today
+      hours_to_show: 24
+      entities:
+      - entity: sensor.reception_am307_co2
+        name: Reception
+      - entity: sensor.open_office_am307_co2
+        name: Open office
+      - entity: sensor.meeting_room_1_am307_co2
+        name: Meeting room 1
+      grid_options:
+        columns: full
+    - type: tile
+      entity: sensor.milesight_gateway_average_temperature
+      name: Temperature
+      grid_options:
+        columns: 6
+      icon: mdi:thermometer
+    - type: tile
+      entity: sensor.milesight_gateway_average_pm10
+      name: PM10
+      grid_options:
+        columns: 6
+      icon: mdi:blur
+    - type: tile
+      entity: sensor.milesight_gateway_average_pressure
+      name: Pressure
+      grid_options:
+        columns: 6
+      icon: mdi:gauge
+    column_span: 2
+  - type: grid
+    cards:
+    - type: heading
+      heading: System health
+      icon: mdi:router-network
+    - type: tile
+      entity: sensor.milesight_gateway_devices_online
+      name: Devices online
+      grid_options:
+        columns: 6
+      icon: mdi:check-network-outline
+    - type: tile
+      entity: sensor.milesight_gateway_gateways_online
+      name: Gateways online
+      grid_options:
+        columns: 6
+      icon: mdi:router-wireless
+    - type: tile
+      entity: sensor.milesight_gateway_devices_with_low_battery
+      name: Battery low
+      grid_options:
+        columns: 6
+      icon: mdi:battery-alert-variant-outline
+    - type: tile
+      entity: sensor.milesight_gateway_uplinks_today
+      name: Uplinks today
+      grid_options:
+        columns: 6
+      icon: mdi:upload-network
+    - type: markdown
+      title: Needs attention
+      content: |-
+        {% set al = state_attr("sensor.milesight_gateway_alerts", 'alerts') or [] %}
+        {% if not al %}<ha-alert alert-type="success">Nothing needs attention</ha-alert>{% else %}
+        {% for a in al %}<ha-alert alert-type="{{ 'error' if a.severity == 'serious' else 'warning' }}" title="{{ a.where }} · {{ a.what }}">{{ a.detail }} · since {{ a.since }}</ha-alert>
+        {% endfor %}{% endif %}
+      grid_options:
+        columns: full
+  - type: grid
+    cards:
+    - type: heading
+      heading: Reception
+      icon: mdi:door
+    - type: tile
+      entity: sensor.milesight_gateway_reception_comfort
+      name: Comfort
+      grid_options:
+        columns: 12
+      icon: mdi:emoticon-happy-outline
+      state_content:
+      - state
+      - temperature
+      - humidity
+      - co2
+    - type: tile
+      entity: sensor.milesight_gateway_reception_occupancy
+      name: Occupied today
+      grid_options:
+        columns: 6
+      icon: mdi:account-clock
+    - type: tile
+      entity: sensor.reception_am307_co2
+      name: CO₂
+      grid_options:
+        columns: 6
+      icon: mdi:molecule-co2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Open office
+      icon: mdi:desk
+    - type: tile
+      entity: sensor.milesight_gateway_open_office_comfort
+      name: Comfort
+      grid_options:
+        columns: 12
+      icon: mdi:emoticon-happy-outline
+      state_content:
+      - state
+      - temperature
+      - humidity
+      - co2
+    - type: tile
+      entity: sensor.milesight_gateway_open_office_occupancy
+      name: Occupied today
+      grid_options:
+        columns: 6
+      icon: mdi:account-clock
+    - type: tile
+      entity: sensor.open_office_am307_co2
+      name: CO₂
+      grid_options:
+        columns: 6
+      icon: mdi:molecule-co2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Meeting room 1
+      icon: mdi:account-group
+    - type: tile
+      entity: sensor.milesight_gateway_meeting_room_1_comfort
+      name: Comfort
+      grid_options:
+        columns: 12
+      icon: mdi:emoticon-happy-outline
+      state_content:
+      - state
+      - temperature
+      - humidity
+      - co2
+    - type: tile
+      entity: sensor.milesight_gateway_meeting_room_1_occupancy
+      name: Occupied today
+      grid_options:
+        columns: 6
+      icon: mdi:account-clock
+    - type: tile
+      entity: sensor.meeting_room_1_am307_co2
+      name: CO₂
+      grid_options:
+        columns: 6
+      icon: mdi:molecule-co2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Occupancy today
+      icon: mdi:account-clock
+    - type: markdown
+      content: |-
+        {% set names = ["Reception", "Open office", "Meeting room 1"] %}
+        {% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'in', names) | list %}
+        {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in these areas fill this in.{% else %}
+        {% set hours = range(7, 20) %}
+        | Area | Now | Today |{% for h in hours %} {{ '%02d' % h }} |{% endfor %}
+        |---|---|---|{% for h in hours %}---|{% endfor %}
+        {% for n in names %}{% for s in rows if s.attributes.area == n %}| {{ n }} | {{ ('Occupied' ~ ((' ' ~ s.attributes.people_now) if s.attributes.people_now is not none else '')) if s.attributes.occupied_now else 'Empty' }} | {{ s.state if s.state not in ('unknown', 'unavailable') else '–' }} % |{% for h in hours %}{% set p = s.attributes.hourly_today[h] %} {{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }} |{% endfor %}
+        {% endfor %}{% endfor %}
+
+        ⬛ empty · 🟩 under 25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 over 75 % · ⬜ no data{% endif %}
+      grid_options:
+        columns: full
+    column_span: 4

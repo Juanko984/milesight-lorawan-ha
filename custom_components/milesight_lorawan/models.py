@@ -977,17 +977,17 @@ def _air(f: frozenset[str]) -> list[EntitySpec]:
     if "tvoc" in f:
         specs += [
             EntitySpec("tvoc_iaq", "TVOC index", icon="mdi:air-filter", precision=2, **m),
-            EntitySpec("tvoc", "TVOC", unit="µg/m³", device_class="volatile_organic_compounds", enabled_default=False, **m),
+            EntitySpec("tvoc", "TVOC", unit="μg/m³", device_class="volatile_organic_compounds", enabled_default=False, **m),
         ]
     if "pressure" in f:
         specs.append(EntitySpec("pressure", "Pressure", unit="hPa", device_class="atmospheric_pressure", **m))
     if "pm" in f or "pm25_only" in f:
         specs += [
-            EntitySpec("pm2_5", "PM2.5", unit="µg/m³", device_class="pm25", **m),
-            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="µg/m³", device_class="pm25", icon="mdi:blur"),
+            EntitySpec("pm2_5", "PM2.5", unit="μg/m³", device_class="pm25", **m),
+            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="μg/m³", device_class="pm25", icon="mdi:blur"),
         ]
     if "pm" in f:
-        specs.append(EntitySpec("pm10", "PM10", unit="µg/m³", device_class="pm10", **m))
+        specs.append(EntitySpec("pm10", "PM10", unit="μg/m³", device_class="pm10", **m))
     if "hcho" in f:
         specs.append(EntitySpec("hcho", "Formaldehyde (HCHO)", unit="mg/m³", icon="mdi:chemical-weapon", precision=3, **m))
     if "o3" in f:
@@ -1030,7 +1030,7 @@ def _em500(f: frozenset[str]) -> list[EntitySpec]:
     if "soil" in f:
         specs += _measure("temperature", "Soil temperature", "°C", "temperature")
         specs += _measure("moisture", "Soil moisture", "%", "moisture", precision=1)
-        specs += _measure("electricity", "Soil conductivity (EC)", "µS/cm", "conductivity", icon="mdi:flash-outline")
+        specs += _measure("electricity", "Soil conductivity (EC)", "μS/cm", "conductivity", icon="mdi:flash-outline")
     if "depth" in f:
         specs += _measure("depth", "Water level", "cm", "distance", icon="mdi:waves-arrow-up")
     if "distance" in f:
@@ -1286,7 +1286,7 @@ def _gs(f: frozenset[str]) -> list[EntitySpec]:
             fault,
         ]
     if "gs601" in f:
-        pm = dict(unit="µg/m³", state_class="measurement")
+        pm = dict(unit="μg/m³", state_class="measurement")
         specs += _measure("vaping_index", "Vaping index", None, None, icon="mdi:smoking")
         specs += _alarm("vaping_index", "Vaping")
         specs += [
@@ -1297,7 +1297,7 @@ def _gs(f: frozenset[str]) -> list[EntitySpec]:
             EntitySpec("buzzer", "Buzzer", platform="binary_sensor", device_class="sound", icon="mdi:bullhorn"),
             EntitySpec("pm1_0", "PM1", device_class="pm1", **pm),
             EntitySpec("pm2_5", "PM2.5", device_class="pm25", **pm),
-            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="µg/m³", device_class="pm25", icon="mdi:blur"),
+            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="μg/m³", device_class="pm25", icon="mdi:blur"),
             EntitySpec("pm10", "PM10", device_class="pm10", **pm),
             EntitySpec("tvoc", "TVOC", state_class="measurement", icon="mdi:air-filter"),
             EntitySpec("tvoc_max_today", "TVOC max today", icon="mdi:air-filter"),

@@ -19,7 +19,7 @@ def _load(name):
     spec = importlib.util.spec_from_file_location(f"mlw.{name}", PKG / f"{name}.py")
     mod = importlib.util.module_from_spec(spec); sys.modules[f"mlw.{name}"] = mod
     spec.loader.exec_module(mod); return mod
-dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link")
+dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -648,6 +648,107 @@ def test_ds3604_encode_and_decode():
         raise AssertionError("expected ValueError")
     except ValueError:
         pass
+
+
+
+def _dev(name, online=True, battery=80, low=False, **values):
+    return {"deveui": name.upper(), "name": name, "model": "AM307", "online": online, "battery": battery,
+            "battery_low": low, "values": values, "units": {"tvoc": "μg/m³"}, "last_seen_text": "15 Oct 09:12",
+            "command_failed": None}
+
+
+def test_air_quality_levels():
+    assert bc.air_quality({"co2": 600, "pm2_5": 5}) == ("Good", 100)
+    level, score = bc.air_quality({"co2": 1000, "pm2_5": 5})
+    assert level == "Moderate" and 80 < score < 100
+    assert bc.air_quality({"co2": 1300}, co2_alert=1200)[0] == "Poor"
+    assert bc.air_quality({"pm2_5": 80})[0] == "Unhealthy"
+    assert bc.air_quality({"temperature": 22}) == (None, None)
+
+
+def test_compute_building():
+    devices = [_dev("Office AM307", co2=948, temperature=23.6, humidity=41, pm2_5=9, tvoc=200),
+               _dev("Meeting AM307", co2=1340, temperature=25.1, humidity=58, pm2_5=7, tvoc=400),
+               _dev("GS601", co2=None, tvoc=3),                       # TVOC index -> different unit, ignored
+               _dev("Back door", online=False), _dev("Fridge", battery=14, low=True)]
+    devices[2]["units"] = {"tvoc": None}
+    areas = {"Open office": {"temperature": 23.6, "humidity": 41, "co2": 948, "comfort": 85, "occupied": True,
+                             "people": 34},
+             "Meeting room 1": {"temperature": 25.1, "humidity": 58, "co2": 1340, "comfort": 54, "occupied": True,
+                                "people": 8},
+             "Kitchen": {"temperature": 22.9, "humidity": 63, "co2": 720, "comfort": 72, "occupied": False,
+                         "people": None}}
+    gws = [{"name": "Roof", "online": True}, {"name": "Basement", "online": False}]
+    b = bc.compute_building(devices, areas, gws, co2_alert=1200, area_order=["Meeting room 1", "Open office"])
+    assert b["areas"] == ["Meeting room 1", "Open office"]                    # configured order, others left out
+    assert b["averages"]["co2"] == 1144 and b["averages"]["tvoc"] == 300      # GS601 index not averaged
+    assert b["air_quality"] == "Moderate" and b["comfort"] == 70 and b["comfortable_areas"] == 1
+    assert b["systems"] == round(100 * 4 / 7)            # 3 healthy devices + 1 gateway of 5 + 2
+    assert b["people"] == 42 and b["occupied_areas"] == 2
+    assert b["health"] == round(0.4 * 70 + 0.4 * b["air_score"] + 0.2 * b["systems"])
+    kinds = [(a["severity"], a["where"], a["what"]) for a in b["alerts"]]
+    assert ("serious", "Meeting room 1", "CO₂ 1,340 ppm") in kinds and ("serious", "Back door", "Offline") in kinds
+    assert ("warning", "Fridge", "Battery 14 %") in kinds and ("serious", "Basement", "Gateway offline") in kinds
+    assert kinds[0][0] == "serious" and kinds[-1][0] == "warning"
+    assert not any(a["where"] == "Kitchen" for a in b["alerts"])             # not on the dashboard list
+    empty = bc.compute_building([], {}, [])
+    assert empty["health"] is None and empty["alerts"] == [] and empty["systems"] is None
+
+
+def test_dashboard_config_and_templates():
+    import jinja2
+    ctx = {"title": "Building – Head office", "site": "sensor.head_office_site", "health": "sensor.h",
+           "comfort": "sensor.c", "air_quality": "sensor.aq", "systems": "sensor.sys", "people": "sensor.p",
+           "alerts": "sensor.al", "avg": {"co2": "sensor.avg_co2", "pm2_5": "sensor.avg_pm"},
+           "devices_online": "sensor.on", "battery_low": None, "gateways_online": "sensor.gw", "uplinks": None,
+           "outside": None, "co2_alert": 1100,
+           "areas": [{"name": "Board room", "icon": "mdi:table-furniture", "comfort": "sensor.br_c",
+                      "occupancy": "sensor.br_o", "co2": "sensor.br_co2"},
+                     {"name": "Sam's office", "icon": None, "comfort": None, "occupancy": None, "co2": None}]}
+    cfg = dcfg.build_config(ctx)
+    view = cfg["views"][0]
+    assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == \
+        ["Building health", "People in building", "Devices online", "Alerts"]
+    secs = view["sections"]
+    heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
+    assert heads == [None, "Overall health", "Air quality", "System health", "Board room", "Occupancy today"]
+    air = secs[2]["cards"]
+    co2 = next(c for c in air if c["type"] == "gauge" and c["name"] == "CO₂")
+    assert co2["segments"][-1]["from"] == 1100 and co2["needle"] is True
+    assert next(c for c in air if c["type"] == "history-graph")["entities"] == [{"entity": "sensor.br_co2",
+                                                                                 "name": "Board room"}]
+    assert secs[4]["cards"][1]["state_content"] == ["state", "temperature", "humidity", "co2"]
+    assert all(c.get("entity") is None or c["entity"] for s_ in secs for c in s_["cards"])   # no empty entities
+    json.dumps(cfg)                                                                          # storable
+
+    env = jinja2.Environment()
+    env.filters["select"] = lambda xs: [x for x in xs if x]
+    site = {"logo": "/local/logo.png", "site": "Head office", "address": "1 Main Rd, Cape Town",
+            "contact": "Sam Smith", "phone": "+27 21 000 0000", "email": "fm@example.com", "alerts": 2,
+            "status": "2 items need attention"}
+    class Now:
+        def strftime(self, f): return "Wednesday 15 October 2026 · 14:32"
+    banner = env.from_string(secs[0]["cards"][0]["content"]).render(
+        state_attr=lambda e, a: site.get(a), states=lambda e: "Acme Facilities", now=Now)
+    assert "<h2>Acme Facilities</h2>" in banner and "Head office · 1 Main Rd, Cape Town" in banner
+    assert "Facilities: Sam Smith · +27 21 000 0000 · <a href=\"mailto:fm@example.com\">" in banner
+    assert '<ha-alert alert-type="warning">2 items need attention</ha-alert>' in banner
+    site.update(contact=None, phone=None, email=None, alerts=0, logo=None)
+    banner = env.from_string(secs[0]["cards"][0]["content"]).render(
+        state_attr=lambda e, a: site.get(a), states=lambda e: "Acme", now=Now)
+    assert "Facilities" not in banner and "<img" not in banner and "All systems normal" in banner
+    md = next(c for c in secs[3]["cards"] if c["type"] == "markdown")["content"]
+    al = [{"severity": "serious", "where": "Meeting room 1", "what": "CO₂ 1,340 ppm", "detail": "Above", "since": "14:05"}]
+    out = env.from_string(md).render(state_attr=lambda e, a: al)
+    assert 'alert-type="error" title="Meeting room 1 · CO₂ 1,340 ppm"' in out and "since 14:05" in out
+    heat = secs[5]["cards"][1]["content"]
+    assert '["Board room", "Sam\'s office"]' in heat                 # names safely quoted
+    S = types.SimpleNamespace
+    sensor = S(state="40", attributes={"area": "Board room", "hourly_today": [None] * 7 + [0, 30, 80] + [None] * 14,
+                                        "occupied_now": True, "people_now": 3})
+    env.tests["defined"] = lambda v: v is not None and not isinstance(v, jinja2.Undefined)
+    out = env.from_string(heat).render(states=S(sensor=[sensor]))
+    assert "| Board room | Occupied 3 | 40 % | ⬛ | 🟨 | 🟥 | ⬜ |" in out, out
 
 
 if __name__ == "__main__":

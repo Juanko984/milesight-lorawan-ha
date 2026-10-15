@@ -4957,7 +4957,7 @@
       "name": "min",
       "value": "i16le",
       "scale": 1,
-      "unit": "µg/m³",
+      "unit": "μg/m³",
       "min": 0,
       "max": 1000
      },
@@ -4965,7 +4965,7 @@
       "name": "max",
       "value": "i16le",
       "scale": 1,
-      "unit": "µg/m³",
+      "unit": "μg/m³",
       "min": 0,
       "max": 1000
      }

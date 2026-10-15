@@ -65,6 +65,8 @@ class Hub:
         self.stats = GatewayStats()
         self._online: dict[str, bool | None] = {}
         self._last_push = 0.0
+        self.areas = None       # fleet.AreaTracker, set by the sensor platform
+        self.building = None    # building.BuildingTracker
 
     async def async_start(self) -> None:
         self.stats = GatewayStats(await self.store.async_load())

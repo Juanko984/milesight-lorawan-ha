@@ -2,6 +2,24 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.19.0
+### Added
+- **Building dashboard**: the gateway's new *Update building dashboard* button (or *Site information* → submit)
+  creates a *Building – <site>* dashboard from built-in cards only: company banner, badges, overall health gauge,
+  air quality gauges and CO₂ history, system health with *Needs attention*, a section per area and the occupancy
+  heat map. Example: dashboards/building_overview.example.yaml.
+- **Site information** (gateway → Configure → Site information): uses Home Assistant's name, country, time zone,
+  Home zone, areas and a person as facilities contact; adds address, phone, e-mail, logo, area order, outside sensor
+  and CO₂ alert level. The gateway options are now a menu (Site information / Gateway connection).
+- Gateway sensors: Site, Building health, Building comfort, Air quality, Systems health, People in building, Alerts
+  (with the list and start time) and building averages (temperature, humidity, CO₂, PM2.5, PM10, TVOC,
+  formaldehyde, pressure – only for measures the site's devices have).
+
+### Fixed
+- PM2.5 / PM10 / TVOC (μg/m³) and soil conductivity (μS/cm) now use Home Assistant's unit spelling (Greek μ instead
+  of the micro sign µ), which removes the "unit not valid for device class" warnings. Home Assistant may ask once
+  (Developer tools → Statistics) to confirm the unit change for these sensors' long-term statistics.
+
 ## 0.18.0
 ### Added
 - Command confirmation: every command, setting and display update is tracked (*Command status*: pending /

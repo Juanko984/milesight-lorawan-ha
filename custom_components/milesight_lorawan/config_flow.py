@@ -12,7 +12,11 @@ except ImportError:  # older Home Assistant
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    AreaSelector,
+    AreaSelectorConfig,
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -22,10 +26,23 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .const import (
     CONF_AUTO_BACKFILL,
+    CONF_CO2_ALERT,
+    CONF_SITE_ADDRESS,
+    CONF_SITE_AREAS,
+    CONF_SITE_COMPANY,
+    CONF_SITE_CONTACT,
+    CONF_SITE_EMAIL,
+    CONF_SITE_LOGO,
+    CONF_SITE_OUTSIDE,
+    CONF_SITE_PHONE,
+    CONF_UPDATE_DASHBOARD,
+    DEFAULT_CO2_ALERT,
+    DEFAULT_SITE_LOGO,
     CONF_CONFIRMED_DOWNLINKS,
     CONF_DISPLAY_MAX_BYTES,
     CONF_EXTRA_TOPICS,
@@ -122,6 +139,24 @@ def _hub_schema(opts: dict) -> dict:
         vol.Required(CONF_GATEWAY_OFFLINE_MIN, default=opts.get(CONF_GATEWAY_OFFLINE_MIN, DEFAULT_GATEWAY_OFFLINE_MIN)):
             _int_box(2, 1440),
     }
+
+
+def _schedule_dashboard(hass, entry: ConfigEntry) -> None:
+    """Build the dashboard once the entry has (possibly) reloaded with the new options and its sensors exist."""
+    from homeassistant.helpers.event import async_call_later
+
+    async def _run(_now) -> None:
+        from .dashboard import async_update_dashboard
+        try:
+            await async_update_dashboard(hass, entry)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("Could not create the building dashboard", exc_info=True)
+    async_call_later(hass, 20, _run)
+
+
+_SITE_KEYS = (CONF_SITE_COMPANY, CONF_SITE_ADDRESS, CONF_SITE_CONTACT, CONF_SITE_PHONE, CONF_SITE_EMAIL, CONF_SITE_LOGO,
+              CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT)
 
 
 def _int_box(lo: int, hi: int) -> NumberSelector:
@@ -251,6 +286,50 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class MilesightOptionsFlow(OptionsFlow):
+    async def async_step_connection(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: MQTT topics, formats, gateway offline time."""
+        entry = self.config_entry
+        if user_input is not None:
+            return self.async_create_entry(data={**entry.options, **user_input})
+        opts = {**entry.data, **entry.options}
+        return self.async_show_form(step_id="connection", data_schema=vol.Schema(_hub_schema(opts)))
+
+    async def async_step_site(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: site information for the banner and the Building dashboard."""
+        entry = self.config_entry
+        if user_input is not None:
+            update = bool(user_input.pop(CONF_UPDATE_DASHBOARD, False))
+            data = {k: v for k, v in entry.options.items() if k not in _SITE_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "", [])})
+            data[CONF_SITE_LOGO] = user_input.get(CONF_SITE_LOGO) or ""      # cleared logo stays cleared
+            if update:
+                _schedule_dashboard(self.hass, entry)
+            return self.async_create_entry(data=data)
+        o = entry.options
+
+        def sv(key: str, default: Any = None) -> dict:
+            return {"suggested_value": o.get(key, default)}
+        schema = {
+            vol.Optional(CONF_SITE_COMPANY, description=sv(CONF_SITE_COMPANY)): TextSelector(),
+            vol.Optional(CONF_SITE_CONTACT, description=sv(CONF_SITE_CONTACT)):
+                EntitySelector(EntitySelectorConfig(domain="person")),
+            vol.Optional(CONF_SITE_ADDRESS, description=sv(CONF_SITE_ADDRESS)): TextSelector(),
+            vol.Optional(CONF_SITE_PHONE, description=sv(CONF_SITE_PHONE)):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.TEL)),
+            vol.Optional(CONF_SITE_EMAIL, description=sv(CONF_SITE_EMAIL)):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.EMAIL)),
+            vol.Optional(CONF_SITE_LOGO, description=sv(CONF_SITE_LOGO, DEFAULT_SITE_LOGO)): TextSelector(),
+            vol.Optional(CONF_SITE_AREAS, description=sv(CONF_SITE_AREAS, [])):
+                AreaSelector(AreaSelectorConfig(multiple=True)),
+            vol.Optional(CONF_SITE_OUTSIDE, description=sv(CONF_SITE_OUTSIDE)):
+                EntitySelector(EntitySelectorConfig(domain=["sensor", "weather"])),
+            vol.Required(CONF_CO2_ALERT, default=o.get(CONF_CO2_ALERT, DEFAULT_CO2_ALERT)): _int_box(600, 5000),
+            vol.Required(CONF_UPDATE_DASHBOARD, default=True): BooleanSelector(),
+        }
+        hass_name = self.hass.config.location_name
+        return self.async_show_form(step_id="site", data_schema=vol.Schema(schema),
+                                    description_placeholders={"ha_name": hass_name or "Home"})
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         entry = self.config_entry
         if user_input is not None:
@@ -258,7 +337,7 @@ class MilesightOptionsFlow(OptionsFlow):
 
         opts = {**entry.data, **entry.options}
         if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-            return self.async_show_form(step_id="init", data_schema=vol.Schema(_hub_schema(opts)))
+            return self.async_show_menu(step_id="init", menu_options=["site", "connection"])
 
         model = opts.get(CONF_MODEL, entry.data[CONF_MODEL])
         features = MODELS[model].features

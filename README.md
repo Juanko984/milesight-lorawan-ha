@@ -351,6 +351,42 @@ After a setting is sent (e.g. *Reporting interval*), the device's **Last command
 entity's `confirmed_by_device` attribute shows the same. Firmware and hardware versions on the device page update
 whenever the device reports them.
 
+### Building dashboard
+
+A ready-made **Building** dashboard for each site, built from Home Assistant's own cards only (no HACS):
+a banner with the company details, badges, overall health, air quality, system health, a section per area and
+the occupancy heat map.
+
+1. Gateway entry → **Configure** → **Site information**. Home Assistant already provides the **company name**
+   (Settings → System → General → Name), country, time zone, the Home zone, the **areas** (Settings → Areas) and the
+   **facilities contact** (a person from Settings → People). Fill in only what Home Assistant does not know:
+   address, phone, e-mail, logo, which areas to show and in what order, an optional outside temperature sensor,
+   and the CO₂ alert level (default 1,200 ppm). *Company name* overrides the Home Assistant name when they differ;
+   the site name is the gateway entry's name.
+2. Leave **Create / update the Building dashboard** ticked and submit. The dashboard appears in the sidebar as
+   *Building – &lt;site&gt;*. After adding areas or devices, press the gateway's **Update building dashboard**
+   button. The banner, badges, gauges, heat map and *Needs attention* update by themselves.
+
+Logo: copy the file into the `www` folder of your configuration (File editor / Samba add-on) and enter
+`/local/<file name>` (default `/local/logo.png`).
+
+The gateway device gets the sensors behind it, also usable in your own dashboards and automations:
+
+| Sensor | |
+|---|---|
+| **Site** | Company name; attributes: site, address, contact (+ picture), phone, e-mail, logo, country, time zone, areas, status |
+| **Building health** | 0–100: 40 % comfort, 40 % air quality, 20 % systems (devices online with good batteries, gateways online) |
+| **Building comfort** | Average area comfort; comfortable areas as an attribute |
+| **Air quality** | Good / Moderate / Poor / Unhealthy – the worst of CO₂, PM2.5, PM10, TVOC, formaldehyde; score as an attribute |
+| **Systems health**, **People in building**, **Alerts** | Alerts lists what needs attention (high CO₂ / humidity / temperature per area, offline devices and gateways, low batteries, failed commands) with the time it started |
+| **Average temperature / humidity / CO₂ / PM2.5 / PM10 / TVOC / formaldehyde / pressure** | Over online devices – only measures your devices have (TVOC only from devices reporting µg/m³) |
+
+The dashboard is saved like any dashboard edited in the UI, so it can be changed afterwards – but pressing
+*Update building dashboard* again replaces it. To keep your own changes, copy it (⋮ → Edit → ⋮ → Raw
+configuration editor) into a dashboard of your own. If Home Assistant refuses the direct save, the YAML is written
+to `/config/milesight_building-<site>.yaml` with a notification on how to paste it.
+[`dashboards/building_overview.example.yaml`](dashboards/building_overview.example.yaml) shows what is generated.
+
 ### Building analytics
 
 Give devices an area (bulk onboarding, the onboarding form, or the device page) and the gateway device gets, per area:
@@ -582,6 +618,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.19.0** | Building dashboard: Site information (from Home Assistant + gateway settings), building health / comfort / air quality / people / alerts / averages sensors, one-click generated dashboard with built-in cards. |
 | **0.18.0** | Command confirmation with retries (pending / confirmed / failed, network ACKs), signal quality per device (gateways in range, SF, packet loss, advice) with installer dashboard, DS3604 display content (text entities, service, room-sign blueprint), gateway health (a device per gateway: online, packets, devices heard, status reports). |
 | **0.17.0** | Device settings as entities (alarm thresholds, child lock, LED, buzzer), stored-data backfill into long-term statistics, pulse counters as water / gas / energy meters for the Energy dashboard, building analytics (area comfort, occupancy heat map, utilisation) with dashboard. |
 | **0.16.0** | Rollout tools: bulk onboarding with areas, fleet overview sensors + dashboard, online / battery-low sensors and events, 8 blueprints, settings confirmation. |

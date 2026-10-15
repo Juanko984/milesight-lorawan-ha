@@ -21,6 +21,19 @@ DEFAULT_TOPIC = "milesight/uplink/#"
 CONF_EXTRA_TOPICS = "extra_topics"              # ACK / join / gateway status topics (comma separated)
 CONF_GATEWAY_OFFLINE_MIN = "gateway_offline_min"
 DEFAULT_GATEWAY_OFFLINE_MIN = 15
+# Site information (gateway options) – what Home Assistant does not know itself
+CONF_SITE_COMPANY = "site_company"           # optional override of Home Assistant's location name
+CONF_SITE_ADDRESS = "site_address"
+CONF_SITE_CONTACT = "site_contact"           # person.* entity
+CONF_SITE_PHONE = "site_phone"
+CONF_SITE_EMAIL = "site_email"
+CONF_SITE_LOGO = "site_logo"
+CONF_SITE_AREAS = "site_areas"               # area ids, dashboard order
+CONF_SITE_OUTSIDE = "site_outside_sensor"    # optional outside temperature sensor for the badge
+CONF_CO2_ALERT = "co2_alert"
+CONF_UPDATE_DASHBOARD = "update_dashboard"   # form-only: regenerate the Building dashboard on submit
+DEFAULT_SITE_LOGO = "/local/logo.png"
+DEFAULT_CO2_ALERT = 1200
 ENCODING_BASE64 = "base64"
 ENCODING_HEX = "hex"
 

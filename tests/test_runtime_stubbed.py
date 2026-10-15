@@ -54,7 +54,24 @@ mod("homeassistant.helpers"); mod("homeassistant.util", dt=dt_mod); mod("homeass
 mod("homeassistant.helpers.dispatcher", async_dispatcher_connect=dispatcher_connect, async_dispatcher_send=dispatcher_send)
 mod("homeassistant.helpers.event", async_track_time_interval=lambda h, f, i: (lambda: None))
 mod("homeassistant.helpers.storage", Store=Store)
-mod("homeassistant.helpers.device_registry", DeviceInfo=dict)
+class _DevReg:
+    def async_get_device(self, **kw): return None
+mod("homeassistant.helpers.device_registry", DeviceInfo=dict, async_get=lambda h: _DevReg(),
+    async_entries_for_area=lambda reg, area_id: [])
+class _EntReg:
+    def async_get_entity_id(self, platform, domain, unique_id): return f"{platform}.{unique_id}"
+mod("homeassistant.helpers.entity_registry", async_get=lambda h: _EntReg())
+class _AreaReg:
+    def async_get_area_by_name(self, n): return None
+    def async_get_area(self, i): return types.SimpleNamespace(name={"a1": "Meeting room 1", "a2": "Open office"}.get(i, i))
+mod("homeassistant.helpers.area_registry", async_get=lambda h: _AreaReg())
+PANELS = {}
+mod("homeassistant.components.frontend", async_register_built_in_panel=lambda hass, comp, **kw: PANELS.update({kw["frontend_url_path"]: kw}),
+    async_remove_panel=lambda hass, url: PANELS.pop(url, None))
+class _LovelaceStorage:
+    def __init__(self, hass, config): self.config, self.saved = config, None
+    async def async_save(self, cfg): self.saved = cfg
+mod("homeassistant.components.lovelace"); mod("homeassistant.components.lovelace.dashboard", LovelaceStorage=_LovelaceStorage)
 mod("homeassistant.helpers.entity", Entity=Entity, EntityCategory=EntityCategory)
 mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 mod("homeassistant.components.sensor", SensorDeviceClass=SensorDeviceClass, SensorEntity=object, SensorStateClass=SensorStateClass)
@@ -88,7 +105,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text"]:
+for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "dashboard_config", "dashboard"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -596,3 +613,52 @@ hb.stats.gateways["24e124fffef00002"]["last_heard"] -= 3600
 hb._tick()
 assert fired[-1][0] == "milesight_lorawan_gateway_offline" and fired[-1][1]["gateway"] == "Roof", fired[-1]
 print("gateway ok")
+
+# ---------------- 0.19: site information, building overview, dashboard ----------------
+bmod, dmod = sys.modules["milesight_lorawan.building"], sys.modules["milesight_lorawan.dashboard"]
+def am307(t, rh, co2):
+    return bytes.fromhex("0367" + int(t * 10).to_bytes(2, "little").hex() + "0468" + bytes([int(rh * 2)]).hex()
+                         + "077d" + co2.to_bytes(2, "little").hex())
+dev_entries = []
+for eui, area, payload in (("0000000000190001", "Open office", am307(23.6, 41, 948)),
+                           ("0000000000190002", "Meeting room 1", am307(25.1, 58, 1340))):
+    e = types.SimpleNamespace(data={"entry_type": "device", "deveui": eui, "model": "AM307", "area": area},
+                              options={}, title=f"{area} AM307", entry_id=eui)
+    rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add(eui); rt.async_start()
+    e.runtime_data = rt
+    send(eui, payload)
+    dev_entries.append(e)
+site_entry = types.SimpleNamespace(
+    data={"entry_type": "hub"}, entry_id="site1", title="Head office", runtime_data=hb,
+    options={"site_address": "1 Main Rd, Cape Town", "site_contact": "person.sam", "site_phone": "+27 21 000 0000",
+             "site_email": "fm@example.com", "site_areas": ["a1", "a2"], "co2_alert": 1200},
+    async_on_unload=lambda f: None)
+hass2 = types.SimpleNamespace(
+    config=types.SimpleNamespace(location_name="Acme Facilities", time_zone="Africa/Johannesburg", country="ZA",
+                                 latitude=-33.9, longitude=18.4, path=lambda f: "/tmp/" + f),
+    states=types.SimpleNamespace(get=lambda e: types.SimpleNamespace(attributes={"friendly_name": "Sam Smith",
+                                                                                 "entity_picture": "/api/x"})),
+    config_entries=types.SimpleNamespace(async_entries=lambda d: [site_entry] + dev_entries),
+    data={"lovelace": types.SimpleNamespace(dashboards={})}, bus=hass.bus, async_create_task=hass.async_create_task)
+areas_tr = types.SimpleNamespace(summary=sys.modules["milesight_lorawan.fleet"].area_summary(hass2, site_entry),
+                                 today_share=lambda a: 40)
+hb.areas = areas_tr
+tracker, bents = bmod.building_sensors(hass2, site_entry, areas_tr)
+by = {e._attr_unique_id.removeprefix("site1_"): e for e in bents}
+assert by["site"].native_value == "Acme Facilities"                         # Home Assistant's name
+attrs = by["site"].extra_state_attributes
+assert attrs["contact"] == "Sam Smith" and attrs["site"] == "Head office" and attrs["areas"] == ["Meeting room 1", "Open office"]
+assert attrs["logo"] == "/local/logo.png" and attrs["country"] == "ZA"
+assert by["building_air_quality"].native_value == "Moderate" and by["building_avg_co2"].native_value == 1144
+assert by["building_alerts"].native_value >= 1
+assert by["building_alerts"].extra_state_attributes["alerts"][0]["where"] == "Meeting room 1"
+assert by["building_health"].native_value is not None and "building_avg_pm2_5" not in by   # AM307 has no PM
+site_entry.options["site_company"] = "Acme Ltd"
+assert by["site"].native_value == "Acme Ltd"                                # override
+where = asyncio.run(dmod.async_update_dashboard(hass2, site_entry))
+dash = hass2.data["lovelace"].dashboards["building-head-office"]
+assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Building – Head office"
+assert dash.saved["views"][0]["sections"][0]["cards"][0]["content"].startswith('{% set s = "sensor.site1_site" %}')
+heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
+assert heads[-3:] == ["Meeting room 1", "Open office", "Occupancy today"], heads
+print("building ok")

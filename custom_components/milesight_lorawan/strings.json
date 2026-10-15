@@ -126,6 +126,53 @@
           "confirmed_downlinks": "Ask the device to acknowledge every downlink (LoRaWAN confirmed). Needs the gateway's ACK notification topic under the gateway's settings. Uses a little more airtime.",
           "downlink_retries": "Commands the device does not answer within two uplinks are sent again this many times, then marked failed. 0 = never retry.",
           "display_max_bytes": "Text blocks are packed into downlinks of at most this size. 51 works at every EU868 data rate; raise it (up to 222) for displays close to a gateway, lower it to 11 for US915 SF10."
+        },
+        "menu_options": {
+          "site": "Site information",
+          "connection": "Gateway connection"
+        }
+      },
+      "connection": {
+        "title": "Gateway connection",
+        "data": {
+          "topic": "Uplink MQTT topic",
+          "payload_encoding": "Payload encoding",
+          "downlink_topic": "Downlink MQTT topic",
+          "downlink_format": "Downlink format",
+          "extra_topics": "Notification / gateway status topics",
+          "gateway_offline_min": "Gateway offline after (minutes)"
+        },
+        "data_description": {
+          "downlink_topic": "Used to switch WS wall switches and sockets. {deveui} is replaced by the device's DevEUI (Milesight gateway: set the downlink topic to e.g. milesight/downlink/$deveui).",
+          "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui).",
+          "extra_topics": "Optional, comma separated, wildcards allowed. Point the gateway's ACK Notification, Join Notification and Gateway Information MQTT topics here (e.g. milesight/ack, milesight/join, milesight/gateway) – or ChirpStack gateway/+/event/stats, application/+/device/+/event/ack.",
+          "gateway_offline_min": "A gateway is shown offline when it has forwarded nothing (and sent no status report) for this long."
+        }
+      },
+      "site": {
+        "title": "Site information",
+        "description": "Shown in the banner of the Building dashboard. Taken from Home Assistant: the name (\"{ha_name}\", Settings → System → General), country, time zone, the Home zone, areas (Settings → Areas) and the contact person (Settings → People). Fill in only what Home Assistant does not know.",
+        "data": {
+          "site_company": "Company name (optional override)",
+          "site_contact": "Facilities contact (person)",
+          "site_address": "Address",
+          "site_phone": "Phone",
+          "site_email": "E-mail",
+          "site_logo": "Logo",
+          "site_areas": "Areas on the dashboard",
+          "site_outside_sensor": "Outside temperature (optional)",
+          "co2_alert": "CO₂ alert above (ppm)",
+          "update_dashboard": "Create / update the Building dashboard"
+        },
+        "data_description": {
+          "site_company": "Leave empty to use the Home Assistant name. The site name is this gateway's name (rename it on the integration page).",
+          "site_contact": "A Home Assistant person – name and picture come from Settings → People.",
+          "site_address": "Home Assistant only stores the map position, so enter the street address here.",
+          "site_logo": "Image path or URL. Put the file in the www folder of your configuration and enter /local/<file name>.",
+          "site_areas": "In this order. Leave empty to show every area that has Milesight devices.",
+          "site_outside_sensor": "Shown as a badge at the top of the dashboard.",
+          "co2_alert": "Areas above this level appear in Needs attention and the banner.",
+          "update_dashboard": "Generates the dashboard with a section per area. Also available as the gateway's 'Update building dashboard' button."
         }
       }
     }

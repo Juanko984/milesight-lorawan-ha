@@ -5,6 +5,8 @@ are offered as discovered devices; each confirmed device becomes its own entry.
 """
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -19,7 +21,8 @@ from .hub import Hub
 from .runtime import DeviceRuntime
 from .services import async_register_services
 
-HUB_PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]   # fleet overview, gateway health
+_LOGGER = logging.getLogger(__name__)
+HUB_PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]   # fleet, gateway health, dashboard
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.EVENT, Platform.CLIMATE, Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.TEXT]
@@ -51,6 +54,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data["hubs"][entry.entry_id] = hub
         await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
         entry.async_on_unload(entry.add_update_listener(_async_reload))
+        from .dashboard import async_restore_dashboard
+        await async_restore_dashboard(hass, entry)
         return True
 
     runtime = DeviceRuntime(hass, entry)
@@ -65,6 +70,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if _is_hub(entry):
         await hass.config_entries.async_unload_platforms(entry, HUB_PLATFORMS)
+        from .dashboard import async_remove_panel
+        await async_remove_panel(hass, entry)
         await entry.runtime_data.async_stop()
         hass.data.get(DOMAIN, {}).get("hubs", {}).pop(entry.entry_id, None)
         return True
@@ -78,6 +85,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up stored analytics and allow re-discovery when a device is deleted."""
     if _is_hub(entry):
+        # the generated dashboard and the gateway's statistics belong to this entry
+        for key in (f"{DOMAIN}.dashboard_{entry.entry_id}", f"lovelace.milesight_{entry.entry_id}",
+                    f"{DOMAIN}.hub_{entry.entry_id}"):
+            await Store(hass, STORAGE_VERSION if key.startswith(DOMAIN) else 1, key).async_remove()
         return
     deveui = entry.data[CONF_DEVEUI]
     await Store(hass, STORAGE_VERSION, f"{DOMAIN}.{deveui}").async_remove()
