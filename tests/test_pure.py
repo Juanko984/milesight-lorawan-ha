@@ -300,6 +300,29 @@ def test_guess_gs_range():
     assert mdl.guess_model(bytes.fromhex("0050013205200007300009f4000b2c010d64001201"))[0] == "GS601"
 
 
+def test_decode_at101():
+    d = dec.decode_at101(bytes.fromhex("01756403671B01050000048836BF7701F000090722"))     # official sample
+    assert d["battery"] == 100 and d["temperature"] == 28.3 and d["tilted"] is False
+    assert d["latitude"] == 24.62495 and d["longitude"] == 118.030576
+    assert d["motion_status"] == "moving" and d["geofence_status"] == "unset"
+    d = dec.decode_at101(bytes.fromhex("06d900ffffffffffff0003" "06d901112233445566c502" "070001" "83670e0101"))
+    assert d["wifi_scan_result"] == "finish" and d["wifi_ap_count"] == 1 and d["wifi"][0]["mac"] == "11:22:33:44:55:66"
+    assert d["tamper"] is True and d["temperature_alarm_active"] is True and d["temperature"] == 27.0
+    assert mdl.guess_model(bytes.fromhex("01756403671B01050000048836BF7701F000090722"))[0] == "AT101"
+
+
+def test_distance_tracker():
+    dtk = ana.DistanceTracker(CAL)
+    t0 = T("2026-10-14T08:00:00")
+    dtk.update(t0, -33.918861, 18.4233)
+    dtk.update(t0 + 60, -33.918900, 18.4233)                 # 4 m jitter -> ignored
+    dtk.update(t0 + 600, -33.928861, 18.4233)                # ~1.11 km
+    dtk.update(t0 + 601, 10.0, 10.0)                         # impossible jump -> not counted
+    v = dtk.values(t0 + 700)
+    assert 1.10 <= v["distance_today_km"] <= 1.12 and v["distance_week_km"] == v["distance_today_km"]
+    assert dtk.values(T("2026-10-15T09:00:00"))["distance_yesterday_km"] == v["distance_today_km"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

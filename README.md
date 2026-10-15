@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.9.0** · [Version history](#version-history)
+**Current version: 0.10.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -18,6 +18,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **VS** – people counting & occupancy | VS121, VS321, VS340, VS341, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
 | **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
+| **AT** – asset trackers | AT101 | Vehicles, containers, equipment, bins – position on the map, trips, distance, geofence |
 | **CT** – current transformers | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2) | Machine / pump / compressor run time, circuit load, energy (v2) |
 | **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
 | **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
@@ -61,6 +62,17 @@ Statistics are stored by Home Assistant and survive restarts.
 | **EM300-MCS** door / window | As EM300-TH plus door open / closed, *door left open* alarm, open duration (live), open time & number of openings today / yesterday / this week / last week / this month / last month, longest & average opening |
 | **EM300-SLD / EM300-ZLD** leak | As EM300-TH plus leak detected and leak statistics (same periods as door) |
 | **EM300-DI** | As EM300-TH plus digital input statistics, pulse counter and converted water value |
+
+### AT range – asset trackers
+
+| Model | What you get |
+|---|---|
+| **AT101** GNSS / Wi-Fi tracker | **Map position** (device tracker – shows on the HA map and works with zones), motion (start / moving / stop), **moving statistics** (moving since, time moving and number of trips today / week / month, longest trip), **distance travelled** today / yesterday / this & last week / this & last month, **geofence** (time outside and exits per period), temperature + daily min/max, temperature alarm, tilt, removed from mount, battery |
+
+Distance is the straight-line sum between GNSS fixes, so it is a lower bound of the real route (more frequent
+reporting = closer to the real distance). Moves under 50 m are treated as GNSS jitter.
+Wi-Fi-only fixes contain access-point MACs, not coordinates – they do not move the map position (the Wi-Fi scan
+details are available as diagnostic entities).
 
 ### CT range – smart current transformers
 
@@ -247,6 +259,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.10.0** | AT range added: AT101 tracker with map position (device tracker), trips, distance travelled and geofence statistics. |
 | **0.9.0** | GS range added: GS101 gas, GS301 odour, GS524N smoke and GS601 vape detectors, with alarm statistics. |
 | **0.8.0** | CT range added: CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 and v2), with load run-time statistics and estimated power. |
 | **0.7.1** | Integration icon changed to the Milesight "M". |

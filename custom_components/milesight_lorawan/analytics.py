@@ -331,3 +331,67 @@ class OccupancyTracker:
             "utilisation_today_pct": pct(d["open_occ_s"], open_so_far),
             "utilisation_yesterday_pct": pct(y["open_occ_s"], y_open_total),
         }
+
+
+# --------------------------------------------------------------------------
+# Distance travelled (GNSS trackers)
+# --------------------------------------------------------------------------
+EARTH_RADIUS_M = 6_371_000
+
+
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    from math import asin, cos, radians, sin, sqrt
+    p1, p2 = radians(lat1), radians(lat2)
+    dp, dl = p2 - p1, radians(lon2 - lon1)
+    a = sin(dp / 2) ** 2 + cos(p1) * cos(p2) * sin(dl / 2) ** 2
+    return 2 * EARTH_RADIUS_M * asin(min(1.0, sqrt(a)))
+
+
+class DistanceTracker:
+    """Sums the straight-line distance between successive position fixes per day / week / month.
+    Moves shorter than ``min_move_m`` are treated as GNSS jitter: the reference point is kept, so
+    slow movement still adds up once it exceeds the threshold."""
+
+    def __init__(self, cal: Calendar, state: dict | None = None, min_move_m: float = 50,
+                 max_speed_kmh: float = 300) -> None:
+        self.cal = cal
+        self.min_move_m = min_move_m
+        self.max_speed_kmh = max_speed_kmh
+        self.s: dict[str, Any] = state or {"ref": None, "cur": {}, "prev": {}}
+
+    def _roll(self, ts: float) -> None:
+        for p in PERIODS:
+            k = self.cal.key(p, ts)
+            cur = self.s["cur"].get(p)
+            if cur is None or cur["key"] != k:
+                if cur is not None:
+                    self.s["prev"][p] = cur
+                self.s["cur"][p] = {"key": k, "m": 0.0}
+
+    def update(self, ts: float, lat: float | None, lon: float | None) -> None:
+        self._roll(ts)
+        if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)) or (lat == 0 and lon == 0):
+            return
+        ref = self.s["ref"]
+        if ref is None:
+            self.s["ref"] = [lat, lon, ts]
+            return
+        d = haversine_m(ref[0], ref[1], lat, lon)
+        if d < self.min_move_m:
+            return
+        dt_h = max(ts - ref[2], 1) / 3600
+        if d / 1000 / dt_h <= self.max_speed_kmh:          # ignore impossible jumps (bad fix)
+            for p in PERIODS:
+                self.s["cur"][p]["m"] += d
+        self.s["ref"] = [lat, lon, ts]
+
+    def values(self, ts: float) -> dict[str, float | None]:
+        self._roll(ts)
+        out: dict[str, float | None] = {}
+        names = {"day": ("today", "yesterday"), "week": ("week", "last_week"), "month": ("month", "last_month")}
+        for p, (now_name, prev_name) in names.items():
+            out[f"distance_{now_name}_km"] = round(self.s["cur"][p]["m"] / 1000, 2)
+            prev = self.s["prev"].get(p)
+            out[f"distance_{prev_name}_km"] = (round(prev["m"] / 1000, 2)
+                                               if prev and prev["key"] == self.cal.prev_key(p, ts) else 0.0)
+        return out

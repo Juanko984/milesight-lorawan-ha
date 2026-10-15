@@ -3,7 +3,8 @@
 This checks the integration's own wiring and value mapping for every model.
 It does NOT replace a test inside a real Home Assistant instance.
 """
-import asyncio, base64, json, pathlib, sys, time, types, enum
+import asyncio
+import time, base64, json, pathlib, sys, time, types, enum
 from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "custom_components"
@@ -27,9 +28,9 @@ class Store:
     async def async_remove(self): pass
 
 class StrE(str, enum.Enum): pass
-SensorDeviceClass = StrE("SDC", {k.upper(): k for k in ["temperature","humidity","battery","signal_strength","timestamp","duration","voltage","carbon_dioxide","volatile_organic_compounds","atmospheric_pressure","pm25","pm10","illuminance","pressure","distance","moisture","conductivity"]})
+SensorDeviceClass = StrE("SDC", {k.upper(): k for k in ['date', 'enum', 'timestamp', 'uptime', 'absolute_humidity', 'apparent_power', 'aqi', 'area', 'atmospheric_pressure', 'battery', 'blood_glucose_concentration', 'carbon_monoxide', 'carbon_dioxide', 'conductivity', 'current', 'data_rate', 'data_size', 'distance', 'duration', 'energy', 'energy_distance', 'energy_storage', 'frequency', 'gas', 'humidity', 'illuminance', 'irradiance', 'moisture', 'monetary', 'nitrogen_dioxide', 'nitrogen_monoxide', 'nitrous_oxide', 'ozone', 'ph', 'pm1', 'pm10', 'pm25', 'pm4', 'power_factor', 'power', 'precipitation', 'precipitation_intensity', 'pressure', 'radon', 'reactive_energy', 'reactive_power', 'signal_strength', 'sound_pressure', 'speed', 'sulphur_dioxide', 'temperature', 'temperature_delta', 'volatile_organic_compounds', 'volatile_organic_compounds_parts', 'voltage', 'volume', 'volume_storage', 'volume_flow_rate', 'water', 'weight', 'wind_direction', 'wind_speed']})  # copied from HA core
 SensorStateClass = StrE("SSC", {k.upper(): k for k in ["measurement","total_increasing"]})
-BinarySensorDeviceClass = StrE("BDC", {k.upper(): k for k in ["door","moisture","occupancy","problem","motion","safety","connectivity","battery","opening"]})
+BinarySensorDeviceClass = StrE("BDC", {k.upper(): k for k in ['battery', 'battery_charging', 'carbon_monoxide', 'cold', 'connectivity', 'door', 'garage_door', 'gas', 'glass_break', 'heat', 'light', 'lock', 'moisture', 'motion', 'moving', 'occupancy', 'opening', 'plug', 'power', 'presence', 'problem', 'running', 'safety', 'smoke', 'sound', 'tamper', 'update', 'vibration', 'window']})  # copied from HA core
 EntityCategory = StrE("EC", {"DIAGNOSTIC": "diagnostic"})
 callback = lambda f: f
 
@@ -54,6 +55,7 @@ mod("homeassistant.helpers.device_registry", DeviceInfo=dict)
 mod("homeassistant.helpers.entity", Entity=Entity, EntityCategory=EntityCategory)
 mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 mod("homeassistant.components.sensor", SensorDeviceClass=SensorDeviceClass, SensorEntity=object, SensorStateClass=SensorStateClass)
+mod("homeassistant.components.device_tracker", SourceType=types.SimpleNamespace(GPS="gps"), TrackerEntity=object)
 mod("homeassistant.components.binary_sensor", BinarySensorDeviceClass=BinarySensorDeviceClass, BinarySensorEntity=object)
 mod("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BINARY_SENSOR="binary_sensor"),
     EntityCategory=EntityCategory)
@@ -66,7 +68,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor"]:
+for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -96,7 +98,8 @@ def make_device(deveui, model):
     asyncio.run(rt.async_load()); entries.known.add(deveui); rt.async_start()
     ents = []
     for s in models.entity_specs(model):
-        cls = sensor.MilesightSensor if s.platform == "sensor" else binary_sensor.MilesightBinarySensor
+        cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker}.get(
+            s.platform, binary_sensor.MilesightBinarySensor)
         ents.append(cls(rt, s))
     return rt, ents
 
@@ -262,6 +265,26 @@ assert rt.values["vape_active"] is True and rt.values["vape_status"].startswith(
 send("0000000000000601", bytes.fromhex("021005"))                           # deactivation
 assert rt.values["vape_active"] is False and rt.values["vape_count_today"] == 1 and rt.values["occ_occupied"] is True
 print("gs ok")
+
+# AT101: map position, moving statistics and distance travelled
+rt, ents = make_device("0000000000000101", "AT101")
+tracker = next(e for e in ents if e.spec.platform == "device_tracker")
+send("0000000000000101", bytes.fromhex("01755a0488" + (-33_918_861).to_bytes(4, "little", signed=True).hex()
+                                       + (18_423_300).to_bytes(4, "little", signed=True).hex() + "03"),
+     time=datetime.fromtimestamp(time.time() - 300, timezone.utc).isoformat())                       # Cape Town, stopped, 5 min ago
+assert tracker.latitude == -33.918861 and tracker.longitude == 18.4233 and rt.values["moving_active"] is False
+send("0000000000000101", bytes.fromhex("0488" + (-33_928_861).to_bytes(4, "little", signed=True).hex()
+                                       + (18_423_300).to_bytes(4, "little", signed=True).hex() + "12"))   # ~1.1 km south, moving, outside
+v = rt.values
+assert v["moving_active"] is True and v["away_active"] is True and v["away_status"].startswith("Outside since"), v
+assert 1.0 < v["distance_today_km"] < 1.2, v["distance_today_km"]
+assert tracker.extra_state_attributes == {"motion_status": "moving", "geofence_status": "outside"}
+print("at ok")
+
+# every model's entities can be created with real HA device / state classes
+for i, model in enumerate(models.MODELS):
+    make_device(f"00000000000f{i:04x}", model)
+print("entity classes ok")
 for i, (model, hexstr) in enumerate(uc_samples.items()):
     raw = bytes.fromhex(hexstr)
     best, cands = models.guess_model(raw)

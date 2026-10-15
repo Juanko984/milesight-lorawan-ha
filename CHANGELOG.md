@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.10.0
+### Added
+- AT range: AT101 GNSS / Wi-Fi asset tracker.
+- New device tracker platform: the tracker's position appears on the Home Assistant map and works with zones.
+- Moving statistics (moving since, time moving, trips per day / week / month, longest trip) and geofence statistics
+  (time outside, exits).
+- Distance travelled today / yesterday / this week / last week / this month / last month (GNSS jitter and
+  impossible jumps are ignored).
+- Tests now check every entity's device class against the list in Home Assistant core.
+- Crosscheck covers the AT101 decoder (12,400+ payloads against Milesight's official decoders).
+
 ## 0.9.0
 ### Added
 - GS range: GS101 gas detector, GS301 odour detector (NH3 / H2S), GS524N smoke detector, GS601 vape detector.

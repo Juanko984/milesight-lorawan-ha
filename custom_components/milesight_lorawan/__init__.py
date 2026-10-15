@@ -16,7 +16,7 @@ from .const import CONF_DEVEUI, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_HUB, STORAGE
 from .hub import Hub
 from .runtime import DeviceRuntime
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER]
 
 
 def _is_hub(entry: ConfigEntry) -> bool:

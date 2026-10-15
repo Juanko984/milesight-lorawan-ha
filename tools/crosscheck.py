@@ -167,6 +167,13 @@ GS601 = [seg([0x00], lambda: bytes([R(0, 100)])), seg([0x01], lambda: bytes([R(0
          seg([0x10], lambda: bytes([random.choice([0x20, 0x21])])), seg([0x11], lambda: bytes([R(0, 1)])),
          seg([0x12], lambda: bytes([R(0, 1)])), seg([0x2B], rb(4)), seg([0x20], rb(8)), seg([0xC8], lambda: bytes([R(0, 1)]))]
 
+AT101 = [seg([1, 0x75], lambda: bytes([R(0, 100)])), seg([3, 0x67], lambda: i16(R(-300, 700))),
+         seg([random.choice([4, 0x84]), 0x88], lambda: i32(R(-90_000_000, 90_000_000)) + i32(R(-180_000_000, 180_000_000)), lambda: bytes([R(0, 3) << 4 | R(0, 3)])),
+         seg([5, 0], lambda: bytes([R(0, 1)])), seg([7, 0], lambda: bytes([R(0, 1)])),
+         seg([0x83, 0x67], lambda: i16(R(-300, 700)), lambda: bytes([R(0, 1)])),
+         seg([6, 0xD9], lambda: bytes([R(0, 3)]), lambda: random.choice([b"\xff" * 6, rb(6)()]), rb(1), lambda: bytes([R(0, 3)])),
+         seg([0x20, 0xCE], rb(4), lambda: i32(R(-180_000_000, 180_000_000)), lambda: i32(R(-90_000_000, 90_000_000)))]
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -260,6 +267,7 @@ MODELS = {
  "gs-series/gs301": ("gs301", GS301),
  "gs-series/gs524n": ("gs524n", GS524N),
  "gs-series/gs601": ("gs601", GS601),
+ "at-series/at101": ("at101", AT101),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -272,7 +280,7 @@ RENAME = {"magnet_status":"magnet_status","leakage_status":"input_05","gpio":"in
           "people_total_counts":"people_count_all","timestamp":"device_timestamp","illuminance_status":"illuminance"}
 # fields whose official value is an alarm/status string we keep as raw codes
 RAW_CODES = {"temperature_alarm","humidity_alarm","distance_alarm","measuring_equipment"}
-SKIP = {"history"}
+SKIP = {"history"} 
 total=bad=0
 for folder,(kind,chans) in MODELS.items():
     d = MS/folder; dfile = next(d.glob("*-decoder.js"))
@@ -324,6 +332,10 @@ for folder,(kind,chans) in MODELS.items():
                 if k == "low_voltage_alarm": v = v.get("alarm_type") == "low voltage alarm"
                 r2[k] = v
             r = r2
+        if kind == "at101":
+            r = {("temperature_alarm_status" if k == "temperature_alarm" else k): v for k, v in r.items()}
+            if "wifi" in r:
+                r["wifi"] = [{kk: vv for kk, vv in w.items() if kk != "motion_status"} for w in r["wifi"]]
         if kind.startswith("gs"):
             r2 = {}
             for k, v in r.items():
@@ -373,7 +385,7 @@ for folder,(kind,chans) in MODELS.items():
                     v = STR_VS[v]
                 if kind == "vs_occupancy" and k == "occupancy" and v == "unknown": v = 0
                 # detection_status / illuminance etc. stay strings on both sides
-            elif isinstance(v,str) and v in STR and not ((kind.startswith(("uc", "gs")) or kind == "em400") and v == "normal"): v = STR[v]
+            elif isinstance(v,str) and v in STR and not ((kind.startswith(("uc", "gs", "at")) or kind == "em400") and v == "normal"): v = STR[v]
             exp[k2] = v
         def same(a, b):
             if b == "unknown":                     # official returns "unknown" for out-of-range enum bytes

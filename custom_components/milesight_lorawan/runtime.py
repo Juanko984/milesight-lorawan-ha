@@ -13,7 +13,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .analytics import BinaryEventTracker, Calendar, MinMaxTracker, OccupancyTracker
+from .analytics import BinaryEventTracker, Calendar, DistanceTracker, MinMaxTracker, OccupancyTracker
 from .const import (
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
@@ -70,6 +70,10 @@ BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]]
     "load": (_load_running, "Running since {t}", "Off"),
     "gas": (lambda d, _: _flag(d.get("gas_alarm")), "Gas detected since {t}", "Clear"),
     "smoke": (lambda d, _: _flag(d.get("smoke_alarm")), "Smoke detected since {t}", "Clear"),
+    "moving": (lambda d, _: {"start": True, "moving": True, "stop": False}.get(d.get("motion_status")),
+               "Moving since {t}", "Stopped"),
+    "away": (lambda d, _: {"outside": True, "inside": False}.get(d.get("geofence_status")),
+                 "Outside since {t}", "Inside"),
     "vape": (lambda d, _: _flag(d.get("vaping_index_alarm_active")), "Vaping detected since {t}", "Clear"),
 }
 # alarm-style features: the state is latched in the stored values (devices only report changes)
@@ -133,6 +137,7 @@ class DeviceRuntime:
         self.binary: dict[str, BinaryEventTracker] = {}
         self.minmax: MinMaxTracker | None = None
         self.occupancy: OccupancyTracker | None = None
+        self.distance: DistanceTracker | None = None
         self._unsubs: list[Callable[[], None]] = []
 
     # ------------------------------------------------------------------ setup
@@ -157,6 +162,8 @@ class DeviceRuntime:
                        "run_a": float(self._opt(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))}
         if self.model.minmax_fields:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
+        if "at101" in f:
+            self.distance = DistanceTracker(self.cal, trackers.get("distance"))
         if "occupancy" in f:
             days = self._opt(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)
             self.occupancy = OccupancyTracker(
@@ -209,7 +216,7 @@ class DeviceRuntime:
         ts = self._uplink_ts(up)
         for k, v in self.model.defaults:
             self.raw.setdefault(k, v)
-        self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events")})
+        self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events", "wifi")})
         if "vs373" in self.model.features:
             self._handle_vs373(decoded, ts)
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
@@ -217,6 +224,8 @@ class DeviceRuntime:
         for feature, tracker in self.binary.items():
             src = self.raw if feature in LATCHED_FEATURES else decoded
             tracker.update(ts, BINARY_FEATURES[feature][0](src, self.limits))
+        if self.distance is not None and "latitude" in decoded:
+            self.distance.update(ts, decoded.get("latitude"), decoded.get("longitude"))
         if self.minmax is not None:
             self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
         if self.occupancy is not None and self.model.occupancy_fn is not None:
@@ -277,6 +286,8 @@ class DeviceRuntime:
 
         if "ct" in self.model.features:
             self._ct_values(v)
+        if self.distance is not None:
+            v.update(self.distance.values(ts))
         if isinstance(v.get("life_remain"), (int, float)):
             v["life_remain_days"] = round(v["life_remain"] / 86400)
         if isinstance(v.get("pm_sensor_working_time"), (int, float)):
@@ -334,6 +345,8 @@ class DeviceRuntime:
             trackers["minmax"] = self.minmax.s
         if self.occupancy is not None:
             trackers["occupancy"] = self.occupancy.s
+        if self.distance is not None:
+            trackers["distance"] = self.distance.s
         return {"raw": self.raw, "meta": self.meta, "trackers": trackers}
 
     def diagnostics(self) -> dict[str, Any]:

@@ -7,6 +7,7 @@ from typing import Callable
 
 from .decoders import (
     decode_am300,
+    decode_at101,
     decode_ct10x,
     decode_ct30x,
     decode_em300,
@@ -181,6 +182,9 @@ MODELS: dict[str, Model] = {
                    frozenset({"gs601", "vape", "env", "battery", "occupancy", "sensor_error"}),
                    minmax_fields=("temperature", "humidity", "vaping_index", "pm2_5", "tvoc"),
                    occupancy_fn=_presence, counting=False, defaults=_GS601_DEF),
+    "AT101": Model("AT101", "AT101 GNSS / Wi-Fi asset tracker", decode_at101,
+                   frozenset({"at101", "battery", "moving", "away"}), minmax_fields=("temperature",),
+                   defaults=(("temperature_alarm_active", False),)),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -227,6 +231,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
+    at = decode_at101(raw)
+    if at.keys() & {"latitude", "wifi_scan_result", "tamper_status", "history"}:
+        return "AT101", ["AT101"]
     e4 = decode_em400(raw)
     if "distance" in e4 or ("position" in e4 and "temperature" in e4):
         return "EM400-UDL", ["EM400-UDL", "EM400-TLD", "EM400-MUD"]
@@ -695,6 +702,32 @@ def _gs(f: frozenset[str]) -> list[EntitySpec]:
     return specs
 
 
+def _at101() -> list[EntitySpec]:
+    gps = dict(unit="°", icon="mdi:crosshairs-gps", enabled_default=False, precision=6)
+    km = dict(unit="km", device_class="distance", precision=2)
+    specs = [
+        EntitySpec("location", "Location", platform="device_tracker"),
+        EntitySpec("motion_status", "Motion", kind="label", icon="mdi:run"),
+        EntitySpec("geofence_status", "Geofence", kind="label", icon="mdi:map-marker-radius"),
+        EntitySpec("tilted", "Tilted", platform="binary_sensor", device_class="problem", icon="mdi:angle-acute"),
+        EntitySpec("tamper", "Removed from mount", platform="binary_sensor", device_class="tamper"),
+        EntitySpec("latitude", "Latitude", **gps),
+        EntitySpec("longitude", "Longitude", **gps),
+        EntitySpec("wifi_scan_result", "Wi-Fi scan", kind="label", icon="mdi:wifi-marker", diagnostic=True,
+                   enabled_default=False),
+        EntitySpec("wifi_ap_count", "Wi-Fi access points seen", icon="mdi:wifi", diagnostic=True, enabled_default=False),
+        EntitySpec("distance_today_km", "Distance today", state_class="total_increasing", icon="mdi:map-marker-distance", **km),
+        EntitySpec("distance_yesterday_km", "Distance yesterday", icon="mdi:map-marker-distance", **km),
+        EntitySpec("distance_week_km", "Distance this week", state_class="total_increasing", icon="mdi:map-marker-distance", **km),
+        EntitySpec("distance_last_week_km", "Distance last week", icon="mdi:map-marker-distance", **km),
+        EntitySpec("distance_month_km", "Distance this month", state_class="total_increasing", icon="mdi:map-marker-distance", **km),
+        EntitySpec("distance_last_month_km", "Distance last month", icon="mdi:map-marker-distance", **km),
+    ]
+    specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
+    specs += _alarm("temperature", "Temperature", enabled=False)
+    return specs
+
+
 def _vs373() -> list[EntitySpec]:
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     specs = [
@@ -722,7 +755,8 @@ def _vs373() -> list[EntitySpec]:
 
 
 def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None,
-                  icon_on: str, with_left_open: bool, off_label: str | None = None) -> list[EntitySpec]:
+                  icon_on: str, with_left_open: bool, off_label: str | None = None,
+                  events: str = "events") -> list[EntitySpec]:
     """Stats for a binary input. noun='Door', verb_on='open' -> 'Door open today'."""
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     cnt = dict(state_class="total_increasing", icon="mdi:counter")
@@ -742,12 +776,12 @@ def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None
         EntitySpec(f"{p}last_week_s", f"{noun} {verb_on} last week", icon="mdi:calendar-week-begin", **dur),
         EntitySpec(f"{p}month_s", f"{noun} {verb_on} this month", icon="mdi:calendar-month", state_class="total_increasing", **dur),
         EntitySpec(f"{p}last_month_s", f"{noun} {verb_on} last month", icon="mdi:calendar-month-outline", **dur),
-        EntitySpec(f"{p}count_today", f"{noun} events today", **cnt),
-        EntitySpec(f"{p}count_yesterday", f"{noun} events yesterday", icon="mdi:counter"),
-        EntitySpec(f"{p}count_week", f"{noun} events this week", **cnt),
-        EntitySpec(f"{p}count_last_week", f"{noun} events last week", icon="mdi:counter"),
-        EntitySpec(f"{p}count_month", f"{noun} events this month", **cnt),
-        EntitySpec(f"{p}count_last_month", f"{noun} events last month", icon="mdi:counter"),
+        EntitySpec(f"{p}count_today", f"{noun} {events} today", **cnt),
+        EntitySpec(f"{p}count_yesterday", f"{noun} {events} yesterday", icon="mdi:counter"),
+        EntitySpec(f"{p}count_week", f"{noun} {events} this week", **cnt),
+        EntitySpec(f"{p}count_last_week", f"{noun} {events} last week", icon="mdi:counter"),
+        EntitySpec(f"{p}count_month", f"{noun} {events} this month", **cnt),
+        EntitySpec(f"{p}count_last_month", f"{noun} {events} last month", icon="mdi:counter"),
         EntitySpec(f"{p}longest_today_s", f"{noun} longest {verb_on} today", icon="mdi:timer-alert-outline", **dur),
         EntitySpec(f"{p}longest_week_s", f"{noun} longest {verb_on} this week", icon="mdi:timer-alert-outline", **dur),
         EntitySpec(f"{p}avg_today_s", f"{noun} average {verb_on} today", icon="mdi:timer-outline", **dur),
@@ -830,6 +864,14 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     if "ct" in f:
         specs += _ct(f)
     specs += _gs(f)
+    if "at101" in f:
+        specs += _at101()
+    if "moving" in f:
+        specs += _binary_event("moving_", "Tracker", "moving", "moving", "mdi:truck-fast", with_left_open=False,
+                               off_label="Tracker last stopped", events="trips")
+    if "away" in f:
+        specs += _binary_event("away_", "Geofence", "left", None, "mdi:map-marker-off", with_left_open=False,
+                               off_label="Geofence last returned", events="exits")
     if "gas" in f:
         specs += _binary_event("gas_", "Gas", "detected", "gas", "mdi:gas-cylinder", with_left_open=False,
                                off_label="Gas last cleared")

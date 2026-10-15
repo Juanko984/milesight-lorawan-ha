@@ -1728,3 +1728,69 @@ def _parse_gs601(b: bytes) -> tuple[dict[str, Any], int]:
     elif any(k in out for k in ("vaping_index", "pm2_5", "tvoc")):
         out["sensor_error"] = "OK"
     return out, i
+
+
+# --------------------------------------------------------------------------
+# AT range – AT101 GNSS / Wi-Fi asset tracker
+# Checked against Milesight-IoT/SensorDecoders (at-series/at101).
+# --------------------------------------------------------------------------
+_AT_MOTION = {0: "unknown", 1: "start", 2: "moving", 3: "stop"}
+_AT_GEOFENCE = {0: "inside", 1: "outside", 2: "unset", 3: "unknown"}
+
+
+def decode_at101(b: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x03 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid in (0x04, 0x84) and ctype == 0x88 and _need(b, i, 9):
+            out["latitude"] = _i32le(b, i) / 1_000_000
+            out["longitude"] = _i32le(b, i + 4) / 1_000_000
+            out["motion_status"] = _AT_MOTION.get(b[i + 8] & 0x0F, "unknown")
+            out["geofence_status"] = _AT_GEOFENCE.get(b[i + 8] >> 4, "unknown")
+            i += 9
+        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):
+            out["position"] = {0: "normal", 1: "tilt"}.get(b[i], "unknown")
+            if b[i] in (0, 1):
+                out["tilted"] = b[i] == 1
+            i += 1
+        elif cid == 0x06 and ctype == 0xD9 and _need(b, i, 9):
+            mac = b[i + 1:i + 7]
+            out["wifi_scan_result"] = "finish"
+            if mac == b"\xff" * 6:
+                out["wifi_scan_result"] = "timeout"
+            else:
+                out["motion_status"] = _AT_MOTION.get(b[i + 8] & 0x0F, "unknown")
+                out.setdefault("wifi", []).append({
+                    "group": b[i], "mac": ":".join(f"{x:02x}" for x in mac), "rssi": _i8(b[i + 7])})
+                out["wifi_ap_count"] = len(out["wifi"])
+            i += 9
+        elif cid == 0x07 and ctype == 0x00 and _need(b, i, 1):
+            out["tamper_status"] = {0: "install", 1: "uninstall"}.get(b[i], "unknown")
+            if b[i] in (0, 1):
+                out["tamper"] = b[i] == 1
+            i += 1
+        elif cid == 0x83 and ctype == 0x67 and _need(b, i, 3):
+            out["temperature"] = _i16le(b, i) / 10
+            out["temperature_alarm_status"] = {0: "normal", 1: "abnormal"}.get(b[i + 2], "unknown")
+            if b[i + 2] in (0, 1):
+                out["temperature_alarm_active"] = b[i + 2] == 1
+            i += 3
+        elif cid == 0x20 and ctype == 0xCE and _need(b, i, 12):
+            out.setdefault("history", []).append({
+                "timestamp": _u32le(b, i), "longitude": _i32le(b, i + 4) / 1_000_000,
+                "latitude": _i32le(b, i + 8) / 1_000_000})
+            i += 12
+        else:
+            break
+    return out
