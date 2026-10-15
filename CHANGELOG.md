@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.9.0
+### Added
+- GS range: GS101 gas detector, GS301 odour detector (NH3 / H2S), GS524N smoke detector, GS601 vape detector.
+- Gas / smoke / vaping *detected* binary sensors with statistics (since, duration, today / week / month, events,
+  longest), latched until the device reports the all-clear.
+- GS101: valve and relay state, remaining sensor life, device fault and end-of-life warning.
+- GS301: odour level (Fresh / Noticeable / Strong) from NH3 and H2S.
+- GS601: vaping index, PM1 / PM2.5 / PM10, TVOC, burning alarm, interference, tamper, buzzer and occupancy statistics.
+- Crosscheck covers the GS decoders (12,200+ payloads against Milesight's official decoders).
+
 ## 0.8.0
 ### Added
 - CT range: CT101, CT103, CT105 (1 channel) and CT303, CT305, CT310 (3 channels), firmware v1 and v2.

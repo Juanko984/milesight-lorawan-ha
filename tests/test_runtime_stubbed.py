@@ -249,6 +249,19 @@ assert v["current_1_alarm_active"] is False and v["sensor_error"] == "OK"
 send("0000000000000310", bytes.fromhex("049905000699000008990000"))     # 0.5 A -> below threshold
 assert rt.values["load_active"] is False and rt.values["load_status"] == "Off" and rt.values["load_count_today"] == 1, rt.values
 print("ct ok")
+
+# GS601: vaping alarm is latched until the device reports the deactivation
+e = types.SimpleNamespace(data={"entry_type": "device", "deveui": "0000000000000601", "model": "GS601"},
+                          options={}, title="Toilets")
+rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add("0000000000000601"); rt.async_start()
+send("0000000000000601", bytes.fromhex("0050010a05200012000d6400"))         # periodic report, no alarm
+assert rt.values["vape_active"] is False and rt.values["vape_status"] == "Clear", rt.values
+send("0000000000000601", bytes.fromhex("021150"))                           # vaping alarm trigger
+send("0000000000000601", bytes.fromhex("01400520001201"))                   # periodic report while vaping
+assert rt.values["vape_active"] is True and rt.values["vape_status"].startswith("Vaping detected since"), rt.values
+send("0000000000000601", bytes.fromhex("021005"))                           # deactivation
+assert rt.values["vape_active"] is False and rt.values["vape_count_today"] == 1 and rt.values["occ_occupied"] is True
+print("gs ok")
 for i, (model, hexstr) in enumerate(uc_samples.items()):
     raw = bytes.fromhex(hexstr)
     best, cands = models.guess_model(raw)

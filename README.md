@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.8.0** · [Version history](#version-history)
+**Current version: 0.9.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -19,6 +19,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
 | **CT** – current transformers | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2) | Machine / pump / compressor run time, circuit load, energy (v2) |
+| **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
 | **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
 | **TS** – temperature probes & cold chain | TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602 | Fridges, freezers, cold rooms, transport |
@@ -73,6 +74,19 @@ Statistics are stored by Home Assistant and survive restarts.
 **Configure** to just above the idle current of the machine. For *Estimated power*, enter the phase voltage
 (e.g. 230 V) under **Configure**; the power sensors are disabled by default – enable them on the device page.
 The energy sensors (v2) work directly in the Home Assistant **Energy dashboard**.
+
+### GS range – gas, odour, smoke & vape detectors
+
+| Model | What you get |
+|---|---|
+| **GS101** gas detector | **Gas detected** with statistics (since, duration, today / week / month, events), valve and relay output state, remaining sensor life (days), device fault, end-of-life warning, last device event |
+| **GS301** odour detector | Ammonia (NH3) and hydrogen sulfide (H2S) in ppm with daily min/max, **odour level** (Fresh / Noticeable / Strong), temperature, humidity, feels-like, battery, sensor status (e.g. *polarizing* after power-up) |
+| **GS524N** smoke detector | **Smoke detected** with statistics, last event (alarm, silenced, test, removed …), smoke concentration, temperature, battery and battery low, removed from base, device fault |
+| **GS601** vape detector | **Vaping detected** with statistics, vaping index + daily max, PM1 / PM2.5 / PM10, TVOC, temperature, humidity, burning / fire alarm, sensor interference, tamper, buzzer, **occupancy statistics** (presence), alarms per measurement (disabled by default) |
+
+Gas, smoke and vape alarms stay on until the device reports the all-clear, and each has the same statistics as the
+door sensors (detected since, duration, today / yesterday / week / month, number of events, longest).
+The odour level is a rough guide (Strong from 5 ppm NH3 or 0.1 ppm H2S, Noticeable from 1 ppm NH3 or 0.02 ppm H2S).
 
 ### EM400 range – ultrasonic distance & bins
 
@@ -190,8 +204,8 @@ Open the device's integration entry → **Configure** (⚙️). Picked the wrong
 | Empty distance (mm) – for fill level % | EM400 range | 0 (off) |
 | Running above (A) – for run time and starts | CT range | 0.5 |
 | Voltage for power estimate (V) | CT range | 0 (off) |
-| Count as empty after (min at 0 people / vacant) | VS121, VS321, VS340, VS341, VS370, VS373 | 2 |
-| Opening hour / closing hour / open days (for utilisation %) | VS-range | 08–17, Mon–Fri |
+| Count as empty after (min at 0 people / vacant) | VS121, VS321, VS340, VS341, VS370, VS373, GS601 | 2 |
+| Opening hour / closing hour / open days (for utilisation %) | VS-range, GS601 | 08–17, Mon–Fri |
 
 ## Troubleshooting
 
@@ -233,6 +247,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.9.0** | GS range added: GS101 gas, GS301 odour, GS524N smoke and GS601 vape detectors, with alarm statistics. |
 | **0.8.0** | CT range added: CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 and v2), with load run-time statistics and estimated power. |
 | **0.7.1** | Integration icon changed to the Milesight "M". |
 | **0.7.0** | EM400 range added: EM400-UDL, EM400-TLD, EM400-MUD, with fill level % from a configurable empty distance. |

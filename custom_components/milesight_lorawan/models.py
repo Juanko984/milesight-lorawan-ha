@@ -13,6 +13,11 @@ from .decoders import (
     decode_em400,
     decode_em500,
     decode_em500_smtc,
+    decode_gs101,
+    decode_gs301,
+    decode_gs524n,
+    decode_gs601,
+    gs601_parses_completely,
     decode_ts60x,
     decode_uc11n1,
     decode_uc11t1,
@@ -89,6 +94,8 @@ def _vs373_presence(d: dict) -> int | None:
     s = d.get("detection_status")
     return None if s in (None, "unknown") else int(s != "vacant")
 
+_GS601_DEF = tuple((f"{k}_alarm_active", False) for k in ("vaping_index", "pm1_0", "pm2_5", "pm10", "temperature", "tvoc")) \
+    + (("vaping_interference", False), ("burning_alarm", False), ("tamper_status", False))
 _CT1 = frozenset({"ct", "load", "sensor_error"})
 _CT3 = frozenset({"ct", "ct3", "load", "sensor_error"})
 _CT1_DEF = (("current_alarm_active", False), ("temperature_alarm_active", False))
@@ -163,6 +170,17 @@ MODELS: dict[str, Model] = {
                    minmax_fields=("current_1", "current_2", "current_3"), defaults=_CT3_DEF),
     "CT310": Model("CT310", "CT310 3-channel smart current transformer", decode_ct30x, _CT3,
                    minmax_fields=("current_1", "current_2", "current_3"), defaults=_CT3_DEF),
+    "GS101": Model("GS101", "GS101 gas detector (valve / relay output)", decode_gs101, frozenset({"gs101", "gas"}),
+                   minmax_fields=(), defaults=(("device_fault", False), ("end_of_life", False))),
+    "GS301": Model("GS301", "GS301 bathroom odour detector (NH3 / H2S)", decode_gs301,
+                   frozenset({"env", "battery", "gs301", "sensor_error"}), minmax_fields=("temperature", "humidity", "nh3", "h2s")),
+    "GS524N": Model("GS524N", "GS524N smoke detector", decode_gs524n, frozenset({"gs524n", "smoke", "battery"}),
+                    minmax_fields=(), defaults=(("smoke_alarm", False), ("battery_low_alarm", False), ("removed", False),
+                                                ("device_fault", False))),
+    "GS601": Model("GS601", "GS601 vape detector", decode_gs601,
+                   frozenset({"gs601", "vape", "env", "battery", "occupancy", "sensor_error"}),
+                   minmax_fields=("temperature", "humidity", "vaping_index", "pm2_5", "tvoc"),
+                   occupancy_fn=_presence, counting=False, defaults=_GS601_DEF),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -212,6 +230,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     e4 = decode_em400(raw)
     if "distance" in e4 or ("position" in e4 and "temperature" in e4):
         return "EM400-UDL", ["EM400-UDL", "EM400-TLD", "EM400-MUD"]
+    gs = _guess_gs(raw)
+    if gs:
+        return gs
     ct = _guess_ct(raw)
     if ct:
         return ct
@@ -270,10 +291,29 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
         return "EM500-PT100", ["EM500-PT100", "TS101", "TS201", "TS301", "EM300-TH", "EM500-SMTC"]
     if "temperature" in em or "humidity" in em:
         return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + ["TS201"] + [k for k in MODELS if k.startswith("AM")]
+    if len(raw) == 6 and raw[1] >> 4 == 1 and (raw[1] & 0x0F) in (1, 2, 4, 5, 7, 0x0A, 0x0B, 0x0E, 0x0F) \
+            and raw[2] <= 100:
+        return "GS524N", ["GS524N"]
+    g6 = decode_gs601(raw)
+    if gs601_parses_completely(raw) and not ts60x_parses_completely(raw) and g6.keys() & {
+            "vaping_index", "vaping_index_alarm_status", "pm2_5", "tvoc", "tamper_status", "occupancy"}:
+        return "GS601", ["GS601"]
     if ts60x_parses_completely(raw) and any(
             k in decode_ts60x(raw) for k in ("temperature", "humidity", "probe_connected", "latitude", "temperature_alarm_status")):
-        return "TS601", ["TS601", "TS602"]
+        return "TS601", ["TS601", "TS602", "GS601"] if gs601_parses_completely(raw) else ["TS601", "TS602"]
+    if gs601_parses_completely(raw) and "battery" in g6:
+        return "GS601", ["GS601", "TS601", "TS602"]
     return None, list(MODELS)
+
+
+def _guess_gs(raw: bytes) -> tuple[str, list[str]] | None:
+    """GS101 / GS301 by their unique channels; GS601 command frames are checked last in guess_model."""
+    if decode_gs101(raw).keys() & {"gas_alarm", "valve_status", "relay_output_status", "life_remain", "device_alarm"}:
+        return "GS101", ["GS101"]
+    g3 = decode_gs301(raw)
+    if g3.keys() & {"nh3", "h2s"} or "NH3" in g3.get("sensor_error", "") or "H2S" in g3.get("sensor_error", ""):
+        return "GS301", ["GS301"]
+    return None
 
 
 def _guess_ct(raw: bytes) -> tuple[str, list[str]] | None:
@@ -603,6 +643,58 @@ def _ct(f: frozenset[str]) -> list[EntitySpec]:
     return specs
 
 
+def _gs(f: frozenset[str]) -> list[EntitySpec]:
+    specs: list[EntitySpec] = []
+    fault = EntitySpec("device_fault", "Device fault", platform="binary_sensor", device_class="problem")
+    if "gs101" in f:
+        specs += [
+            EntitySpec("valve_status", "Valve", platform="binary_sensor", device_class="opening", icon="mdi:valve"),
+            EntitySpec("relay_output_status", "Relay output", platform="binary_sensor", icon="mdi:electric-switch"),
+            EntitySpec("life_remain_days", "Remaining sensor life", unit="d", device_class="duration", precision=0,
+                       icon="mdi:timer-sand-complete"),
+            EntitySpec("device_alarm", "Last device event", kind="label", icon="mdi:information-outline"),
+            fault,
+            EntitySpec("end_of_life", "Sensor end of life", platform="binary_sensor", device_class="problem",
+                       icon="mdi:calendar-alert"),
+        ]
+    if "gs301" in f:
+        specs += _measure("nh3", "Ammonia (NH3)", "ppm", None, icon="mdi:scent", precision=2)
+        specs += _measure("h2s", "Hydrogen sulfide (H2S)", "ppm", None, icon="mdi:scent", precision=3)
+        specs.append(EntitySpec("odour_level", "Odour level", kind="label", icon="mdi:scent"))
+    if "gs524n" in f:
+        specs += [
+            EntitySpec("event", "Last event", kind="label", icon="mdi:smoke-detector-variant"),
+            EntitySpec("concentration", "Smoke concentration", state_class="measurement", icon="mdi:smoke"),
+            EntitySpec("temperature", "Temperature", unit="°C", device_class="temperature", state_class="measurement"),
+            EntitySpec("battery_low_alarm", "Battery low", platform="binary_sensor", device_class="battery"),
+            EntitySpec("removed", "Removed from base", platform="binary_sensor", device_class="tamper"),
+            fault,
+        ]
+    if "gs601" in f:
+        pm = dict(unit="µg/m³", state_class="measurement")
+        specs += _measure("vaping_index", "Vaping index", None, None, icon="mdi:smoking")
+        specs += _alarm("vaping_index", "Vaping")
+        specs += [
+            EntitySpec("vaping_interference", "Vaping sensor interference", platform="binary_sensor",
+                       device_class="problem"),
+            EntitySpec("burning_alarm", "Burning / fire alarm", platform="binary_sensor", device_class="smoke"),
+            EntitySpec("tamper_status", "Tamper", platform="binary_sensor", device_class="tamper"),
+            EntitySpec("buzzer", "Buzzer", platform="binary_sensor", device_class="sound", icon="mdi:bullhorn"),
+            EntitySpec("pm1_0", "PM1", device_class="pm1", **pm),
+            EntitySpec("pm2_5", "PM2.5", device_class="pm25", **pm),
+            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="µg/m³", device_class="pm25", icon="mdi:blur"),
+            EntitySpec("pm10", "PM10", device_class="pm10", **pm),
+            EntitySpec("tvoc", "TVOC", state_class="measurement", icon="mdi:air-filter"),
+            EntitySpec("tvoc_max_today", "TVOC max today", icon="mdi:air-filter"),
+            EntitySpec("pm_sensor_working_time", "PM sensor working time", unit="h", device_class="duration",
+                       diagnostic=True, enabled_default=False),
+        ]
+        for key, label in (("pm1_0", "PM1"), ("pm2_5", "PM2.5"), ("pm10", "PM10"), ("tvoc", "TVOC"),
+                           ("temperature", "Temperature")):
+            specs += _alarm(key, label, enabled=False)
+    return specs
+
+
 def _vs373() -> list[EntitySpec]:
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     specs = [
@@ -737,6 +829,16 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
                                     icon="mdi:waves-arrow-up", precision=0, enabled_default=False))
     if "ct" in f:
         specs += _ct(f)
+    specs += _gs(f)
+    if "gas" in f:
+        specs += _binary_event("gas_", "Gas", "detected", "gas", "mdi:gas-cylinder", with_left_open=False,
+                               off_label="Gas last cleared")
+    if "smoke" in f:
+        specs += _binary_event("smoke_", "Smoke", "detected", "smoke", "mdi:smoke-detector-variant-alert",
+                               with_left_open=False, off_label="Smoke last cleared")
+    if "vape" in f:
+        specs += _binary_event("vape_", "Vaping", "detected", None, "mdi:smoking", with_left_open=False,
+                               off_label="Vaping last cleared")
     if "load" in f:
         specs += _binary_event("load_", "Load", "running", "running", "mdi:engine", with_left_open=False,
                                off_label="Load last stopped")

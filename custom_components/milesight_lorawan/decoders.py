@@ -1512,3 +1512,219 @@ def decode_ct10x(b: bytes) -> dict[str, Any]:
 
 def decode_ct30x(b: bytes) -> dict[str, Any]:
     return _decode_ct(b, 3)
+
+
+# --------------------------------------------------------------------------
+# GS range – gas, odour, smoke and vape detectors
+# Checked against Milesight-IoT/SensorDecoders (gs-series).
+# --------------------------------------------------------------------------
+_GS101_EVENT = {0: "power_off", 1: "power_on", 2: "device_fault", 3: "device_fault_recovered",
+                4: "device_will_be_invalid_soon", 5: "device_invalid"}
+
+
+def decode_gs101(b: bytes) -> dict[str, Any]:
+    """GS101 gas detector (with valve / relay output)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x05 and ctype == 0x8E and _need(b, i, 1):
+            out["gas_alarm"] = b[i] == 1
+            i += 1
+        elif cid == 0x06 and ctype == 0x01 and _need(b, i, 1):
+            out["valve_status"] = b[i] == 1
+            i += 1
+        elif cid == 0x07 and ctype == 0x01 and _need(b, i, 1):
+            out["relay_output_status"] = b[i] == 1
+            i += 1
+        elif cid == 0x08 and ctype == 0x90 and _need(b, i, 4):
+            out["life_remain"] = _u32le(b, i)
+            i += 4
+        elif cid == 0xFF and ctype == 0x3F and _need(b, i, 1):
+            event = _GS101_EVENT.get(b[i], "unknown")
+            out["device_alarm"] = event
+            if b[i] in (2, 3, 5):
+                out["device_fault"] = b[i] in (2, 5)
+            if b[i] in (4, 5):
+                out["end_of_life"] = True
+            i += 1
+        else:
+            break
+    return out
+
+
+_GS301_STATUS = {0xFFFE: "polarizing", 0xFFFF: "device error"}
+
+
+def decode_gs301(b: bytes) -> dict[str, Any]:
+    """GS301 bathroom odour detector (NH3 / H2S, temperature, humidity)."""
+    out: dict[str, Any] = {}
+    errors: list[str] = []
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid == 0x02 and ctype == 0x67 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x03 and ctype == 0x68 and _need(b, i, 1):
+            out["humidity"] = b[i] / 2
+            i += 1
+        elif cid in (0x04, 0x05, 0x06) and ctype == 0x7D and _need(b, i, 2):
+            raw = _u16le(b, i)
+            key = "nh3" if cid == 0x04 else "h2s"
+            if raw in _GS301_STATUS:
+                errors.append(f"{key.upper()}: {_GS301_STATUS[raw]}")
+            else:
+                out[key] = raw / (1000 if cid == 0x06 else 100)     # 0x06 = H2S high resolution (fw 1.2+)
+            i += 2
+        elif cid == 0x07 and ctype == 0xEA and _need(b, i, 5):    # sensor calibration result
+            i += 5
+        elif cid == 0xFF and ctype == 0x7C and _need(b, i, 43):   # sensor id
+            i += 43
+        else:
+            break
+    if errors:
+        out["sensor_error"] = ", ".join(errors)
+    elif "nh3" in out or "h2s" in out:
+        out["sensor_error"] = "OK"
+    return out
+
+
+_GS524N_EVENT = {0x01: "alarm", 0x02: "silent", 0x04: "low_battery", 0x05: "failover", 0x07: "normal",
+                 0x0A: "removed", 0x0B: "installed", 0x0E: "testing_alarm_with_normal_battery",
+                 0x0F: "testing_alarm_with_low_battery"}
+
+
+def decode_gs524n(b: bytes) -> dict[str, Any]:
+    """GS524N smoke detector (fixed 6-byte frame)."""
+    if len(b) != 6:
+        return {}
+    code = b[1] & 0x0F
+    event = _GS524N_EVENT.get(code, "unknown")
+    out: dict[str, Any] = {"event": event, "battery": b[2], "concentration": b[3], "temperature": _i8(b[4])}
+    if b[1] >> 4 != 1:
+        out["sensor_type"] = "unknown"
+    if code in (0x01, 0x02, 0x07):
+        out["smoke_alarm"] = code == 0x01
+    if code in (0x04, 0x0F, 0x07, 0x0E):
+        out["battery_low_alarm"] = code in (0x04, 0x0F)
+    if code in (0x0A, 0x0B):
+        out["removed"] = code == 0x0A
+    if code in (0x05, 0x07):
+        out["device_fault"] = code == 0x05
+    return out
+
+
+# GS601 alarm type codes
+_GS601_ALARM = {0x00: "collection_error", 0x01: "lower_range_error", 0x02: "over_range_error",
+                0x10: "alarm_deactivation", 0x11: "alarm_trigger"}
+# command -> (field, value size, signed, divisor, extra alarm codes)
+_GS601_FIELDS = {
+    0x01: ("vaping_index", 1, False, 1), 0x03: ("pm1_0", 2, False, 1), 0x05: ("pm2_5", 2, False, 1),
+    0x07: ("pm10", 2, False, 1), 0x09: ("temperature", 2, True, 10), 0x0B: ("humidity", 2, False, 10),
+    0x0D: ("tvoc", 2, False, 1),
+}
+_GS601_FIXED = {0xC8: 1, 0xC9: 1, 0xD9: 2, 0x20: 8, 0x21: 8, 0x22: 8, 0x23: 8, 0x24: 8, 0x25: 8, 0x26: 8,
+                0x27: 8, 0x28: 8, 0x29: 8, 0x2A: 8, 0xFE: 1, 0xEE: 0}
+
+
+def _gs601_value(b: bytes, i: int, size: int, signed: bool, div: int) -> float | int:
+    v = b[i] if size == 1 else (_i16le(b, i) if signed else _u16le(b, i))
+    return v / div if div != 1 else v
+
+
+def decode_gs601(b: bytes) -> dict[str, Any]:
+    """GS601 vape detector (command format)."""
+    return _parse_gs601(b)[0]
+
+
+def gs601_parses_completely(b: bytes) -> bool:
+    return bool(b) and _parse_gs601(b)[1] == len(b)
+
+
+def _parse_gs601(b: bytes) -> tuple[dict[str, Any], int]:
+    out: dict[str, Any] = {}
+    errors: list[str] = []
+    i = 0
+    while i < len(b):
+        cmd = b[i]
+        i += 1
+        if cmd == 0x00 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cmd in _GS601_FIELDS and _need(b, i, _GS601_FIELDS[cmd][1]):
+            key, size, signed, div = _GS601_FIELDS[cmd]
+            out[key] = _gs601_value(b, i, size, signed, div)
+            i += size
+        elif cmd - 1 in _GS601_FIELDS and _need(b, i, 1):          # <field>_alarm
+            key, size, signed, div = _GS601_FIELDS[cmd - 1]
+            code = b[i]
+            i += 1
+            if code in (0x10, 0x11) and key != "humidity":
+                if not _need(b, i, size):
+                    break
+                out[key] = _gs601_value(b, i, size, signed, div)
+                i += size
+                out[f"{key}_alarm_active"] = code == 0x11
+            if code <= 0x02:
+                errors.append(f"{key.replace('_', '.') if key.startswith('pm') else key.replace('_', ' ')}: "
+                              f"{_GS601_ALARM[code].replace('_', ' ')}")
+            if code in (0x20, 0x21):
+                flag = "vaping_interference" if key == "vaping_index" else "burning_alarm"
+                out[flag] = code == 0x21
+                out[f"{key}_alarm_status"] = ("interference_alarm_" if key == "vaping_index" else "burning_alarm_") + \
+                    ("trigger" if code == 0x21 else "deactivation")
+            else:
+                out[f"{key}_alarm_status"] = _GS601_ALARM.get(code, "unknown")
+        elif cmd == 0x0F and _need(b, i, 1):
+            out["tamper_status"] = b[i] == 1
+            i += 1
+        elif cmd == 0x10 and _need(b, i, 1):
+            if b[i] in (0x20, 0x21):
+                out["tamper_status"] = b[i] == 0x21
+            i += 1
+        elif cmd == 0x11 and _need(b, i, 1):
+            out["buzzer"] = b[i] == 1
+            i += 1
+        elif cmd == 0x12 and _need(b, i, 1):
+            out["occupancy"] = b[i]
+            i += 1
+        elif cmd == 0x2B and _need(b, i, 4):
+            out["pm_sensor_working_time"] = _u32le(b, i)
+            i += 4
+        elif cmd == 0xDF and _need(b, i, 2):
+            out["tsl_version"] = f"v{b[i]}.{b[i + 1]}"
+            i += 2
+        elif cmd == 0xDB and _need(b, i, 8):
+            out["sn"] = b[i:i + 8].hex()
+            i += 8
+        elif cmd == 0xDA and _need(b, i, 8):
+            out["hardware_version"] = f"v{b[i]}.{b[i + 1]}"
+            out["firmware_version"] = f"v{b[i + 2]}.{b[i + 3]}"
+            i += 8
+        elif cmd == 0xCF and _need(b, i, 1):
+            if b[i] == 0x00 and _need(b, i, 2):
+                out["lorawan_class"] = {0: "Class A", 1: "Class B", 2: "Class C", 3: "Class CtoB"}.get(b[i + 1], "unknown")
+                i += 1
+            i += 1
+        elif cmd in _GS601_FIXED and _need(b, i, _GS601_FIXED[cmd]):
+            i += _GS601_FIXED[cmd]
+        else:
+            i -= 1
+            break
+    if errors:
+        out["sensor_error"] = ", ".join(errors)
+    elif any(k in out for k in ("vaping_index", "pm2_5", "tvoc")):
+        out["sensor_error"] = "OK"
+    return out, i

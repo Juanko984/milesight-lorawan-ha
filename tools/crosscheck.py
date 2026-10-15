@@ -145,6 +145,28 @@ CT30X = [seg([c, 0x97], rb(4)) for c in (3, 5, 7)] + \
          seg([0x89, 0x67], lambda: i16(R(-300, 900)), lambda: bytes([R(0, 1)])), seg([0x13, 0x75], lambda: bytes([1]))]
 CT30X_V1 = [g for idx, g in enumerate(CT30X) if not 9 <= idx <= 11][:-1]
 
+GS101 = [seg([5, 0x8E], lambda: bytes([R(0, 1)])), seg([6, 1], lambda: bytes([R(0, 1)])), seg([7, 1], lambda: bytes([R(0, 1)])),
+         seg([8, 0x90], rb(4)), seg([0xFF, 0x3F], lambda: bytes([R(0, 5)]))]
+GS301 = [seg([1, 0x75], lambda: bytes([R(0, 100)])), seg([2, 0x67], lambda: i16(R(-200, 600))), seg([3, 0x68], rb(1)),
+         seg([4, 0x7D], lambda: u16(random.choice([R(0, 5000), 0xFFFE, 0xFFFF]))),
+         seg([5, 0x7D], lambda: u16(random.choice([R(0, 5000), 0xFFFE, 0xFFFF]))),
+         seg([6, 0x7D], lambda: u16(random.choice([R(0, 5000), 0xFFFE, 0xFFFF]))),
+         seg([7, 0xEA], lambda: bytes([R(0, 1), R(0, 1)]), rb(2), lambda: bytes([R(0, 3)]))]
+GS524N = [lambda: bytes([R(0, 255), 0x10 | random.choice([1, 2, 4, 5, 7, 0xA, 0xB, 0xE, 0xF]), R(0, 100), R(0, 255), R(0, 255), R(0, 255)])]
+def gs601_alarm(cmd, size, codes):
+    def g():
+        c = random.choice(codes)
+        return bytes([cmd, c]) + (rb(size)() if c in (0x10, 0x11) else b"")
+    return g
+GS601 = [seg([0x00], lambda: bytes([R(0, 100)])), seg([0x01], lambda: bytes([R(0, 100)])), seg([0x03], rb(2)), seg([0x05], rb(2)),
+         seg([0x07], rb(2)), seg([0x09], lambda: i16(R(-200, 600))), seg([0x0B], lambda: u16(R(0, 1000))), seg([0x0D], rb(2)),
+         gs601_alarm(0x02, 1, [0, 1, 2, 0x10, 0x11, 0x20, 0x21]), gs601_alarm(0x04, 2, [0, 1, 2, 0x10, 0x11]),
+         gs601_alarm(0x06, 2, [0, 1, 2, 0x10, 0x11]), gs601_alarm(0x08, 2, [0, 1, 2, 0x10, 0x11]),
+         gs601_alarm(0x0A, 2, [0, 1, 2, 0x10, 0x11, 0x20, 0x21]), gs601_alarm(0x0C, 0, [0, 1, 2]),
+         gs601_alarm(0x0E, 2, [0, 1, 2, 0x10, 0x11]), seg([0x0F], lambda: bytes([R(0, 1)])),
+         seg([0x10], lambda: bytes([random.choice([0x20, 0x21])])), seg([0x11], lambda: bytes([R(0, 1)])),
+         seg([0x12], lambda: bytes([R(0, 1)])), seg([0x2B], rb(4)), seg([0x20], rb(8)), seg([0xC8], lambda: bytes([R(0, 1)]))]
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -234,6 +256,10 @@ MODELS = {
  "ct-series/ct305-v2": ("ct30x", CT30X),
  "ct-series/ct310": ("ct30x", CT30X_V1),
  "ct-series/ct310-v2": ("ct30x", CT30X),
+ "gs-series/gs101": ("gs101", GS101),
+ "gs-series/gs301": ("gs301", GS301),
+ "gs-series/gs524n": ("gs524n", GS524N),
+ "gs-series/gs601": ("gs601", GS601),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -298,6 +324,30 @@ for folder,(kind,chans) in MODELS.items():
                 if k == "low_voltage_alarm": v = v.get("alarm_type") == "low voltage alarm"
                 r2[k] = v
             r = r2
+        if kind.startswith("gs"):
+            r2 = {}
+            for k, v in r.items():
+                if k.endswith(("_sensor_status", "_calibration_result", "_celsius", "_fahrenheit")) or k.startswith(("tvoc_raw", "celsius_", "fahrenheit_")):
+                    continue
+                if k in ("sensor_id", "version", "protocol", "type", "device_status", "random_key"):
+                    continue
+                if kind == "gs101":
+                    if k == "gas_status": k, v = "gas_alarm", v == "alarm"
+                    elif k == "alarm": k, v = "device_alarm", v.replace(" ", "_")
+                    elif v in ("on", "off"): v = v == "on"
+                if kind == "gs524n" and k == "event": v = v.replace(" ", "_")
+                if kind == "gs601":
+                    if isinstance(v, dict):
+                        if k == "tamper_status_alarm":
+                            r2["tamper_status"] = "trigger" in v
+                            continue
+                        sub = [kk for kk in v if kk != "type"]
+                        if sub: r2[k + "_status"] = sub[0]
+                        continue
+                    if k == "occupancy_status": k = "occupancy"
+                    if k in ("tamper_status", "buzzer"): v = v == 1
+                r2[k] = v
+            r = r2
         if kind.startswith("ts") and kind != "ts60x":
             r2 = {}
             for k, v in r.items():
@@ -323,7 +373,7 @@ for folder,(kind,chans) in MODELS.items():
                     v = STR_VS[v]
                 if kind == "vs_occupancy" and k == "occupancy" and v == "unknown": v = 0
                 # detection_status / illuminance etc. stay strings on both sides
-            elif isinstance(v,str) and v in STR and not ((kind.startswith("uc") or kind == "em400") and v == "normal"): v = STR[v]
+            elif isinstance(v,str) and v in STR and not ((kind.startswith(("uc", "gs")) or kind == "em400") and v == "normal"): v = STR[v]
             exp[k2] = v
         def same(a, b):
             if b == "unknown":                     # official returns "unknown" for out-of-range enum bytes

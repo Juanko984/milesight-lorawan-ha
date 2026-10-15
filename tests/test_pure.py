@@ -275,6 +275,31 @@ def test_guess_ct_range():
     assert best == "CT303" and cands == ["CT303", "CT305", "CT310"]
 
 
+def test_decode_gs_range():
+    d = dec.decode_gs101(bytes.fromhex("058e01060101070100089000e1f505ff3f04"))
+    assert d["gas_alarm"] is True and d["valve_status"] is True and d["relay_output_status"] is False
+    assert d["life_remain"] == 100_000_000 and d["device_alarm"] == "device_will_be_invalid_soon" and d["end_of_life"] is True
+    d = dec.decode_gs301(bytes.fromhex("01756402671C01036864047D0000057D0100"))      # official sample
+    assert d == {"battery": 100, "temperature": 28.4, "humidity": 50.0, "nh3": 0.0, "h2s": 0.01, "sensor_error": "OK"}
+    assert dec.decode_gs301(bytes.fromhex("047dfeff067d6400")) == {"h2s": 0.1, "sensor_error": "NH3: polarizing"}
+    d = dec.decode_gs524n(bytes.fromhex("121164051Bff"))
+    assert d["smoke_alarm"] is True and d["event"] == "alarm" and d["battery"] == 100 and d["temperature"] == 27
+    assert dec.decode_gs524n(bytes.fromhex("12145a00140000")) == {}                  # not 6 bytes
+    assert dec.decode_gs524n(bytes.fromhex("12145a001400"))["battery_low_alarm"] is True
+    d = dec.decode_gs601(bytes.fromhex("0050013205200007300009f4000b2c010d6400120102114b"))
+    assert d["battery"] == 80 and d["vaping_index"] == 75 and d["pm2_5"] == 32 and d["temperature"] == 24.4
+    assert d["humidity"] == 30.0 and d["tvoc"] == 100 and d["occupancy"] == 1 and d["vaping_index_alarm_active"] is True
+    assert dec.decode_gs601(bytes.fromhex("0a21"))["burning_alarm"] is True
+    assert dec.decode_gs601(bytes.fromhex("0600"))["sensor_error"] == "pm2.5: collection error"
+
+
+def test_guess_gs_range():
+    assert mdl.guess_model(bytes.fromhex("058e00060100"))[0] == "GS101"
+    assert mdl.guess_model(bytes.fromhex("01756402671C01036864047D0000057D0100"))[0] == "GS301"
+    assert mdl.guess_model(bytes.fromhex("121764000019"))[0] == "GS524N"
+    assert mdl.guess_model(bytes.fromhex("0050013205200007300009f4000b2c010d64001201"))[0] == "GS601"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -68,7 +68,12 @@ BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]]
     "co2high": (lambda d, lim: (d["co2"] >= lim["co2"]) if isinstance(d.get("co2"), (int, float)) else None,
                 "Above limit since {t}", "OK"),
     "load": (_load_running, "Running since {t}", "Off"),
+    "gas": (lambda d, _: _flag(d.get("gas_alarm")), "Gas detected since {t}", "Clear"),
+    "smoke": (lambda d, _: _flag(d.get("smoke_alarm")), "Smoke detected since {t}", "Clear"),
+    "vape": (lambda d, _: _flag(d.get("vaping_index_alarm_active")), "Vaping detected since {t}", "Clear"),
 }
+# alarm-style features: the state is latched in the stored values (devices only report changes)
+LATCHED_FEATURES = {"vape", "smoke"}
 
 
 # VS373 alarm type -> flag key in values
@@ -87,6 +92,19 @@ def _co2_text(co2: Any) -> str | None:
     if co2 < 1200:
         return "Moderate"
     return "Poor"
+def _odour_text(nh3: Any, h2s: Any) -> str | None:
+    """Rough odour rating. Typical perception thresholds: NH3 ~ 1-5 ppm, H2S ~ 0.01-0.1 ppm."""
+    if not isinstance(nh3, (int, float)) and not isinstance(h2s, (int, float)):
+        return None
+    nh3 = nh3 if isinstance(nh3, (int, float)) else 0
+    h2s = h2s if isinstance(h2s, (int, float)) else 0
+    if nh3 >= 5 or h2s >= 0.1:
+        return "Strong"
+    if nh3 >= 1 or h2s >= 0.02:
+        return "Noticeable"
+    return "Fresh"
+
+
 MAX_CLOCK_SKEW_S = 600
 
 
@@ -197,7 +215,8 @@ class DeviceRuntime:
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
 
         for feature, tracker in self.binary.items():
-            tracker.update(ts, BINARY_FEATURES[feature][0](decoded, self.limits))
+            src = self.raw if feature in LATCHED_FEATURES else decoded
+            tracker.update(ts, BINARY_FEATURES[feature][0](src, self.limits))
         if self.minmax is not None:
             self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
         if self.occupancy is not None and self.model.occupancy_fn is not None:
@@ -258,6 +277,12 @@ class DeviceRuntime:
 
         if "ct" in self.model.features:
             self._ct_values(v)
+        if isinstance(v.get("life_remain"), (int, float)):
+            v["life_remain_days"] = round(v["life_remain"] / 86400)
+        if isinstance(v.get("pm_sensor_working_time"), (int, float)):
+            v["pm_sensor_working_time"] = round(v["pm_sensor_working_time"] / 3600, 1)
+        if "gs301" in self.model.features:
+            v["odour_level"] = _odour_text(v.get("nh3"), v.get("h2s"))
 
         for feature, tracker in self.binary.items():
             tv = tracker.values(ts)
