@@ -37,6 +37,16 @@ from .decoders import (
     decode_ts302_v1,
     ts60x_parses_completely,
     decode_vs121,
+    wt102_parses_completely,
+    wt303_parses_completely,
+    wt401_parses_completely,
+    decode_wt101,
+    decode_wt102,
+    decode_wt201,
+    decode_wt201_v2,
+    decode_wt30x,
+    decode_wt303,
+    decode_wt401,
     ws_power_channels,
     decode_ws101,
     decode_ws136,
@@ -96,6 +106,7 @@ class Model:
     event_types: tuple[str, ...] = ()
     control: str | None = None     # downlink encoder kind for switch entities (see decoders.encode_ws_switch)
     gangs: int = 0                 # number of switchable channels (switch_1 .. switch_n)
+    climate: str | None = None     # thermostat encoder kind (see decoders.encode_wt)
 
 
 _EM = frozenset({"env", "battery"})
@@ -266,6 +277,34 @@ MODELS: dict[str, Model] = {
     "WS525": _ws_switch("WS525", "WS525 portable smart socket", decode_ws52x, 1, "0870", meter=True,
                         extra=frozenset({"socket"})),
     "WS558": _ws_switch("WS558", "WS558 8-channel smart light controller", decode_ws558, 8, "0831", meter=True),
+    "WT101": Model("WT101", "WT101 smart radiator thermostat", decode_wt101,
+                   frozenset({"battery", "wt", "wt_valve", "heating"}), minmax_fields=("temperature",), climate="wt101",
+                   defaults=(("window_open", False), ("freeze_protection", False))),
+    "WT102": Model("WT102", "WT102 smart radiator thermostat", decode_wt102,
+                   frozenset({"battery", "wt", "wt_valve", "wt102", "heating"}), minmax_fields=("temperature",),
+                   climate="wt102", defaults=(("window_open", False), ("freeze_protection", False),
+                                              ("temperature_alarm_active", False), ("battery_low_alarm", False))),
+    "WT201": Model("WT201", "WT201 smart thermostat (firmware v1)", decode_wt201,
+                   frozenset({"wt", "wt_hum", "wt_hvac", "wt_fan", "heating", "cooling", "sensor_error"}),
+                   climate="wt201", defaults=(("temperature_alarm_active", False),)),
+    "WT201-V2": Model("WT201-V2", "WT201 smart thermostat (v2)", decode_wt201_v2,
+                      frozenset({"wt", "wt_hum", "wt_hvac", "wt_fan", "heating", "cooling", "sensor_error"}),
+                      climate="wt201v2", defaults=(("temperature_alarm_active", False),)),
+    "WT211": Model("WT211", "WT211 smart thermostat", decode_wt201_v2,
+                   frozenset({"wt", "wt_hum", "wt_hvac", "wt_fan", "heating", "cooling", "sensor_error"}),
+                   climate="wt201v2", defaults=(("temperature_alarm_active", False),)),
+    "WT301": Model("WT301", "WT301 fan-coil thermostat", decode_wt30x, frozenset({"wt", "wt30x"}), climate="wt30x"),
+    "WT302": Model("WT302", "WT302 fan-coil thermostat", decode_wt30x, frozenset({"wt", "wt30x"}), climate="wt30x"),
+    "WT303": Model("WT303", "WT303 fan-coil thermostat", decode_wt303,
+                   frozenset({"wt", "wt_hum", "wt_hvac", "wt_fan", "wt303", "heating", "cooling", "sensor_error"}),
+                   climate="wt303", defaults=(("temperature_alarm_active", False),)),
+    "WT304": Model("WT304", "WT304 fan-coil thermostat (0-10 V / EC fan)", decode_wt303,
+                   frozenset({"wt", "wt_hum", "wt_hvac", "wt_fan", "wt303", "heating", "cooling", "sensor_error"}),
+                   climate="wt303", defaults=(("temperature_alarm_active", False),)),
+    "WT401": Model("WT401", "WT401 smart thermostat", decode_wt401,
+                   frozenset({"battery", "wt", "wt_hum", "wt_hvac", "wt_fan", "wt401", "occupancy", "sensor_error"}),
+                   occupancy_fn=_presence, counting=False, climate="wt401",
+                   buttons=("key_f1", "key_f2", "key_f3"), event_types=("press",)),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -315,6 +354,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     ws = _guess_ws(raw)
     if ws:
         return ws
+    wt = _guess_wt_channels(raw)
+    if wt:
+        return wt
     at = decode_at101(raw)
     if at.keys() & {"latitude", "wifi_scan_result", "tamper_status", "history"}:
         return "AT101", ["AT101"]
@@ -382,6 +424,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
         return "EM500-PT100", ["EM500-PT100", "TS101", "TS201", "TS301", "EM300-TH", "EM500-SMTC"]
     if "temperature" in em or "humidity" in em:
         return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + ["TS201"] + [k for k in MODELS if k.startswith("AM")]
+    wtc = _guess_wt_commands(raw)
+    if wtc:
+        return wtc
     if len(raw) == 6 and raw[1] >> 4 == 1 and (raw[1] & 0x0F) in (1, 2, 4, 5, 7, 0x0A, 0x0B, 0x0E, 0x0F) \
             and raw[2] <= 100:
         return "GS524N", ["GS524N"]
@@ -438,6 +483,47 @@ def _guess_ws(raw: bytes) -> tuple[str, list[str]] | None:
     if ch & _WS_METER:
         return "WS501-V4", v4 + eu + sockets + ["WS558"]
     return None
+
+
+_WT201_FAMILY = ["WT201-V2", "WT211", "WT201"]
+
+
+def _guess_wt_channels(raw: bytes) -> tuple[str, list[str]] | None:
+    """WT301/302 frames, WT101 and the WT201 family (channel format)."""
+    if len(raw) >= 7 and raw[0] == 0x55 and raw[1] in (1, 2) and len(raw) == 5 + (raw[2] << 8 | raw[3]) \
+            and sum(raw[:-1]) & 0xFF == raw[-1]:
+        return "WT301", ["WT301", "WT302"]
+    if decode_wt101(raw).keys() & {"valve_opening", "window_open", "motor_calibration_result", "freeze_protection",
+                                   "motor_stroke", "motor_position"}:
+        return "WT101", ["WT101"]
+    d = decode_wt201_v2(raw)
+    if d.keys() & {"temperature_control_mode", "fan_mode", "system_status", "relay", "plan_type", "supported_modes"}:
+        if d.keys() & {"target_temperature_2", "temperature_source", "source_switch_alarm", "target_temperature_range_alarm"}:
+            return "WT201-V2", ["WT201-V2", "WT211"]
+        return "WT201-V2", _WT201_FAMILY
+    return None
+
+
+def _guess_wt_commands(raw: bytes) -> tuple[str, list[str]] | None:
+    """WT102 / WT303 / WT304 / WT401 (command format): the payload must parse completely and contain a
+    command that is specific to that model."""
+    hits = []
+    if wt303_parses_completely(raw) and decode_wt303(raw).keys() & {
+            "temperature_control_mode", "fan_mode", "data_source", "relay_low", "valve_opening"}:
+        hits.append(("WT303", ["WT303", "WT304"]))
+    w4 = decode_wt401(raw)
+    if wt401_parses_completely(raw) and w4.keys() & {"temperature_control_mode", "fan_mode", "pir_status",
+                                                      "target_temperature_2"}:
+        hits.append(("WT401", ["WT401"]))
+    w1 = decode_wt102(raw)
+    if wt102_parses_completely(raw) and w1.keys() & {"valve_opening", "motor_stroke", "motor_position",
+                                                      "motor_calibration_result", "target_valve_opening"}:
+        hits.append(("WT102", ["WT102"]))
+    if not hits:
+        return None
+    best = hits[0][0]
+    cands = [c for _, cs in hits for c in cs]
+    return best, list(dict.fromkeys(cands))
 
 
 def guess_from_name(name: str | None) -> str | None:
@@ -870,7 +956,8 @@ def _ws(model: "Model") -> list[EntitySpec]:
     f = model.features
     specs: list[EntitySpec] = []
     for key in model.buttons:
-        label = "Button" if key == "button" else f"Button {key.split('_')[1]}"
+        label = ("Button" if key == "button" else f"Key {key[4:].upper()}" if key.startswith("key_")
+                 else f"Button {key.split('_')[1]}")
         specs.append(EntitySpec(key, label, platform="event"))
     if "ws201" in f:
         specs += [
@@ -925,6 +1012,93 @@ def _ws(model: "Model") -> list[EntitySpec]:
         if "sensor_error" not in f:
             specs.append(EntitySpec("sensor_error", "Sensor status", kind="text", icon="mdi:alert-circle-outline",
                                     diagnostic=True))
+    return specs
+
+
+def _wt(model: "Model") -> list[EntitySpec]:
+    f = model.features
+    t = dict(unit="°C", device_class="temperature")
+    specs = [EntitySpec("climate", "Thermostat", platform="climate")]
+    if "wt30x" in f:
+        specs += [
+            EntitySpec("temperature", "Temperature", state_class="measurement", precision=1, **t),
+            EntitySpec("target_temperature", "Target temperature", precision=1, enabled_default=False, **t),
+            EntitySpec("mode", "Mode", kind="label", icon="mdi:thermostat"),
+            EntitySpec("fan_speed", "Fan speed", kind="label", icon="mdi:fan"),
+            EntitySpec("card_inserted", "Key card inserted", platform="binary_sensor", device_class="occupancy",
+                       icon="mdi:card-account-details"),
+            EntitySpec("button_lock", "Button lock", platform="binary_sensor", device_class="lock",
+                       diagnostic=True, enabled_default=False),
+            EntitySpec("control_mode", "Control mode", kind="label", icon="mdi:tune", diagnostic=True),
+            EntitySpec("server_temperature", "Server temperature", precision=1, enabled_default=False, **t),
+        ]
+        return specs
+    specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
+    specs.append(EntitySpec("target_temperature", "Target temperature", precision=1, enabled_default=False, **t))
+    if "wt_hum" in f:
+        specs.append(EntitySpec("humidity", "Humidity", unit="%", device_class="humidity", state_class="measurement",
+                                precision=1))
+    if "wt_valve" in f:
+        specs += [
+            EntitySpec("valve_opening", "Valve opening", unit="%", state_class="measurement", icon="mdi:valve"),
+            EntitySpec("window_open", "Window open", platform="binary_sensor", device_class="window"),
+            EntitySpec("freeze_protection", "Freeze protection", platform="binary_sensor", device_class="cold"),
+            EntitySpec("tamper", "Removed from radiator", platform="binary_sensor", device_class="tamper"),
+            EntitySpec("motor_calibration_result", "Motor calibration", kind="label", icon="mdi:cog", diagnostic=True),
+            EntitySpec("motor_stroke", "Motor stroke", icon="mdi:arrow-expand-horizontal", diagnostic=True,
+                       enabled_default=False),
+            EntitySpec("motor_position", "Motor position", icon="mdi:arrow-collapse-horizontal", diagnostic=True,
+                       enabled_default=False),
+        ]
+    if "wt102" in f:
+        specs += [
+            EntitySpec("target_valve_opening", "Target valve opening", unit="%", icon="mdi:valve", enabled_default=False),
+            EntitySpec("battery_low_alarm", "Battery low", platform="binary_sensor", device_class="battery"),
+            EntitySpec("mandatory_heating", "Mandatory heating", platform="binary_sensor", icon="mdi:fire-alert",
+                       enabled_default=False),
+            EntitySpec("auto_away", "Auto away", platform="binary_sensor", icon="mdi:home-export-outline",
+                       enabled_default=False),
+        ]
+        specs += _alarm("temperature", "Temperature", enabled=False)
+    if "wt_hvac" in f:
+        specs += [
+            EntitySpec("temperature_control_mode", "Mode", kind="label", icon="mdi:thermostat"),
+            EntitySpec("temperature_control_status", "Status", kind="label", icon="mdi:hvac"),
+            EntitySpec("execution_plan" if ("wt303" in f or "wt401" in f) else "plan_type", "Schedule", kind="label",
+                       icon="mdi:calendar-clock"),
+        ]
+        if "wt401" not in f:
+            specs += _alarm("temperature", "Temperature", enabled=False)
+        if "wt303" not in f and "wt401" not in f:
+            specs += [
+                EntitySpec("target_temperature_2", "Target temperature 2", precision=1, enabled_default=False, **t),
+                EntitySpec("relay", "Active relays", kind="text", icon="mdi:electric-switch", diagnostic=True),
+                EntitySpec("supported_modes", "Supported modes", kind="text", icon="mdi:format-list-checks",
+                           diagnostic=True, enabled_default=False),
+                EntitySpec("temperature_source", "Temperature source", kind="label", icon="mdi:thermometer-lines",
+                           diagnostic=True, enabled_default=False),
+            ]
+    if "wt_fan" in f:
+        specs.append(EntitySpec("fan_mode", "Fan mode", kind="label", icon="mdi:fan"))
+        if "wt401" not in f:
+            specs.append(EntitySpec("fan_status", "Fan", kind="label", icon="mdi:fan-clock"))
+    if "wt303" in f:
+        specs += [
+            EntitySpec("valve_opening", "Valve", unit="%", state_class="measurement", icon="mdi:valve"),
+            EntitySpec("heating_target_temperature", "Heating target", precision=1, enabled_default=False, **t),
+            EntitySpec("cooling_target_temperature", "Cooling target", precision=1, enabled_default=False, **t),
+            EntitySpec("data_source", "Temperature source", kind="label", icon="mdi:thermometer-lines", diagnostic=True),
+        ]
+        specs += [EntitySpec(k, n, platform="binary_sensor", device_class="running", enabled_default=False)
+                  for k, n in (("relay_low", "Fan low relay"), ("relay_medium", "Fan medium relay"),
+                               ("relay_high", "Fan high relay"), ("valve_1", "Valve 1"), ("valve_2", "Valve 2"))]
+    if "wt401" in f:
+        specs += [
+            EntitySpec("target_temperature_2", "Target temperature 2", precision=1, enabled_default=False, **t),
+            EntitySpec("pir_status", "Presence", kind="label", icon="mdi:motion-sensor"),
+            EntitySpec("power_bus_disconnected", "Power bus disconnected", platform="binary_sensor",
+                       device_class="problem", enabled_default=False),
+        ]
     return specs
 
 
@@ -1065,6 +1239,16 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         specs += _ct(f)
     specs += _gs(f)
     specs += _ws(model)
+    if "wt" in f:
+        specs += _wt(model)
+    if "heating" in f:
+        specs += [s for s in _binary_event("heating_", "Heating", "on", "heat", "mdi:fire", with_left_open=False,
+                                             off_label="Heating last stopped", events="starts")
+                  if s.key != "heating_active"] if model.climate else []
+    if "cooling" in f:
+        specs += [s for s in _binary_event("cooling_", "Cooling", "on", "cold", "mdi:snowflake", with_left_open=False,
+                                             off_label="Cooling last stopped", events="starts")
+                  if s.key != "cooling_active"] if model.climate else []
     if "motion" in f:
         specs += _binary_event("motion_", "Motion", "detected", "motion", "mdi:motion-sensor", with_left_open=False,
                                off_label="Motion last cleared")

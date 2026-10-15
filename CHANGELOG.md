@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.12.0
+### Added
+- WT range: WT101 and WT102 radiator thermostats, WT201 (firmware v1 and v2) and WT211 HVAC thermostats, WT301 /
+  WT302 and WT303 / WT304 fan-coil thermostats, WT401 smart thermostat.
+- New climate platform: current / target temperature, HVAC mode (heat, cool, heat-cool, dry, fan only, off) and
+  fan mode, all settable from Home Assistant via gateway downlinks. All 32 command types are checked against
+  Milesight's official encoders.
+- Heating and cooling run-time statistics (time and starts per day / week / month), valve opening, window open,
+  freeze protection, mode and stage status, fan status, schedules, relays, temperature alarms.
+- WT401: occupancy statistics from its presence sensor, F1–F3 keys as event entities.
+- Crosscheck covers the WT decoders (20,000+ payloads in total against Milesight's official decoders).
+- Supports the renamed thermostat properties of Home Assistant 2026.x as well as older versions.
+
 ## 0.11.0
 ### Added
 - WS range: WS101, WS136, WS156 buttons / scene panels; WS201, WS202, WS203, WS301, WS302, WS303 sensors;

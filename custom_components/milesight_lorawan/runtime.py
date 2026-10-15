@@ -43,7 +43,7 @@ from .const import (
     TICK_SECONDS,
     WEEKDAYS,
 )
-from .decoders import Uplink, encode_ws_switch
+from .decoders import Uplink, encode_wt, encode_ws_switch
 from .models import MODELS, Model
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +53,18 @@ def _flag(v: Any) -> bool | None:
 
 
 CT_CURRENT_KEYS = ("current", "current_1", "current_2", "current_3")
+
+
+def _hvac_running(d: dict, what: str) -> bool | None:
+    """Thermostats: heating / cooling from the reported control status; radiator valves: valve open."""
+    if d.get("system_status") is False:
+        return False
+    status = d.get("temperature_control_status")
+    if isinstance(status, str):
+        return what in status
+    if what == "heat" and isinstance(d.get("valve_opening"), (int, float)):
+        return d["valve_opening"] > 0
+    return None
 
 
 def _load_running(d: dict, lim: dict) -> bool | None:
@@ -76,11 +88,13 @@ BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]]
     "away": (lambda d, _: {"outside": True, "inside": False}.get(d.get("geofence_status")),
                  "Outside since {t}", "Inside"),
     "motion": (lambda d, _: _flag(d.get("pir")), "Motion since {t}", "Clear"),
+    "heating": (lambda d, _: _hvac_running(d, "heat"), "Heating since {t}", "Idle"),
+    "cooling": (lambda d, _: _hvac_running(d, "cool"), "Cooling since {t}", "Idle"),
     "on": (lambda d, _: _flag(d.get("switch_1")), "On since {t}", "Off"),
     "vape": (lambda d, _: _flag(d.get("vaping_index_alarm_active")), "Vaping detected since {t}", "Clear"),
 }
 # alarm-style features: the state is latched in the stored values (devices only report changes)
-LATCHED_FEATURES = {"vape", "smoke", "on"}
+LATCHED_FEATURES = {"vape", "smoke", "on", "heating", "cooling"}
 
 
 # VS373 alarm type -> flag key in values
@@ -253,14 +267,42 @@ class DeviceRuntime:
         if not self.model.control:
             raise ValueError(f"{self.model.key} cannot be controlled")
         channel = int(key.rsplit("_", 1)[1])
-        payload = encode_ws_switch(self.model.control, channel, on)
+        await self._downlink(encode_ws_switch(self.model.control, channel, on))
+        self.raw[key] = on
+        self._publish(time.time())
+
+    async def async_climate(self, action: str, value: Any, **kw: Any) -> None:
+        """Send a thermostat command (target / mode / power / fan) and show it until the device confirms."""
+        kind = self.model.climate
+        if not kind:
+            raise ValueError(f"{self.model.key} has no thermostat control")
+        if kind == "wt201v2" and action in ("mode", "power") and kw.get("target") is None:
+            kw["target"] = self.values.get("target_temperature") or 21
+        await self._downlink(encode_wt(kind, action, value, **kw))
+        if action == "target":
+            mode = kw.get("mode")
+            if kind == "wt303":
+                self.raw["cooling_target_temperature" if mode == "cool" else "heating_target_temperature"] = value
+            self.raw["target_temperature"] = value
+        elif action == "mode":
+            self.raw["mode" if kind == "wt30x" else "temperature_control_mode"] = value
+            self.raw["climate_on"] = True
+            if "system_status" in self.raw:
+                self.raw["system_status"] = True
+        elif action == "power":
+            self.raw["climate_on"] = bool(value)
+            if "system_status" in self.raw:
+                self.raw["system_status"] = bool(value)
+        elif action == "fan":
+            self.raw["fan_speed" if kind == "wt30x" else "fan_mode"] = value
+        self._publish(time.time())
+
+    async def _downlink(self, payload: bytes) -> None:
         hubs = list(self.hass.data.get(DOMAIN, {}).get("hubs", {}).values())
         hub = next((h for h in hubs if self.deveui in h.last_uplink), hubs[0] if hubs else None)
         if hub is None:
             raise RuntimeError("No Milesight gateway configured")
         await hub.async_send_downlink(self.deveui, payload)
-        self.raw[key] = on
-        self._publish(time.time())
 
     def _handle_vs373(self, decoded: dict[str, Any], ts: float) -> None:
         """Keep alarm flags until the device reports them deactivated, and fire HA events."""

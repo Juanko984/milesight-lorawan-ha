@@ -359,6 +359,43 @@ def test_guess_ws_range():
     assert mdl.guess_from_name("Kitchen") is None
 
 
+def test_decode_wt_range():
+    d = dec.decode_wt101(bytes.fromhex("01756104672C0103670A01059264099000000B900000"))      # official sample
+    assert d["battery"] == 97 and d["temperature"] == 26.6 and d["target_temperature"] == 30.0
+    assert d["valve_opening"] == 100 and d["motor_stroke"] == 0
+    d = dec.decode_wt201(bytes.fromhex("036702010467A60005E70006E80007BC00"))               # official sample
+    assert d == {"temperature": 25.8, "target_temperature": 16.6, "temperature_control_mode": "heat",
+                 "temperature_control_status": "standby", "fan_mode": "auto", "fan_status": "standby", "plan_type": "not executed"}
+    d = dec.decode_wt303(bytes.fromhex("016a0802e40203d208040005120664071208ff1013000000c801"))
+    assert d["temperature"] == 21.54 and d["humidity"] == 74 and d["temperature_control_mode"] == "heat"
+    assert d["temperature_control_status"] == "cool" and d["fan_mode"] == "low" and d["fan_status"] == "medium"
+    assert d["valve_opening"] == 100 and d["relay_low"] and d["valve_2"] and not d["relay_high"]
+    assert dec.decode_wt303(bytes.fromhex("0913b80b"))["temperature_alarm_active"] is True
+    d = dec.decode_wt102(bytes.fromhex("0e01660832340855"))
+    assert d == {"temperature": 21.5, "valve_opening": 50, "target_temperature": 21.0, "battery": 85}
+    d = dec.decode_wt401(bytes.fromhex("0055016608020d02080103000400066408079809"))
+    assert d["temperature"] == 21.5 and d["humidity"] == 52.5 and d["occupancy"] == 1 and d["fan_mode"] == "auto"
+    assert d["target_temperature"] == 21.48 and d["target_temperature_2"] == 24.56
+    frame = bytes.fromhex("5502000a0f01000102282c010030")
+    frame += bytes([sum(frame) & 0xFF])
+    d = dec.decode_wt30x(frame)
+    assert d["system_status"] is True and d["mode"] == "heat" and d["fan_speed"] == "medium" and d["temperature"] == 20.0
+    assert d["target_temperature"] == 22.0 and d["card_inserted"] is True and d["server_temperature"] == 24.0
+    assert dec.encode_wt("wt303", "target", 21.5, mode="heat").hex() == "6b6608"
+    assert dec.encode_wt("wt30x", "target", 21.5).hex() == "55010002052b88"
+
+
+def test_guess_wt_range():
+    g = mdl.guess_model
+    assert g(bytes.fromhex("01756104672C0103670A01059264099000000B900000"))[0] == "WT101"
+    assert g(bytes.fromhex("036702010467A60005E70006E80007BC00"))[0] == "WT201-V2"
+    assert g(bytes.fromhex("016a0802e40203d208040005120664071208ff1013000000c801"))[0] == "WT303"
+    assert g(bytes.fromhex("0055016608020d02080103000400066408079809"))[0] == "WT401"
+    assert g(bytes.fromhex("0164080664080432075000550501"))[0] == "WT102"
+    frame = bytes.fromhex("5502000a0f01000102282c010030")
+    assert g(frame + bytes([sum(frame) & 0xFF]))[0] == "WT301"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

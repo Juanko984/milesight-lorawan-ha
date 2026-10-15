@@ -60,11 +60,20 @@ mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 mod("homeassistant.components.sensor", SensorDeviceClass=SensorDeviceClass, SensorEntity=object, SensorStateClass=SensorStateClass)
 class _Ev:
     def _trigger_event(self, t, a=None): self.last_event = t
+class _HV(str, enum.Enum):
+    OFF = "off"; HEAT = "heat"; COOL = "cool"; HEAT_COOL = "heat_cool"; AUTO = "auto"; DRY = "dry"; FAN_ONLY = "fan_only"
+class _HA(str, enum.Enum):
+    OFF = "off"; HEATING = "heating"; COOLING = "cooling"; IDLE = "idle"; FAN = "fan"
+class _CF(enum.IntFlag):
+    TARGET_TEMPERATURE = 1; FAN_MODE = 8; TURN_OFF = 128; TURN_ON = 256
+class _Climate:
+    native_target_temperature = None                   # behave like Home Assistant 2026.x
+mod("homeassistant.components.climate", ClimateEntity=_Climate, ClimateEntityFeature=_CF, HVACAction=_HA, HVACMode=_HV)
 mod("homeassistant.components.switch", SwitchDeviceClass=StrE("SWDC", {"OUTLET": "outlet", "SWITCH": "switch"}), SwitchEntity=object)
 mod("homeassistant.components.event", EventDeviceClass=types.SimpleNamespace(BUTTON="button"), EventEntity=_Ev)
 mod("homeassistant.components.device_tracker", SourceType=types.SimpleNamespace(GPS="gps"), TrackerEntity=object)
 mod("homeassistant.components.binary_sensor", BinarySensorDeviceClass=BinarySensorDeviceClass, BinarySensorEntity=object)
-mod("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BINARY_SENSOR="binary_sensor"),
+mod("homeassistant.const", ATTR_TEMPERATURE="temperature", UnitOfTemperature=types.SimpleNamespace(CELSIUS="°C"), Platform=types.SimpleNamespace(SENSOR="sensor", BINARY_SENSOR="binary_sensor"),
     EntityCategory=EntityCategory)
 mod("homeassistant.exceptions", ConfigEntryNotReady=Exception, HomeAssistantError=Exception)
 
@@ -75,7 +84,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event"]:
+for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -106,7 +115,8 @@ def make_device(deveui, model):
     ents = []
     for s in models.entity_specs(model):
         cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker,
-               "switch": switch.MilesightSwitch, "event": event.MilesightButton}.get(
+               "switch": switch.MilesightSwitch, "event": event.MilesightButton,
+               "climate": climate.MilesightClimate}.get(
             s.platform, binary_sensor.MilesightBinarySensor)
         ents.append(cls(rt, s))
     return rt, ents
@@ -275,13 +285,13 @@ assert rt.values["vape_active"] is False and rt.values["vape_count_today"] == 1 
 print("gs ok")
 
 # AT101: map position, moving statistics and distance travelled
-rt, ents = make_device("0000000000000101", "AT101")
+rt, ents = make_device("00000000000b0101", "AT101")
 tracker = next(e for e in ents if e.spec.platform == "device_tracker")
-send("0000000000000101", bytes.fromhex("01755a0488" + (-33_918_861).to_bytes(4, "little", signed=True).hex()
+send("00000000000b0101", bytes.fromhex("01755a0488" + (-33_918_861).to_bytes(4, "little", signed=True).hex()
                                        + (18_423_300).to_bytes(4, "little", signed=True).hex() + "03"),
      time=datetime.fromtimestamp(time.time() - 300, timezone.utc).isoformat())                       # Cape Town, stopped, 5 min ago
 assert tracker.latitude == -33.918861 and tracker.longitude == 18.4233 and rt.values["moving_active"] is False
-send("0000000000000101", bytes.fromhex("0488" + (-33_928_861).to_bytes(4, "little", signed=True).hex()
+send("00000000000b0101", bytes.fromhex("0488" + (-33_928_861).to_bytes(4, "little", signed=True).hex()
                                        + (18_423_300).to_bytes(4, "little", signed=True).hex() + "12"))   # ~1.1 km south, moving, outside
 v = rt.values
 assert v["moving_active"] is True and v["away_active"] is True and v["away_status"].startswith("Outside since"), v
@@ -312,6 +322,34 @@ assert rt.values["switch_1"] is True and rt.values["power"] == 10 and rt.values[
 asyncio.run(next(e for e in ents if e.spec.key == "switch_1").async_turn_off())
 assert PUBLISHED[-1][1]["data"] == base64.b64encode(bytes.fromhex("0800ffff")).decode()
 print("ws ok")
+
+# WT: thermostat state and control
+rt, ents = make_device("00000000000a0303", "WT303")
+th = next(e for e in ents if e.spec.platform == "climate")
+send("00000000000a0303", bytes.fromhex("016a0802e40203d208040005120664071208ff1013000000c801"))
+assert th.native_current_temperature == 21.54 and th.current_humidity == 74 and th.native_target_temperature == 22.58
+assert th.hvac_mode == "heat" and th.hvac_action == "cooling" and th.fan_mode == "low"
+assert rt.values["heating_status"] == "Idle" and rt.values["cooling_status"].startswith("Cooling since")
+asyncio.run(th.async_set_temperature(temperature=21.5))
+assert PUBLISHED[-1] == ("milesight/downlink/00000000000a0303", {"confirmed": False, "fPort": 85,
+                                                               "data": base64.b64encode(bytes.fromhex("6b6608")).decode()})
+assert th.native_target_temperature == 21.5
+asyncio.run(th.async_set_hvac_mode("off"))
+assert PUBLISHED[-1][1]["data"] == base64.b64encode(bytes.fromhex("6700")).decode() and th.hvac_mode == "off"
+asyncio.run(th.async_set_hvac_mode("cool"))
+assert [base64.b64decode(p[1]["data"]).hex() for p in PUBLISHED[-2:]] == ["6701", "6802"] and th.hvac_mode == "cool"
+rt, ents = make_device("00000000000a0101", "WT101")
+th = next(e for e in ents if e.spec.platform == "climate")
+send("00000000000a0101", bytes.fromhex("01756104672C0103670A01059264099000000B900000"))
+assert th.native_current_temperature == 26.6 and th.native_target_temperature == 30.0 and th.hvac_action == "heating"
+asyncio.run(th.async_set_temperature(temperature=21))
+assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "ffb1150a00"
+rt, ents = make_device("00000000000a0201", "WT201-V2")
+th = next(e for e in ents if e.spec.platform == "climate")
+send("00000000000a0201", bytes.fromhex("036702010467a60005e70006e80007bc00088e01"))
+asyncio.run(th.async_set_hvac_mode("cool"))
+assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "f9450102a600", PUBLISHED[-1]
+print("wt ok")
 
 # every model's entities can be created with real HA device / state classes
 for i, model in enumerate(models.MODELS):

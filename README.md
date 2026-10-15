@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.11.0** · [Version history](#version-history)
+**Current version: 0.12.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -19,6 +19,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
 | **WS** – buttons, sensors, switches & sockets | WS101, WS136, WS156, WS201, WS202, WS203, WS301, WS302, WS303, WS501 / WS502 / WS503 (v1–v3, EU / US, CN, v4), WS513, WS515 (incl. v3), WS523, WS525, WS558 | Scene buttons, washroom refills, motion, doors, noise, leaks, **switching lights and sockets** with energy metering |
+| **WT** – thermostats & radiator valves | WT101, WT102, WT201 (v1 / v2), WT211, WT301, WT302, WT303, WT304, WT401 | **Thermostat control from Home Assistant** – radiators, HVAC, fan coils; heating / cooling run time |
 | **AT** – asset trackers | AT101 | Vehicles, containers, equipment, bins – position on the map, trips, distance, geofence |
 | **CT** – current transformers | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2) | Machine / pump / compressor run time, circuit load, energy (v2) |
 | **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
@@ -91,6 +92,23 @@ matching model (the device label / gateway firmware info tells you; the integrat
 
 Tip: include the model in the device name on the gateway (e.g. *WS301 back door*) and discovery picks that model
 automatically – handy for devices whose messages look alike (WS301 / WS202 / VS370, WS303 / VS340 …).
+
+### WT range – thermostats & radiator valves
+
+Every WT device gets a **thermostat (climate) entity**: current temperature, target temperature, mode and fan mode –
+all **settable from Home Assistant** (dashboard thermostat card, automations, voice assistants).
+
+| Model | Modes you can set | What else you get |
+|---|---|---|
+| **WT101 / WT102** radiator valves | Heat / Off, target (WT101 in whole °C) | Valve opening %, window open, freeze protection, removed from radiator, motor calibration; WT102 also battery low, mandatory heating, auto away, temperature alarm; **heating time and starts** per day / week / month |
+| **WT201 (v1 / v2) / WT211** HVAC thermostats | Heat, Cool, Heat/Cool (auto), Off; fan auto / on / circulate | Humidity, mode and stage status (e.g. *stage-2 heat*), fan status, schedule, active relays, temperature alarm, **heating and cooling run time** |
+| **WT301 / WT302** fan-coil thermostats | Heat, Cool, Fan only, Off; fan auto / low / medium / high | Key card inserted, button lock, control mode |
+| **WT303 / WT304** fan-coil thermostats | Heat, Cool, Fan only, Off; fan auto / low / medium / high | Humidity, heating / cooling targets, valve, fan status, relays, schedule, temperature alarm, heating and cooling run time |
+| **WT401** smart thermostat | Heat, Cool, Heat/Cool, Dry, Fan only, Off; six fan modes | Humidity, presence + **occupancy statistics**, schedule, F1–F3 keys as event entities, battery |
+
+Thermostat commands are sent as downlinks (fPort 85) like the WS switches – set the gateway's downlink topic (step 1).
+The new value shows straight away; battery-powered radiator valves (Class A) apply it after their next uplink.
+WT201 firmware v1 and v2 use different commands – pick *WT201 (firmware v1)* if your thermostat is the older one.
 
 ### AT range – asset trackers
 
@@ -291,6 +309,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.12.0** | WT range added (WT101, WT102, WT201 v1 / v2, WT211, WT301, WT302, WT303, WT304, WT401) with thermostat control from Home Assistant. |
 | **0.11.0** | WS range added (27 models): buttons as event entities, WS sensors, and wall switches / sockets / light controllers that can be switched from Home Assistant, with energy metering. |
 | **0.10.0** | AT range added: AT101 tracker with map position (device tracker), trips, distance travelled and geofence statistics. |
 | **0.9.0** | GS range added: GS101 gas, GS301 odour, GS524N smoke and GS601 vape detectors, with alarm statistics. |

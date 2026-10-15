@@ -2121,3 +2121,591 @@ def encode_ws_switch(kind: str, channel: int, on: bool) -> bytes:
     if kind == "0831":                   # WS558
         return bytes([0x08, bit, bit if on else 0])
     raise ValueError(kind)
+
+
+# --------------------------------------------------------------------------
+# WT range – thermostats and radiator valves
+# Checked against Milesight-IoT/SensorDecoders (wt-series).
+# --------------------------------------------------------------------------
+_WT101_CAL = {0: "success", 1: "fail: out of range", 2: "fail: uninstalled", 3: "calibration cleared",
+              4: "temperature control disabled"}
+
+
+def decode_wt101(b: bytes) -> dict[str, Any]:
+    """WT101 smart radiator thermostat (channel format)."""
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is None:
+            n = _ws_battery(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid in (0x03, 0x04) and ctype == 0x67 and _need(b, i, 2):
+            out["temperature" if cid == 0x03 else "target_temperature"] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x05 and ctype == 0x92 and _need(b, i, 1):
+            out["valve_opening"] = b[i]
+            i += 1
+        elif cid == 0x06 and ctype == 0x00 and _need(b, i, 1):
+            if b[i] in (0, 1):
+                out["tamper"] = b[i] == 1
+            i += 1
+        elif cid == 0x07 and ctype == 0x00 and _need(b, i, 1):
+            if b[i] in (0, 1):
+                out["window_open"] = b[i] == 1
+            i += 1
+        elif cid == 0x08 and ctype == 0xE5 and _need(b, i, 1):
+            out["motor_calibration_result"] = _WT101_CAL.get(b[i], "unknown")
+            i += 1
+        elif cid in (0x09, 0x0B) and ctype == 0x90 and _need(b, i, 2):
+            out["motor_stroke" if cid == 0x09 else "motor_position"] = _u16le(b, i)
+            i += 2
+        elif cid == 0x0A and ctype == 0x00 and _need(b, i, 1):
+            if b[i] in (0, 1):
+                out["freeze_protection"] = b[i] == 1
+            i += 1
+        elif cid == 0xF9 and ctype in (0x33, 0x34) and _need(b, i, 7 if ctype == 0x33 else 9):
+            i += 7 if ctype == 0x33 else 9             # heating date / schedule
+        else:
+            break
+    return out
+
+
+# ---- WT201 (v1) / WT201 v2 / WT211 -------------------------------------------
+_WT201_STATUS = {0: "standby", 1: "stage-1 heat", 2: "stage-2 heat", 3: "stage-3 heat", 4: "stage-4 heat",
+                 5: "em heat", 6: "stage-1 cool", 7: "stage-2 cool", 8: "stage-5 heat", 9: "stage-3 cool"}
+_WT201_FAN = {0: "auto", 1: "on", 2: "circulate", 3: "disable"}
+_WT201_FAN_STATUS = {0: "standby", 1: "high speed", 2: "low speed", 3: "on"}
+_WT201_PLAN = {0: "not executed", 1: "wake", 2: "away", 3: "home", 4: "sleep", 5: "occupied", 6: "vacant", 7: "eco"}
+_WT201_ALARM = {1: ("emergency_heating_timeout_alarm", None), 2: ("auxiliary_heating_timeout_alarm", None),
+                3: ("persistent_low_temperature_alarm", True), 4: ("persistent_low_temperature_alarm_release", False),
+                5: ("persistent_high_temperature_alarm", True), 6: ("persistent_high_temperature_alarm_release", False),
+                7: ("freeze_protection_alarm", True), 8: ("freeze_protection_alarm_release", False),
+                9: ("threshold_alarm", True), 10: ("threshold_alarm_release", False)}
+_WT201_RELAYS = ("Y1", "Y2", "W1", "W2", "EH", "G", "OB")
+
+
+def _decode_wt201(b: bytes, v2: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    modes = ("heat", "em heat", "cool", "auto")
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid in (0x03, 0x04, 0x0B) and ctype == 0x67 and _need(b, i, 2) and (v2 or cid != 0x0B):
+            key = {0x03: "temperature", 0x04: "target_temperature", 0x0B: "target_temperature_2"}[cid]
+            out[key] = _i16le(b, i) / 10
+            i += 2
+        elif cid == 0x05 and ctype == 0xE7 and _need(b, i, 1):
+            out["temperature_control_mode"] = modes[b[i] & 0x03]
+            out["temperature_control_status"] = _WT201_STATUS.get(b[i] >> 4 & 0x0F, "unknown") \
+                if v2 or (b[i] >> 4) <= 7 else "unknown"
+            i += 1
+        elif cid == 0x06 and ctype == 0xE8 and _need(b, i, 1):
+            if v2:
+                out["fan_mode"] = ("auto", "on", "circulate", "disable")[b[i] & 0x03]
+                st = b[i] >> 2 & 0x07
+                if st > 3:                       # the official v2 decoder fails on these values
+                    break
+                out["fan_status"] = ("standby", "high speed", "low speed", "on")[st]
+            else:
+                out["fan_mode"] = _WT201_FAN[b[i] & 0x03]
+                out["fan_status"] = _WT201_FAN_STATUS[b[i] >> 2 & 0x03]
+            i += 1
+        elif cid == 0x07 and ctype == 0xBC and _need(b, i, 1):
+            code = b[i] & 0x0F
+            out["plan_type"] = _WT201_PLAN.get(code, "unknown") if v2 or code <= 4 else "unknown"
+            i += 1
+        elif v2 and cid == 0x07 and ctype == 0xE9 and _need(b, i, 1):
+            out["temperature_source"] = {1: "embedded", 2: "lora", 3: "d2d"}.get(b[i], "unknown")
+            i += 1
+        elif v2 and cid == 0x87 and ctype == 0xE9 and _need(b, i, 2):
+            out["source_switch_alarm"] = b[i + 1] == 1
+            i += 2
+        elif cid == 0x08 and ctype == 0x8E and _need(b, i, 1):
+            out["system_status"] = b[i] == 1
+            i += 1
+        elif cid == 0x09 and ctype == 0x68 and _need(b, i, 1):
+            out["humidity"] = b[i] / 2
+            i += 1
+        elif cid == 0x0A and ctype == 0x6E and _need(b, i, 1):
+            on = [r for n_, r in enumerate(_WT201_RELAYS) if b[i] >> n_ & 1]
+            out["relay"] = "&".join(on) if on else "off"
+            i += 1
+        elif cid == 0xFF and ctype == 0xCB and _need(b, i, 3):
+            out["supported_modes"] = ", ".join(m for n_, m in enumerate(("heat", "em heat", "cool", "auto"))
+                                               if b[i] >> n_ & 1) or "none"
+            i += 3
+        elif cid == 0x83 and ctype == 0x67 and _need(b, i, 3 if v2 else 2):
+            out["temperature"] = _i16le(b, i) / 10
+            if _need(b, i, 3):
+                _ts_alarm(out, "temperature", b[i + 2], _WT201_ALARM)
+            i += 3 if v2 else 2                  # v1 firmware decoder skips only 2 bytes (kept for compatibility)
+        elif cid in (0xB3, 0xB9) and ctype in (0x67, 0x68) and _need(b, i, 1):
+            name = "Temperature" if cid == 0xB3 else "Humidity"
+            out["sensor_error"] = f"{name}: " + {1: "read failed", 2: "out of range"}.get(b[i], "unknown")
+            i += 1
+        elif v2 and cid == 0xF9 and ctype == 0x40 and _need(b, i, 7):
+            out["target_temperature_range_alarm"] = True
+            i += 7
+        elif cid == 0x20 and ctype == 0xCE and _need(b, i, 13 if v2 else 8):
+            i += 13 if v2 else 8                 # history record
+        else:
+            break
+    return out
+
+
+def decode_wt201(b: bytes) -> dict[str, Any]:
+    """WT201 smart thermostat (firmware v1)."""
+    return _decode_wt201(b, v2=False)
+
+
+def decode_wt201_v2(b: bytes) -> dict[str, Any]:
+    """WT201 v2 / WT211 smart thermostat."""
+    return _decode_wt201(b, v2=True)
+
+
+# ---- WT301 / WT302 fan-coil thermostats (frame: 55 cmd len(2, BE) type data... crc) ------------
+_WT30X_MODE = {0: "cool", 1: "heat", 2: "fan"}
+_WT30X_FAN = {0: "auto", 1: "high", 2: "medium", 3: "low"}
+
+
+def decode_wt30x(b: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if len(b) < 6 or b[0] != 0x55:
+        return out
+    data_id, d = b[4], b[5:]
+
+    def field(fid: int, v: int) -> None:
+        if fid == 0x01:
+            out["system_status"] = v == 1
+        elif fid == 0x02:
+            out["button_lock"] = v == 1
+        elif fid == 0x03:
+            out["mode"] = _WT30X_MODE.get(v, "unknown")
+        elif fid == 0x04:
+            out["fan_speed"] = _WT30X_FAN.get(v, "unknown")
+        elif fid in (0x05, 0x06, 0x09):
+            out[{5: "temperature", 6: "target_temperature", 9: "server_temperature"}[fid]] = v / 2
+        elif fid == 0x07:
+            out["card_inserted"] = v == 1
+        elif fid == 0x08:
+            out["control_mode"] = {0: "auto", 1: "manual"}.get(v, "unknown")
+
+    if data_id == 0x0F and len(d) >= 9:
+        for k in range(9):
+            field(k + 1, d[k])
+    elif 0x01 <= data_id <= 0x09 and d:
+        field(data_id, d[0])
+    return out
+
+
+# ---- WT303 / WT304 fan-coil thermostats (command format) -----------------------------------------
+_WT303_ALARM = {0x10: ("lower_range_alarm_deactivation", False), 0x11: ("lower_range_alarm_trigger", True),
+                0x12: ("over_range_alarm_deactivation", False), 0x13: ("over_range_alarm_trigger", True),
+                0x14: ("within_range_alarm_deactivation", False), 0x15: ("within_range_alarm_trigger", True),
+                0x16: ("exceed_range_alarm_deactivation", False), 0x17: ("exceed_range_alarm_trigger", True),
+                0x20: ("persistent_low_temperature_alarm_deactivation", False),
+                0x21: ("persistent_low_temperature_alarm_trigger", True),
+                0x22: ("persistent_high_alarm_deactivation", False), 0x23: ("persistent_high_alarm_trigger", True),
+                0x30: ("anti_freeze_protection_deactivation", False), 0x31: ("anti_freeze_protection_trigger", True),
+                0x32: ("window_status_detection_deactivation", False), 0x33: ("window_status_detection_trigger", True)}
+_WT_ERR = {0: "collection error", 1: "lower range error", 2: "over range error", 3: "no data"}
+_WT303_MODE = {0: "ventilation", 1: "heat", 2: "cool"}
+_WT303_STATUS = {0: "standby", 1: "heat", 2: "cool"}
+_WT303_FAN = {0: "auto", 1: "low", 2: "medium", 3: "high"}
+_WT303_FAN_STATUS = {0: "off", 1: "low", 2: "medium", 3: "high"}
+
+
+def _wt_info(cmd: int, b: bytes, i: int, out: dict, extra: bool) -> int | None:
+    """Device info commands shared by the WT command-format devices. Returns bytes consumed or None."""
+    if cmd == 0xDF and _need(b, i, 2):
+        out["tsl_version"] = f"v{b[i]}.{b[i + 1]}"
+        return 2
+    if cmd == 0xDB and _need(b, i, 8):
+        out["sn"] = b[i:i + 8].hex()
+        return 8
+    if cmd == 0xDA and _need(b, i, 8):
+        out["hardware_version"] = f"v{b[i]}.{b[i + 1]}"
+        out["firmware_version"] = f"v{b[i + 2]:x}.{b[i + 3]:x}"
+        return 8
+    if cmd == 0xD9 and _need(b, i, 2):
+        return 2
+    if cmd == 0xC8 and _need(b, i, 1):
+        out["device_status"] = "on" if b[i] else "off"
+        return 1
+    if extra and cmd in (0xDE, 0xDD) and _need(b, i, 32):
+        return 32
+    if extra and cmd == 0xD8 and _need(b, i, 16):
+        return 16
+    return None
+
+
+def decode_wt303(b: bytes) -> dict[str, Any]:
+    """WT303 / WT304 fan-coil thermostat."""
+    return _parse_wt303(b)[0]
+
+
+def wt303_parses_completely(b: bytes) -> bool:
+    return bool(b) and _parse_wt303(b)[1] == len(b)
+
+
+def _parse_wt303(b: bytes) -> tuple[dict[str, Any], int]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i < len(b):
+        cmd = b[i]
+        i += 1
+        n = _wt_info(cmd, b, i, out, extra=False)
+        if n is not None:
+            i += n
+        elif cmd in (0x01, 0x03, 0x6B, 0x6C) and _need(b, i, 2):
+            key = {0x01: "temperature", 0x03: "target_temperature", 0x6B: "heating_target_temperature",
+                   0x6C: "cooling_target_temperature"}[cmd]
+            out[key] = _i16le(b, i) / 100
+            i += 2
+        elif cmd == 0x02 and _need(b, i, 2):
+            out["humidity"] = _u16le(b, i) / 10
+            i += 2
+        elif cmd == 0x04 and _need(b, i, 1):
+            out["data_source"] = {0: "internal", 1: "external NTC", 2: "LoRaWAN", 3: "D2D"}.get(b[i], "unknown")
+            i += 1
+        elif cmd == 0x05 and _need(b, i, 1):
+            out["temperature_control_mode"] = _WT303_MODE.get(b[i] >> 4, "unknown")
+            out["temperature_control_status"] = _WT303_STATUS.get(b[i] & 0x0F, "unknown")
+            i += 1
+        elif cmd == 0x06 and _need(b, i, 1):
+            out["valve_opening"] = b[i]
+            i += 1
+        elif cmd == 0x07 and _need(b, i, 1):
+            out["fan_mode"] = _WT303_FAN.get(b[i] >> 4, "unknown")
+            out["fan_status"] = _WT303_FAN_STATUS.get(b[i] & 0x0F, "unknown")
+            i += 1
+        elif cmd == 0x08 and _need(b, i, 1):
+            out["execution_plan"] = "not executed" if b[i] == 255 else f"schedule {b[i] + 1}"
+            i += 1
+        elif cmd == 0x09 and _need(b, i, 1):
+            code = b[i]
+            i += 1
+            if code in _WT303_ALARM:
+                if not _need(b, i, 2):
+                    break
+                out["temperature"] = _i16le(b, i) / 100
+                _ts_alarm(out, "temperature", code, _WT303_ALARM)
+                i += 2
+            elif code in _WT_ERR:
+                out["sensor_error"] = f"Temperature: {_WT_ERR[code]}"
+        elif cmd in (0x0A, 0x0B) and _need(b, i, 1):
+            if b[i] in _WT_ERR:
+                out["sensor_error"] = ("Humidity: " if cmd == 0x0A else "Target temperature: ") + _WT_ERR[b[i]]
+            i += 1
+        elif cmd == 0x10 and _need(b, i, 4):
+            v = _u32le(b, i)
+            if v > 0xFFFF:                       # the official decoder rejects these frames
+                break
+            for bit, name in enumerate(("relay_low", "relay_medium", "relay_high", "valve_1", "valve_2")):
+                out[name] = bool(v >> bit & 1)
+            i += 4
+        elif cmd == 0xCF and _need(b, i, 1):
+            i += 2 if b[i] == 0 and _need(b, i, 2) else 1
+        elif cmd == 0x67 and _need(b, i, 1):
+            out["system_status"] = b[i] == 1
+            i += 1
+        elif cmd == 0x68 and _need(b, i, 1):
+            out["temperature_control_mode"] = _WT303_MODE.get(b[i], "unknown")
+            i += 1
+        elif cmd == 0x72 and _need(b, i, 1):
+            out["fan_mode"] = _WT303_FAN.get(b[i], "unknown")
+            i += 1
+        else:
+            i -= 1
+            break
+    return out, i
+
+
+# ---- WT102 smart radiator thermostat (command format) ------------------------------------------
+_WT102_CAL = {0: "uncalibrated", 1: "success", 2: "fail: out of range", 3: "fail: temperature control disabled",
+              4: "fail: uninstalled"}
+_WT102_TALARM = {0x10: ("lower_range_alarm_deactivation", False), 0x11: ("lower_range_alarm_trigger", True),
+                 0x12: ("over_range_alarm_deactivation", False), 0x13: ("over_range_alarm_trigger", True)}
+
+
+def decode_wt102(b: bytes) -> dict[str, Any]:
+    """WT102 smart radiator thermostat."""
+    return _parse_wt102(b)[0]
+
+
+def wt102_parses_completely(b: bytes) -> bool:
+    return bool(b) and _parse_wt102(b)[1] == len(b)
+
+
+def _parse_wt102(b: bytes) -> tuple[dict[str, Any], int]:
+    out: dict[str, Any] = {}
+    t = lambda k: _i16le(b, k) / 100            # noqa: E731
+    i = 0
+    while i < len(b):
+        cmd = b[i]
+        i += 1
+        n = _wt_info(cmd, b, i, out, extra=True)
+        sub = b[i] if i < len(b) else None
+        if n is not None:
+            i += n
+        elif cmd == 0x00 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cmd in (0x01, 0x06) and _need(b, i, 2):
+            out["temperature" if cmd == 0x01 else "target_temperature"] = t(i)
+            i += 2
+        elif cmd in (0x02, 0x03) and _need(b, i, 2):
+            out["motor_stroke" if cmd == 0x02 else "motor_position"] = _u16le(b, i)
+            i += 2
+        elif cmd in (0x04, 0x07) and _need(b, i, 1):
+            out["valve_opening" if cmd == 0x04 else "target_valve_opening"] = b[i]
+            i += 1
+        elif cmd == 0x05 and _need(b, i, 1):
+            out["motor_calibration_result"] = _WT102_CAL.get(b[i], "unknown")
+            i += 1
+        elif cmd == 0x08 and _need(b, i, 1):
+            out["battery"] = b[i]
+            out["battery_low_alarm"] = True
+            i += 1
+        elif cmd == 0x09 and sub is not None:
+            i += 1
+            if sub in _WT102_TALARM:
+                if not _need(b, i, 2):
+                    break
+                out["temperature"] = t(i)
+                _ts_alarm(out, "temperature", sub, _WT102_TALARM)
+                i += 2
+        elif cmd == 0x0A and sub is not None:
+            i += 1
+            if sub in (0x20, 0x21):
+                if not _need(b, i, 3):
+                    break
+                out["temperature"], out["valve_opening"] = t(i), b[i + 2]
+                out["freeze_protection"] = sub == 0x21
+                i += 3
+        elif cmd == 0x0B and sub is not None:
+            i += 1
+            if sub in (0x20, 0x21):
+                if not _need(b, i, 4):
+                    break
+                out["temperature"], out["valve_opening"], out["battery"] = t(i), b[i + 2], b[i + 3]
+                out["mandatory_heating"] = sub == 0x21
+                i += 4
+        elif cmd == 0x0C and sub is not None:
+            i += 1
+            if sub in (0x20, 0x21, 0x22, 0x23):
+                size = 5 if sub in (0x20, 0x21) else 4
+                if not _need(b, i, size):
+                    break
+                out["occupied"] = b[i] == 1
+                out["temperature"] = t(i + 1)
+                if sub == 0x20:
+                    out["target_temperature"] = t(i + 3)
+                elif sub == 0x22:
+                    out["target_valve_opening"] = b[i + 3]
+                out["auto_away"] = sub in (0x21, 0x23)
+                i += size
+        elif cmd == 0x0D and sub is not None:
+            i += 1
+            if sub in (0x20, 0x21):
+                if not _need(b, i, 3):
+                    break
+                out["window_open"] = b[i] == 1
+                out["temperature"] = t(i + 1)
+                i += 3
+        elif cmd == 0x0E and sub is not None:
+            i += 1
+            size = {0: 2, 1: 6, 2: 5, 3: 7}.get(sub)
+            if size is None:
+                continue
+            if not _need(b, i, size):
+                break
+            if sub == 0:
+                out["target_valve_opening"], out["battery"] = b[i], b[i + 1]
+            else:
+                out["temperature"], out["valve_opening"] = t(i), b[i + 2]
+                if sub in (1, 3):
+                    out["target_temperature"] = t(i + 3)
+                if sub == 2:
+                    out["target_valve_opening"] = b[i + 3]
+                if sub == 3:
+                    out["target_valve_opening"] = b[i + 5]
+                out["battery"] = b[i + size - 1]
+            i += size
+        elif cmd == 0xCF and _need(b, i, 2):
+            out["lorawan_class"] = {0: "Class A", 1: "Class B", 2: "Class C", 3: "Class CtoB"}.get(b[i + 1], "unknown")
+            i += 2
+        else:
+            i -= 1
+            break
+    return out, i
+
+
+# ---- WT401 smart thermostat (command format) ---------------------------------------------------
+_WT401_MODE = {0: "heat", 1: "em heat", 2: "cool", 3: "auto", 4: "dehumidify", 5: "ventilation", 10: "off", 11: "none"}
+_WT401_FAN = {0: "auto", 1: "circulate", 2: "on", 3: "low", 4: "medium", 5: "high", 10: "off", 11: "none"}
+
+
+def decode_wt401(b: bytes) -> dict[str, Any]:
+    """WT401 smart thermostat."""
+    return _parse_wt401(b)[0]
+
+
+def wt401_parses_completely(b: bytes) -> bool:
+    return bool(b) and _parse_wt401(b)[1] == len(b)
+
+
+def _parse_wt401(b: bytes) -> tuple[dict[str, Any], int]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i < len(b):
+        cmd = b[i]
+        i += 1
+        n = _wt_info(cmd, b, i, out, extra=True)
+        if n is not None:
+            i += n
+        elif cmd == 0x00 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cmd in (0x01, 0x06, 0x07) and _need(b, i, 2):
+            out[{1: "temperature", 6: "target_temperature", 7: "target_temperature_2"}[cmd]] = _i16le(b, i) / 100
+            i += 2
+        elif cmd == 0x02 and _need(b, i, 2):
+            out["humidity"] = _u16le(b, i) / 10
+            i += 2
+        elif cmd == 0x03 and _need(b, i, 1):
+            out["temperature_control_mode"] = _WT401_MODE.get(b[i], "unknown")
+            i += 1
+        elif cmd == 0x04 and _need(b, i, 1):
+            out["fan_mode"] = _WT401_FAN.get(b[i], "unknown")
+            i += 1
+        elif cmd == 0x05 and _need(b, i, 1):
+            out["execution_plan"] = "not executed" if b[i] == 255 else f"schedule {b[i] + 1}"
+            i += 1
+        elif cmd == 0x08 and _need(b, i, 1):
+            out["occupancy"] = 1 if b[i] in (1, 2) else 0
+            out["pir_status"] = {0: "vacant", 1: "occupied", 2: "night occupied"}.get(b[i], "unknown")
+            i += 1
+        elif cmd in (0x09, 0x0A, 0x0D, 0x0F) and _need(b, i, 1):
+            if cmd == 0x09:
+                out["ble_event"] = {0: "none", 1: "pair cancel", 2: "disconnect"}.get(b[i], "unknown")
+            elif cmd == 0x0A:
+                out["power_bus_disconnected"] = b[i] == 1
+            elif cmd == 0x0D and b[i] <= 2:
+                out.setdefault("button_events", []).append((f"key_f{b[i] + 1}", "press"))
+            i += 1
+        elif cmd in (0x0B, 0x0C) and _need(b, i, 1):
+            if b[i] in _WT_ERR:
+                out["sensor_error"] = ("Temperature: " if cmd == 0x0B else "Humidity: ") + _WT_ERR[b[i]]
+            i += 1
+        elif cmd == 0xCF and _need(b, i, 1):
+            i += 2 if b[i] == 0 and _need(b, i, 2) else 1
+        elif cmd == 0xC9 and _need(b, i, 1):
+            i += 1
+        elif cmd == 0x67 and _need(b, i, 1):
+            out["system_status"] = b[i] == 1
+            i += 1
+        elif cmd == 0x74 and _need(b, i, 1):
+            out["fan_mode"] = _WT401_FAN.get(b[i], "unknown")
+            i += 1
+        else:
+            i -= 1
+            break
+    return out, i
+
+
+# ---- WT downlinks (fPort 85) – verified against Milesight's official encoders --------------------
+WT_MODE_CODES = {
+    "wt201": {"heat": 0, "em heat": 1, "cool": 2, "auto": 3},
+    "wt201v2": {"heat": 0, "em heat": 1, "cool": 2, "auto": 3},
+    "wt30x": {"cool": 0, "heat": 1, "fan": 2},
+    "wt303": {"ventilation": 0, "heat": 1, "cool": 2},
+    "wt401": {"heat": 0, "em heat": 1, "cool": 2, "auto": 3, "dehumidify": 4, "ventilation": 5},
+}
+WT_FAN_CODES = {
+    "wt201": {"auto": 0, "on": 1, "circulate": 2},
+    "wt201v2": {"auto": 0, "on": 1, "circulate": 2},
+    "wt30x": {"auto": 0, "high": 1, "medium": 2, "low": 3},
+    "wt303": {"auto": 0, "low": 1, "medium": 2, "high": 3},
+    "wt401": {"auto": 0, "circulate": 1, "on": 2, "low": 3, "medium": 4, "high": 5},
+}
+_WT401_SETPOINT = {"heat": 0, "em heat": 1, "cool": 2, "auto": 3, "dehumidify": 6, "ventilation": 7}
+
+
+def _s16(v: float, scale: int) -> bytes:
+    return int(round(v * scale)).to_bytes(2, "little", signed=True)
+
+
+def _wt30x_frame(field: int, value: int) -> bytes:
+    frame = bytes([0x55, 0x01, 0x00, 0x02, field, value])
+    return frame + bytes([sum(frame) & 0xFF])
+
+
+def encode_wt(kind: str, action: str, value: Any = None, *, mode: str | None = None,
+              target: float | None = None, on: bool = True) -> bytes:
+    """action: target (value = °C, mode = current mode) | mode (value = mode name) | power (value = bool)
+    | fan (value = fan mode name)."""
+    if kind == "wt101":
+        if action == "target":
+            return bytes([0xFF, 0xB1, int(value) & 0xFF]) + (10).to_bytes(2, "little")   # tolerance 1.0 °C
+        if action == "power":
+            return bytes([0xFF, 0xB3, 1 if value else 0])
+    elif kind == "wt102":
+        if action == "target":
+            return bytes([0x5A]) + _s16(value, 100)
+        if action == "power":
+            return bytes([0x65, 0x00, 1 if value else 0])
+    elif kind == "wt201":
+        if action == "target":
+            return bytes([0xFF, 0xFA, WT_MODE_CODES[kind][mode or "heat"]]) + _s16(value, 10)
+        if action == "mode":
+            return bytes([0xFF, 0xFB, WT_MODE_CODES[kind][value]])
+        if action == "power":
+            return bytes([0xFF, 0xC5, 1 if value else 0])
+        if action == "fan":
+            return bytes([0xFF, 0xB6, WT_FAN_CODES[kind][value]])
+    elif kind == "wt201v2":
+        if action == "target":
+            return bytes([0xFF, 0xFA, WT_MODE_CODES[kind][mode or "heat"]]) + _s16(value, 10)
+        if action in ("mode", "power"):          # system status + mode + target in one command
+            m = value if action == "mode" else (mode or "heat")
+            return bytes([0xF9, 0x45, 1 if (on if action == "mode" else value) else 0,
+                          WT_MODE_CODES[kind][m]]) + _s16(target if target is not None else 21, 10)
+        if action == "fan":
+            return bytes([0xFF, 0xB6, WT_FAN_CODES[kind][value]])
+    elif kind == "wt30x":
+        if action == "target":
+            return _wt30x_frame(0x05, int(round(value * 2)))
+        if action == "mode":
+            return _wt30x_frame(0x03, WT_MODE_CODES[kind][value])
+        if action == "power":
+            return _wt30x_frame(0x01, 1 if value else 0)
+        if action == "fan":
+            return _wt30x_frame(0x04, WT_FAN_CODES[kind][value])
+    elif kind == "wt303":
+        if action == "target":
+            return bytes([0x6C if mode == "cool" else 0x6B]) + _s16(value, 100)
+        if action == "mode":
+            return bytes([0x68, WT_MODE_CODES[kind][value]])
+        if action == "power":
+            return bytes([0x67, 1 if value else 0])
+        if action == "fan":
+            return bytes([0x72, WT_FAN_CODES[kind][value]])
+    elif kind == "wt401":
+        if action == "target":
+            return bytes([0x69, _WT401_SETPOINT.get(mode or "heat", 0)]) + _s16(value, 100)
+        if action == "mode":
+            return bytes([0x68, 0x00, WT_MODE_CODES[kind][value]])
+        if action == "power":
+            return bytes([0x67, 1 if value else 0])
+        if action == "fan":
+            return bytes([0x74, WT_FAN_CODES[kind][value]])
+    raise ValueError(f"{kind}: {action} not supported")

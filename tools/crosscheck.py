@@ -203,6 +203,48 @@ WS["ws513_v3"] = METER + [seg([8, 0x70], rb(1)), seg([9, 0x67], lambda: random.c
                           seg([0x88, 0x29], lambda: bytes([1])), seg([0xFF, 0x29], rb(1))]
 WS["ws558"] = METER + [seg([8, 0x31], rb(2)), seg([0xFF, 0x26], B1)]
 
+T16 = lambda: i16(R(-200, 600))
+T100 = lambda: i16(R(-2000, 6000))
+WT = {
+ "wt101": [BAT, seg([3, 0x67], T16), seg([4, 0x67], T16), seg([5, 0x92], lambda: bytes([R(0, 100)])), seg([6, 0], B1), seg([7, 0], B1),
+           seg([8, 0xE5], lambda: bytes([R(0, 4)])), seg([9, 0x90], rb(2)), seg([0x0A, 0], B1), seg([0x0B, 0x90], rb(2)), seg([0xF9, 0x33], rb(7))],
+ "wt201": [seg([3, 0x67], T16), seg([4, 0x67], T16), seg([5, 0xE7], lambda: bytes([R(0, 7) << 4 | R(0, 3)])),
+           seg([6, 0xE8], lambda: bytes([R(0, 3) << 2 | R(0, 3)])), seg([7, 0xBC], lambda: bytes([R(0, 4)])), seg([8, 0x8E], B1),
+           seg([9, 0x68], rb(1)), seg([0x0A, 0x6E], rb(1)), seg([0xFF, 0xCB], rb(3)), seg([0xB3, 0x67], lambda: bytes([R(1, 2)])),
+           seg([0xB9, 0x68], lambda: bytes([R(1, 2)])), seg([0x20, 0xCE], rb(8))],
+ "wt201_v2": [seg([3, 0x67], T16), seg([4, 0x67], T16), seg([0x0B, 0x67], T16), seg([5, 0xE7], lambda: bytes([R(0, 9) << 4 | R(0, 3)])),
+              seg([6, 0xE8], lambda: bytes([R(0, 3) << 2 | R(0, 3)])), seg([7, 0xBC], lambda: bytes([R(0, 7)])), seg([7, 0xE9], lambda: bytes([R(1, 3)])),
+              seg([0x87, 0xE9], lambda: bytes([R(1, 3), 1])), seg([8, 0x8E], B1), seg([9, 0x68], rb(1)), seg([0x0A, 0x6E], rb(1)),
+              seg([0xFF, 0xCB], rb(3)), seg([0x83, 0x67], T16, lambda: bytes([R(1, 10)])), seg([0xB3, 0x67], lambda: bytes([R(1, 2)])),
+              seg([0xF9, 0x40], lambda: bytes([R(0, 3)]), rb(6)), seg([0x20, 0xCE], rb(13))],
+ "wt303": [seg([1], T100), seg([2], lambda: u16(R(0, 1000))), seg([3], T100), seg([4], lambda: bytes([R(0, 3)])),
+           seg([5], lambda: bytes([R(0, 2) << 4 | R(0, 2)])), seg([6], lambda: bytes([random.choice([0, 100])])), seg([7], lambda: bytes([R(0, 3) << 4 | R(0, 3)])),
+           seg([8], lambda: bytes([random.choice([R(0, 15), 255])])),
+           lambda: (lambda c: bytes([9, c]) + (T100() if c >= 0x10 else b""))(random.choice([0, 1, 2, 3] + list(range(0x10, 0x18)) + [0x20, 0x21, 0x22, 0x23, 0x30, 0x31, 0x32, 0x33])),
+           seg([0x0A], lambda: bytes([R(0, 3)])), seg([0x0B], lambda: bytes([3])), seg([0x10], lambda: bytes([R(0, 255), 0, 0, 0])), seg([0xC8], B1),
+           seg([0x67], B1), seg([0x68], lambda: bytes([R(0, 2)])), seg([0x72], lambda: bytes([R(0, 3)])), seg([0x6B], T100), seg([0x6C], T100)],
+ "wt102": [seg([0], lambda: bytes([R(0, 100)])), seg([1], T100), seg([2], rb(2)), seg([3], rb(2)), seg([4], lambda: bytes([R(0, 100)])),
+           seg([5], lambda: bytes([R(0, 4)])), seg([6], T100), seg([7], lambda: bytes([R(0, 100)])), seg([8], lambda: bytes([R(0, 100)])),
+           lambda: (lambda c: bytes([9, c]) + T100())(R(0x10, 0x13)), lambda: bytes([0x0A, R(0x20, 0x21)]) + T100() + bytes([R(0, 100)]),
+           lambda: bytes([0x0B, R(0x20, 0x21)]) + T100() + bytes([R(0, 100), R(0, 100)]),
+           lambda: (lambda c: bytes([0x0C, c, R(0, 1)]) + T100() + (T100() if c < 0x22 else bytes([R(0, 100)])))(R(0x20, 0x23)),
+           lambda: bytes([0x0D, R(0x20, 0x21), R(0, 1)]) + T100(),
+           lambda: (lambda c: bytes([0x0E, c]) + {0: lambda: bytes([R(0, 100), R(0, 100)]), 1: lambda: T100() + bytes([R(0, 100)]) + T100() + bytes([R(0, 100)]),
+                                                  2: lambda: T100() + bytes([R(0, 100), R(0, 100), R(0, 100)]),
+                                                  3: lambda: T100() + bytes([R(0, 100)]) + T100() + bytes([R(0, 100), R(0, 100)])}[c]())(R(0, 3)),
+           seg([0xC8], B1)],
+ "wt401": [seg([0], lambda: bytes([R(0, 100)])), seg([1], T100), seg([2], lambda: u16(R(0, 1000))), seg([3], lambda: bytes([random.choice([0, 1, 2, 3, 4, 5, 10, 11])])),
+           seg([4], lambda: bytes([random.choice([0, 1, 2, 3, 4, 5, 10, 11])])), seg([5], lambda: bytes([random.choice([R(0, 15), 255])])),
+           seg([6], T100), seg([7], T100), seg([8], lambda: bytes([R(0, 2)])), seg([9], lambda: bytes([R(0, 2)])), seg([0x0A], B1),
+           seg([0x0B], lambda: bytes([R(0, 3)])), seg([0x0C], lambda: bytes([R(0, 3)])), seg([0x0D], lambda: bytes([R(0, 2)])), seg([0xC8], B1)],
+}
+def wt30x():
+    fid = random.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 0x0F])
+    data = bytes([R(0, 1), R(0, 1), R(0, 2), R(0, 3), R(0, 80), R(0, 80), R(0, 1), R(0, 1), R(0, 80)]) if fid == 0x0F else \
+        bytes([{1: R(0, 1), 2: R(0, 1), 3: R(0, 2), 4: R(0, 3), 7: R(0, 1), 8: R(0, 1)}.get(fid, R(0, 80))])
+    frame = bytes([0x55, random.choice([1, 2])]) + struct.pack(">H", len(data) + 1) + bytes([fid]) + data
+    return frame + bytes([sum(frame) & 0xFF])
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -308,6 +350,10 @@ MODELS = {
  "ws-series/ws523": ("ws52x", WS["ws523"]), "ws-series/ws525": ("ws52x", WS["ws523"]),
  "ws-series/ws513-v3": ("ws52x_v3", WS["ws513_v3"]), "ws-series/ws515-v3": ("ws52x_v3", WS["ws513_v3"]),
  "ws-series/ws558": ("ws558", WS["ws558"]),
+ "wt-series/wt101": ("wt101", WT["wt101"]), "wt-series/wt102": ("wt102", WT["wt102"]),
+ "wt-series/wt201": ("wt201", WT["wt201"]), "wt-series/wt201-v2": ("wt201_v2", WT["wt201_v2"]), "wt-series/wt211": ("wt201_v2", WT["wt201_v2"]),
+ "wt-series/wt301": ("wt30x", [wt30x]), "wt-series/wt302": ("wt30x", [wt30x]),
+ "wt-series/wt303": ("wt303", WT["wt303"]), "wt-series/wt304": ("wt303", WT["wt303"]), "wt-series/wt401": ("wt401", WT["wt401"]),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -328,13 +374,17 @@ for folder,(kind,chans) in MODELS.items():
     payloads = []
     if codec:
         sample = json.load(open(codec)).get("bytes")
-        if sample: payloads.append(sample.lower())
+        if sample and not folder.endswith(("wt301", "wt302")):    # their codec sample is a WT201 frame
+            payloads.append(sample.lower())
     for _ in range(200):
         sel = random.sample(chans, random.randint(1, len(chans)))
         payloads.append(b"".join(c() if callable(c) else bytes(c[:2])+CH[c]() for c in sel).hex())
     inp = HERE / "_in.json"; json.dump(payloads, open(inp, "w"))
     ref = json.loads(subprocess.check_output(["node", str(HERE / "run_official_decoder.js"), str(dfile), str(inp)]))
     fn = getattr(dec, f"decode_{kind}")
+    errors = sum(1 for r in ref if "__error" in r)
+    if errors > 20:
+        print(folder, f"{errors} payloads rejected by the official decoder")
     for h, r in zip(payloads, ref):
         mine = fn(bytes.fromhex(h)); total += 1
         exp = {}
@@ -420,6 +470,70 @@ for folder,(kind,chans) in MODELS.items():
                 elif k == "temperature_alarm": k, v = "temperature_alarm_status", v.replace(" ", "_")
                 r2[k] = v
             r = r2
+        if kind.startswith("wt"):
+            if kind == "wt401":
+                r = {(k[len("celsius_"):] if k.startswith("celsius_") else k): v for k, v in r.items()}
+            r2 = {}
+            alarm_maps = {}
+            for k, v in r.items():
+                if k.startswith(("fahrenheit_", "celsius_")) or k.endswith("_sensor_status") or k in (
+                        "history", "head", "command", "data_length", "type", "raw", "crc", "wires_relay", "enabled_relay",
+                        "temperature_control_support_mode", "temperature_control_support_status", "heating_date", "temperature_source_value", "device_status"):
+                    continue
+                if k == "ambient_temperature": k = "temperature"
+                elif k in ("tamper_status",): k, v = "tamper", v == "uninstalled"
+                elif k == "window_detection": k, v = "window_open", v == "open"
+                elif k == "freeze_protection": v = v == "triggered"
+                elif k in ("motor_calibration_result",): pass
+                elif k == "motor_calibration_result_report": k, v = "motor_calibration_result", {0: "uncalibrated", 1: "success", 2: "fail: out of range", 3: "fail: temperature control disabled", 4: "fail: uninstalled"}[v["status"]]
+                elif k == "motor_total_stroke": k = "motor_stroke"
+                elif k in ("valve_opening_degree", "temperature_control_valve_status"): k = "valve_opening"
+                elif k == "target_valve_opening_degree": k = "target_valve_opening"
+                elif k == "low_battery_alarm": k, v = "battery_low_alarm", True
+                elif k == "temperature_alarm" and isinstance(v, dict):
+                    sub = [kk for kk in v if kk != "type"]
+                    if sub and isinstance(v[sub[0]], dict) and "temperature" in v[sub[0]]: k, v = "temperature_alarm_status", sub[0]
+                    else: continue
+                elif k == "temperature_alarm": k, v = "temperature_alarm_status", v.replace(" ", "_")
+                elif k in ("humidity_alarm", "target_temperature_alarm", "anti_freeze_protection_alarm", "mandatory_heating_alarm",
+                           "auto_away_report", "window_opening_alarm", "periodic_reporting", "ble_event", "power_bus_event",
+                           "key_event", "battery_event", "source_alarm", "target_temperature_range_alarm", "lorawan_configuration_settings"):
+                    if k == "anti_freeze_protection_alarm" and len(v) > 1: r2["freeze_protection"] = "trigger" in v
+                    if k == "mandatory_heating_alarm" and len(v) > 1: r2["mandatory_heating"] = "enter" in v
+                    if k == "window_opening_alarm" and len(v) > 1: r2["window_open"] = list(v.values())[1]["state"] == 1
+                    if k == "power_bus_event": r2["power_bus_disconnected"] = v["type"] == 1
+                    continue
+                elif k == "current_temperature_control_mode": r2["temperature_control_status"] = v["status"]; k, v = "temperature_control_mode", v["mode"]
+                elif k == "fan_mode_setting": r2["fan_status"] = v["status"]; k, v = "fan_mode", {"always on": "on"}.get(v["mode"], v["mode"])
+                elif k == "temperature_control_info":
+                    r2["temperature_control_status"] = {0: "standby", 1: "heat", 2: "cool"}.get(v["status"], "unknown")
+                    k, v = "temperature_control_mode", {0: "ventilation", 1: "heat", 2: "cool"}.get(v["mode"], "unknown")
+                elif k == "fan_control_info":
+                    r2["fan_status"] = {0: "off", 1: "low", 2: "medium", 3: "high"}.get(v["status"], "unknown")
+                    k, v = "fan_mode", {0: "auto", 1: "low", 2: "medium", 3: "high"}.get(v["mode"], "unknown")
+                elif k == "fan_control_mode": k, v = "fan_mode", {0: "auto", 1: "low", 2: "medium", 3: "high"}.get(v, "unknown")
+                elif k == "temperature_control_mode" and kind == "wt303": v = {0: "ventilation", 1: "heat", 2: "cool"}.get(v, "unknown")
+                elif k == "relay_status":
+                    for name, src in (("relay_low", "low_status"), ("relay_medium", "mid_status"), ("relay_high", "high_status"), ("valve_1", "valve_1_status"), ("valve_2", "valve_2_status")):
+                        r2[name] = v[src] == 1
+                    continue
+                elif k == "execution_plan_id": k, v = "execution_plan", "not executed" if v == 255 else f"schedule {v + 1}"
+                elif k == "data_source": v = {0: "internal", 1: "external NTC", 2: "LoRaWAN", 3: "D2D"}.get(v, "unknown")
+                elif k in ("system_status", "thermostat_status"): k, v = "system_status", v in ("on", 1)
+                elif k == "btn_lock_enable": k, v = "button_lock", v == "enable"
+                elif k == "card_mode": k, v = "card_inserted", v == "insert"
+                elif k == "device_status": v = {0: "off", 1: "on"}.get(v, v)
+                elif k == "curr_temperature_humidity_source": k, v = "temperature_source", v.lower()
+                elif k in ("target_temperature1", "target_temperature2"): k = "target_temperature" if k.endswith("1") else "target_temperature_2"
+                elif k == "temperature_mode": k, v = "temperature_control_mode", {0: "heat", 1: "em heat", 2: "cool", 3: "auto", 4: "dehumidify", 5: "ventilation", 10: "off", 11: "none"}.get(v, "unknown")
+                elif k == "fan_mode" and kind == "wt401": v = {0: "auto", 1: "circulate", 2: "on", 3: "low", 4: "medium", 5: "high", 10: "off", 11: "none"}.get(v, "unknown")
+                elif k == "pir_status": v = {0: "vacant", 1: "occupied", 2: "night occupied"}.get(v, "unknown")
+                elif k == "plan_type": pass
+                elif k == "temperature_control_mode" and kind == "wt201": v = v.replace("_", " ")
+                elif k == "temperature_control_status": v = v.replace("_", " ")
+                elif k == "mode": pass
+                r2[k] = v
+            r = r2
         if kind.startswith("gs"):
             r2 = {}
             for k, v in r.items():
@@ -469,7 +583,7 @@ for folder,(kind,chans) in MODELS.items():
                     v = STR_VS[v]
                 if kind == "vs_occupancy" and k == "occupancy" and v == "unknown": v = 0
                 # detection_status / illuminance etc. stay strings on both sides
-            elif isinstance(v,str) and v in STR and not ((kind.startswith(("uc", "gs", "at", "ws")) or kind == "em400") and v == "normal"): v = STR[v]
+            elif isinstance(v,str) and v in STR and not kind.startswith("wt") and not ((kind.startswith(("uc", "gs", "at", "ws", "wt")) or kind == "em400") and v == "normal"): v = STR[v]
             exp[k2] = v
         def same(a, b):
             if b == "unknown":                     # official returns "unknown" for out-of-range enum bytes
@@ -507,6 +621,56 @@ for folder, ekind, gangs, build in ENC:
         mine = dec.encode_ws_switch(ekind, c, on).hex()
         if mine != r:
             bad += 1; print(folder, "downlink", c, on, mine, r)
+inp.unlink(missing_ok=True)
+
+# ---- WT downlinks: (folder, our encoder kind, our call, official payload) ------------------------
+WT_ENC = [
+ ("wt-series/wt101", "wt101", ("target", 21), {"target_temperature": 21, "temperature_tolerance": 1}),
+ ("wt-series/wt101", "wt101", ("power", True), {"temperature_control": {"enable": "enable"}}),
+ ("wt-series/wt101", "wt101", ("power", False), {"temperature_control": {"enable": "disable"}}),
+ ("wt-series/wt102", "wt102", ("target", 21.5), {"set_target_temperature": {"value": 21.5}}),
+ ("wt-series/wt102", "wt102", ("power", True), {"temp_control": {"enable": 1}}),
+ ("wt-series/wt102", "wt102", ("power", False), {"temp_control": {"enable": 0}}),
+ ("wt-series/wt201", "wt201", ("target", 21.5, "heat"), {"temperature_control_mode": "heat", "target_temperature": 21.5}),
+ ("wt-series/wt201", "wt201", ("target", 24, "cool"), {"temperature_control_mode": "cool", "target_temperature": 24}),
+ ("wt-series/wt201", "wt201", ("mode", "auto"), {"temperature_control_mode": "auto"}),
+ ("wt-series/wt201", "wt201", ("power", True), {"temperature_control_enable": "enable"}),
+ ("wt-series/wt201", "wt201", ("fan", "circulate"), {"fan_mode": "circulate"}),
+ ("wt-series/wt201-v2", "wt201v2", ("target", 21.5, "heat"), {"temperature_control_mode": "heat", "target_temperature": 21.5}),
+ ("wt-series/wt211", "wt201v2", ("target", 19, "auto"), {"temperature_control_mode": "auto", "target_temperature": 19}),
+ ("wt-series/wt201-v2", "wt201v2", ("mode", "cool", None, 24, True), {"system_status": "on", "temperature_control_mode": "cool", "target_temperature": 24}),
+ ("wt-series/wt201-v2", "wt201v2", ("power", False, "em heat", 20.5), {"system_status": "off", "temperature_control_mode": "em heat", "target_temperature": 20.5}),
+ ("wt-series/wt201-v2", "wt201v2", ("fan", "on"), {"fan_mode_setting": {"mode": "always on"}}),
+ ("wt-series/wt201-v2", "wt201v2", ("fan", "auto"), {"fan_mode_setting": {"mode": "auto"}}),
+ ("wt-series/wt301", "wt30x", ("target", 21.5), {"target_temperature": 21.5}),
+ ("wt-series/wt301", "wt30x", ("mode", "heat"), {"mode": "heat"}),
+ ("wt-series/wt302", "wt30x", ("power", False), {"thermostat_status": "off"}),
+ ("wt-series/wt302", "wt30x", ("fan", "low"), {"fan_speed": "low"}),
+ ("wt-series/wt303", "wt303", ("target", 21.5, "heat"), {"heating_target_temperature": 21.5}),
+ ("wt-series/wt304", "wt303", ("target", 23.5, "cool"), {"cooling_target_temperature": 23.5}),
+ ("wt-series/wt303", "wt303", ("mode", "ventilation"), {"temperature_control_mode": 0}),
+ ("wt-series/wt304", "wt303", ("power", True), {"system_status": 1}),
+ ("wt-series/wt303", "wt303", ("fan", "medium"), {"fan_control_mode": 2}),
+ ("wt-series/wt401", "wt401", ("target", 21.5, "heat"), {"target_temperature_settings": {"heat": 21.5}}),
+ ("wt-series/wt401", "wt401", ("target", 24, "cool"), {"target_temperature_settings": {"cool": 24}}),
+ ("wt-series/wt401", "wt401", ("target", 22.5, "auto"), {"target_temperature_settings": {"auto": 22.5}}),
+ ("wt-series/wt401", "wt401", ("mode", "cool"), {"temperature_control_mode": {"mode": 2}}),
+ ("wt-series/wt401", "wt401", ("power", False), {"system_status": 0}),
+ ("wt-series/wt401", "wt401", ("fan", "high"), {"fan_control_mode": 5}),
+]
+for folder, ekind, call, payload in WT_ENC:
+    inp = HERE / "_in.json"; json.dump([payload], open(inp, "w"))
+    ref = json.loads(subprocess.check_output(["node", str(HERE / "run_official_encoder.js"),
+                                              str(next((MS / folder).glob("*-encoder.js"))), str(inp)]))[0]
+    action, value, *rest = call
+    kw = {}
+    if rest: kw["mode"] = rest[0]
+    if len(rest) > 1: kw["target"] = rest[1]
+    if len(rest) > 2: kw["on"] = rest[2]
+    mine = dec.encode_wt(ekind, action, value, **kw).hex()
+    total += 1
+    if mine != ref:
+        bad += 1; print(folder, "downlink", call, mine, ref)
 inp.unlink(missing_ok=True)
 print(f"{total} payloads checked, {bad} mismatches")
 sys.exit(1 if bad else 0)
