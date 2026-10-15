@@ -37,6 +37,8 @@ from .decoders import (
     decode_ts302_v1,
     ts60x_parses_completely,
     decode_vs121,
+    cth01_parses_cleanly,
+    decode_cth01,
     wt102_parses_completely,
     wt303_parses_completely,
     wt401_parses_completely,
@@ -305,6 +307,9 @@ MODELS: dict[str, Model] = {
                    frozenset({"battery", "wt", "wt_hum", "wt_hvac", "wt_fan", "wt401", "occupancy", "sensor_error"}),
                    occupancy_fn=_presence, counting=False, climate="wt401",
                    buttons=("key_f1", "key_f2", "key_f3"), event_types=("press",)),
+    "CTH01": Model("CTH01", "CTH01 multi-circuit energy meter (12 CT, 3-phase)", decode_cth01,
+                   frozenset({"cth01", "sensor_error"}), minmax_fields=(), dynamic=True,
+                   defaults=(("power_loss_alarm", False),)),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -427,6 +432,10 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     wtc = _guess_wt_commands(raw)
     if wtc:
         return wtc
+    cth = decode_cth01(raw)
+    if cth01_parses_cleanly(raw) and sum(1 for k in cth if re.fullmatch(r"(current_ct|voltage_l|thdi_ct|thdv_l)\d+|(active|reactive|apparent)_power_\w+"
+                                         r"|\w+_energy_\w+|power_factor_\w+", k)) >= 3:
+        return "CTH01", ["CTH01"]
     if len(raw) == 6 and raw[1] >> 4 == 1 and (raw[1] & 0x0F) in (1, 2, 4, 5, 7, 0x0A, 0x0B, 0x0E, 0x0F) \
             and raw[2] <= 100:
         return "GS524N", ["GS524N"]
@@ -721,7 +730,49 @@ def _em500(f: frozenset[str]) -> list[EntitySpec]:
     return specs
 
 
+def _cth_label(part: str) -> str:
+    """'ct7' -> 'CT 7', 'l2' -> 'L2', 'a' -> 'circuit A'."""
+    if part.startswith("ct"):
+        return f"CT {part[2:]}"
+    if part.startswith("l"):
+        return part.upper()
+    return f"circuit {part.upper()}"
+
+
+_CTH_UNITS = {  # measure -> (label, unit, device_class, state_class, precision)
+    "active_power": ("Active power", "kW", "power", "measurement", 3),
+    "reactive_power": ("Reactive power", "kvar", None, "measurement", 3),
+    "apparent_power": ("Apparent power", "kVA", None, "measurement", 3),
+    "forward_active_energy": ("Energy imported", "kWh", "energy", "total_increasing", 3),
+    "reverse_active_energy": ("Energy exported", "kWh", "energy", "total_increasing", 3),
+    "forward_reactive_energy": ("Reactive energy imported", "kvarh", None, "total_increasing", 3),
+    "reverse_reactive_energy": ("Reactive energy exported", "kvarh", None, "total_increasing", 3),
+    "apparent_energy": ("Apparent energy", "kVAh", None, "total_increasing", 3),
+    "power_factor": ("Power factor", None, "power_factor", "measurement", 2),
+}
+
+
+def _cth_measure(m) -> EntitySpec:
+    label, unit, dc, sc, prec = _CTH_UNITS[m[1]]
+    return EntitySpec(m[0], f"{label} {_cth_label(m[2])}", unit=unit, device_class=dc, state_class=sc, precision=prec)
+
+
 _DYN = [   # (regex, builder) – applied to decoded keys of controllers with configurable channels
+    # CTH01 energy meter
+    (r"current_ct(\d+)", lambda m: EntitySpec(m[0], f"Current CT {m[1]}", unit="A", device_class="current",
+                                              state_class="measurement", precision=2)),
+    (r"voltage_l(\d)", lambda m: EntitySpec(m[0], f"Voltage L{m[1]}", unit="V", device_class="voltage",
+                                            state_class="measurement", precision=1)),
+    (r"thdi_ct(\d+)", lambda m: EntitySpec(m[0], f"Current THD CT {m[1]}", unit="%", state_class="measurement",
+                                           icon="mdi:sine-wave", precision=1, enabled_default=False)),
+    (r"thdv_l(\d)", lambda m: EntitySpec(m[0], f"Voltage THD L{m[1]}", unit="%", state_class="measurement",
+                                         icon="mdi:sine-wave", precision=1, enabled_default=False)),
+    (r"(" + "|".join(_CTH_UNITS) + r")_(ct\d+|[abcd])", _cth_measure),
+    (r"(current_ct\d+|voltage_l\d|thdi_ct\d+|thdv_l\d|voltage_unbalance|temperature)_alarm_active",
+     lambda m: EntitySpec(m[0], f"{_cth_alarm_label(m[1])} alarm", platform="binary_sensor", device_class="problem")),
+    (r"(current_ct\d+|voltage_l\d|thdi_ct\d+|thdv_l\d|voltage_unbalance|temperature)_alarm_status",
+     lambda m: EntitySpec(m[0], f"{_cth_alarm_label(m[1])} alarm status", kind="label", icon="mdi:alarm-light-outline",
+                          enabled_default=False)),
     (r"battery", lambda m: EntitySpec("battery", "Battery", unit="%", device_class="battery",
                                       state_class="measurement", diagnostic=True)),
     (r"gpio_input_(\d+)", lambda m: EntitySpec(m[0], f"Digital input {m[1]}", platform="binary_sensor")),
@@ -769,6 +820,16 @@ _DYN = [   # (regex, builder) – applied to decoded keys of controllers with co
     (r"pressure(?:_(\d+))?_alarm_status", lambda m: EntitySpec(m[0], f"Pressure {m[1] or ''} alarm status".replace("  ", " "),
                                                                kind="label", icon="mdi:alarm-light-outline")),
 ]
+
+
+def _cth_alarm_label(key: str) -> str:
+    m = re.fullmatch(r"(current|thdi)_ct(\d+)", key)
+    if m:
+        return f"{'Current' if m[1] == 'current' else 'Current THD'} CT {m[2]}"
+    m = re.fullmatch(r"(voltage|thdv)_l(\d)", key)
+    if m:
+        return f"{'Voltage' if m[1] == 'voltage' else 'Voltage THD'} L{m[2]}"
+    return key.replace("_", " ").capitalize()
 
 
 def _dyn_label(key: str) -> str:
@@ -1238,6 +1299,15 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     if "ct" in f:
         specs += _ct(f)
     specs += _gs(f)
+    if "cth01" in f:
+        specs += [
+            EntitySpec("temperature", "Temperature", unit="°C", device_class="temperature", state_class="measurement",
+                       precision=1),
+            EntitySpec("voltage_unbalance", "Voltage unbalance", unit="%", state_class="measurement",
+                       icon="mdi:scale-unbalanced", precision=2),
+            EntitySpec("power_loss_alarm", "Power loss", platform="binary_sensor", device_class="problem",
+                       icon="mdi:power-plug-off"),
+        ]
     specs += _ws(model)
     if "wt" in f:
         specs += _wt(model)

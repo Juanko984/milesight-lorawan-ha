@@ -245,6 +245,35 @@ def wt30x():
     frame = bytes([0x55, random.choice([1, 2])]) + struct.pack(">H", len(data) + 1) + bytes([fid]) + data
     return frame + bytes([sum(frame) & 0xFF])
 
+def cth_masked(cmd, signed):
+    def g():
+        mask = R(0, 3)
+        body = b""
+        for gi in range(2):
+            for _ in range(3 if mask >> gi & 1 else 1):
+                body += random.choice([i32(R(-50000, 500000)) if signed else struct.pack("<I", R(0, 10**7)), b"\xff\xff\xff\xff"])
+        return bytes([cmd, mask]) + body
+    return g
+def cth_pf():
+    mask = R(0, 15)
+    return bytes([7, mask]) + b"".join(bytes([random.choice([R(0, 100), 255]) for _ in range(3 if mask >> gi & 1 else 1)]) for gi in range(4))
+def cth_alarm(cmd):
+    def g():
+        types = {0x30: [0, 1, 2, 3] + list(range(0x10, 0x18)), 0x33: [0, 0x12, 0x13], 0x34: [0, 0x12, 0x13], 0x35: [0, 0x12, 0x13]}.get(cmd, [0, 1, 2, 3, 4] + list(range(0x10, 0x18)))
+        t = random.choice(types)
+        withv = {0x30: range(0x10, 0x18), 0x33: (0x12, 0x13), 0x34: (0x12, 0x13), 0x35: (0x12, 0x13)}.get(cmd, (1, 2, 4, *range(0x10, 0x18)))
+        val = (struct.pack("<I", R(0, 400000))[:3] if cmd == 0x31 else (i16(R(-2000, 8000)) if cmd == 0x30 else u16(R(0, 30000)))) if t in withv else b""
+        ch = bytes([R(0, 11 if cmd in (0x31, 0x33) else 2)]) if cmd in (0x31, 0x32, 0x33, 0x34) else b""
+        return bytes([cmd]) + ch + bytes([t]) + val
+    return g
+U24 = lambda: random.choice([struct.pack("<I", R(0, 400000))[:3], b"\xff\xff\xff"])
+U16E = lambda: random.choice([u16(R(0, 50000)), b"\xff\xff"])
+CTH = [seg([1], lambda: i16(R(-2000, 8000))), seg([2], U16E), lambda: bytes([3]) + b"".join(U16E() for _ in range(12)),
+       lambda: bytes([4]) + b"".join(U16E() for _ in range(3)), lambda: bytes([5]) + b"".join(U24() for _ in range(12)),
+       lambda: bytes([6]) + b"".join(U16E() for _ in range(3)), cth_pf] + \
+      [cth_masked(c, c in (0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D)) for c in range(0x08, 0x18)] + \
+      [cth_alarm(c) for c in range(0x30, 0x36)] + [seg([0x36]), seg([0xC8], B1)]
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -354,6 +383,7 @@ MODELS = {
  "wt-series/wt201": ("wt201", WT["wt201"]), "wt-series/wt201-v2": ("wt201_v2", WT["wt201_v2"]), "wt-series/wt211": ("wt201_v2", WT["wt201_v2"]),
  "wt-series/wt301": ("wt30x", [wt30x]), "wt-series/wt302": ("wt30x", [wt30x]),
  "wt-series/wt303": ("wt303", WT["wt303"]), "wt-series/wt304": ("wt303", WT["wt303"]), "wt-series/wt401": ("wt401", WT["wt401"]),
+ "cth-series/cth01": ("cth01", CTH), "cth-series/cth01-compress": ("cth01", CTH),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -469,6 +499,42 @@ for folder,(kind,chans) in MODELS.items():
                         k, v = "temperature_alarm_status", {0: "threshold_alarm_release", 1: "threshold_alarm", 2: "overheat_alarm"}.get(v["alarm_type"], "unknown")
                 elif k == "temperature_alarm": k, v = "temperature_alarm_status", v.replace(" ", "_")
                 r2[k] = v
+            r = r2
+        if kind == "cth01":
+            r2 = {}
+            AB = "abcd"
+            def put(key, v):
+                if v != "error": r2[key] = v
+            for k, v in r.items():
+                if k == "temperature": r2[k] = v
+                elif k == "voltage_three_phase_imbalcance": put("voltage_unbalance", v)
+                elif k in ("thdi", "thdv", "current", "voltage"):
+                    pre = {"thdi": "thdi_ct", "thdv": "thdv_l", "current": "current_ct", "voltage": "voltage_l"}[k]
+                    for n, item in enumerate(v): put(f"{pre}{n + 1}", item["value"])
+                elif k == "power_factor":
+                    for g in range(1, 5):
+                        if f"group{g}_value" in v and not v.get(f"mask{g}"): put(f"power_factor_{AB[g - 1]}", v[f"group{g}_value"])
+                        if f"group{g}" in v and v.get(f"mask{g}"):
+                            for c in range(1, 4): put(f"power_factor_ct{3 * (g - 1) + c}", v[f"group{g}"][f"chan{c}"])
+                elif re.fullmatch(r"[a-z_]+(power|energy)[12]", k):
+                    measure, half = k[:-1], int(k[-1])
+                    for g in (1, 2):
+                        circuit = (half - 1) * 2 + (g - 1)
+                        if v.get(f"mask{g}") == 0 and f"group{g}_value" in v: put(f"{measure}_{AB[circuit]}", v[f"group{g}_value"])
+                        if v.get(f"mask{g}") == 1 and f"group{g}" in v:
+                            for c in range(1, 4): put(f"{measure}_ct{circuit * 3 + c}", v[f"group{g}"][f"chan{c}"])
+                elif k.endswith("_alarm") and isinstance(v, dict):
+                    name = k[:-6]
+                    info = v.get("info", v)
+                    sub = [kk for kk in info if kk != "type"]
+                    if not sub: continue
+                    if "channel" in v:
+                        ch = v["channel"] + 1
+                        label = {"current": f"current_ct{ch}", "thdi": f"thdi_ct{ch}", "voltage": f"voltage_l{ch}", "thdv": f"thdv_l{ch}"}[name]
+                    else:
+                        label = name
+                    r2[label + "_alarm_status"] = sub[0]
+                elif k == "power_loss_alarm": r2[k] = True
             r = r2
         if kind.startswith("wt"):
             if kind == "wt401":

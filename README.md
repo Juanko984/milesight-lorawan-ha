@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.12.0** · [Version history](#version-history)
+**Current version: 0.13.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -21,7 +21,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **WS** – buttons, sensors, switches & sockets | WS101, WS136, WS156, WS201, WS202, WS203, WS301, WS302, WS303, WS501 / WS502 / WS503 (v1–v3, EU / US, CN, v4), WS513, WS515 (incl. v3), WS523, WS525, WS558 | Scene buttons, washroom refills, motion, doors, noise, leaks, **switching lights and sockets** with energy metering |
 | **WT** – thermostats & radiator valves | WT101, WT102, WT201 (v1 / v2), WT211, WT301, WT302, WT303, WT304, WT401 | **Thermostat control from Home Assistant** – radiators, HVAC, fan coils; heating / cooling run time |
 | **AT** – asset trackers | AT101 | Vehicles, containers, equipment, bins – position on the map, trips, distance, geofence |
-| **CT** – current transformers | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2) | Machine / pump / compressor run time, circuit load, energy (v2) |
+| **CT** – current transformers & energy meter | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2), CTH01 | Machine / pump / compressor run time, circuit load, energy (v2); CTH01: 12-circuit sub-metering with power, energy and power quality |
 | **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
 | **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
@@ -128,6 +128,12 @@ details are available as diagnostic entities).
 | **CT101 / CT103 / CT105** (1 channel) | Current (A) + daily min/max, cumulative current (Ah), current alarm (threshold / over range), temperature, sensor status; **energy (kWh)** on firmware v2 |
 | **CT303 / CT305 / CT310** (3 channels) | The same per channel (Current 1–3), plus combined current of all channels |
 | All CT models | **Load running** with run-time statistics: running now / since, run time today, yesterday, this / last week, this / last month, starts per period, longest and average run; optional **estimated power (VA)** |
+
+| **CTH01** multi-circuit energy meter | 12 CT inputs (4 circuits A–D of 3 CTs) and 3 voltage phases: current per CT, voltage per phase, **active / reactive / apparent power** and **energy imported / exported** (per circuit or per CT, as configured on the meter – kWh sensors work in the Energy dashboard), power factor, current and voltage THD (disabled by default), voltage unbalance, temperature, power-loss alarm, threshold alarms per channel |
+
+CTH01 entities are created as the meter reports each value, so only the CTs and circuits you have wired and
+configured appear. Circuit totals are named *circuit A–D*, single CTs *CT 1–12* (circuit A = CT 1–3, B = CT 4–6,
+C = CT 7–9, D = CT 10–12). Readings the meter flags as errors are skipped and listed in *Sensor status*.
 
 *Running* means the current (on any channel) is at or above **Running above (A)** (default 0.5 A) – set it under
 **Configure** to just above the idle current of the machine. For *Estimated power*, enter the phase voltage
@@ -309,6 +315,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.13.0** | CTH01 multi-circuit energy meter added (CT range). |
 | **0.12.0** | WT range added (WT101, WT102, WT201 v1 / v2, WT211, WT301, WT302, WT303, WT304, WT401) with thermostat control from Home Assistant. |
 | **0.11.0** | WS range added (27 models): buttons as event entities, WS sensors, and wall switches / sockets / light controllers that can be switched from Home Assistant, with energy metering. |
 | **0.10.0** | AT range added: AT101 tracker with map position (device tracker), trips, distance travelled and geofence statistics. |

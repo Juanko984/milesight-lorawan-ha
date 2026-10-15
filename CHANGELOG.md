@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.13.0
+### Added
+- CTH01 multi-circuit energy meter: current per CT (12), voltage per phase (3), active / reactive / apparent power,
+  imported / exported active and reactive energy and apparent energy (per circuit A–D or per CT), power factor,
+  current / voltage THD, voltage unbalance, temperature, power-loss alarm and per-channel threshold alarms.
+- Entities are created per channel as the meter reports them (unused CTs never appear).
+- Crosscheck covers the CTH01 decoder (both official variants, 20,500+ payloads in total).
+
 ## 0.12.0
 ### Added
 - WT range: WT101 and WT102 radiator thermostats, WT201 (firmware v1 and v2) and WT211 HVAC thermostats, WT301 /

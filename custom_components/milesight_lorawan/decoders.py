@@ -2709,3 +2709,171 @@ def encode_wt(kind: str, action: str, value: Any = None, *, mode: str | None = N
         if action == "fan":
             return bytes([0x74, WT_FAN_CODES[kind][value]])
     raise ValueError(f"{kind}: {action} not supported")
+
+
+# --------------------------------------------------------------------------
+# CTH01 multi-circuit energy meter (12 CT inputs in 4 circuits a–d, 3 voltage phases)
+# Command format; checked against Milesight-IoT/SensorDecoders (cth-series/cth01 and cth01-compress).
+# Keys: current_ct1..12, thdi_ct1..12, voltage_l1..3, thdv_l1..3, and per circuit a–d either a circuit total
+# (<measure>_a) or per CT values (<measure>_ct1..ct12) for power factor, powers and energies.
+# --------------------------------------------------------------------------
+_CTH_MASKED = {  # id -> (measure, first circuit index (0 = a), signed, divisor)
+    0x08: ("active_power", 0, True), 0x09: ("active_power", 2, True),
+    0x0A: ("reactive_power", 0, True), 0x0B: ("reactive_power", 2, True),
+    0x0C: ("apparent_power", 0, True), 0x0D: ("apparent_power", 2, True),
+    0x0E: ("forward_active_energy", 0, False), 0x0F: ("forward_active_energy", 2, False),
+    0x10: ("reverse_active_energy", 0, False), 0x11: ("reverse_active_energy", 2, False),
+    0x12: ("forward_reactive_energy", 0, False), 0x13: ("forward_reactive_energy", 2, False),
+    0x14: ("reverse_reactive_energy", 0, False), 0x15: ("reverse_reactive_energy", 2, False),
+    0x16: ("apparent_energy", 0, False), 0x17: ("apparent_energy", 2, False),
+}
+_CTH_ALARM = {0x00: ("collection_error", None), 0x01: ("lower_range_error", None), 0x02: ("over_range_error", None),
+              0x03: ("no_data", None), 0x04: ("over_range_release", False),
+              0x10: ("lower_range_alarm_deactivation", False), 0x11: ("lower_range_alarm_trigger", True),
+              0x12: ("over_range_alarm_deactivation", False), 0x13: ("over_range_alarm_trigger", True),
+              0x14: ("within_range_alarm_deactivation", False), 0x15: ("within_range_alarm_trigger", True),
+              0x16: ("exceed_range_alarm_deactivation", False), 0x17: ("exceed_range_alarm_trigger", True)}
+# config replies: id -> total size after the id (callable for variable sizes)
+_CTH_SKIP = {
+    0x60: lambda b, i: 3 if i < len(b) and b[i] in (0, 1) else 1, 0x61: lambda b, i: 3 if i < len(b) and b[i] in (0, 1) else 1,
+    0x63: 1, 0x66: 1, 0x64: lambda b, i: 1 + (b[i] if i < len(b) else 0), 0x67: 10, 0x68: 10, 0x69: 10, 0x6A: 10,
+    0x6B: 2, 0x6C: 2, 0x6D: 3, 0x76: 6, 0x77: 7, 0x78: 7, 0x79: 7, 0x7A: 7, 0x7B: 6, 0x7C: 5,
+    0xC5: lambda b, i: 2 if i < len(b) and b[i] in (0, 1) else 3, 0xC6: 10, 0xC7: 2, 0xB7: 4, 0x5B: 5, 0x5C: 9,
+    0x5D: 1, 0x5E: 1, 0x5F: 1, 0xEF: lambda b, i: 1 + ((b[i] & 0x0F) if i < len(b) else 0), 0xFF: 1, 0xFE: 1,
+    0xEE: 0, 0xBF: 0, 0xBE: 0, 0xB9: 0, 0xB8: 0, 0xB6: 0, 0x57: 0, 0xD7: 0,
+}
+
+
+def _u24le(b: bytes, i: int) -> int:
+    return b[i] | b[i + 1] << 8 | b[i + 2] << 16
+
+
+def _cth_value(out: dict, key: str, raw: int, sentinel: int, div: float, errors: list) -> None:
+    if raw == sentinel:
+        errors.append(key)
+    else:
+        out[key] = raw / div
+
+
+def decode_cth01(b: bytes) -> dict[str, Any]:
+    return _parse_cth01(b)[0]
+
+
+def cth01_parses_cleanly(b: bytes) -> bool:
+    """True when every byte belongs to a known CTH01 command (used for model detection)."""
+    return bool(b) and _parse_cth01(b)[1]
+
+
+def _parse_cth01(b: bytes) -> tuple[dict[str, Any], bool]:
+    out: dict[str, Any] = {}
+    errors: list[str] = []
+    clean = True
+    b = bytes(b)
+    i = 0
+    while i < len(b):
+        cmd = b[i]
+        i += 1
+        n = _wt_info(cmd, b, i, out, extra=True)
+        if n is not None:
+            i += n
+            continue
+        if cmd == 0x01 and _need(b, i, 2):
+            out["temperature"] = _i16le(b, i) / 100
+            i += 2
+        elif cmd == 0x02 and _need(b, i, 2):
+            _cth_value(out, "voltage_unbalance", _u16le(b, i), 0xFFFF, 100, errors)
+            i += 2
+        elif cmd in (0x03, 0x04, 0x05, 0x06):
+            count, size = {0x03: (12, 2), 0x04: (3, 2), 0x05: (12, 3), 0x06: (3, 2)}[cmd]
+            if not _need(b, i, count * size):
+                clean = False
+                break
+            name = {0x03: "thdi_ct", 0x04: "thdv_l", 0x05: "current_ct", 0x06: "voltage_l"}[cmd]
+            for k in range(count):
+                raw = _u24le(b, i + k * 3) if size == 3 else _u16le(b, i + k * 2)
+                _cth_value(out, f"{name}{k + 1}", raw, 0xFFFFFF if size == 3 else 0xFFFF, 100, errors)
+            i += count * size
+        elif cmd == 0x07 and _need(b, i, 1):
+            mask = b[i]
+            i += 1
+            for g in range(4):
+                per_ct = mask >> g & 1
+                if not _need(b, i, 3 if per_ct else 1):
+                    i = len(b) + 1
+                    break
+                if per_ct:
+                    for k in range(3):
+                        _cth_value(out, f"power_factor_ct{g * 3 + k + 1}", b[i + k], 0xFF, 100, errors)
+                    i += 3
+                else:
+                    _cth_value(out, f"power_factor_{'abcd'[g]}", b[i], 0xFF, 100, errors)
+                    i += 1
+            if i > len(b):
+                clean = False
+                break
+        elif cmd in _CTH_MASKED and _need(b, i, 1):
+            measure, first, signed = _CTH_MASKED[cmd]
+            mask = b[i]
+            i += 1
+            for g in range(2):
+                circuit = first + g
+                count = 3 if mask >> g & 1 else 1
+                if not _need(b, i, count * 4):
+                    i = len(b) + 1
+                    break
+                for k in range(count):
+                    raw = _i32le(b, i + k * 4) if signed else _u32le(b, i + k * 4)
+                    key = f"{measure}_ct{circuit * 3 + k + 1}" if count == 3 else f"{measure}_{'abcd'[circuit]}"
+                    _cth_value(out, key, raw, -1 if signed else 0xFFFFFFFF, 1000, errors)
+                i += count * 4
+            if i > len(b):
+                clean = False
+                break
+        elif 0x30 <= cmd <= 0x35:
+            has_channel = cmd in (0x31, 0x32, 0x33, 0x34)
+            if not _need(b, i, 2 if has_channel else 1):
+                clean = False
+                break
+            channel = b[i] if has_channel else None
+            code = b[i + 1] if has_channel else b[i]
+            i += 2 if has_channel else 1
+            name = {0x30: "temperature", 0x31: "current", 0x32: "voltage", 0x33: "thdi", 0x34: "thdv",
+                    0x35: "voltage_unbalance"}[cmd]
+            with_value = {0x30: range(0x10, 0x18), 0x31: (1, 2, 4, *range(0x10, 0x18)), 0x32: (1, 2, 4, *range(0x10, 0x18)),
+                          0x33: (0x12, 0x13), 0x34: (0x12, 0x13), 0x35: (0x12, 0x13)}[cmd]
+            known = {0x30: (0, 1, 2, 3, *range(0x10, 0x18)), 0x33: (0, 0x12, 0x13), 0x34: (0, 0x12, 0x13),
+                     0x35: (0, 0x12, 0x13)}.get(cmd, tuple(_CTH_ALARM))
+            if code in with_value:
+                size = 3 if cmd == 0x31 else 2
+                if not _need(b, i, size):
+                    clean = False
+                    break
+                i += size
+            if code in known:
+                label = name if channel is None else (
+                    f"current_ct{channel + 1}" if cmd == 0x31 else f"thdi_ct{channel + 1}" if cmd == 0x33
+                    else f"{name}_l{channel + 1}")
+                _ts_alarm(out, label, code, _CTH_ALARM)
+        elif cmd == 0x36:
+            out["power_loss_alarm"] = True
+            out["_power_loss"] = True
+        elif cmd == 0x40 and _need(b, i, 1):
+            i += 1
+        elif cmd == 0xED:                         # history follows – live values end here
+            break
+        elif cmd == 0xCF and _need(b, i, 1):
+            i += 2 if b[i] == 0xD8 and _need(b, i, 2) else 1
+        elif cmd in _CTH_SKIP:
+            skip = _CTH_SKIP[cmd]
+            i += skip(b, i) if callable(skip) else skip
+        else:
+            clean = False                        # unknown ids are skipped (one byte), like the official decoder
+    measured = any(re.fullmatch(r"(current_ct|voltage_l)\d+", k) for k in out)
+    if not out.pop("_power_loss", False) and measured:
+        out["power_loss_alarm"] = False                # measurements again -> mains is back
+    if errors:
+        out["sensor_error"] = "Read error: " + ", ".join(e.replace("_", " ") for e in errors[:6]) + \
+            (" …" if len(errors) > 6 else "")
+    elif measured:
+        out["sensor_error"] = "OK"
+    return out, clean

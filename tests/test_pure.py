@@ -396,6 +396,24 @@ def test_guess_wt_range():
     assert g(frame + bytes([sum(frame) & 0xFF]))[0] == "WT301"
 
 
+CTH_EX = open(pathlib.Path(__file__).parent / "cth01_samples.txt").read().split()
+
+
+def test_decode_cth01():
+    d = dec.decode_cth01(bytes.fromhex(CTH_EX[0]))
+    assert d["temperature"] == 23.45 and d["voltage_l1"] == 230.12 and "voltage_l3" not in d
+    assert d["current_ct1"] == 12.34 and d["current_ct7"] == 100.5 and "current_ct8" not in d
+    assert d["sensor_error"].startswith("Read error: voltage l3") and d["power_loss_alarm"] is False
+    d = dec.decode_cth01(bytes.fromhex(CTH_EX[1]))
+    assert d["power_factor_ct1"] == 0.98 and d["power_factor_b"] == 0.9 and d["active_power_a"] == 1.5
+    assert d["active_power_ct4"] == -0.25 and d["active_power_c"] == 4.2 and d["forward_active_energy_ct1"] == 123.456
+    d = dec.decode_cth01(bytes.fromhex(CTH_EX[2]))
+    assert d["current_ct4_alarm_active"] is True and d["voltage_l2_alarm_status"] == "lower_range_alarm_trigger"
+    assert d["power_loss_alarm"] is True
+    assert mdl.guess_model(bytes.fromhex(CTH_EX[0]))[0] == "CTH01"
+    assert dec.cth01_parses_cleanly(bytes.fromhex(CTH_EX[1])) and not dec.cth01_parses_cleanly(bytes.fromhex("99016aff"))
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

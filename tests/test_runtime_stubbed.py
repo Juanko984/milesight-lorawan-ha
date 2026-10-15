@@ -369,3 +369,12 @@ for i, (model, hexstr) in enumerate(uc_samples.items()):
     assert all(after[k] is not None for k in new), (model, {k: after[k] for k in new})
     print(model, "->", {k: after[k] for k in new})
 print("uc ok")
+
+# CTH01: channel entities appear as the meter reports them
+rt, ents = dynamic_device("00000000000c0001", "CTH01")
+send("00000000000c0001", bytes.fromhex(open(pathlib.Path(__file__).parent / "cth01_samples.txt").read().split()[1]))
+keys = {e.spec.key: e for e in ents}
+assert "active_power_a" in keys and keys["active_power_a"].spec.unit == "kW" and "forward_active_energy_ct1" in keys
+assert keys["forward_active_energy_ct1"].spec.device_class == "energy" and keys["power_factor_b"].native_value == 0.9
+print("cth ok")
+
