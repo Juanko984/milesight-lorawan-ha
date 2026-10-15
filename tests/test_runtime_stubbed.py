@@ -31,7 +31,7 @@ class StrE(str, enum.Enum): pass
 SensorDeviceClass = StrE("SDC", {k.upper(): k for k in ['date', 'enum', 'timestamp', 'uptime', 'absolute_humidity', 'apparent_power', 'aqi', 'area', 'atmospheric_pressure', 'battery', 'blood_glucose_concentration', 'carbon_monoxide', 'carbon_dioxide', 'conductivity', 'current', 'data_rate', 'data_size', 'distance', 'duration', 'energy', 'energy_distance', 'energy_storage', 'frequency', 'gas', 'humidity', 'illuminance', 'irradiance', 'moisture', 'monetary', 'nitrogen_dioxide', 'nitrogen_monoxide', 'nitrous_oxide', 'ozone', 'ph', 'pm1', 'pm10', 'pm25', 'pm4', 'power_factor', 'power', 'precipitation', 'precipitation_intensity', 'pressure', 'radon', 'reactive_energy', 'reactive_power', 'signal_strength', 'sound_pressure', 'speed', 'sulphur_dioxide', 'temperature', 'temperature_delta', 'volatile_organic_compounds', 'volatile_organic_compounds_parts', 'voltage', 'volume', 'volume_storage', 'volume_flow_rate', 'water', 'weight', 'wind_direction', 'wind_speed']})  # copied from HA core
 SensorStateClass = StrE("SSC", {k.upper(): k for k in ["measurement","total_increasing"]})
 BinarySensorDeviceClass = StrE("BDC", {k.upper(): k for k in ['battery', 'battery_charging', 'carbon_monoxide', 'cold', 'connectivity', 'door', 'garage_door', 'gas', 'glass_break', 'heat', 'light', 'lock', 'moisture', 'motion', 'moving', 'occupancy', 'opening', 'plug', 'power', 'presence', 'problem', 'running', 'safety', 'smoke', 'sound', 'tamper', 'update', 'vibration', 'window']})  # copied from HA core
-EntityCategory = StrE("EC", {"DIAGNOSTIC": "diagnostic"})
+EntityCategory = StrE("EC", {"DIAGNOSTIC": "diagnostic", "CONFIG": "config"})
 callback = lambda f: f
 
 class Entity:
@@ -69,6 +69,8 @@ class _CF(enum.IntFlag):
 class _Climate:
     native_target_temperature = None                   # behave like Home Assistant 2026.x
 mod("homeassistant.components.climate", ClimateEntity=_Climate, ClimateEntityFeature=_CF, HVACAction=_HA, HVACMode=_HV)
+mod("homeassistant.components.button", ButtonDeviceClass=StrE("BTDC", {"RESTART": "restart", "IDENTIFY": "identify", "UPDATE": "update"}), ButtonEntity=object)
+mod("homeassistant.components.number", NumberEntity=object, NumberMode=types.SimpleNamespace(BOX="box"))
 mod("homeassistant.components.switch", SwitchDeviceClass=StrE("SWDC", {"OUTLET": "outlet", "SWITCH": "switch"}), SwitchEntity=object)
 mod("homeassistant.components.event", EventDeviceClass=types.SimpleNamespace(BUTTON="button"), EventEntity=_Ev)
 mod("homeassistant.components.device_tracker", SourceType=types.SimpleNamespace(GPS="gps"), TrackerEntity=object)
@@ -84,7 +86,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate"]:
+for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -116,13 +118,14 @@ def make_device(deveui, model):
     for s in models.entity_specs(model):
         cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker,
                "switch": switch.MilesightSwitch, "event": event.MilesightButton,
-               "climate": climate.MilesightClimate}.get(
+               "climate": climate.MilesightClimate, "button": button.MilesightCommandButton,
+               "number": number.MilesightNumber}.get(
             s.platform, binary_sensor.MilesightBinarySensor)
         ents.append(cls(rt, s))
     return rt, ents
 
 def states(ents):
-    return {e.spec.key: (e.native_value if hasattr(e, "native_value") else e.is_on) for e in ents}
+    return {e.spec.key: (e.native_value if hasattr(e, "native_value") else getattr(e, "is_on", None)) for e in ents}
 
 # 1) discovery of unknown device
 send("24e124136b322135", base64.b64decode("AXVkA2cJAQRoTgYAAQ=="))
@@ -187,7 +190,8 @@ for i, (model, raw) in enumerate(samples.items()):
     if "feels_like" in st and st.get("temperature") is not None and st.get("humidity") is not None:
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
-        empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)]
+        empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
+                 and not k.startswith(("cmd_", "cfg_"))]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -196,7 +200,8 @@ for i, (model, raw) in enumerate(samples.items()):
     if model.startswith("TS"):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
-                 and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))]
+                 and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
+                 and not k.startswith(("cmd_", "cfg_"))]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -363,7 +368,7 @@ for i, (model, hexstr) in enumerate(uc_samples.items()):
     rt, ents = dynamic_device(dev, model)
     before = {e.spec.key for e in ents}
     send(dev, raw)
-    after = {e.spec.key: (e.native_value if hasattr(e, "native_value") else e.is_on) for e in ents}
+    after = {e.spec.key: (e.native_value if hasattr(e, "native_value") else getattr(e, "is_on", None)) for e in ents}
     new = sorted(set(after) - before)
     assert new, (model, "no channel entities created")
     assert all(after[k] is not None for k in new), (model, {k: after[k] for k in new})
@@ -384,3 +389,25 @@ send("00000000000d0350", bytes.fromhex("05cc03000200"))
 send("00000000000d0350", bytes.fromhex("05cc04000100"))
 assert rt.values["people_in_today"] == 7 and rt.values["people_out_today"] == 3 and rt.values["people_net_today"] == 4, rt.values
 print("people counter ok")
+
+# Downlink commands: buttons, interval number, UC outputs
+def last_hex():
+    return base64.b64decode(PUBLISHED[-1][1]["data"]).hex()
+rt, ents = make_device("00000000000e0300", "UC300")
+by_key = {e.spec.key: e for e in ents}
+asyncio.run(by_key["cmd_reboot"].async_press()); assert last_hex() == "ff10ff"
+asyncio.run(by_key["cmd_sync_time"].async_press()); assert last_hex() == "ff4aff"
+asyncio.run(by_key["cmd_report_status"].async_press()); assert last_hex() == "ff94ff"
+asyncio.run(by_key["cfg_report_interval"].async_set_native_value(600)); assert last_hex() == "ff035802"
+assert by_key["cfg_report_interval"].native_value == 600
+sw = by_key["gpio_output_2"]
+assert type(sw).__name__ == "MilesightSwitch"
+asyncio.run(sw.async_turn_on()); assert last_hex() == "0801ff" and sw.is_on is True
+asyncio.run(rt.async_output("gpio_output_1", "on_for", 5000)); assert last_hex() == "ff93010188130000"
+rt, ents = make_device("00000000000e0521", "UC521")
+by_key = {e.spec.key: e for e in ents}
+asyncio.run(by_key["valve_1_opening"].async_set_native_value(40)); assert last_hex() == "f919000028"
+rt, ents = make_device("00000000000e0102", "AM102")
+by_key = {e.spec.key: e for e in ents}
+asyncio.run(by_key["cmd_sync_time"].async_press()); assert last_hex().startswith("ff11") and len(last_hex()) == 12
+print("downlinks ok")

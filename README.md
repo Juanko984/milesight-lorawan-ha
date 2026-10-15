@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.14.0** · [Version history](#version-history)
+**Current version: 0.15.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -290,6 +290,42 @@ alarm type (e.g. *Below threshold alarm*, *Mutation alarm*). Mutation (rapid cha
 TS301 and TS302 changed their alarm codes in newer firmware. Discovery picks *current firmware* unless the device
 sends an older-firmware message; if alarms look inverted, switch the model to *(older firmware)* under **Configure**.
 
+## Device commands (downlinks)
+
+With the gateway's downlink topic set (see step 1), each device page also gets – where the device supports it:
+
+| Entity | What it does |
+|---|---|
+| **Reboot** button | Restarts the device |
+| **Sync time** button | Synchronises the device clock (or sends Home Assistant's time where the device has no sync command) |
+| **Request update** button | Asks the device to report now |
+| **Reporting interval** / **Collection interval** (Configuration) | Sets how often the device reports / measures – unit (s or min) and allowed range per model |
+| **Output / valve switches** | UC300 DO1 / DO2, UC501 / UC502 GPIO outputs, UC511 / UC512 valves, GS101 valve & relay, VS373 digital output |
+| **Valve opening** number | UC521 motorised valves (0–100 %) |
+
+All commands were generated from and checked against Milesight's official encoders (1,600+ cases).
+The interval fields show the last value set from Home Assistant (devices don't report their interval).
+Battery-powered (Class A) devices receive commands after their next uplink.
+
+Two services are available for automations and scripts:
+
+* `milesight_lorawan.output_command` – `output` (e.g. `gpio_output_1`, `valve_1`, `valve_1_opening`), `action`
+  (`on`, `off`, `on_for` / `off_for` – UC300, value in ms –, `open_for` – UC511 / UC512 seconds, UC521 minutes –,
+  `open_until_pulses`, `set`), `value`. Example: open a UC511 valve for 10 minutes:
+  ```yaml
+  action: milesight_lorawan.output_command
+  data:
+    device_id: <your device>
+    output: valve_1
+    action: open_for
+    value: 600
+  ```
+* `milesight_lorawan.send_downlink` – send any raw command in hex (advanced; see Milesight's device user guide), e.g.
+  `ff10ff` = reboot.
+
+UC11xx / UC11-N1 / UC11-T1: Milesight publishes no downlink encoder for these, so their outputs stay read-only (use
+`send_downlink` with the commands from the user guide if needed).
+
 ## Settings per device
 
 Open the device's integration entry → **Configure** (⚙️). Picked the wrong model during onboarding? Change **Model** here; afterwards delete the old, now-unavailable entities from the device page.
@@ -345,6 +381,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.15.0** | Device commands: reboot, time sync, request update, reporting / collection interval, UC output and valve switches, UC521 valve opening; output_command and send_downlink services. |
 | **0.14.0** | 25 more models: AM102 / 103 / 104 / 107, AM304L / 305L, EM300-CL / -MLD / -DI-HALL, EM310-UDL / -TILT, EM320-TH (v1 / v2) / -TILT, EM410 / 411-RDL, VS132 / 133 / 135 / 330 / 350 / 351 / 360, DS3604. People-counter statistics. |
 | **0.13.0** | CTH01 multi-circuit energy meter added (CT range). |
 | **0.12.0** | WT range added (WT101, WT102, WT201 v1 / v2, WT211, WT301, WT302, WT303, WT304, WT401) with thermostat control from Home Assistant. |

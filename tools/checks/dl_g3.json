@@ -1,0 +1,2200 @@
+{
+ "ws-series/ws101": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "reporting_interval": 60
+   },
+   "value_path": [
+    "reporting_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f01",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   }
+  }
+ },
+ "ws-series/ws136": {
+  "_fport": 85,
+  "note": "Official encoder has no downlink commands (empty encoder)."
+ },
+ "ws-series/ws156": {
+  "_fport": 85,
+  "note": "Official encoder has no downlink commands (empty encoder)."
+ },
+ "ws-series/ws201": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder only checks >=1"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "collection_interval": 300
+   },
+   "value_path": [
+    "collection_interval"
+   ],
+   "note": "encoder does no range check"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  }
+ },
+ "ws-series/ws202": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder only checks >=1"
+  }
+ },
+ "ws-series/ws203": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": 1
+   },
+   "value_path": [
+    "collection_interval"
+   ],
+   "note": "encoder doc says unit minute for ff02 (unusual; ff02 is seconds on most models)"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f01",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   }
+  }
+ },
+ "ws-series/ws301": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  }
+ },
+ "ws-series/ws302": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1760000000
+   },
+   "value_path": [
+    "timestamp"
+   ],
+   "note": "absolute UTC unix timestamp; no report_interval / report_status in encoder. Also time_sync_enable ff3b01/ff3b00 (auto network time sync)"
+  },
+  "time_sync_enable": {
+   "on": {
+    "hex": "ff3b01",
+    "payload": {
+     "time_sync_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff3b00",
+    "payload": {
+     "time_sync_enable": "disable"
+    }
+   }
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2d01",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2d00",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   }
+  }
+ },
+ "ws-series/ws303": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  }
+ },
+ "ws-series/ws501": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  }
+ },
+ "ws-series/ws502": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  }
+ },
+ "ws-series/ws503": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  }
+ },
+ "ws-series/ws501-eu": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  }
+ },
+ "ws-series/ws502-eu": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 60
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  }
+ },
+ "ws-series/ws501-cn": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 61,
+   "max": 65535,
+   "payload": {
+    "report_interval": 61
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder requires > 60"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  }
+ },
+ "ws-series/ws502-cn": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 61,
+   "max": 65535,
+   "payload": {
+    "report_interval": 61
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder requires > 60"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  }
+ },
+ "ws-series/ws503-cn": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 61,
+   "max": 65535,
+   "payload": {
+    "report_interval": 61
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder requires > 60"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "enable"
+   },
+   "note": "this encoder's map uses disable/enable instead of no/yes"
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   },
+   "note": "asks device to report attributes (versions, etc.)"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes (0 = forever)"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f02",
+    "payload": {
+     "led_mode": "on_synced"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_mode": "off"
+    }
+   },
+   "note": "led_mode 0 off, 1 on_inverted, 2 on_synced"
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  }
+ },
+ "ws-series/ws501-v4": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "reporting_interval": 60
+   },
+   "value_path": [
+    "reporting_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "time_synchronize": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "button_lock_config": {
+      "enable": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "button_lock_config": {
+      "enable": "disable"
+     }
+    }
+   }
+  }
+ },
+ "ws-series/ws502-v4": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "reporting_interval": 60
+   },
+   "value_path": [
+    "reporting_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "time_synchronize": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "button_lock_config": {
+      "enable": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "button_lock_config": {
+      "enable": "disable"
+     }
+    }
+   }
+  }
+ },
+ "ws-series/ws503-v4": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "reporting_interval": 60
+   },
+   "value_path": [
+    "reporting_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "time_synchronize": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "button_lock_config": {
+      "enable": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "button_lock_config": {
+      "enable": "disable"
+     }
+    }
+   }
+  }
+ },
+ "ws-series/ws513": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder only checks >=1"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f0100",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2f0000",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   },
+   "note": "this encoder writes the LED value as u16le"
+  }
+ },
+ "ws-series/ws515": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder only checks >=1"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   },
+   "note": "u16le: bit15 enable | lock_time minutes"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f0100",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2f0000",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   },
+   "note": "this encoder writes the LED value as u16le"
+  }
+ },
+ "ws-series/ws513-v3": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval_settings": {
+     "time": 20
+    }
+   },
+   "value_path": [
+    "reporting_interval_settings",
+    "time"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "f96901",
+    "payload": {
+     "button_lock_settings": {
+      "switch_config": 1,
+      "reset_config": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "f96900",
+    "payload": {
+     "button_lock_settings": {
+      "switch_config": 0,
+      "reset_config": 0
+     }
+    }
+   },
+   "note": "bit0 switch button lock, bit1 reset button lock"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f01",
+    "payload": {
+     "led_indicator_mode": 1
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_indicator_mode": 0
+    }
+   }
+  },
+  "note": "No sync_time command (only time_zone / DST settings)."
+ },
+ "ws-series/ws515-v3": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval_settings": {
+     "time": 20
+    }
+   },
+   "value_path": [
+    "reporting_interval_settings",
+    "time"
+   ]
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "f96901",
+    "payload": {
+     "button_lock_settings": {
+      "switch_config": 1,
+      "reset_config": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "f96900",
+    "payload": {
+     "button_lock_settings": {
+      "switch_config": 0,
+      "reset_config": 0
+     }
+    }
+   },
+   "note": "bit0 switch button lock, bit1 reset button lock"
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f01",
+    "payload": {
+     "led_indicator_mode": 1
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_indicator_mode": 0
+    }
+   }
+  },
+  "note": "No sync_time command (only time_zone / DST settings)."
+ },
+ "ws-series/ws523": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder only checks >=1"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   }
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f01",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   }
+  }
+ },
+ "ws-series/ws525": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder only checks >=1"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "report_attribute": {
+   "hex": "ff2cff",
+   "payload": {
+    "report_attribute": "yes"
+   }
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff250080",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable",
+      "lock_time": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "ff250000",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable",
+      "lock_time": 0
+     }
+    }
+   }
+  },
+  "led_indicator": {
+   "on": {
+    "hex": "ff2f01",
+    "payload": {
+     "led_indicator_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff2f00",
+    "payload": {
+     "led_indicator_enable": "disable"
+    }
+   }
+  }
+ },
+ "ws-series/ws558": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 1
+   },
+   "value_path": [
+    "report_interval"
+   ],
+   "note": "encoder does no range check"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  }
+ },
+ "wt-series/wt101": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff2800",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "time_sync_enable": {
+   "on": {
+    "hex": "ff3b02",
+    "payload": {
+     "time_sync_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "ff3b00",
+    "payload": {
+     "time_sync_enable": "disable"
+    }
+   },
+   "note": "enable value is 2"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff2501",
+    "payload": {
+     "child_lock_config": {
+      "enable": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff2500",
+    "payload": {
+     "child_lock_config": {
+      "enable": "disable"
+     }
+    }
+   }
+  }
+ },
+ "wt-series/wt102": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "630101",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 5,
+   "max": 1440,
+   "payload": {
+    "heating_period_settings": {
+     "heating_period_reporting_interval": {
+      "unit": 1,
+      "minutes_of_time": 10
+     }
+    }
+   },
+   "value_path": [
+    "heating_period_settings",
+    "heating_period_reporting_interval",
+    "minutes_of_time"
+   ],
+   "note": "heating-period reporting interval (630100 + u16le seconds 10..64800 also possible)"
+  },
+  "report_interval_non_heating": {
+   "prefix": "630201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 5,
+   "max": 1440,
+   "payload": {
+    "heating_period_settings": {
+     "non_heating_period_reporting_interval": {
+      "unit": 1,
+      "minutes_of_time": 60
+     }
+    }
+   },
+   "value_path": [
+    "heating_period_settings",
+    "non_heating_period_reporting_interval",
+    "minutes_of_time"
+   ],
+   "note": "non-heating-period reporting interval"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   }
+  },
+  "set_time": {
+   "prefix": "b7",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "set_time": {
+     "timestamp": 1760000000
+    }
+   },
+   "value_path": [
+    "set_time",
+    "timestamp"
+   ]
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "collect_data": {
+   "hex": "b5",
+   "payload": {
+    "collect_data": 1
+   },
+   "note": "trigger an immediate measurement"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "6a0103",
+    "payload": {
+     "child_lock": {
+      "enable": 1,
+      "system_button": 1,
+      "func_button": 1,
+      "reserved": 0
+     }
+    }
+   },
+   "off": {
+    "hex": "6a0000",
+    "payload": {
+     "child_lock": {
+      "enable": 0,
+      "system_button": 0,
+      "func_button": 0,
+      "reserved": 0
+     }
+    }
+   }
+  }
+ },
+ "wt-series/wt201": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "value_path": [
+    "report_interval"
+   ]
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60,
+   "payload": {
+    "collection_interval": 30
+   },
+   "value_path": [
+    "collection_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff2801",
+   "payload": {
+    "report_status": "periodic"
+   },
+   "note": "ff2800 = report plan, ff2801 = report periodic data"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff253f3f",
+    "payload": {
+     "child_lock_config": {
+      "power_button": "enable",
+      "up_button": "enable",
+      "down_button": "enable",
+      "fan_button": "enable",
+      "mode_button": "enable",
+      "reset_button": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff253f00",
+    "payload": {
+     "child_lock_config": {
+      "power_button": "disable",
+      "up_button": "disable",
+      "down_button": "disable",
+      "fan_button": "disable",
+      "mode_button": "disable",
+      "reset_button": "disable"
+     }
+    }
+   },
+   "note": "byte1 = mask of buttons, byte2 = lock bits (power,up,down,fan,mode,reset = bits 0..5)"
+  }
+ },
+ "wt-series/wt201-v2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval_settings": {
+     "time": 10
+    }
+   },
+   "value_path": [
+    "reporting_interval_settings",
+    "time"
+   ]
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60,
+   "payload": {
+    "collection_interval": 30
+   },
+   "value_path": [
+    "collection_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "synchronize_time": 255
+   },
+   "note": "encoder takes an arbitrary byte 0..255; 0xff used as in wt201 v1"
+  },
+  "report_status": {
+   "hex": "ff2801",
+   "payload": {
+    "report_status": "periodic"
+   },
+   "note": "ff2800 plan, ff2801 periodic, ff2802 target_temperature_range"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff253f3f",
+    "payload": {
+     "child_lock_config": {
+      "power_button": "enable",
+      "up_button": "enable",
+      "down_button": "enable",
+      "fan_button": "enable",
+      "mode_button": "enable",
+      "reset_button": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff253f00",
+    "payload": {
+     "child_lock_config": {
+      "power_button": "disable",
+      "up_button": "disable",
+      "down_button": "disable",
+      "fan_button": "disable",
+      "mode_button": "disable",
+      "reset_button": "disable"
+     }
+    }
+   }
+  }
+ },
+ "wt-series/wt211": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval_settings": {
+     "time": 10
+    }
+   },
+   "value_path": [
+    "reporting_interval_settings",
+    "time"
+   ]
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60,
+   "payload": {
+    "collection_interval": 30
+   },
+   "value_path": [
+    "collection_interval"
+   ]
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "synchronize_time": 255
+   },
+   "note": "encoder takes an arbitrary byte 0..255; 0xff used as in wt201 v1"
+  },
+  "report_status": {
+   "hex": "ff2801",
+   "payload": {
+    "report_status": "periodic"
+   },
+   "note": "ff2800 plan, ff2801 periodic, ff2802 target_temperature_range"
+  },
+  "child_lock": {
+   "on": {
+    "hex": "ff253f3f",
+    "payload": {
+     "child_lock_config": {
+      "power_button": "enable",
+      "up_button": "enable",
+      "down_button": "enable",
+      "fan_button": "enable",
+      "mode_button": "enable",
+      "reset_button": "enable"
+     }
+    }
+   },
+   "off": {
+    "hex": "ff253f00",
+    "payload": {
+     "child_lock_config": {
+      "power_button": "disable",
+      "up_button": "disable",
+      "down_button": "disable",
+      "fan_button": "disable",
+      "mode_button": "disable",
+      "reset_button": "disable"
+     }
+    }
+   }
+  }
+ },
+ "wt-series/wt301": {
+  "_fport": 85,
+  "report_status": {
+   "hex": "550200010f67",
+   "payload": {
+    "query_all": "yes"
+   },
+   "note": "Modbus-style frame 55 02 0001 0f + checksum: query all thermostat registers. No reboot / interval / time commands."
+  },
+  "child_lock": {
+   "on": {
+    "hex": "5501000202015b",
+    "payload": {
+     "btn_lock_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "5501000202005a",
+    "payload": {
+     "btn_lock_enable": "disable"
+    }
+   },
+   "note": "last byte is checksum"
+  }
+ },
+ "wt-series/wt302": {
+  "_fport": 85,
+  "report_status": {
+   "hex": "550200010f67",
+   "payload": {
+    "query_all": "yes"
+   },
+   "note": "Modbus-style frame 55 02 0001 0f + checksum: query all thermostat registers. No reboot / interval / time commands."
+  },
+  "child_lock": {
+   "on": {
+    "hex": "5501000202015b",
+    "payload": {
+     "btn_lock_enable": "enable"
+    }
+   },
+   "off": {
+    "hex": "5501000202005a",
+    "payload": {
+     "btn_lock_enable": "disable"
+    }
+   },
+   "note": "last byte is checksum"
+  }
+ },
+ "wt-series/wt303": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "6201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "unit": 1,
+     "minutes_of_time": 10
+    }
+   },
+   "value_path": [
+    "reporting_interval",
+    "minutes_of_time"
+   ],
+   "note": "unit byte 01 = minutes; 6200 + u16le seconds (10..64800) also possible"
+  },
+  "collection_interval": {
+   "prefix": "6000",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "collection_interval": {
+     "unit": 0,
+     "seconds_of_time": 30
+    }
+   },
+   "value_path": [
+    "collection_interval",
+    "seconds_of_time"
+   ],
+   "note": "unit byte 00 = seconds; 6001 + u16le minutes (1..1440) also possible"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   }
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  }
+ },
+ "wt-series/wt304": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "6201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "unit": 1,
+     "minutes_of_time": 10
+    }
+   },
+   "value_path": [
+    "reporting_interval",
+    "minutes_of_time"
+   ],
+   "note": "unit byte 01 = minutes; 6200 + u16le seconds (10..64800) also possible"
+  },
+  "collection_interval": {
+   "prefix": "6000",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "collection_interval": {
+     "unit": 0,
+     "seconds_of_time": 30
+    }
+   },
+   "value_path": [
+    "collection_interval",
+    "seconds_of_time"
+   ],
+   "note": "unit byte 00 = seconds; 6001 + u16le minutes (1..1440) also possible"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   }
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  }
+ },
+ "wt-series/wt401": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "610101",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "lora": {
+      "unit": 1,
+      "minutes_of_time": 10
+     }
+    }
+   },
+   "value_path": [
+    "reporting_interval",
+    "lora",
+    "minutes_of_time"
+   ],
+   "note": "LoRa-only communication mode. Other modes: 6100xx BLE, 6102xx BLE+LoRa, 6103xx PowerBus+LoRa (same unit byte + u16le)"
+  },
+  "collection_interval": {
+   "prefix": "6000",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 3600,
+   "payload": {
+    "collection_interval": {
+     "unit": 0,
+     "seconds_of_time": 30
+    }
+   },
+   "value_path": [
+    "collection_interval",
+    "seconds_of_time"
+   ]
+  },
+  "query_all_config": {
+   "hex": "ee",
+   "payload": {
+    "request_query_all_configurations": 1
+   },
+   "note": "requests all configuration; no explicit report_status / sync_time command in encoder"
+  }
+ }
+}

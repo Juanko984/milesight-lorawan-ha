@@ -1,0 +1,2287 @@
+{
+ "em-series/em500-co2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em500-lgt": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em500-pp": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em500-pt100": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em500-smtc": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em500-swl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em500-udl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts101": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts201-v2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder only checks >0 (u16, seconds); upper bound assumed"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts301-v2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder only checks >0 (u16, seconds); upper bound assumed"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts301": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder only checks >0 (u16, seconds); upper bound assumed"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts302-v2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder only checks >0 (u16, seconds); upper bound assumed"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts302": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder only checks >0 (u16, seconds); upper bound assumed"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts601": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   },
+   "note": "new-style single-byte command protocol"
+  },
+  "report_interval": {
+   "prefix": "6001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "unit": 1,
+     "minutes_of_time": 10
+    }
+   },
+   "note": "key reporting_interval {unit:1 (min), minutes_of_time}; unit 0 = seconds (prefix 6000, 10-64800 s). Encoder does not validate the range (README: 1-1440 min)"
+  },
+  "collection_interval": {
+   "prefix": "6201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": {
+     "unit": 1,
+     "minutes_of_time": 5
+    }
+   },
+   "note": "{unit:1, minutes_of_time}; unit 0 = seconds (prefix 6200, 10-64800 s)"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   },
+   "note": "key synchronize_time; set_time {timestamp} = b7 + u32le also exists"
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ts-series/ts602": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   },
+   "note": "new-style single-byte command protocol"
+  },
+  "report_interval": {
+   "prefix": "6001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "unit": 1,
+     "minutes_of_time": 10
+    }
+   },
+   "note": "key reporting_interval {unit:1 (min), minutes_of_time}; unit 0 = seconds (prefix 6000, 10-64800 s). Encoder does not validate the range (README: 1-1440 min)"
+  },
+  "collection_interval": {
+   "prefix": "6201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": {
+     "unit": 1,
+     "minutes_of_time": 5
+    }
+   },
+   "note": "{unit:1, minutes_of_time}; unit 0 = seconds (prefix 6200, 10-64800 s)"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   },
+   "note": "key synchronize_time; set_time {timestamp} = b7 + u32le also exists"
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em400-udl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em400-tld": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em400-mud": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ct-series/ct101": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ct-series/ct103": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ct-series/ct105": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ct-series/ct303": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ct-series/ct305": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ct-series/ct310": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "gs-series/gs101": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1700000000
+   },
+   "note": "set_time: absolute unix timestamp (u32le); device has no 'sync now' command"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "outputs": {
+   "valve_1": {
+    "on": {
+     "hex": "060001ff",
+     "payload": {
+      "valve_status": "on"
+     }
+    },
+    "off": {
+     "hex": "060000ff",
+     "payload": {
+      "valve_status": "off"
+     }
+    },
+    "key": "valve_status"
+   },
+   "output_1": {
+    "on": {
+     "hex": "070001ff",
+     "payload": {
+      "relay_output_status": "on"
+     }
+    },
+    "off": {
+     "hex": "070000ff",
+     "payload": {
+      "relay_output_status": "off"
+     }
+    },
+    "key": "relay_output_status"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "gs-series/gs301": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff1001",
+   "payload": {
+    "reboot": "yes"
+   },
+   "note": "reboot byte is 0x01 (not 0xff) on GS301"
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "gs-series/gs524n": {
+  "_fport": 85,
+  "note": "no official encoder in repo (decoder only); no downlinks surveyed",
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "gs-series/gs601": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   },
+   "note": "new-style single-byte command protocol"
+  },
+  "report_interval": {
+   "prefix": "6001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "unit": 1,
+     "minutes_of_time": 10
+    }
+   },
+   "note": "{unit:1, minutes_of_time}; unit 0 = seconds (prefix 6000, 10-64800 s)"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   },
+   "note": "set_time {timestamp} = b7 + u32le also exists"
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "at-series/at101": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "cth-series/cth01": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "be",
+   "payload": {
+    "reboot": 1
+   },
+   "note": "new-style single-byte command protocol"
+  },
+  "report_interval": {
+   "prefix": "6101",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "unit": 1,
+     "minutes_of_time": 10
+    }
+   },
+   "note": "NOTE prefix 0x61 for reporting on CTH01 (0x60 is collection); unit 0 = seconds (6100, 10-64800 s)"
+  },
+  "collection_interval": {
+   "prefix": "6001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": {
+     "unit": 1,
+     "minutes_of_time": 5
+    }
+   },
+   "note": "{unit:1, minutes_of_time}; unit 0 = seconds (6000, 10-64800 s)"
+  },
+  "sync_time": {
+   "hex": "b8",
+   "payload": {
+    "synchronize_time": 1
+   },
+   "note": "set_time {timestamp} = b7 + u32le also exists"
+  },
+  "report_status": {
+   "hex": "b9",
+   "payload": {
+    "query_device_status": 1
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am102": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1700000000
+   },
+   "note": "set_time: absolute unix timestamp (u32le); device has no 'sync now' command"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am103": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1700000000
+   },
+   "note": "set_time: absolute unix timestamp (u32le); device has no 'sync now' command"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am104": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1700000000
+   },
+   "note": "set_time: absolute unix timestamp (u32le); device has no 'sync now' command"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am107": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1700000000
+   },
+   "note": "set_time: absolute unix timestamp (u32le); device has no 'sync now' command"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am304l": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "f9bd01",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "interval": 10
+    }
+   },
+   "note": "key reporting_interval {interval} (minutes; unit byte fixed to 1 by encoder)"
+  },
+  "collection_interval": {
+   "prefix": "f9be0001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collecting_interval": {
+     "interval": 5
+    }
+   },
+   "note": "key collecting_interval {interval}; sensor id 0 (temp/hum/CO2), unit byte 1 = minutes"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "synchronize_time": 1
+   },
+   "note": "key synchronize_time"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am305l": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": 1
+   }
+  },
+  "report_interval": {
+   "prefix": "f9bd01",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "reporting_interval": {
+     "interval": 10
+    }
+   },
+   "note": "key reporting_interval {interval} (minutes; unit byte fixed to 1 by encoder)"
+  },
+  "collection_interval": {
+   "prefix": "f9be0001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collecting_interval": {
+     "interval": 5
+    }
+   },
+   "note": "key collecting_interval {interval}; sensor id 0 (temp/hum/CO2), unit byte 1 = minutes"
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "synchronize_time": 1
+   },
+   "note": "key synchronize_time"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "ds-series/ds3604": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-cl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "ffbb00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": 5
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-di-hall": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-mld": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em310-tilt": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em320-tilt": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em310-udl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder only checks >=1; upper bound assumed"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em320-th": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em320-th-v2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e01",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   },
+   "note": "prefix ff8e01 (ID byte 0x01, unlike ff8e00 elsewhere)"
+  },
+  "collection_interval": {
+   "prefix": "f939",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": 5
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em410-rdl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "f939",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": 5
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff2801",
+   "payload": {
+    "report_status": "yes"
+   },
+   "note": "status byte 0x01"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em411-rdl": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 10
+   }
+  },
+  "collection_interval": {
+   "prefix": "f939",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "collection_interval": 5
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff2801",
+   "payload": {
+    "report_status": "yes"
+   },
+   "note": "status byte 0x01"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-th": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-mcs": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-sld": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-zld": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "em-series/em300-di": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am307": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff2c00",
+   "payload": {
+    "query_status": "yes"
+   },
+   "note": "key query_status"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am308": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff2c00",
+   "payload": {
+    "query_status": "yes"
+   },
+   "note": "key query_status"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am319-hcho": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff2c00",
+   "payload": {
+    "query_status": "yes"
+   },
+   "note": "key query_status"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am319-hcho-well": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff2c00",
+   "payload": {
+    "query_status": "yes"
+   },
+   "note": "key query_status"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ },
+ "am-series/am319-o3": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder does not validate the range; range assumed from device family"
+  },
+  "report_status": {
+   "hex": "ff2c00",
+   "payload": {
+    "query_status": "yes"
+   },
+   "note": "key query_status"
+  },
+  "_fport_note": "README does not state the downlink port; Milesight default fPort 85"
+ }
+}

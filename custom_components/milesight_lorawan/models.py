@@ -1,6 +1,8 @@
 """Device model registry and entity specifications (pure Python)."""
 from __future__ import annotations
 
+import json
+import pathlib
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -764,6 +766,53 @@ def _guess_ts(raw: bytes) -> tuple[str, list[str]] | None:
         if older:
             return "TS301-V1", ["TS301-V1", "TS101", "TS302-V1"]
         return "TS301", ["TS301", "TS201", "TS101", "TS301-V1"]
+    return None
+
+
+# --------------------------------------------------------------------------
+# Downlink commands (generated from Milesight's official encoders, see tools/checks/dl_*.py)
+# --------------------------------------------------------------------------
+DOWNLINKS: dict[str, dict] = json.loads((pathlib.Path(__file__).parent / "downlinks.json").read_text())
+
+
+def downlinks(model_key: str) -> dict:
+    return DOWNLINKS.get(model_key, {})
+
+
+def _command_specs(model_key: str) -> list[EntitySpec]:
+    dl = downlinks(model_key)
+    specs: list[EntitySpec] = []
+    cfg = dict(diagnostic=True)
+    if "reboot" in dl:
+        specs.append(EntitySpec("cmd_reboot", "Reboot", platform="button", device_class="restart", **cfg))
+    if "sync_time" in dl or "set_time" in dl:
+        specs.append(EntitySpec("cmd_sync_time", "Sync time", platform="button", icon="mdi:clock-check-outline", **cfg))
+    if "report_status" in dl:
+        specs.append(EntitySpec("cmd_report_status", "Request update", platform="button", icon="mdi:refresh", **cfg))
+    for key, name in (("report_interval", "Reporting interval"), ("collection_interval", "Collection interval")):
+        if key in dl and "prefix" in dl[key]:
+            unit = {"s": "s", "min": "min"}.get(dl[key].get("unit"), dl[key].get("unit"))
+            specs.append(EntitySpec(f"cfg_{key}", name, platform="number", unit=unit, device_class="duration",
+                                    icon="mdi:timer-cog-outline", **cfg))
+    fixed = {s.key for s in specs}
+    for name, out in dl.get("outputs", {}).items():
+        key = out.get("key") or name
+        label = name.replace("_", " ").capitalize()
+        if key in fixed:
+            continue
+        if "set" in out:          # proportional valve: opening %
+            specs.append(EntitySpec(key, f"{label} opening", platform="number", unit="%", icon="mdi:valve"))
+        else:
+            specs.append(EntitySpec(key, label, platform="switch",
+                                    device_class="switch", icon="mdi:valve" if "valve" in name else None))
+        fixed.add(key)
+    return specs
+
+
+def output_for_key(model_key: str, key: str) -> dict | None:
+    for out_name, out in downlinks(model_key).get("outputs", {}).items():
+        if (out.get("key") or out_name) == key:
+            return out
     return None
 
 
@@ -1614,4 +1663,8 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         specs.append(EntitySpec("pulse_count", "Pulse count", state_class="total_increasing", icon="mdi:counter"))
         specs.append(EntitySpec("water", "Water (converted)", state_class="total_increasing", icon="mdi:water",
                                 enabled_default=False))
+    specs += _command_specs(model_key)
+    control = {s_.key for s_ in specs if s_.platform in ("switch", "number")}
+    # a controllable output replaces its read-only binary sensor / sensor
+    specs = [s_ for s_ in specs if not (s_.key in control and s_.platform in ("binary_sensor", "sensor"))]
     return specs + _common()

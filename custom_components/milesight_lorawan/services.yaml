@@ -1,0 +1,43 @@
+send_downlink:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: milesight_lorawan
+    payload:
+      required: true
+      example: "ff10ff"
+      selector:
+        text:
+    fport:
+      example: 85
+      selector:
+        number:
+          min: 1
+          max: 223
+          mode: box
+output_command:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: milesight_lorawan
+    output:
+      required: true
+      example: "valve_1"
+      selector:
+        text:
+    action:
+      required: true
+      selector:
+        select:
+          options: ["on", "off", "on_for", "off_for", "open_for", "open_until_pulses", "set"]
+    value:
+      example: 600
+      selector:
+        number:
+          min: 0
+          max: 4294967295
+          mode: box

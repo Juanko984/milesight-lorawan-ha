@@ -43,8 +43,8 @@ from .const import (
     TICK_SECONDS,
     WEEKDAYS,
 )
-from .decoders import Uplink, encode_wt, encode_ws_switch
-from .models import MODELS, Model
+from .decoders import Uplink, encode_template, encode_wt, encode_ws_switch
+from .models import MODELS, Model, downlinks, output_for_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -302,12 +302,46 @@ class DeviceRuntime:
             self.raw["fan_speed" if kind == "wt30x" else "fan_mode"] = value
         self._publish(time.time())
 
-    async def _downlink(self, payload: bytes) -> None:
+    async def _downlink(self, payload: bytes, fport: int | None = None) -> None:
         hubs = list(self.hass.data.get(DOMAIN, {}).get("hubs", {}).values())
         hub = next((h for h in hubs if self.deveui in h.last_uplink), hubs[0] if hubs else None)
         if hub is None:
             raise RuntimeError("No Milesight gateway configured")
-        await hub.async_send_downlink(self.deveui, payload)
+        if fport is None:
+            fport = downlinks(self.model.key).get("fport", 85)
+        await hub.async_send_downlink(self.deveui, payload, fport)
+
+    async def async_send_raw(self, payload: bytes, fport: int | None = None) -> None:
+        await self._downlink(payload, fport)
+
+    async def async_command(self, name: str, value: float | None = None) -> None:
+        """reboot | sync_time | report_status | report_interval | collection_interval (value in the spec's unit)."""
+        dl = downlinks(self.model.key)
+        if name == "sync_time" and "sync_time" not in dl and "set_time" in dl:
+            name, value = "set_time", int(time.time())
+        spec = dl.get(name)
+        if spec is None:
+            raise ValueError(f"{self.model.key} does not support {name}")
+        await self._downlink(encode_template(spec, value))
+        if value is not None and name.endswith("_interval"):
+            self.meta.setdefault("config", {})[name] = value
+            self._publish(time.time())
+
+    async def async_output(self, key: str, action: str, value: float | None = None) -> None:
+        """action: on | off | set (value) | on_for / off_for / open_for (value = duration) | open_until_pulses."""
+        out = output_for_key(self.model.key, key)
+        if out is None or action not in out:
+            raise ValueError(f"{self.model.key}: {key} does not support {action}")
+        await self._downlink(encode_template(out[action], value))
+        if action in ("on", "off") and "set" in out:
+            self.raw[key] = 100 if action == "on" else 0
+        elif action in ("on", "off", "on_for", "open_for", "open_until_pulses"):
+            self.raw[key] = action != "off"
+        elif action == "off_for":
+            self.raw[key] = False
+        elif action == "set":
+            self.raw[key] = value
+        self._publish(time.time())
 
     def _handle_vs373(self, decoded: dict[str, Any], ts: float) -> None:
         """Keep alarm flags until the device reports them deactivated, and fire HA events."""
@@ -343,7 +377,9 @@ class DeviceRuntime:
 
     def _publish(self, ts: float) -> None:
         v: dict[str, Any] = dict(self.raw)
-        v.update(self.meta)
+        v.update({k: val for k, val in self.meta.items() if k != "config"})
+        for k, val in self.meta.get("config", {}).items():
+            v[f"cfg_{k}"] = val
 
         if self.minmax is not None:
             for f in self.model.minmax_fields:

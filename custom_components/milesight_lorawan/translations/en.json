@@ -101,5 +101,47 @@
         "sun": "Sunday"
       }
     }
+  },
+  "services": {
+    "send_downlink": {
+      "name": "Send downlink",
+      "description": "Send raw bytes to a device through the gateway (advanced).",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Milesight device."
+        },
+        "payload": {
+          "name": "Payload",
+          "description": "Hex bytes, e.g. ff10ff (reboot)."
+        },
+        "fport": {
+          "name": "Port",
+          "description": "LoRaWAN port (default 85)."
+        }
+      }
+    },
+    "output_command": {
+      "name": "Output command",
+      "description": "Switch an output or valve, optionally for a limited time (UC controllers, GS101).",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Milesight device."
+        },
+        "output": {
+          "name": "Output",
+          "description": "Output key, e.g. gpio_output_1, valve_1, valve_1_opening."
+        },
+        "action": {
+          "name": "Action",
+          "description": "on, off, on_for / off_for (UC300, value in ms), open_for (UC511/512 seconds, UC521 minutes), open_until_pulses, set (UC521 opening %)."
+        },
+        "value": {
+          "name": "Value",
+          "description": "Duration, pulse count or opening % depending on the action."
+        }
+      }
+    }
   }
 }

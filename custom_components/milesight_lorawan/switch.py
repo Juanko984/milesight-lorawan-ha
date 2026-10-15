@@ -33,7 +33,10 @@ class MilesightSwitch(MilesightEntity, SwitchEntity):
 
     async def _set(self, on: bool) -> None:
         try:
-            await self.runtime.async_set_switch(self.spec.key, on)
+            if self.runtime.model.control:
+                await self.runtime.async_set_switch(self.spec.key, on)
+            else:                                    # UC outputs / valves, GS101 valve / relay
+                await self.runtime.async_output(self.spec.key, "on" if on else "off")
         except Exception as err:  # noqa: BLE001 - surface MQTT / config problems in the UI
             raise HomeAssistantError(f"Could not send command to {self.runtime.entry.title}: {err}") from err
 

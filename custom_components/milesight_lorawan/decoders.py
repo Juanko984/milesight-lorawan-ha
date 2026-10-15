@@ -3733,3 +3733,23 @@ def decode_vs351(b: bytes) -> dict[str, Any]:
 def decode_vs360(b: bytes) -> dict[str, Any]:
     """VS360 passage people counter (main + node unit)."""
     return _decode_vs35x(b, "vs360")
+
+
+# --------------------------------------------------------------------------
+# Generic downlinks (reboot, intervals, time, status, outputs) from downlinks.json.
+# Each template was checked against Milesight's official encoders (tools/checks/dl_*.py).
+# --------------------------------------------------------------------------
+_TEMPLATE_FMT = {"u8": "<B", "u16le": "<H", "u16be": ">H", "u32le": "<I", "i16le": "<h", "i32le": "<i"}
+
+
+def encode_template(spec: dict, value: float | None = None) -> bytes:
+    """{"hex": ...} -> fixed bytes; {"prefix", "value", "scale", "suffix", "min", "max"} -> prefix + value + suffix."""
+    if "hex" in spec:
+        return bytes.fromhex(spec["hex"])
+    if value is None:
+        raise ValueError("value required")
+    lo, hi = spec.get("min"), spec.get("max")
+    if (lo is not None and value < lo) or (hi is not None and value > hi):
+        raise ValueError(f"value {value} outside {lo}..{hi}")
+    raw = round(value * spec.get("scale", 1))
+    return bytes.fromhex(spec["prefix"]) + struct.pack(_TEMPLATE_FMT[spec["value"]], raw) + bytes.fromhex(spec.get("suffix", ""))

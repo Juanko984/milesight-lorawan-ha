@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.15.0
+### Added
+- Device commands for 112 models: Reboot, Sync time and Request update buttons, Reporting interval and Collection
+  interval settings (number entities), generated from Milesight's official encoders (downlinks.json) and checked
+  against them in CI (tools/checks/dl_*.py, 1,600+ cases).
+- UC controllers: UC300 DO1 / DO2, UC501 / UC502 GPIO outputs and UC511 / UC512 valves as switches, UC521 valve
+  opening (0–100 %); GS101 valve and relay; VS373 digital output.
+- Services `milesight_lorawan.output_command` (on / off / timed / pulse-count / opening) and
+  `milesight_lorawan.send_downlink` (raw hex).
+- Downlinks use the fPort from the device's encoder (85 for all current models).
+
 ## 0.14.0
 ### Added
 - AM range: AM102 / AM102L, AM103 / AM103L, AM104, AM107, AM304L, AM305L.
