@@ -26,6 +26,8 @@ from .const import (
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
+    CONF_MAINS_VOLTAGE,
+    CONF_RUN_THRESHOLD_A,
     CONF_DEVEUI,
     CONF_EMPTY_GRACE_MIN,
     CONF_ENTRY_TYPE,
@@ -43,6 +45,7 @@ from .const import (
     DEFAULT_MAX_GAP_MIN,
     DEFAULT_OPEN_DAYS,
     DEFAULT_OPEN_HOUR,
+    DEFAULT_RUN_THRESHOLD_A,
     DEFAULT_TOPIC,
     DOMAIN,
     ENCODING_BASE64,
@@ -196,6 +199,11 @@ class MilesightOptionsFlow(OptionsFlow):
         if "em400" in features:
             schema[vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0))] = \
                 _int_box(0, 20000)
+        if "load" in features:
+            schema[vol.Required(CONF_RUN_THRESHOLD_A, default=opts.get(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))] = \
+                NumberSelector(NumberSelectorConfig(min=0, max=5000, step=0.1, mode=NumberSelectorMode.BOX,
+                                                    unit_of_measurement="A"))
+            schema[vol.Required(CONF_MAINS_VOLTAGE, default=opts.get(CONF_MAINS_VOLTAGE, 0))] = _int_box(0, 1000)
         if "co2high" in features:
             schema[vol.Required(CONF_CO2_LIMIT, default=opts.get(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT))] = \
                 _int_box(400, 5000)

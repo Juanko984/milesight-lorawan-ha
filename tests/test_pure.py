@@ -252,6 +252,29 @@ def test_occupancy_yesterday_and_weekend():
     assert v["utilisation_today_pct"] is None and v["open_now"] is False
 
 
+def test_decode_ct_range():
+    # official samples (ct-series READMEs)
+    assert dec.decode_ct10x(bytes.fromhex("0397102700000498B80B")) == {"total_current": 100, "current": 30, "sensor_error": "OK"}
+    d = dec.decode_ct10x(bytes.fromhex("8498B80BD007C40905"))
+    assert d["current"] == 25 and d["current_max"] == 30 and d["current_min"] == 20
+    assert d["current_alarm_active"] is True and d["current_alarm_status"] == "threshold_alarm, over_range_alarm"
+    assert dec.decode_ct10x(bytes.fromhex("0498FFFF"))["sensor_error"] == "Current: read failed"
+    assert dec.decode_ct10x(bytes.fromhex("8498B80BD007C4090A"))["current_alarm_active"] is False
+    assert dec.decode_ct10x(bytes.fromhex("1063e8030000137501")) == {"energy": 10, "low_voltage_alarm": True}
+    d = dec.decode_ct30x(bytes.fromhex("0499B80B0699640008990A00039710270000"))
+    assert d["current_1"] == 300 and d["current_2"] == 10 and d["current_3"] == 1 and d["total_current_1"] == 100
+    d = dec.decode_ct30x(bytes.fromhex("8699B80BD007C40901896710 0101".replace(" ", "")))
+    assert d["current_2_alarm_active"] is True and d["temperature"] == 27.2 and d["temperature_alarm_active"] is True
+    assert dec.decode_ct30x(bytes.fromhex("1263102700000967fdff")) == {"energy_3": 100, "sensor_error": "Temperature: over range"}
+
+
+def test_guess_ct_range():
+    assert mdl.guess_model(bytes.fromhex("0397102700000498B80B"))[0] == "CT101"
+    assert mdl.guess_model(bytes.fromhex("0499B80B"))[0] == "CT303"
+    best, cands = mdl.guess_model(bytes.fromhex("0899FFFF"))
+    assert best == "CT303" and cands == ["CT303", "CT305", "CT310"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

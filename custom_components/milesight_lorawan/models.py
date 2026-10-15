@@ -7,6 +7,8 @@ from typing import Callable
 
 from .decoders import (
     decode_am300,
+    decode_ct10x,
+    decode_ct30x,
     decode_em300,
     decode_em400,
     decode_em500,
@@ -87,6 +89,10 @@ def _vs373_presence(d: dict) -> int | None:
     s = d.get("detection_status")
     return None if s in (None, "unknown") else int(s != "vacant")
 
+_CT1 = frozenset({"ct", "load", "sensor_error"})
+_CT3 = frozenset({"ct", "ct3", "load", "sensor_error"})
+_CT1_DEF = (("current_alarm_active", False), ("temperature_alarm_active", False))
+_CT3_DEF = tuple((f"current_{n}_alarm_active", False) for n in (1, 2, 3)) + (("temperature_alarm_active", False),)
 _AM_MINMAX = ("temperature", "humidity", "co2", "pm2_5")
 _AM_BASE = {"env", "pir", "light", "co2", "co2high", "tvoc", "pressure"}
 
@@ -145,6 +151,18 @@ MODELS: dict[str, Model] = {
     "EM400-MUD": Model("EM400-MUD", "EM400-MUD multifunctional ultrasonic distance", decode_em400,
                        frozenset({"battery", "em400", "fill"}), minmax_fields=("distance", "temperature"),
                        defaults=(("distance_alarm_active", False), ("temperature_alarm_active", False))),
+    "CT101": Model("CT101", "CT101 smart current transformer", decode_ct10x, _CT1, minmax_fields=("current",),
+                   defaults=_CT1_DEF),
+    "CT103": Model("CT103", "CT103 smart current transformer", decode_ct10x, _CT1, minmax_fields=("current",),
+                   defaults=_CT1_DEF),
+    "CT105": Model("CT105", "CT105 smart current transformer", decode_ct10x, _CT1, minmax_fields=("current",),
+                   defaults=_CT1_DEF),
+    "CT303": Model("CT303", "CT303 3-channel smart current transformer", decode_ct30x, _CT3,
+                   minmax_fields=("current_1", "current_2", "current_3"), defaults=_CT3_DEF),
+    "CT305": Model("CT305", "CT305 3-channel smart current transformer", decode_ct30x, _CT3,
+                   minmax_fields=("current_1", "current_2", "current_3"), defaults=_CT3_DEF),
+    "CT310": Model("CT310", "CT310 3-channel smart current transformer", decode_ct30x, _CT3,
+                   minmax_fields=("current_1", "current_2", "current_3"), defaults=_CT3_DEF),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -194,6 +212,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     e4 = decode_em400(raw)
     if "distance" in e4 or ("position" in e4 and "temperature" in e4):
         return "EM400-UDL", ["EM400-UDL", "EM400-TLD", "EM400-MUD"]
+    ct = _guess_ct(raw)
+    if ct:
+        return ct
     uc = _guess_uc(raw)
     if uc:
         return uc
@@ -253,6 +274,19 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
             k in decode_ts60x(raw) for k in ("temperature", "humidity", "probe_connected", "latitude", "temperature_alarm_status")):
         return "TS601", ["TS601", "TS602"]
     return None, list(MODELS)
+
+
+def _guess_ct(raw: bytes) -> tuple[str, list[str]] | None:
+    """CT10x (current 0x04 0x98) / CT30x (current 0x04-0x08 0x99). A payload that only has
+    temperature (0x09 0x67) is not enough to tell them apart from other devices."""
+    c1, c3 = decode_ct10x(raw), decode_ct30x(raw)
+    if "current" in c1 or c1.get("sensor_error", "").startswith("Current:"):
+        return "CT101", ["CT101", "CT103", "CT105"]
+    if any(k.startswith("current_") for k in c3) or "Current " in c3.get("sensor_error", ""):
+        return "CT303", ["CT303", "CT305", "CT310"]
+    if any(k in c1 for k in ("total_current", "energy")):     # cumulative-only uplink: same layout on CT10x / CT30x
+        return "CT101", ["CT101", "CT103", "CT105", "CT303", "CT305", "CT310"]
+    return None
 
 
 def _guess_uc(raw: bytes) -> tuple[str, list[str]] | None:
@@ -533,6 +567,42 @@ def _ts(f: frozenset[str]) -> list[EntitySpec]:
     return specs
 
 
+def _ct(f: frozenset[str]) -> list[EntitySpec]:
+    amp = dict(unit="A", device_class="current")
+    specs: list[EntitySpec] = []
+    chans = [("_1", " 1"), ("_2", " 2"), ("_3", " 3")] if "ct3" in f else [("", "")]
+    for sfx, lbl in chans:
+        specs += _measure(f"current{sfx}", f"Current{lbl}", "A", "current", icon="mdi:current-ac", precision=2)
+        specs += [
+            EntitySpec(f"total_current{sfx}", f"Cumulative current{lbl}", unit="Ah", state_class="total_increasing",
+                       icon="mdi:sigma", precision=2),
+            EntitySpec(f"energy{sfx}", f"Energy{lbl}", unit="kWh", device_class="energy",
+                       state_class="total_increasing", precision=2),
+            EntitySpec(f"current{sfx}_max", f"Current{lbl} max (last alarm)", icon="mdi:arrow-collapse-up",
+                       enabled_default=False, **amp),
+            EntitySpec(f"current{sfx}_min", f"Current{lbl} min (last alarm)", icon="mdi:arrow-collapse-down",
+                       enabled_default=False, **amp),
+            EntitySpec(f"apparent_power{sfx}", f"Estimated power{lbl}", unit="VA", device_class="apparent_power",
+                       state_class="measurement", precision=0, enabled_default=False),
+        ]
+        specs += _alarm(f"current{sfx}", f"Current{lbl}")
+    if "ct3" in f:
+        specs += [
+            EntitySpec("current_total", "Current (all channels)", state_class="measurement", icon="mdi:current-ac",
+                       precision=2, **amp),
+            EntitySpec("apparent_power", "Estimated power (all channels)", unit="VA", device_class="apparent_power",
+                       state_class="measurement", precision=0, enabled_default=False),
+        ]
+    specs += [
+        EntitySpec("temperature", "Temperature", unit="°C", device_class="temperature", state_class="measurement",
+                   precision=1),
+        EntitySpec("low_voltage_alarm", "Low voltage", platform="binary_sensor", device_class="problem",
+                   enabled_default=False),
+    ]   # "Sensor status" comes from the sensor_error feature
+    specs += _alarm("temperature", "Temperature", enabled=False)
+    return specs
+
+
 def _vs373() -> list[EntitySpec]:
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     specs = [
@@ -560,7 +630,7 @@ def _vs373() -> list[EntitySpec]:
 
 
 def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None,
-                  icon_on: str, with_left_open: bool) -> list[EntitySpec]:
+                  icon_on: str, with_left_open: bool, off_label: str | None = None) -> list[EntitySpec]:
     """Stats for a binary input. noun='Door', verb_on='open' -> 'Door open today'."""
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     cnt = dict(state_class="total_increasing", icon="mdi:counter")
@@ -571,7 +641,7 @@ def _binary_event(prefix: str, noun: str, verb_on: str, device_class: str | None
         EntitySpec(f"{p}current_s", f"{noun} {verb_on} duration", icon="mdi:timer-sand", **dur),
         EntitySpec(f"{p}since", f"{noun} {verb_on} since", kind="timestamp", device_class="timestamp", icon=icon_on),
         EntitySpec(f"{p}last_on_at", f"{noun} last {verb_on}", kind="timestamp", device_class="timestamp"),
-        EntitySpec(f"{p}last_off_at", f"{noun} last cleared" if prefix == "leak_" else f"{noun} last closed",
+        EntitySpec(f"{p}last_off_at", off_label or (f"{noun} last cleared" if prefix == "leak_" else f"{noun} last closed"),
                    kind="timestamp", device_class="timestamp"),
         EntitySpec(f"{p}last_duration_s", f"{noun} last {verb_on} duration", icon="mdi:history", **dur),
         EntitySpec(f"{p}today_s", f"{noun} {verb_on} today", icon="mdi:calendar-today", state_class="total_increasing", **dur),
@@ -665,6 +735,11 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         else:
             specs.append(EntitySpec("fill_level", "Level", unit="%", state_class="measurement",
                                     icon="mdi:waves-arrow-up", precision=0, enabled_default=False))
+    if "ct" in f:
+        specs += _ct(f)
+    if "load" in f:
+        specs += _binary_event("load_", "Load", "running", "running", "mdi:engine", with_left_open=False,
+                               off_label="Load last stopped")
     if "uc11t1" in f:
         specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
         specs += _measure("humidity", "Humidity", "%", "humidity", precision=1)

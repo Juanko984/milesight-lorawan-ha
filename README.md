@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.7.1** · [Version history](#version-history)
+**Current version: 0.8.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -18,6 +18,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **VS** – people counting & occupancy | VS121, VS321, VS340, VS341, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
 | **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
+| **CT** – current transformers | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2) | Machine / pump / compressor run time, circuit load, energy (v2) |
 | **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
 | **TS** – temperature probes & cold chain | TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602 | Fridges, freezers, cold rooms, transport |
@@ -59,6 +60,19 @@ Statistics are stored by Home Assistant and survive restarts.
 | **EM300-MCS** door / window | As EM300-TH plus door open / closed, *door left open* alarm, open duration (live), open time & number of openings today / yesterday / this week / last week / this month / last month, longest & average opening |
 | **EM300-SLD / EM300-ZLD** leak | As EM300-TH plus leak detected and leak statistics (same periods as door) |
 | **EM300-DI** | As EM300-TH plus digital input statistics, pulse counter and converted water value |
+
+### CT range – smart current transformers
+
+| Model | What you get |
+|---|---|
+| **CT101 / CT103 / CT105** (1 channel) | Current (A) + daily min/max, cumulative current (Ah), current alarm (threshold / over range), temperature, sensor status; **energy (kWh)** on firmware v2 |
+| **CT303 / CT305 / CT310** (3 channels) | The same per channel (Current 1–3), plus combined current of all channels |
+| All CT models | **Load running** with run-time statistics: running now / since, run time today, yesterday, this / last week, this / last month, starts per period, longest and average run; optional **estimated power (VA)** |
+
+*Running* means the current (on any channel) is at or above **Running above (A)** (default 0.5 A) – set it under
+**Configure** to just above the idle current of the machine. For *Estimated power*, enter the phase voltage
+(e.g. 230 V) under **Configure**; the power sensors are disabled by default – enable them on the device page.
+The energy sensors (v2) work directly in the Home Assistant **Energy dashboard**.
 
 ### EM400 range – ultrasonic distance & bins
 
@@ -173,6 +187,9 @@ Open the device's integration entry → **Configure** (⚙️). Picked the wrong
 | Offline gap (min) – time isn't counted across longer gaps | all | 120 |
 | Door left open after (min) | EM300-MCS | 10 |
 | CO2 limit (ppm) | AM300 range, EM500-CO2 | 1000 |
+| Empty distance (mm) – for fill level % | EM400 range | 0 (off) |
+| Running above (A) – for run time and starts | CT range | 0.5 |
+| Voltage for power estimate (V) | CT range | 0 (off) |
 | Count as empty after (min at 0 people / vacant) | VS121, VS321, VS340, VS341, VS370, VS373 | 2 |
 | Opening hour / closing hour / open days (for utilisation %) | VS-range | 08–17, Mon–Fri |
 
@@ -216,6 +233,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.8.0** | CT range added: CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 and v2), with load run-time statistics and estimated power. |
 | **0.7.1** | Integration icon changed to the Milesight "M". |
 | **0.7.0** | EM400 range added: EM400-UDL, EM400-TLD, EM400-MUD, with fill level % from a configurable empty distance. |
 | **0.6.0** | UC range added: UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2). Controllers get entities per channel as data arrives. |

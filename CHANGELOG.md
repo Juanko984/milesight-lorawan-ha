@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.8.0
+### Added
+- CT range: CT101, CT103, CT105 (1 channel) and CT303, CT305, CT310 (3 channels), firmware v1 and v2.
+- Current, cumulative current (Ah), energy (kWh, firmware v2), current alarms (threshold / over range), temperature,
+  temperature alarm, low-voltage event and sensor status.
+- Load running statistics for CT devices (running since, run time and starts per day / week / month, longest and
+  average run), based on the new *Running above (A)* setting.
+- Optional estimated power (VA) from the new *Voltage for power estimate (V)* setting.
+- Crosscheck covers the CT decoders (11,400+ payloads against Milesight's official decoders).
+
 ## 0.7.1
 ### Changed
 - Integration icon is now the Milesight "M" (`brand/icon.png`, `brand/icon@2x.png`).

@@ -18,6 +18,8 @@ from .const import (
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
+    CONF_MAINS_VOLTAGE,
+    CONF_RUN_THRESHOLD_A,
     CONF_DEVEUI,
     CONF_EMPTY_GRACE_MIN,
     CONF_LEFT_OPEN_MIN,
@@ -32,6 +34,7 @@ from .const import (
     DEFAULT_MAX_GAP_MIN,
     DEFAULT_OPEN_DAYS,
     DEFAULT_OPEN_HOUR,
+    DEFAULT_RUN_THRESHOLD_A,
     DOMAIN,
     SIGNAL_UPDATE,
     SIGNAL_UPLINK,
@@ -48,13 +51,23 @@ def _flag(v: Any) -> bool | None:
     return None if v is None else bool(v)
 
 
-# feature -> (extract(decoded, co2_limit) -> bool | None, status text on, status text off)
-BINARY_FEATURES: dict[str, tuple[Callable[[dict, float], bool | None], str, str]] = {
+CT_CURRENT_KEYS = ("current", "current_1", "current_2", "current_3")
+
+
+def _load_running(d: dict, lim: dict) -> bool | None:
+    """CT range: the load counts as running while any channel is at or above the threshold."""
+    amps = [d[k] for k in CT_CURRENT_KEYS if isinstance(d.get(k), (int, float))]
+    return any(a >= lim["run_a"] for a in amps) if amps else None
+
+
+# feature -> (extract(decoded, limits) -> bool | None, status text on, status text off)
+BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]] = {
     "door": (lambda d, _: _flag(d.get("magnet_status")), "Open since {t}", "Closed"),
     "leak": (lambda d, _: _flag(d.get("input_05")), "Leak since {t}", "Dry"),
     "input": (lambda d, _: _flag(d.get("input_05")), "High since {t}", "Low"),
-    "co2high": (lambda d, lim: (d["co2"] >= lim) if isinstance(d.get("co2"), (int, float)) else None,
+    "co2high": (lambda d, lim: (d["co2"] >= lim["co2"]) if isinstance(d.get("co2"), (int, float)) else None,
                 "Above limit since {t}", "OK"),
+    "load": (_load_running, "Running since {t}", "Off"),
 }
 
 
@@ -122,7 +135,8 @@ class DeviceRuntime:
                     self.cal, trackers.get(feature), max_gap_s=max_gap_s,
                     left_open_s=float(self._opt(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN)) * 60,
                 )
-        self.co2_limit = float(self._opt(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT))
+        self.limits = {"co2": float(self._opt(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT)),
+                       "run_a": float(self._opt(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))}
         if self.model.minmax_fields:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
         if "occupancy" in f:
@@ -183,7 +197,7 @@ class DeviceRuntime:
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
 
         for feature, tracker in self.binary.items():
-            tracker.update(ts, BINARY_FEATURES[feature][0](decoded, self.co2_limit))
+            tracker.update(ts, BINARY_FEATURES[feature][0](decoded, self.limits))
         if self.minmax is not None:
             self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
         if self.occupancy is not None and self.model.occupancy_fn is not None:
@@ -242,6 +256,9 @@ class DeviceRuntime:
             # distance = sensor to surface; full when the surface reaches the sensor
             v["fill_level"] = round(max(0.0, min(100.0, (height - v["distance"]) / height * 100)), 0)
 
+        if "ct" in self.model.features:
+            self._ct_values(v)
+
         for feature, tracker in self.binary.items():
             tv = tracker.values(ts)
             for k, val in tv.items():
@@ -272,6 +289,19 @@ class DeviceRuntime:
         self.values = v
         async_dispatcher_send(self.hass, SIGNAL_UPDATE.format(self.deveui))
         self.store.async_delay_save(self._data_to_save, 30)
+
+    def _ct_values(self, v: dict[str, Any]) -> None:
+        volts = float(self._opt(CONF_MAINS_VOLTAGE, 0) or 0)
+        chans = [k for k in CT_CURRENT_KEYS if isinstance(v.get(k), (int, float))]
+        if "ct3" in self.model.features:
+            chans = [k for k in chans if k != "current"]
+            if chans:
+                v["current_total"] = round(sum(v[k] for k in chans), 2)
+        if volts > 0:
+            for k in chans:
+                v[k.replace("current", "apparent_power")] = round(v[k] * volts)
+            if "current_total" in v:
+                v["apparent_power"] = round(v["current_total"] * volts)
 
     def _data_to_save(self) -> dict[str, Any]:
         trackers: dict[str, Any] = {k: t.s for k, t in self.binary.items()}

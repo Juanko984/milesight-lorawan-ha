@@ -235,6 +235,20 @@ rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known
 send("0000000000000400", bytes.fromhex("01755C036701010482fa00050000"))
 assert rt.values["fill_level"] == 75 and rt.values["tilted"] is False and rt.values["distance_alarm_active"] is False, rt.values
 print("em400 ok")
+
+# CT310: running time from the current threshold, combined current and estimated power
+e = types.SimpleNamespace(data={"entry_type": "device", "deveui": "0000000000000310", "model": "CT310"},
+                          options={"run_threshold_a": 2, "mains_voltage": 230}, title="Compressor")
+rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add("0000000000000310"); rt.async_start()
+send("0000000000000310", bytes.fromhex("049900000699000008990000"))     # all 0 A -> off
+send("0000000000000310", bytes.fromhex("0499320006990a0008990000"))     # 5.0 A, 1.0 A, 0 A
+v = rt.values
+assert v["load_active"] is True and v["load_status"].startswith("Running since"), v
+assert v["current_total"] == 6.0 and v["apparent_power_1"] == 1150 and v["apparent_power"] == 1380, v
+assert v["current_1_alarm_active"] is False and v["sensor_error"] == "OK"
+send("0000000000000310", bytes.fromhex("049905000699000008990000"))     # 0.5 A -> below threshold
+assert rt.values["load_active"] is False and rt.values["load_status"] == "Off" and rt.values["load_count_today"] == 1, rt.values
+print("ct ok")
 for i, (model, hexstr) in enumerate(uc_samples.items()):
     raw = bytes.fromhex(hexstr)
     best, cands = models.guess_model(raw)

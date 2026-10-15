@@ -8,7 +8,7 @@ random payloads with both decoders and reports any difference.
 To add a model: add its folder, decoder family and channel list to MODELS (and a
 value generator to CH if it uses a new channel).
 """
-import json, random, subprocess, sys, importlib.util, struct, types, pathlib
+import json, re, random, subprocess, sys, importlib.util, struct, types, pathlib
 HERE = pathlib.Path(__file__).resolve().parent
 PKG = HERE.parent / "custom_components" / "milesight_lorawan"
 pkg = types.ModuleType("mlw"); pkg.__path__=[str(PKG)]; sys.modules["mlw"]=pkg
@@ -131,6 +131,20 @@ def uc100v2():
     return bytes([0xF9, 0x73, R(0, 255), (R(0, 1) << 7) | (R(0, 3) << 5) | dt]) + mb_val(dt)
 UC_STAT = lambda cid: seg([cid, 0xE2], f16_safe, f16_safe, f16_safe, f16_safe)
 
+CT_ALM = lambda: bytes([R(0, 15)])
+CT10X = [seg([3, 0x97], rb(4)), seg([4, 0x98], lambda: u16(random.choice([R(0, 60000), 0xFFFF]))),
+         seg([9, 0x67], lambda: random.choice([i16(R(-300, 900)), b"\xfd\xff", b"\xff\xff"])),
+         seg([0x84, 0x98], rb(6), CT_ALM), seg([0x89, 0x67], lambda: i16(R(-300, 900)), lambda: bytes([R(0, 1)])),
+         seg([0x10, 0x63], rb(4)), seg([0x13, 0x75], lambda: bytes([1]))]
+CT10X_V1 = CT10X[:-2]            # firmware v1 has no energy / low-voltage channels
+CT30X = [seg([c, 0x97], rb(4)) for c in (3, 5, 7)] + \
+        [seg([c, 0x99], lambda: u16(random.choice([R(0, 60000), 0xFFFF]))) for c in (4, 6, 8)] + \
+        [seg([c, 0x99], rb(6), CT_ALM) for c in (0x84, 0x86, 0x88)] + \
+        [seg([c, 0x63], rb(4)) for c in (0x10, 0x11, 0x12)] + \
+        [seg([9, 0x67], lambda: random.choice([i16(R(-300, 900)), b"\xfd\xff", b"\xff\xff"])),
+         seg([0x89, 0x67], lambda: i16(R(-300, 900)), lambda: bytes([R(0, 1)])), seg([0x13, 0x75], lambda: bytes([1]))]
+CT30X_V1 = [g for idx, g in enumerate(CT30X) if not 9 <= idx <= 11][:-1]
+
 MODELS = {
  "em-series/em300-th": ("em300", [(1,0x75),(3,0x67),(4,0x68)]),
  "em-series/em300-mcs": ("em300", [(1,0x75),(3,0x67),(4,0x68),(6,0)]),
@@ -208,6 +222,18 @@ MODELS = {
                                seg([0xF9, 0x5F], lambda: bytes([R(0, 255), 0, 0]), lambda: struct.pack("<f", random.uniform(-100, 100)))]),
  "uc-series/uc100-v2": ("uc100_v2", [uc100v2, seg([0xFF, 0x15], lambda: bytes([R(0, 31)])),
                                      seg([0xF9, 0x74], lambda: bytes([R(0, 255)]), lambda: struct.pack("<d", random.uniform(-100, 100)))]),
+ "ct-series/ct101": ("ct10x", CT10X_V1),
+ "ct-series/ct101-v2": ("ct10x", CT10X),
+ "ct-series/ct103": ("ct10x", CT10X_V1),
+ "ct-series/ct103-v2": ("ct10x", CT10X),
+ "ct-series/ct105": ("ct10x", CT10X_V1),
+ "ct-series/ct105-v2": ("ct10x", CT10X),
+ "ct-series/ct303": ("ct30x", CT30X_V1),
+ "ct-series/ct303-v2": ("ct30x", CT30X),
+ "ct-series/ct305": ("ct30x", CT30X_V1),
+ "ct-series/ct305-v2": ("ct30x", CT30X),
+ "ct-series/ct310": ("ct30x", CT30X_V1),
+ "ct-series/ct310-v2": ("ct30x", CT30X),
  "vs-series/vs340": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs341": ("vs_occupancy", [(1,0x75),(3,0x00)]),
  "vs-series/vs370": ("vs_occupancy", [(1,0x75),(3,0x00),(4,0x00)]),
@@ -255,6 +281,23 @@ for folder,(kind,chans) in MODELS.items():
                  # UC100 v2: we also expose event alarms as <chn>_alarm (official only lists them under "event")
                  and not (kind == "uc100_v2" and k.endswith("_alarm"))}
             r = {k: (STR[v] if isinstance(v, str) and v in STR and v != "normal" else v) for k, v in r.items()}
+        if kind in ("ct10x", "ct30x"):
+            r2 = {}
+            for k, v in r.items():
+                if k.endswith("_sensor_status"): continue
+                m = re.fullmatch(r"current_chn(\d)(_total)?(.*)", k)
+                if m: k = ("total_current_" + m[1] if m[2] else "current_" + m[1]) + m[3]
+                m = re.fullmatch(r"ch(\d)_sumkwh", k)
+                if m: k = "energy" if kind == "ct10x" else f"energy_{m[1]}"
+                if k.endswith("_alarm") and isinstance(v, dict):
+                    flags = [f for f in ("threshold_alarm", "threshold_alarm_release", "over_range_alarm", "over_range_alarm_release")
+                             if any(kk.endswith(f) and kk[: -len(f)].endswith("current_") and vv == "yes" for kk, vv in v.items())]
+                    if flags: r2[k + "_status"] = ", ".join(flags)
+                    continue
+                if k == "temperature_alarm": k, v = k + "_status", v.replace("temperature ", "").replace(" ", "_")
+                if k == "low_voltage_alarm": v = v.get("alarm_type") == "low voltage alarm"
+                r2[k] = v
+            r = r2
         if kind.startswith("ts") and kind != "ts60x":
             r2 = {}
             for k, v in r.items():

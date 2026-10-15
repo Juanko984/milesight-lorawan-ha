@@ -1417,3 +1417,98 @@ def decode_em400(b: bytes) -> dict[str, Any]:
         else:
             break
     return out
+
+
+# --------------------------------------------------------------------------
+# CT range – smart current transformers
+#   CT101 / CT103 / CT105: one channel   (current 0x04 0x98, uint16 / 100 A)
+#   CT303 / CT305 / CT310: three channels (current 0x04/06/08 0x99, uint16 / 10 A)
+# Firmware v2 adds energy (0x10-0x12 0x63, kWh) and a low-voltage event (0x13 0x75); the
+# v2 format is a superset of v1, so one decoder serves both.
+# Checked against Milesight-IoT/SensorDecoders (ct-series).
+# --------------------------------------------------------------------------
+_CT_ALARM_BITS = ("threshold_alarm", "threshold_alarm_release", "over_range_alarm", "over_range_alarm_release")
+_CT_TEMP_ALARM = {0: ("threshold_alarm_release", False), 1: ("threshold_alarm", True)}
+
+
+def _ct_alarm(out: dict, name: str, code: int) -> None:
+    flags = [n for bit, n in enumerate(_CT_ALARM_BITS) if code >> bit & 1]
+    if not flags:
+        return
+    out[f"{name}_alarm_status"] = ", ".join(flags)
+    if code & 0b0101:
+        out[f"{name}_alarm_active"] = True
+    elif code & 0b1010:
+        out[f"{name}_alarm_active"] = False
+
+
+def _ct_temperature(out: dict, b: bytes, i: int) -> None:
+    raw = _u16le(b, i)
+    if raw in (0xFFFD, 0xFFFF):
+        out["sensor_error"] = "Temperature: " + ("over range" if raw == 0xFFFD else "read failed")
+    else:
+        out["temperature"] = _i16le(b, i) / 10
+
+
+def _decode_ct(b: bytes, channels: int) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    single = channels == 1
+    ctype_i = 0x98 if single else 0x99
+    div = 100 if single else 10
+
+    def name(base: str, ch: int) -> str:
+        return base if single else f"{base}_{ch}"
+
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        ch_total = (cid - 0x01) // 2 if cid in (0x03, 0x05, 0x07)[:channels] else None
+        ch_now = (cid - 0x02) // 2 if cid in (0x04, 0x06, 0x08)[:channels] else None
+        ch_alarm = (cid - 0x82) // 2 if cid in (0x84, 0x86, 0x88)[:channels] else None
+        if n is not None:
+            i += n
+        elif ch_total is not None and ctype == 0x97 and _need(b, i, 4):
+            out[name("total_current", ch_total)] = _u32le(b, i) / 100
+            i += 4
+        elif ch_now is not None and ctype == ctype_i and _need(b, i, 2):
+            raw = _u16le(b, i)
+            if raw == 0xFFFF:
+                out["sensor_error"] = f"{name('current', ch_now).replace('_', ' ').capitalize()}: read failed"
+            else:
+                out[name("current", ch_now)] = raw / div
+            i += 2
+        elif ch_alarm is not None and ctype == ctype_i and _need(b, i, 7):
+            key = name("current", ch_alarm)
+            out[f"{key}_max"] = _u16le(b, i) / div
+            out[f"{key}_min"] = _u16le(b, i + 2) / div
+            out[key] = _u16le(b, i + 4) / div
+            _ct_alarm(out, key, b[i + 6])
+            i += 7
+        elif cid == 0x09 and ctype == 0x67 and _need(b, i, 2):
+            _ct_temperature(out, b, i)
+            i += 2
+        elif cid == 0x89 and ctype == 0x67 and _need(b, i, 3):
+            out["temperature"] = _i16le(b, i) / 10
+            _ts_alarm(out, "temperature", b[i + 2], _CT_TEMP_ALARM)
+            i += 3
+        elif 0x10 <= cid < 0x10 + channels and ctype == 0x63 and _need(b, i, 4):
+            out[name("energy", cid - 0x0F)] = _u32le(b, i) / 100
+            i += 4
+        elif cid == 0x13 and ctype == 0x75 and _need(b, i, 1):
+            out["low_voltage_alarm"] = b[i] == 1
+            i += 1
+        else:
+            break
+    if "sensor_error" not in out and any(k.startswith("current") for k in out):
+        out["sensor_error"] = "OK"
+    return out
+
+
+def decode_ct10x(b: bytes) -> dict[str, Any]:
+    return _decode_ct(b, 1)
+
+
+def decode_ct30x(b: bytes) -> dict[str, Any]:
+    return _decode_ct(b, 3)

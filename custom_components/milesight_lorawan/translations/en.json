@@ -64,7 +64,9 @@
           "close_hour": "Closing hour",
           "open_days": "Open days",
           "co2_limit": "CO2 limit (ppm)",
-          "install_height_mm": "Empty distance (mm)"
+          "install_height_mm": "Empty distance (mm)",
+          "run_threshold_a": "Running above (A)",
+          "mains_voltage": "Voltage for power estimate (V)"
         },
         "data_description": {
           "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
@@ -72,7 +74,9 @@
           "close_hour": "Use 24 for midnight.",
           "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page.",
           "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline.",
-          "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off."
+          "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off.",
+          "run_threshold_a": "The load counts as running while the current (any channel) is at or above this. Used for running time and start counts.",
+          "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, apparent power in VA). 0 = off."
         }
       }
     }

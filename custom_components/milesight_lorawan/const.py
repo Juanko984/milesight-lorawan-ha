@@ -28,6 +28,8 @@ CONF_CLOSE_HOUR = "close_hour"
 CONF_OPEN_DAYS = "open_days"
 CONF_CO2_LIMIT = "co2_limit"
 CONF_INSTALL_HEIGHT_MM = "install_height_mm"
+CONF_RUN_THRESHOLD_A = "run_threshold_a"
+CONF_MAINS_VOLTAGE = "mains_voltage"
 
 DEFAULT_MAX_GAP_MIN = 120
 DEFAULT_LEFT_OPEN_MIN = 10
@@ -35,6 +37,7 @@ DEFAULT_EMPTY_GRACE_MIN = 2
 DEFAULT_OPEN_HOUR = 8
 DEFAULT_CLOSE_HOUR = 17
 DEFAULT_CO2_LIMIT = 1000
+DEFAULT_RUN_THRESHOLD_A = 0.5
 DEFAULT_OPEN_DAYS = ["mon", "tue", "wed", "thu", "fri"]
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
