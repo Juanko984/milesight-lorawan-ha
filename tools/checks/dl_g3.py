@@ -9,10 +9,19 @@ FMT = {"u8": (1, "little", False), "u16le": (2, "little", False), "u16be": (2, "
        "u32le": (4, "little", False), "i16le": (2, "little", True), "i32le": (4, "little", True)}
 
 
-def template(spec, v):
-    n, order, signed = FMT[spec["value"]]
-    return spec["prefix"] + int(round(v * spec["scale"])).to_bytes(n, order, signed=signed).hex() + spec.get("suffix", "")
 
+# --- use the integration's own encoder, so this check validates it -----------------------------
+import importlib.util as _ilu, sys as _sys, types as _types, pathlib as _pl
+_PKG = _pl.Path(__file__).resolve().parents[2] / "custom_components" / "milesight_lorawan"
+if "mlw.decoders" not in _sys.modules:
+    _p = _types.ModuleType("mlw"); _p.__path__ = [str(_PKG)]; _sys.modules["mlw"] = _p
+    _s = _ilu.spec_from_file_location("mlw.decoders", _PKG / "decoders.py")
+    _m = _ilu.module_from_spec(_s); _sys.modules["mlw.decoders"] = _m; _s.loader.exec_module(_m)
+_dec = _sys.modules["mlw.decoders"]
+
+
+def template(spec, v):
+    return _dec.encode_template(spec, v).hex()
 
 def set_path(payload, path, v):
     p = copy.deepcopy(payload)

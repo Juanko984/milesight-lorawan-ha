@@ -12,6 +12,7 @@ import struct
 from decimal import ROUND_HALF_UP, Decimal
 from dataclasses import dataclass, field
 from datetime import datetime
+from collections.abc import Callable
 from typing import Any
 
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
@@ -3753,3 +3754,1181 @@ def encode_template(spec: dict, value: float | None = None) -> bytes:
         raise ValueError(f"value {value} outside {lo}..{hi}")
     raw = round(value * spec.get("scale", 1))
     return bytes.fromhex(spec["prefix"]) + struct.pack(_TEMPLATE_FMT[spec["value"]], raw) + bytes.fromhex(spec.get("suffix", ""))
+
+
+# --------------------------------------------------------------------------
+# Stored history records (g1) – checked against the official decoders (tools/checks/hist_g1.py)
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# Stored history (data logging / retransmission) – group g1
+# EM300 / EM320 / EM410 / EM500 / TS / AM100 / AM300 / AM300L / AT101 / CTH01
+# Checked against Milesight-IoT/SensorDecoders (history arrays of the official decoders).
+# Each history_<family>(b) returns [(unix_timestamp, {our_key: value, ...}), ...] in payload order.
+# Values use the same keys as the live decoders; text-only fields (event / report type) are dropped,
+# sentinel / error readings are left out of the record. Empty records are not returned.
+# Non-history channels in the same payload are skipped with the live decoder's channel lengths;
+# configuration replies or unknown data stop the scan.
+# --------------------------------------------------------------------------
+def _hist_fixed(table: dict) -> Callable[[int, int, bytes, int], int | None]:
+    return lambda cid, ctype, b, i: table.get((cid, ctype))
+
+
+def _hist_scan(b: bytes, recs: dict, skip: Callable[[int, int, bytes, int], int | None] | None) -> list[tuple[int, dict]]:
+    """Channel-format scan. recs: {(cid, ctype): (record length incl. 4-byte timestamp, parser(b, i) -> dict)}."""
+    b = bytes(b)
+    res: list[tuple[int, dict]] = []
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        rec = recs.get((cid, ctype))
+        if rec is not None:
+            size, parse = rec
+            if not _need(b, i, size):
+                break
+            vals = parse(b, i)
+            if vals:
+                res.append((_u32le(b, i), vals))
+            i += size
+            continue
+        n = _decode_common(cid, ctype, b, i, {})
+        if n is None and skip is not None:
+            n = skip(cid, ctype, b, i)
+        if n is None or not _need(b, i, n):
+            break
+        i += n
+    return res
+
+
+def _hist_mag(v: int) -> int | None:
+    """0 = close, 1 = open (official readMagnetStatus); anything else is unknown."""
+    return v if v in (0, 1) else None
+
+
+def _hist_put(out: dict, key: str, v: Any) -> None:
+    if v is not None:
+        out[key] = v
+
+
+# ---- live channel lengths used to skip non-history data ---------------------
+_HIST_SKIP_EM500 = _hist_fixed({
+    (0xFF, 0x1B): 5, (0x01, 0x75): 1, (0x03, 0x67): 2, (0x83, 0xD7): 5, (0x04, 0x68): 1, (0x04, 0xCA): 2,
+    (0x05, 0x7D): 2, (0x06, 0x73): 2, (0x03, 0x7B): 2, (0x03, 0x94): 4, (0x05, 0x7F): 2, (0x03, 0x77): 2,
+    (0x03, 0x82): 2, (0x83, 0xE9): 5})
+_HIST_SKIP_EM300 = _hist_fixed({
+    (0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x68): 1, (0x06, 0x00): 1, (0x05, 0x00): 1, (0x85, 0x00): 2,
+    (0x05, 0xC8): 4, (0x05, 0xE1): 8, (0x85, 0xE1): 9})
+_HIST_SKIP_AM300 = _hist_fixed({
+    (0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x68): 1, (0x05, 0x00): 1, (0x06, 0xCB): 1, (0x07, 0x7D): 2,
+    (0x08, 0x7D): 2, (0x08, 0xE6): 2, (0x09, 0x73): 2, (0x0A, 0x7D): 2, (0x0B, 0x7D): 2, (0x0C, 0x7D): 2,
+    (0x0D, 0x7D): 2, (0x0E, 0x01): 1, (0x0F, 0x7D): 2})
+_HIST_SKIP_RDL = _hist_fixed({
+    (0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x82): 2, (0x05, 0x00): 1, (0x06, 0xC7): 2, (0x84, 0x82): 3,
+    (0x94, 0x82): 5, (0xB4, 0x82): 3})
+_HIST_SKIP_AT101 = _hist_fixed({
+    (0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x88): 9, (0x84, 0x88): 9, (0x05, 0x00): 1, (0x06, 0xD9): 9,
+    (0x07, 0x00): 1, (0x83, 0x67): 3})
+_HIST_EM320V2_LIVE = {
+    (0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x9A): 2, (0x04, 0x68): 1, (0x05, 0x6B): 1, (0x05, 0x9C): 1,
+    (0x83, 0x67): 3, (0x93, 0x67): 5, (0x84, 0x9A): 3, (0x84, 0x68): 2, (0x94, 0x9A): 5, (0x94, 0x68): 3,
+    (0xB3, 0x67): 2, (0xB4, 0x68): 2, (0xB4, 0x9A): 2}
+
+
+def _hist_skip_em320v2(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    if cid == 0xF9:
+        return _EM320_F9_SKIP.get(ctype)
+    return _HIST_EM320V2_LIVE.get((cid, ctype))
+
+
+def _hist_skip_ts(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    """Same channel lengths as _decode_ts (TS101 / TS201 / TS301 / TS302)."""
+    if cid == 0xFF and ctype == 0xA0:
+        return 9
+    if cid == 0x01 and ctype == 0x75:
+        return 1
+    hi, lo = cid & 0xF0, cid & 0x0F
+    if lo not in (3, 4):
+        return None
+    size = {0x67: 2, 0x9A: 2, 0x68: 1}.get(ctype)
+    if hi == 0x00:
+        return 1 if ctype == 0x00 else size
+    if hi == 0xB0:
+        return 1 if size else None
+    if hi == 0x80:
+        return size + 1 if size else None
+    if hi == 0x90:
+        return 5 if ctype == 0xD7 else (size + 2 if ctype == 0x68 else (size + 3 if size else None))
+    return None
+
+
+def _hist_skip_am10x(co2: bool) -> Callable[[int, int, bytes, int], int | None]:
+    table = {(0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x68): 1, (0xFF, 0x09): 2, (0xFF, 0x18): 2}
+    if co2:
+        table[(0x07, 0x7D)] = 2
+
+    def skip(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+        n = table.get((cid, ctype))
+        if n is None and cid in (0xFE, 0xFF):
+            n = _am10x_config_len(ctype, b, i, co2)
+        return n
+    return skip
+
+
+def _hist_skip_am30xl(co2: bool) -> Callable[[int, int, bytes, int], int | None]:
+    table = {(0xFF, 0x0B): 1, (0xFF, 0x01): 1, (0xFF, 0x09): 2, (0x01, 0x75): 1, (0x03, 0x67): 2,
+             (0x04, 0x68): 1, (0x05, 0x9F): 2, (0x05, 0x00): 1, (0x06, 0xCB): 1, (0x06, 0x9D): 2,
+             (0x83, 0x67): 3, (0x86, 0x9D): 3}
+    if co2:
+        table.update({(0x07, 0x7D): 2, (0x87, 0x7D): 3})
+    for key in _AM30XL_ANOMALY:
+        if co2 or key[0] != 0xB7:
+            table[key] = 1
+
+    def skip(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+        n = table.get((cid, ctype))
+        return _am30xl_cfg_len(cid, ctype, b, i, co2) if n is None else n
+    return skip
+
+
+# ---- EM500 range (0x20 0xCE) -------------------------------------------------
+def _hist_em500_err(raw: int) -> bool:
+    return raw in (0xFFFF, 0xFFFD)
+
+
+def history_em500_co2(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-CO2: co2 (ppm), pressure (hPa), temperature, humidity."""
+    return _hist_scan(b, {(0x20, 0xCE): (11, lambda b, i: {
+        "co2": _u16le(b, i + 4), "pressure": _u16le(b, i + 6) / 10, "temperature": _i16le(b, i + 8) / 10,
+        "humidity": b[i + 10] / 2})}, _HIST_SKIP_EM500)
+
+
+def history_em500_lgt(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-LGT: illumination (lux)."""
+    return _hist_scan(b, {(0x20, 0xCE): (8, lambda b, i: {"illumination": _u32le(b, i + 4)})}, _HIST_SKIP_EM500)
+
+
+def history_em500_pp(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-PP: pipe pressure (kPa)."""
+    return _hist_scan(b, {(0x20, 0xCE): (6, lambda b, i: {"pressure_kpa": _i16le(b, i + 4)})}, _HIST_SKIP_EM500)
+
+
+def history_temperature6(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-PT100 / TS101: 6-byte record, temperature only."""
+    return _hist_scan(b, {(0x20, 0xCE): (6, lambda b, i: {"temperature": _i16le(b, i + 4) / 10})},
+                      lambda c, t, bb, i: _HIST_SKIP_EM500(c, t, bb, i) or _hist_skip_ts(c, t, bb, i))
+
+
+def _hist_smtc(b: bytes, i: int) -> dict:
+    out: dict[str, Any] = {}
+    raw = _u16le(b, i + 4)
+    if not _hist_em500_err(raw):
+        out["electricity"] = raw
+    raw = _u16le(b, i + 6)
+    if not _hist_em500_err(raw):
+        out["temperature"] = _i16le(b, i + 6) / 10
+    raw = _u16le(b, i + 8)
+    if not _hist_em500_err(raw):
+        out["moisture"] = raw / 100
+    return out
+
+
+def history_em500_smtc(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-SMTC: electricity (µS/cm), temperature, moisture (%); 0xFFFF / 0xFFFD error readings dropped."""
+    return _hist_scan(b, {(0x20, 0xCE): (10, _hist_smtc)}, _HIST_SKIP_EM500)
+
+
+def history_em500_swl(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-SWL: depth (cm); 0xFFFF / 0xFFFD error readings dropped."""
+    return _hist_scan(b, {(0x20, 0xCE): (6, lambda b, i: {} if _hist_em500_err(_u16le(b, i + 4))
+                                          else {"depth": _u16le(b, i + 4)})}, _HIST_SKIP_EM500)
+
+
+def history_em500_udl(b: bytes) -> list[tuple[int, dict]]:
+    """EM500-UDL: distance (mm)."""
+    return _hist_scan(b, {(0x20, 0xCE): (6, lambda b, i: {"distance": _u16le(b, i + 4)})}, _HIST_SKIP_EM500)
+
+
+# ---- TS range (channel format) ------------------------------------------------
+def _hist_ts201(b: bytes, i: int) -> dict:
+    out: dict[str, Any] = {}
+    sensor_type, event = b[i + 4], b[i + 8]
+    if (event >> 6) & 0x03 == 0:                       # temperature sensor status normal
+        out["temperature"] = _i16le(b, i + 5) / 10
+    if sensor_type == 2 and (event >> 4) & 0x03 == 0:  # SHT4x: humidity too
+        out["humidity"] = b[i + 7] / 2
+    return out
+
+
+def history_ts201(b: bytes) -> list[tuple[int, dict]]:
+    """TS201 v2: temperature (+ humidity for the SHT4x probe); readings flagged as read error / out of range dropped."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, _hist_ts201)}, _hist_skip_ts)
+
+
+def _hist_ts_v2_channel(b: bytes, i: int, sfx: str) -> dict:
+    """TS301 / TS302 v2 record: mask, humidity (i16), temperature (i16). -999 = none, -1000/-1001 = magnet."""
+    out: dict[str, Any] = {}
+    for key, raw in (("temperature", _i16le(b, i + 7)), ("humidity", _i16le(b, i + 5))):
+        if raw in (-1000, -1001):
+            out[f"magnet_status{sfx}"] = 0 if raw == -1000 else 1
+        elif raw not in (-999, -1002):
+            out[f"{key}{sfx}"] = raw / 10
+    return out
+
+
+def history_ts301(b: bytes) -> list[tuple[int, dict]]:
+    """TS301 (current firmware): temperature / humidity, or magnet_status (0 closed, 1 open) for a contact probe."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, lambda b, i: _hist_ts_v2_channel(b, i, ""))}, _hist_skip_ts)
+
+
+def history_ts302(b: bytes) -> list[tuple[int, dict]]:
+    """TS302 (current firmware): 0x20 = probe 1 (_1 keys), 0x21 = probe 2 (_2 keys)."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, lambda b, i: _hist_ts_v2_channel(b, i, "_1")),
+                          (0x21, 0xCE): (9, lambda b, i: _hist_ts_v2_channel(b, i, "_2"))}, _hist_skip_ts)
+
+
+def _hist_ts_v1_value(out: dict, b: bytes, j: int, mode: int, sfx: str) -> None:
+    if 1 <= mode <= 4:
+        out[f"temperature{sfx}"] = _i16le(b, j) / 10
+    elif mode in (5, 6):
+        _hist_put(out, f"magnet_status{sfx}", _hist_mag(_u16le(b, j)))
+
+
+def _hist_ts301_v1(b: bytes, i: int) -> dict:
+    out: dict[str, Any] = {}
+    _hist_ts_v1_value(out, b, i + 5, b[i + 4] >> 4, "")
+    return out
+
+
+def _hist_ts302_v1(b: bytes, i: int) -> dict:
+    out: dict[str, Any] = {}
+    _hist_ts_v1_value(out, b, i + 5, b[i + 4] >> 4, "_1")
+    _hist_ts_v1_value(out, b, i + 7, b[i + 4] & 0x0F, "_2")
+    return out
+
+
+def history_ts301_v1(b: bytes) -> list[tuple[int, dict]]:
+    """TS301 (older firmware): temperature or magnet_status depending on the record's event nibble."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, _hist_ts301_v1)}, _hist_skip_ts)
+
+
+def history_ts302_v1(b: bytes) -> list[tuple[int, dict]]:
+    """TS302 (older firmware): two probes in one record (temperature_N or magnet_status_N)."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, _hist_ts302_v1)}, _hist_skip_ts)
+
+
+# ---- command format: TS601 / TS602 and CTH01 (0xED <type> <u32 time> + ordinary commands) ----------
+def _hist_values(d: dict) -> dict:
+    return {k: v for k, v in d.items() if isinstance(v, (int, float)) and not k.startswith("_")}
+
+
+def history_ts60x(b: bytes) -> list[tuple[int, dict]]:
+    """TS601 / TS602: each 0xED record is followed by the normal commands (temperature, humidity, battery …)."""
+    b = bytes(b)
+    res: list[tuple[int, dict]] = []
+    _, i = _parse_ts60x(b)
+    while i + 6 <= len(b) and b[i] == 0xED:
+        ts = _u32le(b, i + 2)
+        out, n = _parse_ts60x(b[i + 6:])
+        vals = _hist_values(out)
+        if vals:
+            res.append((ts, vals))
+        i += 6 + n
+    return res
+
+
+def _cth01_next(b: bytes, i: int) -> int | None:
+    """Index after the CTH01 command starting at b[i] (same lengths as _parse_cth01), None if truncated."""
+    cmd = b[i]
+    i += 1
+    n = _wt_info(cmd, b, i, {}, extra=True)
+    if n is not None:
+        return i + n
+    if cmd in (0x01, 0x02):
+        n = 2
+    elif cmd in (0x03, 0x04, 0x05, 0x06):
+        n = {0x03: 24, 0x04: 6, 0x05: 36, 0x06: 6}[cmd]
+    elif cmd == 0x07:
+        if not _need(b, i, 1):
+            return None
+        n = 1 + sum(3 if b[i] >> g & 1 else 1 for g in range(4))
+    elif cmd in _CTH_MASKED:
+        if not _need(b, i, 1):
+            return None
+        n = 1 + sum(12 if b[i] >> g & 1 else 4 for g in range(2))
+    elif 0x30 <= cmd <= 0x35:
+        head = 2 if cmd in (0x31, 0x32, 0x33, 0x34) else 1
+        if not _need(b, i, head):
+            return None
+        code = b[i + head - 1]
+        with_value = {0x30: range(0x10, 0x18), 0x31: (1, 2, 4, *range(0x10, 0x18)), 0x32: (1, 2, 4, *range(0x10, 0x18)),
+                      0x33: (0x12, 0x13), 0x34: (0x12, 0x13), 0x35: (0x12, 0x13)}[cmd]
+        n = head + ((3 if cmd == 0x31 else 2) if code in with_value else 0)
+    elif cmd == 0x36:
+        n = 0
+    elif cmd == 0x40:
+        n = 1
+    elif cmd == 0xCF:
+        if not _need(b, i, 1):
+            return None
+        n = 2 if b[i] == 0xD8 and _need(b, i, 2) else 1
+    elif cmd in _CTH_SKIP:
+        skip = _CTH_SKIP[cmd]
+        n = skip(b, i) if callable(skip) else skip
+    else:
+        n = 0                                   # unknown id: one byte, like the official decoder
+    return i + n if _need(b, i, n) else None
+
+
+def history_cth01(b: bytes) -> list[tuple[int, dict]]:
+    """CTH01: each 0xED record is followed by ordinary measurement commands (current_ctN, voltage_lN, energy …)."""
+    b = bytes(b)
+    res: list[tuple[int, dict]] = []
+    i = 0
+    while i < len(b) and b[i] != 0xED:          # live part before the first record
+        n = _cth01_next(b, i)
+        if n is None:
+            return res
+        i = n
+    while i + 6 <= len(b) and b[i] == 0xED:
+        ts = _u32le(b, i + 2)
+        j = i + 6
+        while j < len(b) and b[j] != 0xED:
+            n = _cth01_next(b, j)
+            if n is None:
+                j = len(b)
+                break
+            j = n
+        vals = _hist_values(_parse_cth01(b[i + 6:j])[0])
+        if vals:
+            res.append((ts, vals))
+        i = j
+    return res
+
+
+# ---- EM300 / EM320 range -------------------------------------------------------
+def _hist_th(b: bytes, i: int) -> dict:
+    return {"temperature": _i16le(b, i + 4) / 10, "humidity": b[i + 6] / 2}
+
+
+def history_th7(b: bytes) -> list[tuple[int, dict]]:
+    """EM320-TH (v1) / AM102 / AM102L: 7-byte record temperature + humidity."""
+    return _hist_scan(b, {(0x20, 0xCE): (7, _hist_th)},
+                      lambda c, t, bb, i: _HIST_SKIP_EM300(c, t, bb, i) or _hist_skip_am10x(False)(c, t, bb, i))
+
+
+def history_em300_th(b: bytes) -> list[tuple[int, dict]]:
+    """EM300-TH: 8-byte record temperature + humidity (last byte unused)."""
+    return _hist_scan(b, {(0x20, 0xCE): (8, _hist_th)}, _HIST_SKIP_EM300)
+
+
+def history_em300_mcs(b: bytes) -> list[tuple[int, dict]]:
+    """EM300-MCS: temperature, humidity, magnet_status (0 closed, 1 open)."""
+    def rec(b: bytes, i: int) -> dict:
+        out = _hist_th(b, i)
+        _hist_put(out, "magnet_status", _hist_mag(b[i + 7]))
+        return out
+    return _hist_scan(b, {(0x20, 0xCE): (8, rec)}, _HIST_SKIP_EM300)
+
+
+def history_em300_leak(b: bytes) -> list[tuple[int, dict]]:
+    """EM300-SLD / EM300-ZLD: temperature, humidity, input_05 (1 = leak), as the live decoder."""
+    def rec(b: bytes, i: int) -> dict:
+        out = _hist_th(b, i)
+        _hist_put(out, "input_05", _hist_mag(b[i + 7]))
+        return out
+    return _hist_scan(b, {(0x20, 0xCE): (8, rec)}, _HIST_SKIP_EM300)
+
+
+def history_em300_mld(b: bytes) -> list[tuple[int, dict]]:
+    """EM300-MLD: leak (1 = leak); bytes 4-6 of the record are unused."""
+    return _hist_scan(b, {(0x20, 0xCE): (8, lambda b, i: {} if b[i + 7] not in (0, 1) else {"leak": b[i + 7]})},
+                      _HIST_SKIP_EM300)
+
+
+def _hist_di_water(out: dict, b: bytes, i: int) -> dict:
+    mode = b[i + 8]
+    if mode == 1:
+        _hist_put(out, "input_05", _hist_mag(b[i + 9]))
+    elif mode == 2:
+        out["water_conv"] = _u16le(b, i + 10) / 10
+        out["pulse_conv"] = _u16le(b, i + 12) / 10
+        out["water"] = _f32(b, i + 14, True)
+    return out
+
+
+def _hist_di_20(b: bytes, i: int) -> dict:
+    out = _hist_th(b, i)
+    mode = b[i + 7]
+    if mode == 1:
+        _hist_put(out, "input_05", _hist_mag(b[i + 8]))
+    elif mode == 2:
+        out["pulse_count"] = _u32le(b, i + 9)
+    return out
+
+
+def history_em300_di(b: bytes) -> list[tuple[int, dict]]:
+    """EM300-DI: 0x20 = temperature, humidity, input_05 or pulse_count; 0x21 (water meter firmware) = temperature,
+    humidity, input_05 or water_conv / pulse_conv / water."""
+    return _hist_scan(b, {(0x20, 0xCE): (13, _hist_di_20),
+                          (0x21, 0xCE): (18, lambda b, i: _hist_di_water(_hist_th(b, i), b, i))}, _HIST_SKIP_EM300)
+
+
+def history_em300_di_hall(b: bytes) -> list[tuple[int, dict]]:
+    """EM300-DI-HALL: 0x21 record = input_05 or water_conv / pulse_conv / water (no temperature)."""
+    return _hist_scan(b, {(0x21, 0xCE): (18, lambda b, i: _hist_di_water({}, b, i))}, _HIST_SKIP_EM300)
+
+
+def _hist_em320v2(b: bytes, i: int) -> dict:
+    out: dict[str, Any] = {}
+    if _u16le(b, i + 4) not in (0x8001, 0x8002, 0x8003):
+        out["temperature"] = _i16le(b, i + 4) / 10
+    if _u16le(b, i + 6) != 0xFFFF:
+        out["humidity"] = _u16le(b, i + 6) / 10
+    return out
+
+
+def history_em320_th_v2(b: bytes) -> list[tuple[int, dict]]:
+    """EM320-TH (v2 firmware): temperature, humidity (0.1 %); error markers dropped."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, _hist_em320v2)}, _hist_skip_em320v2)
+
+
+def _hist_rdl(b: bytes, i: int) -> dict:
+    out: dict[str, Any] = {}
+    if _u16le(b, i + 4) not in (0xFFFD, 0xFFFE, 0xFFFF):
+        out["distance"] = _i16le(b, i + 4)
+    if _u16le(b, i + 6) not in (0xFFFE, 0xFFFF):
+        out["temperature"] = _i16le(b, i + 6) / 10
+    if b[i + 10] & 0x10:                               # mutation alarm event
+        out["distance_mutation"] = _i16le(b, i + 8)
+    return out
+
+
+def history_em410_rdl(b: bytes) -> list[tuple[int, dict]]:
+    """EM410-RDL / EM411-RDL: distance (mm), temperature, distance_mutation (mutation-alarm records)."""
+    return _hist_scan(b, {(0x20, 0xCE): (11, _hist_rdl)}, _HIST_SKIP_RDL)
+
+
+# ---- AM100 / AM300 / AM300L ranges ---------------------------------------------------
+def history_am103(b: bytes) -> list[tuple[int, dict]]:
+    """AM103 / AM103L: temperature, humidity, co2."""
+    return _hist_scan(b, {(0x20, 0xCE): (9, lambda b, i: {**_hist_th(b, i), "co2": _u16le(b, i + 7)})},
+                      _hist_skip_am10x(True))
+
+
+def _hist_am300(tvoc_key: str, extra: tuple) -> Callable[[bytes, int], dict]:
+    def rec(b: bytes, i: int) -> dict:
+        out: dict[str, Any] = {"temperature": _i16le(b, i + 4) / 10, "humidity": _u16le(b, i + 6) / 2}
+        _hist_put(out, "pir", _hist_mag(b[i + 8]))
+        out["light_level"] = b[i + 9]
+        out["co2"] = _u16le(b, i + 10)
+        out[tvoc_key] = _u16le(b, i + 12) / 100 if tvoc_key == "tvoc_iaq" else _u16le(b, i + 12)
+        out["pressure"] = _u16le(b, i + 14) / 10
+        for n, (key, div) in enumerate(extra):
+            out[key] = _u16le(b, i + 16 + 2 * n) / div if div != 1 else _u16le(b, i + 16 + 2 * n)
+        return out
+    return rec
+
+
+def _hist_am300_recs(extra: tuple, ids: tuple = (0x20, 0x21)) -> dict:
+    size = 16 + 2 * len(extra)
+    return {(ids[0], 0xCE): (size, _hist_am300("tvoc_iaq", extra)), (ids[1], 0xCE): (size, _hist_am300("tvoc", extra))}
+
+
+_HIST_AM307 = _hist_am300_recs(())
+_HIST_AM308 = _hist_am300_recs((("pm2_5", 1), ("pm10", 1)))
+_HIST_AM319_HCHO = _hist_am300_recs((("pm2_5", 1), ("pm10", 1), ("hcho", 100)))
+_HIST_AM319_O3 = _hist_am300_recs((("pm2_5", 1), ("pm10", 1), ("o3", 100)))
+_HIST_AM319_WELL = _hist_am300_recs((("pm2_5", 1), ("hcho", 1000)), ids=(0x22, 0x23))
+
+
+def history_am307(b: bytes) -> list[tuple[int, dict]]:
+    """AM307: temperature, humidity, pir (0/1), light_level, co2, tvoc_iaq (0x20) or tvoc µg/m³ (0x21), pressure."""
+    return _hist_scan(b, _HIST_AM307, _HIST_SKIP_AM300)
+
+
+def history_am308(b: bytes) -> list[tuple[int, dict]]:
+    """AM308: as AM307 plus pm2_5, pm10."""
+    return _hist_scan(b, _HIST_AM308, _HIST_SKIP_AM300)
+
+
+def history_am319_hcho(b: bytes) -> list[tuple[int, dict]]:
+    """AM319 HCHO: as AM308 plus hcho (mg/m³)."""
+    return _hist_scan(b, _HIST_AM319_HCHO, _HIST_SKIP_AM300)
+
+
+def history_am319_o3(b: bytes) -> list[tuple[int, dict]]:
+    """AM319 O3: as AM308 plus o3 (ppm)."""
+    return _hist_scan(b, _HIST_AM319_O3, _HIST_SKIP_AM300)
+
+
+def history_am319_hcho_well(b: bytes) -> list[tuple[int, dict]]:
+    """AM319 HCHO (Well sensor): records on 0x22 (TVOC index) / 0x23 (TVOC µg/m³), pm2_5, hcho (/1000), no pm10."""
+    return _hist_scan(b, _HIST_AM319_WELL, _HIST_SKIP_AM300)
+
+
+def _hist_am30xl(lux: bool, co2: bool) -> Callable[[bytes, int], dict]:
+    def rec(b: bytes, i: int) -> dict:
+        out: dict[str, Any] = {}
+        if b[i + 4] == 1:                              # 1 = data valid
+            out["temperature"] = _i16le(b, i + 5) / 10
+        if b[i + 7] == 1:
+            out["humidity"] = b[i + 8] / 2
+        if (b[i + 9] >> 6) & 1:
+            status = b[i + 9] & 0x3F
+            out["pir"] = status == 1
+            out["occupancy"] = 1 if status == 1 else 0
+            out["pir_count"] = _u16le(b, i + 10)
+        if b[i + 12] == 1:
+            out["illuminance_lux" if lux else "light_level"] = _u16le(b, i + 13)
+        if co2 and b[i + 15] == 1:
+            out["co2"] = _u16le(b, i + 16)
+        return out
+    return rec
+
+
+def history_am304l(b: bytes) -> list[tuple[int, dict]]:
+    """AM304L: 0x20 = light level, 0x21 = lux variant; temperature, humidity, pir/occupancy, pir_count (valid fields only)."""
+    return _hist_scan(b, {(0x20, 0xCE): (15, _hist_am30xl(False, False)), (0x21, 0xCE): (15, _hist_am30xl(True, False))},
+                      _hist_skip_am30xl(False))
+
+
+def history_am305l(b: bytes) -> list[tuple[int, dict]]:
+    """AM305L: as AM304L plus co2."""
+    return _hist_scan(b, {(0x20, 0xCE): (18, _hist_am30xl(False, True)), (0x21, 0xCE): (18, _hist_am30xl(True, True))},
+                      _hist_skip_am30xl(True))
+
+
+# ---- AT101 ------------------------------------------------------------------------
+def history_at101(b: bytes) -> list[tuple[int, dict]]:
+    """AT101: stored GNSS fixes (latitude, longitude)."""
+    return _hist_scan(b, {(0x20, 0xCE): (12, lambda b, i: {"latitude": _i32le(b, i + 8) / 1_000_000,
+                                                            "longitude": _i32le(b, i + 4) / 1_000_000})},
+                      _HIST_SKIP_AT101)
+
+
+# --------------------------------------------------------------------------
+# Stored history records (g23) – checked against the official decoders (tools/checks/hist_g23.py)
+# --------------------------------------------------------------------------
+# ==========================================================================
+# Stored history (data logging) records – VS / UC / WS / WT ranges (survey group g2 + g3).
+# Each history_<family>(b) returns [(unix_timestamp, {our_key: value}), ...] in payload order.
+# Non-history channels are skipped with the lengths the official decoders use; parsing stops
+# (returns what was found so far) at unknown or truncated data. Records without any value are dropped.
+# Checked against Milesight's official JS decoders (hist/g23_check.py).
+# ==========================================================================
+
+
+def _h23_scan(b: bytes, hist: dict, fixed: dict, skip=None) -> list[tuple[int, dict]]:
+    """hist[(cid, ctype)] = parser(b, i) -> (consumed, ts, values) | None;
+    fixed[(cid, ctype)] = length | fn(b, i) -> length | None; skip(cid, ctype, b, i) -> length | None."""
+    recs: list[tuple[int, dict]] = []
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        p = hist.get((cid, ctype))
+        if p is not None:
+            r = p(b, i)
+            if r is None:
+                break
+            n, ts, vals = r
+            i += n
+            if vals:
+                recs.append((ts, vals))
+            continue
+        n = fixed.get((cid, ctype))
+        if callable(n):
+            n = n(b, i)
+        if n is None and skip is not None:
+            n = skip(cid, ctype, b, i)
+        if n is None:
+            n = _decode_common(cid, ctype, b, i, {})
+        if n is None or not _need(b, i, n):
+            break
+        i += n
+    return recs
+
+
+# ---- VS121 people counter (0x20 0xCE: ts u32 + type u8 + data) -------------------------------
+def _h23_vs121_rec(b: bytes, i: int):
+    if not _need(b, i, 5):
+        return None
+    ts, t, j = _u32le(b, i), b[i + 4], i + 5
+    v: dict[str, Any] = {}
+    if t == 0x11:
+        if not _need(b, j, 5):
+            return None
+        v["dwell_time_avg"] = _u16le(b, j + 1)
+        v["dwell_time_max"] = _u16le(b, j + 3)
+        return 10, ts, v
+    if t == 0x03:
+        if not _need(b, j, 1):
+            return None
+        v["people_count_max"] = b[j]
+        return 6, ts, v
+    if not 0x01 <= t <= 0x12 or not _need(b, j, 4):
+        return None
+    if t == 0x01:
+        v["people_count_all"] = b[j]
+        v["region_count"] = b[j + 1]
+        mask = _u16be(b, j + 2)
+        for r in range(b[j + 1]):
+            v[f"region_{r + 1}"] = (mask >> r) & 1
+    elif t == 0x02:
+        v["people_in"], v["people_out"] = _u16le(b, j), _u16le(b, j + 2)
+    elif 0x04 <= t <= 0x07:
+        base = (t - 0x04) * 4 + 1
+        for r in range(4):
+            v[f"region_{base + r}_count"] = b[j + r]
+    elif 0x08 <= t <= 0x0F:
+        src = "abcd"[(t - 0x08) // 2]
+        dst = "ab" if t % 2 == 0 else "cd"
+        v[f"{src}_to_{dst[0]}"], v[f"{src}_to_{dst[1]}"] = _u16le(b, j), _u16le(b, j + 2)
+    elif t == 0x10:
+        v["people_total_in"], v["people_total_out"] = _u16le(b, j), _u16le(b, j + 2)
+    else:                                   # 0x12
+        v["line_in"], v["line_out"] = _u16le(b, j), _u16le(b, j + 2)
+    return 9, ts, v
+
+
+_H23_VS121_FIXED = {(0x04, 0xC9): 4, (0x05, 0xCC): 4, (0x06, 0xCD): 1, (0x07, 0xD5): 8, (0x08, 0xD5): 8,
+                    (0x09, 0xDA): 8, (0x0A, 0xDA): 8, (0x0B, 0xDA): 8, (0x0C, 0xDA): 8, (0x0D, 0xCC): 4,
+                    (0x0E, 0xE4): 5, (0x0F, 0x85): 4, (0x10, 0xF7): 4}
+
+
+def history_vs121(b: bytes) -> list[tuple[int, dict]]:
+    """VS121 AI people counter history."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_vs121_rec}, _H23_VS121_FIXED)
+
+
+# ---- VS321 occupancy / people counting (0x20 0xCE: ts + mode + data) --------------------------
+def _h23_vs321_rec(b: bytes, i: int):
+    if not _need(b, i, 5):
+        return None
+    ts, mode = _u32le(b, i), b[i + 4]
+    if mode == 0 and _need(b, i, 7):
+        return 7, ts, {"people_count_all": _u16le(b, i + 5)}
+    if mode == 1 and _need(b, i, 9):
+        mask, data = _u16le(b, i + 5), _u16le(b, i + 7)
+        v: dict[str, Any] = {}
+        for r in range(10):
+            v[f"region_{r + 1}_enable"] = "enable" if (mask >> r) & 1 else "disable"
+            v[f"region_{r + 1}"] = (data >> r) & 1
+        return 9, ts, v
+    return None
+
+
+_H23_VS321_FIXED = {(0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x68): 1, (0x05, 0xFD): 2, (0x06, 0xFE): 4,
+                    (0x07, 0xFF): 1, (0x08, 0xF4): 2, (0x0A, 0xEF): 4, (0x83, 0x67): 3, (0x84, 0x68): 2}
+
+
+def history_vs321(b: bytes) -> list[tuple[int, dict]]:
+    """VS321 AI occupancy sensor history (people count or region occupancy)."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_vs321_rec}, _H23_VS321_FIXED)
+
+
+# ---- VS133 / VS135 ToF people counter (0x20 0xCE: ts + type + data, 9 or 8 bytes) --------------
+def _h23_vs133_rec(b: bytes, i: int):
+    if not _need(b, i, 5):
+        return None
+    ts, t, j = _u32le(b, i), b[i + 4], i + 5
+    v: dict[str, Any] = {}
+    if t in (0x10, 0x20, 0x1E, 0x3C):
+        if not _need(b, i, 8):
+            return None
+        pre = f"region_{b[j]}_child" if t in (0x1E, 0x3C) else f"region_{b[j]}"
+        v[f"{pre}_dwell_time_{'avg' if t in (0x10, 0x1E) else 'max'}"] = _u16le(b, j + 1)
+        return 8, ts, v
+    if not (0x03 <= t <= 0x0F or 0x11 <= t <= 0x1D) or not _need(b, i, 9):
+        return None
+    if t in (0x0F, 0x1D):
+        suffix = "child_count" if t == 0x1D else "count"
+        for r in range(4):
+            v[f"region_{r + 1}_{suffix}"] = b[j + r]
+        return 9, ts, v
+    child = t >= 0x11
+    base = t - (0x0E if child else 0)          # 0x03..0x0E
+    line = (base - 0x03) // 3 + 1
+    pre = f"line_{line}_child" if child else f"line_{line}"
+    kind = (base - 0x03) % 3                   # 0 total in, 1 total out, 2 period
+    if kind == 2:
+        v[f"{pre}_in"], v[f"{pre}_out"] = _u16le(b, j), _u16le(b, j + 2)
+        if line == 1 and not child:
+            v["people_in"], v["people_out"] = v[f"{pre}_in"], v[f"{pre}_out"]
+    else:
+        d = "in" if kind == 0 else "out"
+        v[f"{pre}_total_{d}"] = _u32le(b, j)
+        if line == 1 and not child:
+            v[f"people_total_{d}"] = v[f"{pre}_total_{d}"]
+    return 9, ts, v
+
+
+def _h23_vs133_len(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    if cid == 0xFF and ctype == 0xD4:
+        return 5
+    if ctype == 0xD2 and (0x03 <= cid <= 0x0D or 0x11 <= cid <= 0x1B) and \
+            ((cid - 0x0E) if cid >= 0x11 else cid) % 3 != 2:
+        return 4
+    if ctype == 0xCC and cid in (0x05, 0x08, 0x0B, 0x0E, 0x13, 0x16, 0x19, 0x1C):
+        return 4
+    if ctype == 0xE3 and cid in (0x0F, 0x1D):
+        return 4
+    if ctype == 0xE4 and cid in (0x10, 0x1E):
+        return 5
+    if cid == 0x50 and ctype == 0xFC:
+        return 3
+    return _vs_skip(cid, ctype, b, i, _VS133_SKIP, _VS133_SKIP_EXT)
+
+
+def history_vs133(b: bytes) -> list[tuple[int, dict]]:
+    """VS133 / VS135 AI ToF people counter history (lines 1-4, regions, child counting)."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_vs133_rec}, {}, _h23_vs133_len)
+
+
+# ---- VS350 / VS351 / VS360 passage counters (0x20 0xCE: ts + type + period [+ total]) ----------
+def _h23_vs35x_rec(b: bytes, i: int):
+    if not _need(b, i, 5):
+        return None
+    ts, t = _u32le(b, i), b[i + 4]
+    n = {0: 9, 1: 13}.get(t)
+    if n is None or not _need(b, i, n):
+        return None
+    v = {"people_in": _u16le(b, i + 5), "people_out": _u16le(b, i + 7)}
+    if t == 1:
+        v["people_total_in"], v["people_total_out"] = _u16le(b, i + 9), _u16le(b, i + 11)
+    return n, ts, v
+
+
+_H23_VS35X_FIXED = {(0x01, 0x75): 1, (0x02, 0x75): 1, (0xFF, 0xCC): 1, (0x03, 0x67): 2, (0x83, 0x67): 3,
+                    (0x03, 0xF4): 2, (0x04, 0xCC): 4, (0x84, 0xCC): 5, (0x05, 0xCC): 4, (0x85, 0xCC): 5,
+                    (0x0A, 0xEF): 4, (0x81, 0xEE): 1}
+_H23_VS35X_SKIP = {**_VS350_SKIP, **_VS351_SKIP, **_VS360_SKIP}
+_H23_VS35X_EXT = {**_VS_EXT_REPORT_TYPE, **_VS351_SKIP_EXT}
+
+
+def history_vs35x(b: bytes) -> list[tuple[int, dict]]:
+    """VS350 / VS351 / VS360 passage people counter history (period in/out, optional totals)."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_vs35x_rec}, _H23_VS35X_FIXED,
+                     lambda c, t, b_, i: _vs_skip(c, t, b_, i, _H23_VS35X_SKIP, _H23_VS35X_EXT))
+
+
+# ---- VS373 radar fall detection (0x20 0xCE: ts + alarm event, 9 bytes) -------------------------
+def _h23_vs373_rec(b: bytes, i: int):
+    if not _need(b, i, 9):
+        return None
+    v: dict[str, Any] = {"alarm_id": _u16le(b, i + 4), "alarm_type": _map(VS373_ALARM_TYPE, b[i + 6]),
+                         "alarm_status": _map(VS373_ALARM_STATUS, b[i + 7])}
+    if b[i + 6] in (3, 6, 7):
+        v["region_id"] = b[i + 8]
+    return 9, _u32le(b, i), v
+
+
+_H23_VS373_FIXED = {(0x03, 0xF8): 6, (0x07, 0xB0): 8, (0x04, 0xF9): 4, (0x09, 0xB2): 6, (0x0A, 0xB3): 5,
+                    (0x05, 0xFA): 8, (0x0B, 0xB4): 9, (0x0C, 0xB4): 9, (0x06, 0xFB): 5, (0x08, 0xB1): 3}
+
+
+def history_vs373(b: bytes) -> list[tuple[int, dict]]:
+    """VS373 history = stored alarm events (same fields as the live 'events' entries)."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_vs373_rec}, _H23_VS373_FIXED)
+
+
+# ---- UC300 (0x20 0xDC: I/O channels by mask, 0x20 0xDD: Modbus channels by mask) ---------------
+def _h23_uc300_io(b: bytes, i: int):
+    if not _need(b, i, 6):
+        return None
+    ts, mask, j = _u32le(b, i), _u16le(b, i + 4), i + 6
+    v: dict[str, Any] = {}
+    for k in range(13):
+        if not mask >> k & 1:
+            continue
+        if k < 4:
+            if not _need(b, j, 5):
+                return None
+            raw = _u32le(b, j + 1)
+            if b[j] == 0:
+                v[f"gpio_input_{k + 1}"] = 1 if raw == 1 else 0
+            else:
+                v[f"gpio_counter_{k + 1}"] = raw
+            j += 5
+        elif k < 6:
+            if not _need(b, j, 1):
+                return None
+            v[f"gpio_output_{k - 3}"] = 1 if b[j] == 1 else 0
+            j += 1
+        elif k < 8:
+            if not _need(b, j, 2):
+                return None
+            v[f"pt100_{k - 5}"] = _f16(b, j, True)
+            j += 2
+        elif k < 12:
+            if not _need(b, j, 8):
+                return None
+            _stats16(v, f"{'adc' if k < 10 else 'adv'}_{(k - 8) % 2 + 1}", b, j, True)
+            j += 8
+        else:                                  # custom text message (not a measurement)
+            if not _need(b, j, 48):
+                return None
+            j += 48
+    return j - i, ts, v
+
+
+def _h23_uc300_modbus(b: bytes, i: int):
+    if not _need(b, i, 8):
+        return None
+    ts, mask, j = _u32le(b, i), _u32le(b, i + 4), i + 8
+    v: dict[str, Any] = {}
+    for k in range(32):
+        if not mask >> k & 1:
+            continue
+        if not _need(b, j, 5):
+            return None
+        ddef = b[j]
+        dtype = ddef & 0x7F
+        if dtype <= 11:
+            res = _modbus_value(b, j + 1, dtype, bool(ddef >> 7), True, hi_word=True)
+            if res is not None:
+                v[f"modbus_chn_{k + 1}"] = res[0]
+        j += 5
+    return j - i, ts, v
+
+
+def _h23_uc300_len(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    if 0x03 <= cid <= 0x06 and ctype == 0x00 or cid in (0x07, 0x08) and ctype == 0x01:
+        return 1
+    if 0x03 <= cid <= 0x06 and ctype == 0xC8 or 0x0B <= cid <= 0x0E and ctype == 0x02:
+        return 4
+    if cid in (0x09, 0x0A) and ctype == 0x67:
+        return 2
+    if 0x09 <= cid <= 0x0E and ctype == 0xE2:
+        return 8
+    if cid == 0xFF and ctype == 0x15:
+        return 1
+    if cid == 0xFF and ctype == 0x19:
+        nxt = _modbus_19({}, b, i, True, hi_word=True)
+        return None if nxt is None else nxt - i
+    return None
+
+
+def history_uc300(b: bytes) -> list[tuple[int, dict]]:
+    """UC300 history: I/O (GPIO, PT100, AI/AV statistics) and Modbus records, in payload order."""
+    return _h23_scan(b, {(0x20, 0xDC): _h23_uc300_io, (0x20, 0xDD): _h23_uc300_modbus}, {}, _h23_uc300_len)
+
+
+# ---- UC501 / UC502 (0x20 0xDC GPIO+AI, 0x20 0xE0 SDI-12, 0x20 0xDD Modbus) ----------------------
+def _h23_uc50x_io(b: bytes, i: int):
+    if not _need(b, i, 22):
+        return None
+    v: dict[str, Any] = {}
+    for n, j in ((1, i + 4), (2, i + 9)):
+        t, raw = b[j], _u32le(b, j + 1)
+        if t == 0:
+            v[f"gpio_input_{n}"] = 1 if raw == 1 else 0
+        elif t == 1:
+            v[f"gpio_output_{n}"] = 1 if raw == 1 else 0
+        elif t == 2:
+            v[f"gpio_counter_{n}"] = raw
+    v["analog_input_1"] = _i32le(b, i + 14) / 1000
+    v["analog_input_2"] = _i32le(b, i + 18) / 1000
+    return 22, _u32le(b, i), v
+
+
+def _h23_uc50x_sdi12(b: bytes, i: int):
+    if not _need(b, i, 6):
+        return None
+    n = 6 + 36 * bin(_u16le(b, i + 4)).count("1")
+    return (n, _u32le(b, i), {}) if _need(b, i, n) else None       # text only: no numeric values
+
+
+def _h23_uc50x_modbus(b: bytes, i: int):
+    if not _need(b, i, 6):
+        return None
+    ts, mask, j = _u32le(b, i), _u16le(b, i + 4), i + 6
+    v: dict[str, Any] = {}
+    for k in range(16):
+        if not mask >> k & 1:
+            continue
+        if not _need(b, j, 5):
+            return None
+        v[f"modbus_chn_{k + 1}"] = _f32(b, j + 1, False) if b[j] & 0x07 in (5, 7) else _u32le(b, j + 1)
+        j += 5
+    return j - i, ts, v
+
+
+def _h23_uc50x_len(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    if cid in (0x03, 0x04) and ctype in (0x00, 0x01) or cid == 0x01 and ctype == 0x75 \
+            or cid == 0xFF and ctype in (0x14, 0x15):
+        return 1
+    if cid in (0x03, 0x04) and ctype == 0xC8:
+        return 4
+    if cid in (0x05, 0x06) and ctype in (0x02, 0xE2):
+        return 8
+    if cid in (0x85, 0x86) and ctype == 0xE2:
+        return 9
+    if cid == 0x08 and ctype == 0xDB:
+        return 37
+    if cid in (0xFF, 0x80) and ctype == 0x0E and _need(b, i, 2):
+        size = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 6: 4, 5: 4, 7: 4}[b[i + 1] & 0x07]
+        return 2 + size + (1 if cid == 0x80 else 0)
+    return None
+
+
+def history_uc50x(b: bytes) -> list[tuple[int, dict]]:
+    """UC501 / UC502 history: GPIO + analog inputs, Modbus (SDI-12 text records are skipped)."""
+    return _h23_scan(b, {(0x20, 0xDC): _h23_uc50x_io, (0x20, 0xE0): _h23_uc50x_sdi12,
+                         (0x20, 0xDD): _h23_uc50x_modbus}, {}, _h23_uc50x_len)
+
+
+# ---- UC511 / UC512 valve controller (0x20 0xCE valve/GPIO/pulse, 0x21 0xCE pipe pressure) -------
+def _h23_uc51x_valve(b: bytes, i: int):
+    if not _need(b, i, 9):
+        return None
+    val = b[i + 4]
+    idx = 2 if val >> 4 & 1 else 1
+    v: dict[str, Any] = {f"valve_{idx}": val & 1}
+    if val >> 1 & 1:
+        v[f"valve_{idx}_pulse"] = _u32le(b, i + 5)
+    else:
+        v[f"gpio_{idx}"] = val >> 2 & 1
+    return 9, _u32le(b, i), v
+
+
+def _h23_uc51x_pressure(b: bytes, i: int):
+    return (6, _u32le(b, i), {"pressure": _u16le(b, i + 4)}) if _need(b, i, 6) else None
+
+
+_H23_UC51X_FIXED = {(0x01, 0x75): 1, (0x03, 0x01): 1, (0x05, 0x01): 1, (0x04, 0xC8): 4, (0x06, 0xC8): 4,
+                    (0x07, 0x01): 1, (0x08, 0x01): 1, (0x09, 0x7B): 2, (0xB9, 0x7B): 1, (0x0B, 0xF5): 9,
+                    (0xF8, 0xA4): 8, (0xF8, 0xA5): 2, (0xF8, 0xA8): 9, (0xF9, 0xA7): 3, (0xF9, 0xA8): 8,
+                    (0x0E, 0xAF): 3, (0x0F, 0xAF): 3, (0xF8, 0xAF): 3}
+
+
+def history_uc51x(b: bytes) -> list[tuple[int, dict]]:
+    """UC511 / UC512 solenoid valve controller history."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_uc51x_valve, (0x21, 0xCE): _h23_uc51x_pressure}, _H23_UC51X_FIXED)
+
+
+# ---- UC100 Modbus converter, firmware v1 (0x20 0xCE: ts + chn + def + 4-byte value) -----------
+def _h23_uc100_rec(b: bytes, i: int):
+    if not _need(b, i, 10):
+        return None
+    ts, chn, ddef, j = _u32le(b, i), f"modbus_chn_{b[i + 4] + 1}", b[i + 5], i + 6
+    v: dict[str, Any] = {}
+    if ddef >> 1 & 1:                          # read ok
+        t, sign = (ddef >> 2) & 0x1F, bool(ddef >> 7)
+        if t in (0, 1):
+            v[chn] = 1 if b[j] == 1 else 0
+        elif t in (2, 3, 14, 15, 4, 5, 6, 7, 16, 17, 18, 19):
+            v[chn] = _i32le(b, j) if sign else _u32le(b, j)
+        elif t in (8, 9, 20, 21):
+            v[chn] = _i16le(b, j) if sign else _u16le(b, j)
+        elif 10 <= t <= 13 or 22 <= t <= 25:
+            v[chn] = _f32(b, j, True)
+    return 10, ts, v
+
+
+def _h23_uc100_len(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    if cid == 0xFF and ctype == 0x15:
+        return 1
+    if cid == 0xF9 and ctype == 0x5F:
+        return 7
+    if cid == 0x20 and ctype == 0xCD and _need(b, i, 5):     # custom message history: text only
+        return 5 + b[i + 4]
+    if cid == 0xFF and ctype in (0x19, 0xEE):
+        nxt = _modbus_19({}, b, i, True, bool_types=(0, 1))   # same layout: chn, len/flags, def, value
+        return None if nxt is None else nxt - i
+    return None
+
+
+def history_uc100(b: bytes) -> list[tuple[int, dict]]:
+    """UC100 (firmware v1) Modbus history."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_uc100_rec}, {}, _h23_uc100_len)
+
+
+# ---- UC100 v2 (0x21 0xCE: ts + chn + def u16 + 2 x 8-byte values) ------------------------------
+def _h23_uc100v2_value(b: bytes, j: int, t: int, sign: bool):
+    if t in (0, 1):
+        return 1 if b[j] == 1 else 0
+    if t in (2, 3, 8, 9, 20, 21, 14, 15):
+        return _i16le(b, j) if sign else _u16le(b, j)
+    if 4 <= t <= 7 or 16 <= t <= 19:
+        return _i32le(b, j) if sign else _u32le(b, j)
+    if 10 <= t <= 13 or 22 <= t <= 25:
+        return _f32(b, j, True)
+    if 30 <= t <= 33 or 38 <= t <= 41:
+        return int.from_bytes(b[j:j + 8], "little", signed=sign)
+    if 26 <= t <= 29 or 34 <= t <= 37:
+        return _f64(b, j)
+    return 0                                   # the official decoder reports 0 for unknown types
+
+
+def _h23_uc100v2_rec(b: bytes, i: int):
+    if not _need(b, i, 23):
+        return None
+    ts, chn, d = _u32le(b, i), f"modbus_chn_{b[i + 4] + 1}", _u16le(b, i + 5)
+    v: dict[str, Any] = {}
+    if d >> 8 & 1:
+        t, sign = (d >> 9) & 0x3F, bool(d >> 15)
+        v[chn] = _h23_uc100v2_value(b, i + 7, t, sign)
+        if (d >> 6) & 0x03 == 2:
+            v[f"{chn}_reg_2"] = _h23_uc100v2_value(b, i + 15, t, sign)
+    return 23, ts, v
+
+
+def _h23_uc100v2_len(cid: int, ctype: int, b: bytes, i: int) -> int | None:
+    if cid == 0xFF and ctype == 0x15:
+        return 1
+    if cid == 0xF9 and ctype == 0x74:
+        return 9
+    if cid == 0x21 and ctype == 0xCD and _need(b, i, 5):
+        return 5 + b[i + 4]
+    if cid == 0xFC:                            # history response: 1 byte after the 2-byte header
+        return 1
+    if cid == 0xF9 and ctype == 0x73 and _need(b, i, 2):
+        res = _modbus_value(b, i + 2, b[i + 1] & 0x1F, bool(b[i + 1] >> 7), True, bool_types=(0, 1))
+        return None if res is None else 2 + res[1]
+    return None
+
+
+def history_uc100_v2(b: bytes) -> list[tuple[int, dict]]:
+    """UC100 (firmware v2) Modbus history (register 1 and optional register 2)."""
+    return _h23_scan(b, {(0x21, 0xCE): _h23_uc100v2_rec}, {}, _h23_uc100v2_len)
+
+
+# ---- WS203 motion + T/H sensor (0x20 0xCE: ts + type + occupancy + temperature + humidity) -----
+def _h23_ws203_rec(b: bytes, i: int):
+    if not _need(b, i, 9):
+        return None
+    v: dict[str, Any] = {"temperature": _i16le(b, i + 6) / 10, "humidity": b[i + 8] / 2}
+    if b[i + 5] in (0, 1):
+        v["occupancy"] = b[i + 5]
+    return 9, _u32le(b, i), v
+
+
+def history_ws203(b: bytes) -> list[tuple[int, dict]]:
+    """WS203 motion & temperature / humidity sensor history."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_ws203_rec},
+                     {(0x01, 0x75): 1, (0x03, 0x67): 2, (0x04, 0x68): 1, (0x05, 0x00): 1, (0x83, 0x67): 3})
+
+
+# ---- WT201 v1 thermostat (0x20 0xCE: ts + 2 packed u16) ----------------------------------------
+def _h23_wt201_rec(b: bytes, i: int):
+    if not _need(b, i, 8):
+        return None
+    v1, v2 = _u16le(b, i + 4), _u16le(b, i + 6)
+    v: dict[str, Any] = {
+        "fan_mode": _WT201_FAN[v1 & 0x03],
+        "fan_status": _WT201_FAN_STATUS[v1 >> 2 & 0x03],
+        "system_status": bool(v1 >> 4 & 1),
+        "temperature": ((v1 >> 5 & 0x7FF) - 1000) / 10,
+        "temperature_control_mode": ("heat", "em heat", "cool", "auto")[v2 & 0x03],
+        "temperature_control_status": _WT201_STATUS.get(v2 >> 2 & 0x07, "unknown"),
+        "target_temperature": ((v2 >> 5 & 0x7FF) - 1000) / 10,
+    }
+    return 8, _u32le(b, i), v
+
+
+_H23_WT201_FIXED = {(0x03, 0x67): 2, (0x04, 0x67): 2, (0x05, 0xE7): 1, (0x06, 0xE8): 1, (0x07, 0xBC): 1,
+                    (0x08, 0x8E): 1, (0x09, 0x68): 1, (0x0A, 0x6E): 1, (0xFF, 0xCB): 3, (0x83, 0x67): 2,
+                    (0xB3, 0x67): 1, (0xB9, 0x68): 1}
+
+
+def history_wt201(b: bytes) -> list[tuple[int, dict]]:
+    """WT201 (firmware v1) thermostat history."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_wt201_rec}, _H23_WT201_FIXED)
+
+
+# ---- WT201 v2 / WT211 thermostat (0x20 0xCE: ts + packed u16 + 2 targets + temperature + humidity)
+def _h23_wt201v2_rec(b: bytes, i: int):
+    if not _need(b, i, 13):
+        return None
+    m = _u16le(b, i + 4)
+    v: dict[str, Any] = {
+        "system_status": bool(m & 1),
+        "fan_mode": ("auto", "on", "circulate", "disable")[m >> 1 & 0x03],
+        "fan_status": ("standby", "high speed", "low speed", "on")[m >> 3 & 0x03],
+        "temperature_control_mode": ("heat", "em heat", "cool", "auto")[m >> 5 & 0x03],
+        "temperature_control_status": _WT201_STATUS.get(m >> 7 & 0x0F, "unknown"),
+        "target_temperature": _i16le(b, i + 6) / 10,
+    }
+    if _u16le(b, i + 8) != 0xFFFF:
+        v["target_temperature_2"] = _i16le(b, i + 8) / 10
+    v["temperature"] = _i16le(b, i + 10) / 10
+    v["humidity"] = b[i + 12] / 2
+    return 13, _u32le(b, i), v
+
+
+_H23_WT201V2_FIXED = {**_H23_WT201_FIXED, (0x0B, 0x67): 2, (0x07, 0xE9): 1, (0x87, 0xE9): 2, (0x83, 0x67): 3,
+                      (0xF9, 0x40): 7}
+
+
+def history_wt201_v2(b: bytes) -> list[tuple[int, dict]]:
+    """WT201 v2 / WT211 thermostat history."""
+    return _h23_scan(b, {(0x20, 0xCE): _h23_wt201v2_rec}, _H23_WT201V2_FIXED)
+
+
+# ---- WT102 radiator thermostat (command format: 0xED type ts(4) starts a record; the commands
+#      that follow, up to the next 0xED, are that record's values) -------------------------------
+def history_wt102(b: bytes) -> list[tuple[int, dict]]:
+    """WT102 history: each 0xED marker opens a record filled by the following commands."""
+    recs: list[tuple[int, dict]] = []
+    cur: tuple[int, dict] | None = None
+    i = 0
+    while i < len(b):
+        if b[i] == 0xED:
+            if not _need(b, i, 6):
+                break
+            if cur is not None and cur[1]:
+                recs.append(cur)
+            cur = (_u32le(b, i + 2), {})
+            i += 6
+            continue
+        out, n = _parse_wt102(b[i:])
+        if n == 0:
+            break
+        if cur is not None:
+            cur[1].update({k: v for k, v in out.items() if isinstance(v, (int, float))})
+        i += n
+    if cur is not None and cur[1]:
+        recs.append(cur)
+    return recs
+
+
+def encode_fields(spec: dict, values: dict[str, Any]) -> bytes:
+    """Multi-field setting: prefix + fields + suffix (see downlinks.json "settings").
+    A field is a constant ({"const": hex}), an enum ({"map": {...}}, optionally derived from another field via
+    "from" and shifted / OR-ed via "bits"), or a number ({"value": fmt, "scale": n})."""
+    out = bytearray(bytes.fromhex(spec.get("prefix", "")))
+    for f in spec["fields"]:
+        if "const" in f:
+            out += bytes.fromhex(f["const"])
+            continue
+        src = values.get(f.get("from", f["name"]))
+        if "map" in f:
+            if src not in f["map"]:
+                raise ValueError(f"{f['name']}: {src!r} not one of {list(f['map'])}")
+            raw = int(f["map"][src])
+            bits = f.get("bits") or {}
+            if bits:
+                orv = bits.get("or", 0)
+                raw = (raw << int(bits.get("shift", 0))) | (int(orv, 16) if isinstance(orv, str) else int(orv))
+        else:
+            if src is None:
+                raise ValueError(f"{f['name']} required")
+            lo, hi = f.get("min"), f.get("max")
+            if (lo is not None and src < lo) or (hi is not None and src > hi):
+                raise ValueError(f"{f['name']} {src} outside {lo}..{hi}")
+            raw = round(float(src) * f.get("scale", 1))
+        fmt = _TEMPLATE_FMT.get(f.get("value", "u8"))
+        if fmt is None:
+            fmt = {"i32le": "<i", "u24le": None}.get(f["value"])
+        if f.get("value") == "u24le":
+            out += int(raw).to_bytes(3, "little")
+        else:
+            out += struct.pack(fmt, int(raw))
+    out += bytes.fromhex(spec.get("suffix", ""))
+    return bytes(out)
+
+
+def encode_template_fields(spec: dict, values: dict[str, Any]) -> bytes:
+    """Templates with "fields" (e.g. fetch history start / end)."""
+    return encode_fields(spec, values)

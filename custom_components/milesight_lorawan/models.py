@@ -809,6 +809,89 @@ def _command_specs(model_key: str) -> list[EntitySpec]:
     return specs
 
 
+_SETTING_LABEL = {"child_lock": ("Child lock", "mdi:lock"), "child_lock_feature": ("Child lock feature", "mdi:lock-check"),
+                  "led_indicator": ("LED indicator", "mdi:led-on"), "buzzer": ("Buzzer", "mdi:volume-high")}
+_FIELD_LABEL = {"min": "low", "max": "high", "condition": "", "enable": "enabled", "level1": "level 1", "level2": "level 2",
+                "threshold": "threshold", "threshold_in": "in threshold", "threshold_out": "out threshold"}
+_MAIN_FIELDS = ("condition", "enable", "min", "max", "level1", "level2", "threshold", "threshold_in", "threshold_out",
+                "mode")
+
+
+def _measure_label(setting: str) -> str:
+    base = setting.removesuffix("_alarm")
+    m = re.fullmatch(r"(\w+?)_(\d)", base)
+    words = {"pm2_5": "PM2.5", "co2": "CO2", "tvoc": "TVOC", "vaping_index": "Vaping index",
+             "people_period": "People per period", "people_cumulative": "People total"}
+    if m and base not in words:
+        return f"{words.get(m[1], m[1].replace('_', ' ').capitalize())} {m[2]}"
+    return words.get(base, base.replace("_", " ").capitalize())
+
+
+PULSE_SOURCES = ("pulse_count", "gpio_counter", "gpio_counter_1", "gpio_counter_2", "gpio_counter_3", "gpio_counter_4")
+
+
+def pulse_capable(model_key: str) -> bool:
+    """Models with a pulse counter that can be turned into a utility meter reading."""
+    m = MODELS[model_key]
+    return "pulse" in m.features or model_key in ("UC11XX", "UC11-N1", "UC300", "UC501", "UC502")
+
+
+def meter_spec(meter_type: str, unit: str) -> EntitySpec:
+    dc = {"water": "water", "gas": "gas", "energy": "energy"}[meter_type]
+    icon = {"water": "mdi:water", "gas": "mdi:meter-gas", "energy": "mdi:meter-electric"}[meter_type]
+    return EntitySpec("meter_reading", f"{meter_type.capitalize()} meter", unit=unit, device_class=dc,
+                      state_class="total_increasing", icon=icon, precision=3)
+
+
+def setting_spec(model_key: str, setting: str) -> dict | None:
+    return downlinks(model_key).get("settings", {}).get(setting)
+
+
+def setting_field(model_key: str, key: str) -> tuple[str, dict | None]:
+    """Entity key 'set_<setting>__<field>' -> (setting, field spec)."""
+    setting, _, field = key.removeprefix("set_").partition("__")
+    spec = setting_spec(model_key, setting) or {}
+    return setting, next((f for f in spec.get("fields", []) if f["name"] == field), None)
+
+
+def _setting_specs(model_key: str) -> list[EntitySpec]:
+    specs: list[EntitySpec] = []
+    cfg = dict(diagnostic=True)
+    for name, sp in downlinks(model_key).get("settings", {}).items():
+        if "on" in sp:
+            label, icon = _SETTING_LABEL.get(name, (name.replace("_", " ").capitalize(), "mdi:cog"))
+            specs.append(EntitySpec(f"set_{name}", label, platform="switch", icon=icon, **cfg))
+            continue
+        measure = _measure_label(name)
+        for f in sp.get("fields", []):
+            fname = f["name"]
+            if fname.startswith("_") or "const" in f or "from" in f:
+                continue
+            extra = _FIELD_LABEL.get(fname, fname.replace("_", " "))
+            label = f"{measure} alarm {extra}".strip()
+            enabled = fname in _MAIN_FIELDS
+            key = f"set_{name}__{fname}"
+            if "map" in f:
+                specs.append(EntitySpec(key, label, platform="select", icon="mdi:alarm-light-outline",
+                                        enabled_default=enabled, **cfg))
+            else:
+                specs.append(EntitySpec(key, label, platform="number", unit=f.get("unit") or None,
+                                        icon="mdi:tune-vertical", enabled_default=enabled, **cfg))
+    hist = downlinks(model_key).get("history")
+    if hist:
+        if hist.get("fetch") or hist.get("fetch_since"):
+            specs.append(EntitySpec("cmd_fetch_history", "Fetch stored data (24 h)", platform="button",
+                                    icon="mdi:database-arrow-down", **cfg))
+        if hist.get("enable"):
+            specs.append(EntitySpec("set_history_enable", "Data storage", platform="switch", icon="mdi:database", **cfg))
+        specs.append(EntitySpec("last_backfill", "Stored data received", kind="text", icon="mdi:database-check",
+                                diagnostic=True))
+        if hist.get("retransmit"):
+            specs.append(EntitySpec("set_history_retransmit", "Resend missed data", platform="switch",
+                                    icon="mdi:database-sync", **cfg))
+    return specs
+
+
 def output_for_key(model_key: str, key: str) -> dict | None:
     for out_name, out in downlinks(model_key).get("outputs", {}).items():
         if (out.get("key") or out_name) == key:
@@ -1664,6 +1747,7 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         specs.append(EntitySpec("water", "Water (converted)", state_class="total_increasing", icon="mdi:water",
                                 enabled_default=False))
     specs += _command_specs(model_key)
+    specs += _setting_specs(model_key)
     control = {s_.key for s_ in specs if s_.platform in ("switch", "number")}
     # a controllable output replaces its read-only binary sensor / sensor
     specs = [s_ for s_ in specs if not (s_.key in control and s_.platform in ("binary_sensor", "sensor"))]

@@ -36,10 +36,19 @@ def set_path(obj, path, value):
     obj[path[-1]] = value
 
 
-def template(spec, v):
-    raw = round(v * spec["scale"])
-    return spec["prefix"] + struct.pack(FMT[spec["value"]], raw).hex() + spec.get("suffix", "")
 
+# --- use the integration's own encoder, so this check validates it -----------------------------
+import importlib.util as _ilu, sys as _sys, types as _types, pathlib as _pl
+_PKG = _pl.Path(__file__).resolve().parents[2] / "custom_components" / "milesight_lorawan"
+if "mlw.decoders" not in _sys.modules:
+    _p = _types.ModuleType("mlw"); _p.__path__ = [str(_PKG)]; _sys.modules["mlw"] = _p
+    _s = _ilu.spec_from_file_location("mlw.decoders", _PKG / "decoders.py")
+    _m = _ilu.module_from_spec(_s); _sys.modules["mlw.decoders"] = _m; _s.loader.exec_module(_m)
+_dec = _sys.modules["mlw.decoders"]
+
+
+def template(spec, v):
+    return _dec.encode_template(spec, v).hex()
 
 def run(encoder, payloads):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:

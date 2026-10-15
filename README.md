@@ -343,6 +343,53 @@ After a setting is sent (e.g. *Reporting interval*), the device's **Last command
 entity's `confirmed_by_device` attribute shows the same. Firmware and hardware versions on the device page update
 whenever the device reports them.
 
+### Building analytics
+
+Give devices an area (bulk onboarding, the onboarding form, or the device page) and the gateway device gets, per area:
+
+* **&lt;Area&gt; comfort** (0–100): temperature 20–24 °C, humidity 30–60 % and CO2 up to 800 ppm count as fully
+  comfortable, falling to 0 at 15 / 29 °C, 15 / 80 % and 1800 ppm. Attributes: average temperature, humidity, CO2.
+* **&lt;Area&gt; occupancy**: share of today the area was occupied (people counters, PIR / desk sensors, VS range,
+  GS601), with `occupied_now`, `people_now`, `utilisation_today` (within opening hours) and an hourly heat map
+  (`hourly_today`, `hourly_yesterday` – % of each hour occupied).
+
+Dashboard: [`dashboards/building_analytics.yaml`](dashboards/building_analytics.yaml) – comfort table, occupancy
+heat map for today and yesterday, utilisation per area. No entity ids to edit.
+
+## Device settings as entities
+
+Settings from Milesight's encoders appear on the device page under **Configuration** (89 models), generated from and
+checked against the official encoders in CI (`tools/checks/set_*.py`, 1,100+ cases):
+
+* **Switches**: child lock, LED indicator, buzzer (where the device has them).
+* **Alarm thresholds**: a *condition* select (disable / below / above / between / outside) plus *low* / *high*
+  numbers – temperature, humidity, CO2, PM2.5, TVOC, current, distance, illuminance, pressure, people counts, …
+
+Changing one sends the whole setting to the device on its next receive window. Devices don't report most of these
+back, so the entities show the last value sent (*assumed state*); **Last command** shows whether it was confirmed.
+
+## Stored data / backfill (57 models)
+
+Most Milesight sensors store readings while the gateway or network is down. Devices that support it get:
+
+* **Fetch stored data (24 h)** button – asks the device to resend the last 24 h of stored readings.
+* **Data storage** and **Resend missed data** switches (the device's own data-storage settings).
+* **Stored data received** sensor – when stored readings were last imported and how many.
+* Option **Fetch stored data after an outage** (Configure, on by default) – fetches automatically when a device comes back after a
+  gap longer than the *Offline gap*.
+
+Stored readings are written to Home Assistant's **long-term statistics** for the matching sensors (hourly mean / min /
+max), filling only hours that have no statistics yet – the gap disappears from history graphs and statistics cards.
+The live state history is not rewritten.
+
+## Pulse counters → water / gas / energy meters
+
+For EM300-DI, EM300-DI-HALL, UC11xx, UC300 and UC50x, open **Configure** and choose a **Pulse meter type** (water,
+gas or electricity), the **unit**, **pulses per unit** and the **meter reading at start** (the number on the physical
+meter). The device gets a *Water / Gas / Energy meter* sensor (`total_increasing`) that you can add under
+**Settings → Dashboards → Energy** (water consumption, gas consumption, or grid consumption).
+Example: a 1 pulse = 0.5 L water meter showing 1 000 L → pulses per unit 2, unit L, reading at start 1000.
+
 ## Device commands (downlinks)
 
 With the gateway's downlink topic set (see step 1), each device page also gets – where the device supports it:
@@ -434,6 +481,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.17.0** | Device settings as entities (alarm thresholds, child lock, LED, buzzer), stored-data backfill into long-term statistics, pulse counters as water / gas / energy meters for the Energy dashboard, building analytics (area comfort, occupancy heat map, utilisation) with dashboard. |
 | **0.16.0** | Rollout tools: bulk onboarding with areas, fleet overview sensors + dashboard, online / battery-low sensors and events, 8 blueprints, settings confirmation. |
 | **0.15.0** | Device commands: reboot, time sync, request update, reporting / collection interval, UC output and valve switches, UC521 valve opening; output_command and send_downlink services. |
 | **0.14.0** | 25 more models: AM102 / 103 / 104 / 107, AM304L / 305L, EM300-CL / -MLD / -DI-HALL, EM310-UDL / -TILT, EM320-TH (v1 / v2) / -TILT, EM410 / 411-RDL, VS132 / 133 / 135 / 330 / 350 / 351 / 360, DS3604. People-counter statistics. |

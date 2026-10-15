@@ -5,6 +5,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,6 +24,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
 class MilesightSwitch(MilesightEntity, SwitchEntity):
     def __init__(self, runtime, spec) -> None:
         super().__init__(runtime, spec)
+        if spec.key.startswith("set_"):
+            self._attr_entity_category = EntityCategory.CONFIG
+            self._attr_assumed_state = True
         if spec.device_class:
             self._attr_device_class = SwitchDeviceClass(spec.device_class)
 
@@ -33,7 +37,9 @@ class MilesightSwitch(MilesightEntity, SwitchEntity):
 
     async def _set(self, on: bool) -> None:
         try:
-            if self.runtime.model.control:
+            if self.spec.key.startswith("set_"):
+                await self.runtime.async_setting(self.spec.key.removeprefix("set_"), None, on)
+            elif self.runtime.model.control:
                 await self.runtime.async_set_switch(self.spec.key, on)
             else:                                    # UC outputs / valves, GS101 valve / relay
                 await self.runtime.async_output(self.spec.key, "on" if on else "off")

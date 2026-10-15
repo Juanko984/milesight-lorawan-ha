@@ -87,7 +87,13 @@
           "mains_voltage": "Voltage for power estimate (V)",
           "downlink_topic": "Downlink MQTT topic",
           "downlink_format": "Downlink format",
-          "battery_low_pct": "Battery low below (%)"
+          "battery_low_pct": "Battery low below (%)",
+          "meter_type": "Pulse meter type",
+          "meter_unit": "Meter unit",
+          "meter_pulses_per_unit": "Pulses per unit",
+          "meter_offset": "Meter reading at start",
+          "meter_source": "Counter (advanced)",
+          "auto_backfill": "Fetch stored data after an outage"
         },
         "data_description": {
           "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
@@ -100,7 +106,12 @@
           "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, apparent power in VA). 0 = off.",
           "downlink_topic": "Used to switch WS wall switches and sockets. {deveui} is replaced by the device's DevEUI (Milesight gateway: set the downlink topic to e.g. milesight/downlink/$deveui).",
           "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui).",
-          "battery_low_pct": "The 'Battery low' sensor turns on below this level."
+          "battery_low_pct": "The 'Battery low' sensor turns on below this level.",
+          "meter_type": "Turn the pulse counter into a water / gas / electricity meter for the Energy dashboard.",
+          "meter_pulses_per_unit": "e.g. 1 pulse per litre with unit L = 1; 100 pulses per m³ = 100.",
+          "meter_offset": "Reading of the physical meter when counting started, so Home Assistant shows the same number.",
+          "meter_source": "Leave empty (pulse_count / gpio_counter_1). For a second UC counter enter e.g. gpio_counter_2.",
+          "auto_backfill": "When the device comes back after a gap, ask it to resend what it stored and fill the history graphs."
         }
       }
     }
@@ -115,6 +126,14 @@
         "fri": "Friday",
         "sat": "Saturday",
         "sun": "Sunday"
+      }
+    },
+    "meter_type": {
+      "options": {
+        "none": "Not used",
+        "water": "Water",
+        "gas": "Gas",
+        "energy": "Electricity"
       }
     }
   },

@@ -16,6 +16,11 @@ from homeassistant.util import dt as dt_util
 from .analytics import BinaryEventTracker, Calendar, CounterTracker, DistanceTracker, MinMaxTracker, OccupancyTracker
 from .const import (
     CONF_BATTERY_LOW,
+    CONF_METER_OFFSET,
+    CONF_METER_PPU,
+    CONF_METER_SOURCE,
+    CONF_METER_TYPE,
+    CONF_METER_UNIT,
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
@@ -46,8 +51,9 @@ from .const import (
     TICK_SECONDS,
     WEEKDAYS,
 )
-from .decoders import Uplink, encode_template, encode_wt, encode_ws_switch
-from .models import MODELS, Model, downlinks, output_for_key
+from . import decoders as _decoders
+from .decoders import Uplink, encode_fields, encode_template, encode_wt, encode_ws_switch
+from .models import MODELS, Model, downlinks, entity_specs, meter_spec, output_for_key, setting_spec
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -240,6 +246,11 @@ class DeviceRuntime:
             _LOGGER.exception("Failed to decode uplink from %s", self.deveui)
             return
         ts = self._uplink_ts(up)
+        prev_seen = self.meta.get("last_seen")
+        if up.raw:
+            self._handle_history(up.raw)
+        if prev_seen and ts - prev_seen > self.max_gap_s and self._opt("auto_backfill", True):
+            self.hass.async_create_task(self._safe_fetch(prev_seen, ts))
         for k, v in self.model.defaults:
             self.raw.setdefault(k, v)
         self.raw.update({k: v for k, v in decoded.items() if k not in ("history", "events", "wifi", "button_events")})
@@ -267,6 +278,112 @@ class DeviceRuntime:
                 self.occupancy.update(ts, count)
 
         self._publish(ts)
+
+    # ------------------------------------------------------ stored history
+    def _handle_history(self, raw: bytes) -> None:
+        hist = downlinks(self.model.key).get("history")
+        fn = getattr(_decoders, hist["history_fn"], None) if hist else None
+        if fn is None:
+            return
+        try:
+            records = fn(raw)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not parse history from %s", self.deveui, exc_info=True)
+            return
+        if not records:
+            return
+        self.meta["history_records"] = self.meta.get("history_records", 0) + len(records)
+        measures = {s.key: s.unit for s in entity_specs(self.model.key)
+                    if s.platform == "sensor" and s.state_class == "measurement"}
+        self.hass.async_create_task(self._import_history(records, measures))
+
+    async def _import_history(self, records, measures) -> None:
+        from .backfill import async_import
+        try:
+            added = await async_import(self.hass, self.deveui, records, measures)
+        except Exception:  # noqa: BLE001 - never break uplink handling
+            _LOGGER.warning("Could not import stored data from %s", self.deveui, exc_info=True)
+            return
+        self.meta["last_backfill"] = (f"{len(records)} stored records, {added} hour(s) filled "
+                                      f"({datetime.now(self.cal.tz).strftime('%d %b %H:%M')})")
+        self._publish(time.time())
+
+    def extra_specs(self) -> list:
+        """Entities that depend on the device's options (utility meter from a pulse counter)."""
+        mtype = self._opt(CONF_METER_TYPE, "none")
+        if mtype in ("water", "gas", "energy"):
+            return [meter_spec(mtype, self._opt(CONF_METER_UNIT, {"water": "m³", "gas": "m³", "energy": "kWh"}[mtype]))]
+        return []
+
+    def _meter_value(self, v: dict[str, Any]) -> float | None:
+        if self._opt(CONF_METER_TYPE, "none") not in ("water", "gas", "energy"):
+            return None
+        src = self._opt(CONF_METER_SOURCE, "") or next(
+            (k for k in ("pulse_count", "gpio_counter_1", "gpio_counter") if isinstance(v.get(k), (int, float))), None)
+        pulses = v.get(src) if src else None
+        if not isinstance(pulses, (int, float)):
+            return None
+        ppu = float(self._opt(CONF_METER_PPU, 1) or 1)
+        return round(float(self._opt(CONF_METER_OFFSET, 0) or 0) + pulses / ppu, 3)
+
+    async def async_fetch_history(self, start: float | None = None, end: float | None = None) -> None:
+        """Ask the device to resend what it stored between start and end (default: last 24 hours)."""
+        hist = downlinks(self.model.key).get("history") or {}
+        end = end or time.time()
+        start = start or end - 24 * 3600
+        if hist.get("fetch"):
+            payload = encode_fields(hist["fetch"], {"start": int(start), "end": int(end)})
+        elif hist.get("fetch_since"):
+            payload = encode_fields(hist["fetch_since"], {"start": int(start)})
+        else:
+            raise ValueError(f"{self.model.key} cannot resend stored data")
+        await self._downlink(payload)
+        self.meta["last_command"] = "fetch stored data: sent"
+        self._publish(time.time())
+
+    async def _safe_fetch(self, start: float, end: float) -> None:
+        if not (downlinks(self.model.key).get("history") or {}).keys() & {"fetch", "fetch_since"}:
+            return
+        try:
+            await self.async_fetch_history(start, end)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Automatic history fetch for %s failed", self.deveui, exc_info=True)
+
+    # ------------------------------------------------------------ settings
+    def _setting_values(self, setting: str, spec: dict) -> dict[str, Any]:
+        vals = dict(self.meta.setdefault("settings", {}).get(setting, {}))
+        for f in spec.get("fields", []):
+            n = f["name"]
+            if n.startswith("_") or "const" in f or "from" in f or n in vals:
+                continue
+            if "map" in f:
+                vals[n] = "disable" if "disable" in f["map"] else next(iter(f["map"]))
+            elif n == "max":
+                vals[n] = f.get("max", 0)
+            else:
+                vals[n] = f.get("min", 0) if f.get("min", 0) > 0 or n == "min" else 0
+        return vals
+
+    async def async_setting(self, setting: str, field: str | None, value: Any) -> None:
+        """On/off settings (field None, value bool) or one field of a multi-field setting."""
+        if setting in ("history_enable", "history_retransmit"):
+            spec = (downlinks(self.model.key).get("history") or {}).get(setting.removeprefix("history_"))
+        else:
+            spec = setting_spec(self.model.key, setting)
+        if spec is None:
+            raise ValueError(f"{self.model.key} has no setting {setting}")
+        if field is None:
+            payload = encode_template(spec["on" if value else "off"])
+            await self._downlink(payload)
+            self.meta.setdefault("settings", {})[setting] = bool(value)
+        else:
+            vals = self._setting_values(setting, spec)
+            vals[field] = value
+            payload = encode_fields(spec, vals)
+            await self._downlink(payload)
+            self.meta.setdefault("settings", {})[setting] = vals
+        self._remember(setting, payload, None)
+        self._publish(time.time())
 
     # ------------------------------------------------- command confirmation
     def _remember(self, name: str, payload: bytes, value: Any) -> None:
@@ -432,10 +549,16 @@ class DeviceRuntime:
 
     def _publish(self, ts: float) -> None:
         v: dict[str, Any] = dict(self.raw)
-        v.update({k: val for k, val in self.meta.items() if k not in ("config", "pending", "confirmed")
+        v.update({k: val for k, val in self.meta.items() if k not in ("config", "pending", "confirmed", "settings")
                   and not k.startswith("_")})
         for k, val in self.meta.get("config", {}).items():
             v[f"cfg_{k}"] = val
+        for k, val in self.meta.get("settings", {}).items():
+            if isinstance(val, dict):
+                for fk, fv in val.items():
+                    v[f"set_{k}__{fk}"] = fv
+            else:
+                v[f"set_{k}"] = val
 
         last = self.meta.get("last_seen")
         v["online"] = (ts - last <= self.max_gap_s) if last else None       # unknown until the first uplink
@@ -466,6 +589,9 @@ class DeviceRuntime:
             self._ct_values(v)
         if self.distance is not None:
             v.update(self.distance.values(ts))
+        meter = self._meter_value(v)
+        if meter is not None:
+            v["meter_reading"] = meter
         if self.counters is not None:
             v.update(self.counters.values(ts))
             if "people_in_today" in v and "people_out_today" in v:

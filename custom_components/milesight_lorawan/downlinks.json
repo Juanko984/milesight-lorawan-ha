@@ -5,22 +5,111 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_th7",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM103": {
@@ -29,22 +118,142 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "co2_alarm": {
+    "prefix": "ff54",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "bits": null
+     },
+     {
+      "name": "level1",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 400,
+      "max": 5000
+     },
+     {
+      "name": "level2",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 400,
+      "max": 5000
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_am103",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM104": {
@@ -53,22 +262,70 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "AM107": {
@@ -77,76 +334,452 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "co2_alarm": {
+    "prefix": "ff54",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "bits": null
+     },
+     {
+      "name": "level1",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 400,
+      "max": 5000
+     },
+     {
+      "name": "level2",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 400,
+      "max": 5000
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "AM304L": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "f9be0001",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "f9bd01",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "f9be0001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
   },
   "sync_time": {
    "hex": "ff4a00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2503"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e02"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "illuminance_alarm": {
+    "prefix": "f9bf",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 60000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 60000
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_am304l",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM305L": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "f9be0001",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "f9bd01",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "f9be0001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
   },
   "sync_time": {
    "hex": "ff4a00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2503"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e02"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "illuminance_alarm": {
+    "prefix": "f9bf",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 60000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 60000
+     }
+    ],
+    "suffix": ""
+   },
+   "co2_alarm": {
+    "prefix": "f9c4",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "bits": null
+     },
+     {
+      "name": "mode",
+      "value": "u8",
+      "map": {
+       "level1": 0,
+       "level2": 1,
+       "both": 2
+      },
+      "bits": null
+     },
+     {
+      "name": "level1",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 400,
+      "max": 5000
+     },
+     {
+      "name": "level2",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 400,
+      "max": 5000
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_am305l",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM307": {
@@ -155,16 +788,83 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff2c00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2507"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e01"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_am307",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM308": {
@@ -173,16 +873,83 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff2c00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2507"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e01"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_am308",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM319-HCHO": {
@@ -191,16 +958,83 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff2c00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2507"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e01"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_am319_hcho",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM319-HCHO-WELL": {
@@ -209,16 +1043,83 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff2c00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2507"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e01"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_am319_hcho_well",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AM319-O3": {
@@ -227,16 +1128,83 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff2c00"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2507"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2e01"
+    },
+    "off": {
+     "hex": "ff2e00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_am319_o3",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "AT101": {
@@ -245,19 +1213,22 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "history": {
+   "history_fn": "history_at101"
   }
  },
  "CT101": {
@@ -266,16 +1237,106 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "current_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 33,
+       "above": 34,
+       "between": 35,
+       "outside": 36
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "CT103": {
@@ -284,16 +1345,106 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "current_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 33,
+       "above": 34,
+       "between": 35,
+       "outside": 36
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "CT105": {
@@ -302,16 +1453,106 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "current_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 33,
+       "above": 34,
+       "between": 35,
+       "outside": 36
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "CT303": {
@@ -320,16 +1561,206 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "current_1_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "current_2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 16,
+       "below": 17,
+       "above": 18,
+       "between": 19,
+       "outside": 20
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "current_3_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 24,
+       "below": 25,
+       "above": 26,
+       "between": 27,
+       "outside": 28
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 33,
+       "above": 34,
+       "between": 35,
+       "outside": 36
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "CT305": {
@@ -338,16 +1769,206 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "current_1_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "current_2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 16,
+       "below": 17,
+       "above": 18,
+       "between": 19,
+       "outside": 20
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "current_3_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 24,
+       "below": 25,
+       "above": 26,
+       "between": 27,
+       "outside": 28
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 33,
+       "above": 34,
+       "between": 35,
+       "outside": 36
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "CT310": {
@@ -356,46 +1977,379 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "current_1_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "current_2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 16,
+       "below": 17,
+       "above": 18,
+       "between": 19,
+       "outside": 20
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "current_3_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 24,
+       "below": 25,
+       "above": 26,
+       "between": 27,
+       "outside": 28
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "counts",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 33,
+       "above": 34,
+       "between": 35,
+       "outside": 36
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "CTH01": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "6001",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "6101",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "6001",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "b8"
   },
   "report_status": {
    "hex": "b9"
   },
-  "sync_time": {
-   "hex": "b8"
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "76",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 100
+     }
+    ],
+    "suffix": ""
+   },
+   "current_alarm": {
+    "prefix": "77",
+    "fields": [
+     {
+      "name": "channel",
+      "value": "u8",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 11
+     },
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 4000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "A",
+      "min": 0,
+      "max": 4000
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_cth01",
+   "fetch": {
+    "prefix": "5c01",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "5b01",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "c50001"
+    },
+    "off": {
+     "hex": "c50000"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "c50101"
+    },
+    "off": {
+     "hex": "c50100"
+    }
+   }
   }
  },
  "DS3604": {
@@ -404,235 +2358,772 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "settings": {
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
   }
  },
  "EM300-CL": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "ffbb00",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ffbb00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
   }
  },
  "EM300-DI": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em300_di",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM300-DI-HALL": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
-  "report_status": {
-   "hex": "ff28ff"
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
   },
   "sync_time": {
    "hex": "ff4a00"
+  },
+  "report_status": {
+   "hex": "ff28ff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em300_di_hall",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM300-MCS": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em300_mcs",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM300-MLD": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "history": {
+   "history_fn": "history_em300_mld",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM300-SLD": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em300_leak",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM300-TH": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em300_th",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM300-ZLD": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em300_leak",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM310-TILT": {
@@ -641,97 +3132,373 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
-  },
-  "report_status": {
-   "hex": "ff28ff"
+   "min": 1,
+   "max": 64800
   },
   "sync_time": {
    "hex": "ff4a00"
+  },
+  "report_status": {
+   "hex": "ff28ff"
   }
  },
  "EM310-UDL": {
-  "collection_interval": {
-   "max": 60,
-   "min": 10,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60
+  },
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "cm",
+      "min": 0,
+      "max": 500
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "cm",
+      "min": 0,
+      "max": 500
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "EM320-TH": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_th7",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM320-TH-V2": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "f939",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e01",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "f939",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "f96903"
+    },
+    "off": {
+     "hex": "f96900"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "f90b01",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_alarm": {
+    "prefix": "f90b02",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em320_th_v2",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM320-TILT": {
@@ -740,426 +3507,1291 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
-  },
-  "report_status": {
-   "hex": "ff28ff"
+   "min": 1,
+   "max": 64800
   },
   "sync_time": {
    "hex": "ff4a00"
+  },
+  "report_status": {
+   "hex": "ff28ff"
   }
  },
  "EM400-MUD": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 4500
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 4500
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "EM400-TLD": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 20,
+      "max": 3500
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 20,
+      "max": 3500
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "EM400-UDL": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "EM410-RDL": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "f939",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "f939",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff2801"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em410_rdl",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM411-RDL": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "f939",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "f939",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff2801"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 9,
+       "above": 10,
+       "between": 11,
+       "outside": 12
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em410_rdl",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-CO2": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "co2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 0,
+      "max": 5000
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "ppm",
+      "min": 0,
+      "max": 5000
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 16,
+       "below": 81,
+       "above": 82,
+       "between": 83,
+       "outside": 84
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em500_co2",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-LGT": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "illuminance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 32767
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 32767
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em500_lgt",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-PP": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "pressure_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "kPa",
+      "min": 0,
+      "max": 5000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "kPa",
+      "min": 0,
+      "max": 5000
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em500_pp",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-PT100": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_temperature6",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-SMTC": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 16,
+       "below": 81,
+       "above": 82,
+       "between": 83,
+       "outside": 84
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 70
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em500_smtc",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-SWL": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
-  "report_status": {
-   "hex": "ff28ff"
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
   },
   "sync_time": {
    "hex": "ff4a00"
+  },
+  "report_status": {
+   "hex": "ff28ff"
+  },
+  "history": {
+   "history_fn": "history_em500_swl",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "EM500-UDL": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "distance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "mm",
+      "min": 0,
+      "max": 10000
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_em500_udl",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "GS101": {
   "fport": 85,
-  "outputs": {
-   "output_1": {
-    "key": "relay_output_status",
-    "off": {
-     "hex": "070000ff"
-    },
-    "on": {
-     "hex": "070001ff"
-    }
-   },
-   "valve_1": {
-    "key": "valve_status",
-    "off": {
-     "hex": "060000ff"
-    },
-    "on": {
-     "hex": "060001ff"
-    }
-   }
-  },
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "set_time": {
-   "max": 4294967295,
-   "min": 0,
-   "prefix": "ff11",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u32le"
+  "outputs": {
+   "valve_1": {
+    "on": {
+     "hex": "060001ff"
+    },
+    "off": {
+     "hex": "060000ff"
+    },
+    "key": "valve_status"
+   },
+   "output_1": {
+    "on": {
+     "hex": "070001ff"
+    },
+    "off": {
+     "hex": "070000ff"
+    },
+    "key": "relay_output_status"
+   }
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f0100"
+    },
+    "off": {
+     "hex": "ff2f0000"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e0100"
+    },
+    "off": {
+     "hex": "ff3e0000"
+    }
+   }
   }
  },
  "GS301": {
@@ -1168,13 +4800,31 @@
    "hex": "ff1001"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
   }
  },
  "GS601": {
@@ -1183,259 +4833,1589 @@
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "6001",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "b8"
   },
   "report_status": {
    "hex": "b9"
   },
-  "sync_time": {
-   "hex": "b8"
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "6201"
+    },
+    "off": {
+     "hex": "6200"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "6301"
+    },
+    "off": {
+     "hex": "6300"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "69",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     }
+    ],
+    "suffix": ""
+   },
+   "pm2_5_alarm": {
+    "prefix": "6b",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "µg/m³",
+      "min": 0,
+      "max": 1000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "µg/m³",
+      "min": 0,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   },
+   "tvoc_alarm": {
+    "prefix": "6d",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 2000
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 2000
+     }
+    ],
+    "suffix": ""
+   },
+   "vaping_index_alarm": {
+    "prefix": "6e",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u8",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u8",
+      "scale": 1,
+      "unit": "",
+      "min": 0,
+      "max": 100
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "TS101": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 60,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_temperature6",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "TS201": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "f96903"
+    },
+    "off": {
+     "hex": "f96900"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "f96a01"
+    },
+    "off": {
+     "hex": "f96a00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "f90b01",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -40,
+      "max": 125
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -40,
+      "max": 125
+     },
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_alarm": {
+    "prefix": "f90b03",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 2,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 2,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts201",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "f90d013c00"
+    },
+    "off": {
+     "hex": "f90d003c00"
+    }
+   }
   }
  },
  "TS301": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "f96903"
+    },
+    "off": {
+     "hex": "f96900"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 65,
+       "above": 66,
+       "between": 67,
+       "outside": 68
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 97,
+       "above": 98,
+       "between": 99,
+       "outside": 100
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts301",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "TS301-V1": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250100"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts301_v1",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "TS302": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "f96903"
+    },
+    "off": {
+     "hex": "f96900"
+    }
+   },
+   "temperature_1_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 65,
+       "above": 66,
+       "between": 67,
+       "outside": 68
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_1_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 32,
+       "below": 97,
+       "above": 98,
+       "between": 99,
+       "outside": 100
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 40,
+       "below": 105,
+       "above": 106,
+       "between": 107,
+       "outside": 108
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts302",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "TS302-V1": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250100"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "temperature_1_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 8,
+       "below": 73,
+       "above": 74,
+       "between": 75,
+       "outside": 76
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_2_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 16,
+       "below": 81,
+       "above": 82,
+       "between": 83,
+       "outside": 84
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts302_v1",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "TS601": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "6201",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "6001",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "6201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "b8"
   },
   "report_status": {
    "hex": "b9"
   },
-  "sync_time": {
-   "hex": "b8"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "760103"
+    },
+    "off": {
+     "hex": "760000"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "77",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i32le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -35,
+      "max": 70
+     },
+     {
+      "name": "max",
+      "value": "i32le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -35,
+      "max": 70
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_alarm": {
+    "prefix": "79",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     }
+    ],
+    "suffix": ""
+   },
+   "illuminance_alarm": {
+    "prefix": "7d",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "above": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "above": 2
+      },
+      "bits": null
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 600
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts60x",
+   "fetch": {
+    "prefix": "bb",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "ba",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "c50001"
+    },
+    "off": {
+     "hex": "c50000"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "c50101"
+    },
+    "off": {
+     "hex": "c50100"
+    }
+   }
   }
  },
  "TS602": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "6201",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "6001",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "6201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "b8"
   },
   "report_status": {
    "hex": "b9"
   },
-  "sync_time": {
-   "hex": "b8"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "760103"
+    },
+    "off": {
+     "hex": "760000"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "77",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "i32le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     },
+     {
+      "name": "max",
+      "value": "i32le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -200,
+      "max": 800
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_alarm": {
+    "prefix": "79",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 1,
+       "between": 1,
+       "outside": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": null
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 10,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     }
+    ],
+    "suffix": ""
+   },
+   "illuminance_alarm": {
+    "prefix": "7d",
+    "fields": [
+     {
+      "name": "_enable",
+      "value": "u8",
+      "from": "condition",
+      "map": {
+       "disable": 0,
+       "above": 1
+      }
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "above": 2
+      },
+      "bits": null
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lx",
+      "min": 0,
+      "max": 600
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ts60x",
+   "fetch": {
+    "prefix": "bb",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "ba",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "c50001"
+    },
+    "off": {
+     "hex": "c50000"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "c50101"
+    },
+    "off": {
+     "hex": "c50100"
+    }
+   }
   }
  },
  "UC100": {
@@ -1444,13 +6424,54 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "history": {
+   "history_fn": "history_uc100",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "UC100-V2": {
@@ -1459,526 +6480,698 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "history": {
+   "history_fn": "history_uc100_v2",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "UC300": {
-  "collection_interval": {
-   "max": 65535,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
-  "outputs": {
-   "output_1": {
-    "key": "gpio_output_1",
-    "off": {
-     "hex": "0700ff"
-    },
-    "off_for": {
-     "max": 4294967295,
-     "min": 0,
-     "prefix": "ff930100",
-     "scale": 1,
-     "suffix": "",
-     "unit": "ms",
-     "value": "u32le"
-    },
-    "on": {
-     "hex": "0701ff"
-    },
-    "on_for": {
-     "max": 4294967295,
-     "min": 0,
-     "prefix": "ff930101",
-     "scale": 1,
-     "suffix": "",
-     "unit": "ms",
-     "value": "u32le"
-    }
-   },
-   "output_2": {
-    "key": "gpio_output_2",
-    "off": {
-     "hex": "0800ff"
-    },
-    "off_for": {
-     "max": 4294967295,
-     "min": 0,
-     "prefix": "ff930200",
-     "scale": 1,
-     "suffix": "",
-     "unit": "ms",
-     "value": "u32le"
-    },
-    "on": {
-     "hex": "0801ff"
-    },
-    "on_for": {
-     "max": 4294967295,
-     "min": 0,
-     "prefix": "ff930201",
-     "scale": 1,
-     "suffix": "",
-     "unit": "ms",
-     "value": "u32le"
-    }
-   }
-  },
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4aff"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295
   },
   "report_status": {
    "hex": "ff94ff"
   },
-  "set_time": {
-   "max": 4294967295,
-   "min": 0,
-   "prefix": "ff11",
-   "scale": 1,
-   "suffix": "",
-   "unit": "unix_s",
-   "value": "u32le"
+  "outputs": {
+   "output_1": {
+    "key": "gpio_output_1",
+    "on": {
+     "hex": "0701ff"
+    },
+    "off": {
+     "hex": "0700ff"
+    },
+    "on_for": {
+     "prefix": "ff930101",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295
+    },
+    "off_for": {
+     "prefix": "ff930100",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295
+    }
+   },
+   "output_2": {
+    "key": "gpio_output_2",
+    "on": {
+     "hex": "0801ff"
+    },
+    "off": {
+     "hex": "0800ff"
+    },
+    "on_for": {
+     "prefix": "ff930201",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295
+    },
+    "off_for": {
+     "prefix": "ff930200",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295
+    }
+   }
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "history": {
+   "history_fn": "history_uc300"
   }
  },
  "UC501": {
-  "collection_interval": {
-   "max": 65535,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
-  "outputs": {
-   "output_1": {
-    "key": "gpio_output_1",
-    "off": {
-     "hex": "0300ffff"
-    },
-    "on": {
-     "hex": "0301ffff"
-    }
-   },
-   "output_2": {
-    "key": "gpio_output_2",
-    "off": {
-     "hex": "0400ffff"
-    },
-    "on": {
-     "hex": "0401ffff"
-    }
-   }
-  },
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4a00"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "set_time": {
-   "max": 4294967295,
-   "min": 0,
-   "prefix": "ff11",
-   "scale": 1,
-   "suffix": "",
-   "unit": "unix_s",
-   "value": "u32le"
+  "outputs": {
+   "output_1": {
+    "key": "gpio_output_1",
+    "on": {
+     "hex": "0301ffff"
+    },
+    "off": {
+     "hex": "0300ffff"
+    }
+   },
+   "output_2": {
+    "key": "gpio_output_2",
+    "on": {
+     "hex": "0401ffff"
+    },
+    "off": {
+     "hex": "0400ffff"
+    }
+   }
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "history": {
+   "history_fn": "history_uc50x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "UC502": {
-  "collection_interval": {
-   "max": 65535,
-   "min": 1,
-   "prefix": "ff02",
+  "fport": 85,
+  "reboot": {
+   "hex": "ff10ff"
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
   },
-  "fport": 85,
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4a00"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295
+  },
+  "report_status": {
+   "hex": "ff28ff"
+  },
   "outputs": {
    "output_1": {
     "key": "gpio_output_1",
-    "off": {
-     "hex": "0300ffff"
-    },
     "on": {
      "hex": "0301ffff"
+    },
+    "off": {
+     "hex": "0300ffff"
     }
    },
    "output_2": {
     "key": "gpio_output_2",
-    "off": {
-     "hex": "0400ffff"
-    },
     "on": {
      "hex": "0401ffff"
+    },
+    "off": {
+     "hex": "0400ffff"
     }
    }
   },
-  "reboot": {
-   "hex": "ff10ff"
-  },
-  "report_interval": {
-   "max": 65535,
-   "min": 1,
-   "prefix": "ff03",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
-  "report_status": {
-   "hex": "ff28ff"
-  },
-  "set_time": {
-   "max": 4294967295,
-   "min": 0,
-   "prefix": "ff11",
-   "scale": 1,
-   "suffix": "",
-   "unit": "unix_s",
-   "value": "u32le"
-  },
-  "sync_time": {
-   "hex": "ff4a00"
+  "history": {
+   "history_fn": "history_uc50x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "UC511": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 10,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
-  "outputs": {
-   "valve_1": {
-    "clear_pulse": {
-     "hex": "ff4e0100"
-    },
-    "key": "valve_1",
-    "off": {
-     "hex": "ff1d000000000000000000"
-    },
-    "on": {
-     "hex": "ff1d200000000000000000"
-    },
-    "open_for": {
-     "max": 16777215,
-     "min": 1,
-     "prefix": "ff1da000",
-     "scale": 1,
-     "suffix": "000000",
-     "unit": "s",
-     "value": "u32le"
-    },
-    "open_until_pulses": {
-     "max": 4294967295,
-     "min": 1,
-     "prefix": "ff1d6000000000",
-     "scale": 1,
-     "suffix": "",
-     "unit": "pulses",
-     "value": "u32le"
-    }
-   },
-   "valve_2": {
-    "clear_pulse": {
-     "hex": "ff4e0200"
-    },
-    "key": "valve_2",
-    "off": {
-     "hex": "ff1d010000000000000000"
-    },
-    "on": {
-     "hex": "ff1d210000000000000000"
-    },
-    "open_for": {
-     "max": 16777215,
-     "min": 1,
-     "prefix": "ff1da100",
-     "scale": 1,
-     "suffix": "000000",
-     "unit": "s",
-     "value": "u32le"
-    },
-    "open_until_pulses": {
-     "max": 4294967295,
-     "min": 1,
-     "prefix": "ff1d6100000000",
-     "scale": 1,
-     "suffix": "",
-     "unit": "pulses",
-     "value": "u32le"
-    }
-   }
-  },
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 10,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 10,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "outputs": {
+   "valve_1": {
+    "key": "valve_1",
+    "on": {
+     "hex": "ff1d200000000000000000"
+    },
+    "off": {
+     "hex": "ff1d000000000000000000"
+    },
+    "open_for": {
+     "prefix": "ff1da000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6000000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295
+    },
+    "clear_pulse": {
+     "hex": "ff4e0100"
+    }
+   },
+   "valve_2": {
+    "key": "valve_2",
+    "on": {
+     "hex": "ff1d210000000000000000"
+    },
+    "off": {
+     "hex": "ff1d010000000000000000"
+    },
+    "open_for": {
+     "prefix": "ff1da100",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6100000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295
+    },
+    "clear_pulse": {
+     "hex": "ff4e0200"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_uc51x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "UC512": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 10,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
-  "outputs": {
-   "valve_1": {
-    "clear_pulse": {
-     "hex": "ff4e0100"
-    },
-    "key": "valve_1",
-    "off": {
-     "hex": "ff1d000000000000000000"
-    },
-    "on": {
-     "hex": "ff1d200000000000000000"
-    },
-    "open_for": {
-     "max": 16777215,
-     "min": 1,
-     "prefix": "ff1da000",
-     "scale": 1,
-     "suffix": "000000",
-     "unit": "s",
-     "value": "u32le"
-    },
-    "open_until_pulses": {
-     "max": 4294967295,
-     "min": 1,
-     "prefix": "ff1d6000000000",
-     "scale": 1,
-     "suffix": "",
-     "unit": "pulses",
-     "value": "u32le"
-    }
-   },
-   "valve_2": {
-    "clear_pulse": {
-     "hex": "ff4e0200"
-    },
-    "key": "valve_2",
-    "off": {
-     "hex": "ff1d010000000000000000"
-    },
-    "on": {
-     "hex": "ff1d210000000000000000"
-    },
-    "open_for": {
-     "max": 16777215,
-     "min": 1,
-     "prefix": "ff1da100",
-     "scale": 1,
-     "suffix": "000000",
-     "unit": "s",
-     "value": "u32le"
-    },
-    "open_until_pulses": {
-     "max": 4294967295,
-     "min": 1,
-     "prefix": "ff1d6100000000",
-     "scale": 1,
-     "suffix": "",
-     "unit": "pulses",
-     "value": "u32le"
-    }
-   }
-  },
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 10,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 10,
+   "max": 64800
   },
-  "report_status": {
-   "hex": "ff28ff"
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800
   },
   "sync_time": {
    "hex": "ff4a00"
-  }
- },
- "UC521": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 10,
-   "prefix": "f9680101",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
-  "fport": 85,
-  "outputs": {
-   "valve_1": {
-    "clear_pulse": {
-     "hex": "ff4e0100"
-    },
-    "key": "valve_1_opening",
-    "off": {
-     "hex": "f919000000"
-    },
-    "on": {
-     "hex": "f919000064"
-    },
-    "open_for": {
-     "max": 65535,
-     "min": 1,
-     "prefix": "f919800064",
-     "scale": 1,
-     "suffix": "",
-     "unit": "min",
-     "value": "u16le"
-    },
-    "open_until_pulses": {
-     "max": 4294967295,
-     "min": 1,
-     "prefix": "f919400064",
-     "scale": 1,
-     "suffix": "",
-     "unit": "pulses",
-     "value": "u32le"
-    },
-    "set": {
-     "max": 100,
-     "min": 0,
-     "prefix": "f9190000",
-     "scale": 1,
-     "suffix": "",
-     "unit": "%",
-     "value": "u8"
-    }
-   },
-   "valve_2": {
-    "clear_pulse": {
-     "hex": "ff4e0200"
-    },
-    "key": "valve_2_opening",
-    "off": {
-     "hex": "f919010000"
-    },
-    "on": {
-     "hex": "f919010064"
-    },
-    "open_for": {
-     "max": 65535,
-     "min": 1,
-     "prefix": "f919810064",
-     "scale": 1,
-     "suffix": "",
-     "unit": "min",
-     "value": "u16le"
-    },
-    "open_until_pulses": {
-     "max": 4294967295,
-     "min": 1,
-     "prefix": "f919410064",
-     "scale": 1,
-     "suffix": "",
-     "unit": "pulses",
-     "value": "u32le"
-    },
-    "set": {
-     "max": 100,
-     "min": 0,
-     "prefix": "f9190100",
-     "scale": 1,
-     "suffix": "",
-     "unit": "%",
-     "value": "u8"
-    }
-   }
-  },
-  "reboot": {
-   "hex": "ff10ff"
-  },
-  "report_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "ff8e00",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
   },
   "report_status": {
    "hex": "ff28ff"
   },
+  "outputs": {
+   "valve_1": {
+    "key": "valve_1",
+    "on": {
+     "hex": "ff1d200000000000000000"
+    },
+    "off": {
+     "hex": "ff1d000000000000000000"
+    },
+    "open_for": {
+     "prefix": "ff1da000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6000000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295
+    },
+    "clear_pulse": {
+     "hex": "ff4e0100"
+    }
+   },
+   "valve_2": {
+    "key": "valve_2",
+    "on": {
+     "hex": "ff1d210000000000000000"
+    },
+    "off": {
+     "hex": "ff1d010000000000000000"
+    },
+    "open_for": {
+     "prefix": "ff1da100",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6100000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295
+    },
+    "clear_pulse": {
+     "hex": "ff4e0200"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_uc51x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
+  }
+ },
+ "UC521": {
+  "fport": 85,
+  "reboot": {
+   "hex": "ff10ff"
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "f9680101",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800
+  },
   "sync_time": {
    "hex": "ff4aff"
+  },
+  "report_status": {
+   "hex": "ff28ff"
+  },
+  "outputs": {
+   "valve_1": {
+    "key": "valve_1_opening",
+    "on": {
+     "hex": "f919000064"
+    },
+    "off": {
+     "hex": "f919000000"
+    },
+    "set": {
+     "prefix": "f9190000",
+     "value": "u8",
+     "scale": 1,
+     "suffix": "",
+     "unit": "%",
+     "min": 0,
+     "max": 100
+    },
+    "open_for": {
+     "prefix": "f919800064",
+     "value": "u16le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "min",
+     "min": 1,
+     "max": 65535
+    },
+    "open_until_pulses": {
+     "prefix": "f919400064",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295
+    },
+    "clear_pulse": {
+     "hex": "ff4e0100"
+    }
+   },
+   "valve_2": {
+    "key": "valve_2_opening",
+    "on": {
+     "hex": "f919010064"
+    },
+    "off": {
+     "hex": "f919010000"
+    },
+    "set": {
+     "prefix": "f9190100",
+     "value": "u8",
+     "scale": 1,
+     "suffix": "",
+     "unit": "%",
+     "min": 0,
+     "max": 100
+    },
+    "open_for": {
+     "prefix": "f919810064",
+     "value": "u16le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "min",
+     "min": 1,
+     "max": 65535
+    },
+    "open_until_pulses": {
+     "prefix": "f919410064",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295
+    },
+    "clear_pulse": {
+     "hex": "ff4e0200"
+    }
+   }
   }
  },
  "VS121": {
@@ -1987,25 +7180,28 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 5,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
-  },
-  "set_time": {
-   "max": 2147483647,
-   "min": 0,
-   "prefix": "f99101",
-   "scale": 1,
-   "suffix": "",
-   "unit": "unix_s",
-   "value": "u32le"
+   "min": 5,
+   "max": 65535
   },
   "sync_time": {
    "hex": "f9910000000000"
+  },
+  "set_time": {
+   "prefix": "f99101",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 2147483647
+  },
+  "history": {
+   "history_fn": "history_vs121"
   }
  },
  "VS132": {
@@ -2014,13 +7210,13 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 255,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u8",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u8"
+   "min": 1,
+   "max": 255
   }
  },
  "VS133": {
@@ -2029,22 +7225,63 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "unix_s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "history": {
+   "history_fn": "history_vs133",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "VS135": {
@@ -2053,33 +7290,87 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 64800
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "unix_s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "history": {
+   "history_fn": "history_vs133",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "VS321": {
-  "collection_interval": {
-   "max": 60,
-   "min": 2,
-   "prefix": "ff02",
+  "fport": 85,
+  "reboot": {
+   "hex": "ff10ff"
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
    "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 2,
+   "max": 60,
    "values": [
     2,
     5,
@@ -2089,45 +7380,234 @@
     60
    ]
   },
-  "fport": 85,
-  "reboot": {
-   "hex": "ff10ff"
-  },
-  "report_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "ff8e00",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "report_status": {
    "hex": "f96cff"
+  },
+  "settings": {
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x48"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   },
+   "humidity_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x50"
+      }
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 2,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 2,
+      "unit": "%",
+      "min": 0,
+      "max": 100
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   },
+   "illuminance_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x58"
+      }
+     },
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lux",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lux",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_vs321",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "VS330": {
-  "collection_interval": {
-   "max": 10,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 10
   }
  },
  "VS340": {
@@ -2136,16 +7616,26 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "VS341": {
@@ -2154,16 +7644,26 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "VS350": {
@@ -2172,19 +7672,181 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "people_period_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x48"
+      }
+     },
+     {
+      "name": "threshold_out",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "threshold_in",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "people_cumulative_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x50"
+      }
+     },
+     {
+      "name": "threshold_out",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "threshold_in",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x58"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_vs35x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "VS351": {
@@ -2193,16 +7855,178 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "people_period_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x48"
+      }
+     },
+     {
+      "name": "threshold_out",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "threshold_in",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "people_cumulative_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x50"
+      }
+     },
+     {
+      "name": "threshold_out",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "threshold_in",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x58"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_vs35x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "VS360": {
@@ -2211,19 +8035,148 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "fffd01"
+    },
+    "off": {
+     "hex": "fffd00"
+    }
+   },
+   "people_period_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x48"
+      }
+     },
+     {
+      "name": "threshold_out",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "threshold_in",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   },
+   "people_cumulative_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x50"
+      }
+     },
+     {
+      "name": "threshold_out",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "threshold_in",
+      "value": "u16le",
+      "scale": 1,
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_vs35x",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "VS370": {
@@ -2232,60 +8185,102 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e01",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
-  },
-  "report_status": {
-   "hex": "ff2801"
+   "min": 1,
+   "max": 1440
   },
   "sync_time": {
    "hex": "ff4aff"
+  },
+  "report_status": {
+   "hex": "ff2801"
   }
  },
  "VS373": {
   "fport": 85,
-  "outputs": {
-   "output_1": {
-    "key": null,
-    "off": {
-     "hex": "f94e00"
-    },
-    "on": {
-     "hex": "f94e01"
-    }
-   }
-  },
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "f9910000000000"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "set_time": {
-   "max": 4294967295,
-   "min": 0,
-   "prefix": "ff11",
-   "scale": 1,
-   "suffix": "",
-   "unit": "unix_s",
-   "value": "u32le"
+  "outputs": {
+   "output_1": {
+    "key": null,
+    "on": {
+     "hex": "f94e01"
+    },
+    "off": {
+     "hex": "f94e00"
+    }
+   }
   },
-  "sync_time": {
-   "hex": "f9910000000000"
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_vs373",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "WS101": {
@@ -2294,40 +8289,58 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
   }
  },
  "WS201": {
-  "collection_interval": {
-   "max": 65535,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535
   },
   "report_status": {
    "hex": "ff28ff"
@@ -2339,43 +8352,163 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
+  },
+  "settings": {
+   "illuminance_alarm": {
+    "prefix": "ff064c",
+    "fields": [
+     {
+      "name": "min",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lux",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "max",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "lux",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS203": {
-  "collection_interval": {
-   "max": 1440,
-   "min": 1,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "min",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x08"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -30,
+      "max": 60
+     },
+     {
+      "name": "_pad",
+      "const": "00000000"
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_ws203",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "WS301": {
@@ -2384,13 +8517,13 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
@@ -2402,13 +8535,23 @@
    "hex": "ff10ff"
   },
   "set_time": {
-   "max": 4294967295,
-   "min": 0,
    "prefix": "ff11",
+   "value": "u32le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u32le"
+   "min": 0,
+   "max": 4294967295
+  },
+  "settings": {
+   "led_indicator": {
+    "on": {
+     "hex": "ff2d01"
+    },
+    "off": {
+     "hex": "ff2d00"
+    }
+   }
   }
  },
  "WS303": {
@@ -2417,16 +8560,26 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "buzzer": {
+    "on": {
+     "hex": "ff3e01"
+    },
+    "off": {
+     "hex": "ff3e00"
+    }
+   }
   }
  },
  "WS501": {
@@ -2435,16 +8588,34 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS501-CN": {
@@ -2453,19 +8624,37 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 61,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 61,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS501-EU": {
@@ -2474,16 +8663,34 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS501-V4": {
@@ -2492,19 +8699,59 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 10
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS502": {
@@ -2513,16 +8760,34 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS502-CN": {
@@ -2531,19 +8796,37 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 61,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 61,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS502-EU": {
@@ -2552,16 +8835,34 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS502-V4": {
@@ -2570,19 +8871,59 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 10
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS503": {
@@ -2591,16 +8932,34 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS503-CN": {
@@ -2609,19 +8968,37 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 61,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 61,
+   "max": 65535
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f02"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   }
   }
  },
  "WS503-V4": {
@@ -2630,19 +9007,59 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 64800,
-   "min": 60,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 60,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "ff4a00"
   },
   "report_status": {
    "hex": "ff28ff"
   },
-  "sync_time": {
-   "hex": "ff4a00"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 10
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS513": {
@@ -2651,16 +9068,108 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f0100"
+    },
+    "off": {
+     "hex": "ff2f0000"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 16
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x08"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 85
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 85
+     },
+     {
+      "name": "alarm_interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "alarm_times",
+      "value": "u16le",
+      "scale": 1,
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS513-V3": {
@@ -2669,16 +9178,100 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "f96903"
+    },
+    "off": {
+     "hex": "f96900"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 16
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "f90b00",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "raw": true
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -40,
+      "max": 125
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -40,
+      "max": 125
+     },
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS515": {
@@ -2687,16 +9280,108 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f0100"
+    },
+    "off": {
+     "hex": "ff2f0000"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 16
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x08"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 85
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 85
+     },
+     {
+      "name": "alarm_interval",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 1,
+      "max": 1440
+     },
+     {
+      "name": "alarm_times",
+      "value": "u16le",
+      "scale": 1,
+      "min": 1,
+      "max": 1000
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS515-V3": {
@@ -2705,16 +9390,100 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "f96903"
+    },
+    "off": {
+     "hex": "f96900"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 10
+     }
+    ],
+    "suffix": ""
+   },
+   "temperature_alarm": {
+    "prefix": "f90b00",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "raw": true
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -40,
+      "max": 125
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -40,
+      "max": 125
+     },
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS523": {
@@ -2723,16 +9492,56 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 16
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS525": {
@@ -2741,16 +9550,56 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
   },
   "report_status": {
    "hex": "ff28ff"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff250080"
+    },
+    "off": {
+     "hex": "ff250000"
+    }
+   },
+   "led_indicator": {
+    "on": {
+     "hex": "ff2f01"
+    },
+    "off": {
+     "hex": "ff2f00"
+    }
+   },
+   "current_alarm": {
+    "prefix": "ff24",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      }
+     },
+     {
+      "name": "threshold",
+      "value": "u8",
+      "scale": 1,
+      "unit": "A",
+      "min": 1,
+      "max": 16
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WS558": {
@@ -2759,13 +9608,13 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 65535,
-   "min": 1,
    "prefix": "ff03",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "s",
-   "value": "u16le"
+   "min": 1,
+   "max": 65535
   },
   "report_status": {
    "hex": "ff28ff"
@@ -2777,19 +9626,29 @@
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff2800"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff2501"
+    },
+    "off": {
+     "hex": "ff2500"
+    }
+   }
   }
  },
  "WT102": {
@@ -2798,214 +9657,727 @@
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 5,
    "prefix": "630101",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 5,
+   "max": 1440
+  },
+  "sync_time": {
+   "hex": "b8"
+  },
+  "set_time": {
+   "prefix": "b7",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 0,
+   "max": 4294967295
   },
   "report_status": {
    "hex": "b9"
   },
-  "set_time": {
-   "max": 4294967295,
-   "min": 0,
-   "prefix": "b7",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u32le"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "6a0103"
+    },
+    "off": {
+     "hex": "6a0000"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "6d",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "outside": 4
+      },
+      "raw": true
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     }
+    ],
+    "suffix": ""
+   }
   },
-  "sync_time": {
-   "hex": "b8"
+  "history": {
+   "history_fn": "history_wt102",
+   "fetch": {
+    "prefix": "bb",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "ba",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "c50001"
+    },
+    "off": {
+     "hex": "c50000"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "c50101"
+    },
+    "off": {
+     "hex": "c50100"
+    }
+   }
   }
  },
  "WT201": {
-  "collection_interval": {
-   "max": 60,
-   "min": 10,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff2801"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff253f3f"
+    },
+    "off": {
+     "hex": "ff253f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x00"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   }
+  },
+  "history": {
+   "history_fn": "history_wt201",
+   "fetch": {
+    "prefix": "fd6c",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     },
+     {
+      "name": "end",
+      "value": "u32le"
+     }
+    ]
+   },
+   "fetch_since": {
+    "prefix": "fd6b",
+    "fields": [
+     {
+      "name": "start",
+      "value": "u32le"
+     }
+    ]
+   },
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "WT201-V2": {
-  "collection_interval": {
-   "max": 60,
-   "min": 10,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff2801"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff253f3f"
+    },
+    "off": {
+     "hex": "ff253f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x00"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   },
+   "child_lock_feature": {
+    "on": {
+     "hex": "f93101"
+    },
+    "off": {
+     "hex": "f93100"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_wt201_v2",
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "WT211": {
-  "collection_interval": {
-   "max": 60,
-   "min": 10,
-   "prefix": "ff02",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "ff10ff"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "ff8e00",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 60
+  },
+  "sync_time": {
+   "hex": "ff4aff"
   },
   "report_status": {
    "hex": "ff2801"
   },
-  "sync_time": {
-   "hex": "ff4aff"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "ff253f3f"
+    },
+    "off": {
+     "hex": "ff253f00"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "ff06",
+    "fields": [
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "bits": {
+       "shift": 0,
+       "or": "0x00"
+      }
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 10,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "lock_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     },
+     {
+      "name": "continue_time",
+      "value": "u16le",
+      "scale": 1,
+      "unit": "min",
+      "min": 0,
+      "max": 65535
+     }
+    ],
+    "suffix": ""
+   },
+   "child_lock_feature": {
+    "on": {
+     "hex": "f93101"
+    },
+    "off": {
+     "hex": "f93100"
+    }
+   }
+  },
+  "history": {
+   "history_fn": "history_wt201_v2",
+   "enable": {
+    "on": {
+     "hex": "ff6801"
+    },
+    "off": {
+     "hex": "ff6800"
+    }
+   },
+   "retransmit": {
+    "on": {
+     "hex": "ff6901"
+    },
+    "off": {
+     "hex": "ff6900"
+    }
+   }
   }
  },
  "WT301": {
   "fport": 85,
   "report_status": {
    "hex": "550200010f67"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "5501000202015b"
+    },
+    "off": {
+     "hex": "5501000202005a"
+    }
+   }
   }
  },
  "WT302": {
   "fport": 85,
   "report_status": {
    "hex": "550200010f67"
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "5501000202015b"
+    },
+    "off": {
+     "hex": "5501000202005a"
+    }
+   }
   }
  },
  "WT303": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 10,
-   "prefix": "6000",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "6201",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "6000",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "b8"
   },
   "report_status": {
    "hex": "b9"
   },
-  "sync_time": {
-   "hex": "b8"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "75011f"
+    },
+    "off": {
+     "hex": "750000"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "76",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "raw": true
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WT304": {
-  "collection_interval": {
-   "max": 64800,
-   "min": 10,
-   "prefix": "6000",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "6201",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "6000",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800
+  },
+  "sync_time": {
+   "hex": "b8"
   },
   "report_status": {
    "hex": "b9"
   },
-  "sync_time": {
-   "hex": "b8"
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "75011f"
+    },
+    "off": {
+     "hex": "750000"
+    }
+   },
+   "temperature_alarm": {
+    "prefix": "76",
+    "fields": [
+     {
+      "name": "enable",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "enable": 1
+      },
+      "raw": true
+     },
+     {
+      "name": "condition",
+      "value": "u8",
+      "map": {
+       "disable": 0,
+       "below": 1,
+       "above": 2,
+       "between": 3,
+       "outside": 4
+      },
+      "raw": true
+     },
+     {
+      "name": "min",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     },
+     {
+      "name": "max",
+      "value": "i16le",
+      "scale": 100,
+      "unit": "°C",
+      "min": -20,
+      "max": 60
+     }
+    ],
+    "suffix": ""
+   }
   }
  },
  "WT401": {
-  "collection_interval": {
-   "max": 3600,
-   "min": 1,
-   "prefix": "6000",
-   "scale": 1,
-   "suffix": "",
-   "unit": "s",
-   "value": "u16le"
-  },
   "fport": 85,
   "reboot": {
    "hex": "be"
   },
   "report_interval": {
-   "max": 1440,
-   "min": 1,
    "prefix": "610101",
+   "value": "u16le",
    "scale": 1,
    "suffix": "",
    "unit": "min",
-   "value": "u16le"
+   "min": 1,
+   "max": 1440
+  },
+  "collection_interval": {
+   "prefix": "6000",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 3600
+  },
+  "settings": {
+   "child_lock": {
+    "on": {
+     "hex": "7201ff7f"
+    },
+    "off": {
+     "hex": "72000000"
+    }
+   }
   }
  }
 }

@@ -30,6 +30,9 @@ class MilesightCommandButton(MilesightEntity, ButtonEntity):
     async def async_press(self) -> None:
         command = self.spec.key.removeprefix("cmd_")
         try:
-            await self.runtime.async_command(command)
+            if command == "fetch_history":
+                await self.runtime.async_fetch_history()
+            else:
+                await self.runtime.async_command(command)
         except Exception as err:  # noqa: BLE001 - surface MQTT / config problems in the UI
             raise HomeAssistantError(f"Could not send {command} to {self.runtime.entry.title}: {err}") from err

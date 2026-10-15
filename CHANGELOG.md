@@ -2,6 +2,22 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.17.0
+### Added
+- Device settings as entities for 89 models: child lock, LED indicator, buzzer switches and alarm thresholds
+  (condition select + low / high numbers), generated from Milesight's encoders and checked against them in CI
+  (tools/checks/set_g1.py, set_g23.py).
+- Stored data (57 models): *Fetch stored data* button, *Data storage* / *Resend missed data* switches,
+  *Stored data received* sensor and an option to fetch automatically after an outage. Stored readings are imported into
+  long-term statistics for the hours that are missing (tools/checks/hist_*.py).
+- Pulse meters: EM300-DI / DI-HALL, UC11xx, UC300, UC50x pulse counters as water / gas / energy meter sensors
+  (unit, pulses per unit, starting reading) for the Energy dashboard.
+- Building analytics: per-area comfort score and occupancy sensors (hourly heat map, utilisation) on the gateway,
+  plus dashboards/building_analytics.yaml.
+
+### Fixed
+- dashboards/fleet_overview.yaml: tables rendered on one line (folded YAML block); now literal blocks.
+
 ## 0.16.0
 ### Added
 - Bulk onboarding: paste a list of DevEUI, model, name, area (from a spreadsheet) to add many devices at once;

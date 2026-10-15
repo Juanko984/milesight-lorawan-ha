@@ -12,6 +12,7 @@ except ImportError:  # older Home Assistant
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -24,6 +25,13 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_AUTO_BACKFILL,
+    CONF_METER_OFFSET,
+    CONF_METER_PPU,
+    CONF_METER_SOURCE,
+    CONF_METER_TYPE,
+    CONF_METER_UNIT,
+    METER_TYPES,
     CONF_AREA,
     CONF_BATTERY_LOW,
     DEFAULT_BATTERY_LOW,
@@ -63,7 +71,7 @@ from .const import (
     ENTRY_TYPE_HUB,
     WEEKDAYS,
 )
-from .models import MODELS, entity_specs, parse_bulk
+from .models import MODELS, downlinks, entity_specs, parse_bulk, pulse_capable
 
 _DEVEUI_RE = re.compile(r"^[0-9a-f]{16}$")
 
@@ -247,6 +255,19 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Required(CONF_MODEL, default=model): _model_selector(),
             vol.Required(CONF_MAX_GAP_MIN, default=opts.get(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)): _int_box(5, 1440),
         }
+        if pulse_capable(model):
+            schema[vol.Required(CONF_METER_TYPE, default=opts.get(CONF_METER_TYPE, "none"))] = SelectSelector(
+                SelectSelectorConfig(options=METER_TYPES, translation_key="meter_type"))
+            schema[vol.Optional(CONF_METER_UNIT, default=opts.get(CONF_METER_UNIT, "m³"))] = SelectSelector(
+                SelectSelectorConfig(options=["L", "m³", "gal", "ft³", "kWh", "Wh"]))
+            schema[vol.Optional(CONF_METER_PPU, default=opts.get(CONF_METER_PPU, 1))] = NumberSelector(
+                NumberSelectorConfig(min=0.0001, max=1_000_000, step="any", mode=NumberSelectorMode.BOX))
+            schema[vol.Optional(CONF_METER_OFFSET, default=opts.get(CONF_METER_OFFSET, 0))] = NumberSelector(
+                NumberSelectorConfig(min=0, max=100_000_000, step="any", mode=NumberSelectorMode.BOX))
+            schema[vol.Optional(CONF_METER_SOURCE, default=opts.get(CONF_METER_SOURCE, ""))] = TextSelector()
+        hist = downlinks(model).get("history") or {}
+        if hist.keys() & {"fetch", "fetch_since"}:
+            schema[vol.Required(CONF_AUTO_BACKFILL, default=opts.get(CONF_AUTO_BACKFILL, True))] = BooleanSelector()
         if "battery" in {sp.key for sp in entity_specs(model)}:
             schema[vol.Required(CONF_BATTERY_LOW, default=opts.get(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))] = _int_box(1, 99)
         if "door" in features:

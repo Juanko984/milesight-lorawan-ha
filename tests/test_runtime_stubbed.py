@@ -70,6 +70,7 @@ class _Climate:
     native_target_temperature = None                   # behave like Home Assistant 2026.x
 mod("homeassistant.components.climate", ClimateEntity=_Climate, ClimateEntityFeature=_CF, HVACAction=_HA, HVACMode=_HV)
 mod("homeassistant.components.button", ButtonDeviceClass=StrE("BTDC", {"RESTART": "restart", "IDENTIFY": "identify", "UPDATE": "update"}), ButtonEntity=object)
+mod("homeassistant.components.select", SelectEntity=object)
 mod("homeassistant.components.number", NumberEntity=object, NumberMode=types.SimpleNamespace(BOX="box"))
 mod("homeassistant.components.switch", SwitchDeviceClass=StrE("SWDC", {"OUTLET": "outlet", "SWITCH": "switch"}), SwitchEntity=object)
 mod("homeassistant.components.event", EventDeviceClass=types.SimpleNamespace(BUTTON="button"), EventEntity=_Ev)
@@ -86,7 +87,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number"]:
+for n in ["const", "decoders", "analytics", "models", "hub", "runtime", "entity", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -119,7 +120,7 @@ def make_device(deveui, model):
         cls = {"sensor": sensor.MilesightSensor, "device_tracker": device_tracker.MilesightTracker,
                "switch": switch.MilesightSwitch, "event": event.MilesightButton,
                "climate": climate.MilesightClimate, "button": button.MilesightCommandButton,
-               "number": number.MilesightNumber}.get(
+               "number": number.MilesightNumber, "select": select.MilesightSettingSelect}.get(
             s.platform, binary_sensor.MilesightBinarySensor)
         ents.append(cls(rt, s))
     return rt, ents
@@ -191,7 +192,7 @@ for i, (model, raw) in enumerate(samples.items()):
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
         empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
-                 and not k.startswith(("cmd_", "cfg_")) and k != "last_command"]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill")]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -201,7 +202,7 @@ for i, (model, raw) in enumerate(samples.items()):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
                  and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
-                 and not k.startswith(("cmd_", "cfg_")) and k != "last_command"]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill")]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -437,3 +438,40 @@ devs = fleet.fleet_devices(fake, hub_entry)
 assert devs == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
                  "battery": 90, "battery_low": False, "rssi": -95, "snr": 7.0, "last_seen": devs[0]["last_seen"]}], devs
 print("fleet ok")
+
+# Settings (alarm thresholds, LED / child lock), stored history, pulse meter
+rt, ents = make_device("0000000000100300", "EM300-TH")
+by_key = {e.spec.key: e for e in ents}
+cond = by_key["set_temperature_alarm__condition"]
+assert cond._attr_options == ["disable", "below", "above", "between", "outside"]
+asyncio.run(by_key["set_temperature_alarm__max"].async_set_native_value(30))
+asyncio.run(cond.async_select_option("above"))
+assert last_hex() == "ff060a" + (-300).to_bytes(2, "little", signed=True).hex() + (300).to_bytes(2, "little").hex() + "00000000", last_hex()
+assert cond.current_option == "above" and by_key["set_temperature_alarm__max"].native_value == 30
+rt, ents = make_device("0000000000100307", "AM307")
+by_key = {e.spec.key: e for e in ents}
+asyncio.run(by_key["set_led_indicator"].async_turn_off())
+assert by_key["set_led_indicator"].is_on is False
+asyncio.run(by_key["cmd_fetch_history"].async_press())
+assert last_hex().startswith("fd6c") and len(last_hex()) == 20
+# EM300-TH history record arrives -> parsed and handed to the statistics importer
+rt, ents = make_device("0000000000100301", "EM300-TH")
+recs = []
+rt._import_history = lambda records, measures: recs.append((records, measures)) or asyncio.sleep(0)
+hass.async_create_task = lambda coro: asyncio.run(coro) if asyncio.iscoroutine(coro) else None
+send("0000000000100301", bytes.fromhex("20ce" + (1760000000).to_bytes(4, "little").hex() + "1001" + "60" + "00"))
+assert recs and recs[0][0] == [(1760000000, {"temperature": 27.2, "humidity": 48.0})], recs
+assert "temperature" in recs[0][1] and "humidity" in recs[0][1]
+# pulse meter
+e = types.SimpleNamespace(data={"entry_type": "device", "deveui": "0000000000100302", "model": "EM300-DI"},
+                          options={"meter_type": "water", "meter_unit": "L", "meter_pulses_per_unit": 2, "meter_offset": 1000},
+                          title="Water")
+rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add("0000000000100302"); rt.async_start()
+send("0000000000100302", bytes.fromhex("05c8e8030000"))       # 1000 pulses
+assert rt.values["meter_reading"] == 1500 and rt.extra_specs()[0].device_class == "water"
+print("settings / history / meter ok")
+
+# Building analytics
+assert fleet.comfort_score(22, 45, 600) == 100 and fleet.comfort_score(27, 45, 1300) == 63
+assert fleet.comfort_score(None, None, None) is None
+print("analytics ok")

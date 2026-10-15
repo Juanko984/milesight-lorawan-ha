@@ -19,7 +19,7 @@ views:
             name: Low battery
       - type: markdown
         title: Needs attention
-        content: >
+        content: |
           {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
           {% set bad = devs | selectattr('online', 'false') | list + (devs | selectattr('battery_low') | list) %}
           {% if not bad %}All devices are online with good batteries ✅{% else %}
@@ -29,7 +29,7 @@ views:
           {% endfor %}{% endif %}
       - type: markdown
         title: All devices
-        content: >
+        content: |
           {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
           | | Device | Model | Area | Battery | RSSI | SNR | Last seen |
           |---|---|---|---|---|---|---|---|

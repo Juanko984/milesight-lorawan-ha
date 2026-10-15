@@ -22,7 +22,7 @@ from .services import async_register_services
 HUB_PLATFORMS = [Platform.SENSOR]          # fleet overview
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.EVENT, Platform.CLIMATE, Platform.BUTTON, Platform.NUMBER]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.EVENT, Platform.CLIMATE, Platform.BUTTON, Platform.NUMBER, Platform.SELECT]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
