@@ -1377,3 +1377,43 @@ def decode_uc100_v2(b: bytes) -> dict[str, Any]:
         else:
             break
     return out
+
+
+# --------------------------------------------------------------------------
+# EM400 range – ultrasonic distance / level (EM400-UDL, EM400-TLD, EM400-MUD share one format)
+# Checked against Milesight-IoT/SensorDecoders (em-series/em400-*).
+# --------------------------------------------------------------------------
+_EM400_ALARM = {0: ("threshold_alarm_release", False), 1: ("threshold_alarm", True)}
+
+
+def decode_em400(b: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    i = 0
+    while i + 2 <= len(b):
+        cid, ctype = b[i], b[i + 1]
+        i += 2
+        n = _decode_common(cid, ctype, b, i, out)
+        if n is not None:
+            i += n
+        elif cid == 0x01 and ctype == 0x75 and _need(b, i, 1):
+            out["battery"] = b[i]
+            i += 1
+        elif cid in (0x03, 0x83) and ctype == 0x67 and _need(b, i, 2 if cid == 0x03 else 3):
+            out["temperature"] = _i16le(b, i) / 10
+            i += 2
+            if cid == 0x83:
+                _ts_alarm(out, "temperature", b[i], _EM400_ALARM)
+                i += 1
+        elif cid in (0x04, 0x84) and ctype == 0x82 and _need(b, i, 2 if cid == 0x04 else 3):
+            out["distance"] = _u16le(b, i)
+            i += 2
+            if cid == 0x84:
+                _ts_alarm(out, "distance", b[i], _EM400_ALARM)
+                i += 1
+        elif cid == 0x05 and ctype == 0x00 and _need(b, i, 1):
+            out["position"] = {0: "normal", 1: "tilt"}.get(b[i], "unknown")
+            out["tilted"] = b[i] == 1
+            i += 1
+        else:
+            break
+    return out

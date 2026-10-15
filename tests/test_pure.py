@@ -183,6 +183,14 @@ def test_uc_dynamic_specs_and_guess():
     assert "modbus_chn_1" in d
 
 
+def test_em400():
+    d = dec.decode_em400(bytes.fromhex("01755C0367010104824408050001"))        # official sample
+    assert d == {"battery": 92, "temperature": 25.7, "distance": 2116, "position": "tilt", "tilted": True}
+    d = dec.decode_em400(bytes.fromhex("8482d00701"))
+    assert d["distance"] == 2000 and d["distance_alarm_active"] is True and d["distance_alarm_status"] == "threshold_alarm"
+    assert mdl.guess_model(bytes.fromhex("01755C0367010104824408050001"))[0] == "EM400-UDL"
+
+
 def test_entity_specs_unique_keys():
     for m in mdl.MODELS:
         keys = [s.key for s in mdl.entity_specs(m)]

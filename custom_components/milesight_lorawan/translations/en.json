@@ -63,14 +63,16 @@
           "open_hour": "Opening hour",
           "close_hour": "Closing hour",
           "open_days": "Open days",
-          "co2_limit": "CO2 limit (ppm)"
+          "co2_limit": "CO2 limit (ppm)",
+          "install_height_mm": "Empty distance (mm)"
         },
         "data_description": {
           "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
           "open_hour": "Used for utilisation %.",
           "close_hour": "Use 24 for midnight.",
           "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page.",
-          "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline."
+          "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline.",
+          "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off."
         }
       }
     }

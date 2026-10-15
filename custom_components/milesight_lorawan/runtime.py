@@ -17,6 +17,7 @@ from .analytics import BinaryEventTracker, Calendar, MinMaxTracker, OccupancyTra
 from .const import (
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
+    CONF_INSTALL_HEIGHT_MM,
     CONF_DEVEUI,
     CONF_EMPTY_GRACE_MIN,
     CONF_LEFT_OPEN_MIN,
@@ -236,6 +237,10 @@ class DeviceRuntime:
             v["feels_like"] = _heat_index(v["temperature"], v["humidity"])
         if "co2" in v:
             v["co2_status"] = _co2_text(v["co2"])
+        height = float(self._opt(CONF_INSTALL_HEIGHT_MM, 0) or 0)
+        if "em400" in self.model.features and height > 0 and isinstance(v.get("distance"), (int, float)):
+            # distance = sensor to surface; full when the surface reaches the sensor
+            v["fill_level"] = round(max(0.0, min(100.0, (height - v["distance"]) / height * 100)), 0)
 
         for feature, tracker in self.binary.items():
             tv = tracker.values(ts)

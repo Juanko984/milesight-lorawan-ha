@@ -25,6 +25,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
+    CONF_INSTALL_HEIGHT_MM,
     CONF_DEVEUI,
     CONF_EMPTY_GRACE_MIN,
     CONF_ENTRY_TYPE,
@@ -192,6 +193,9 @@ class MilesightOptionsFlow(OptionsFlow):
         if "door" in features:
             schema[vol.Required(CONF_LEFT_OPEN_MIN, default=opts.get(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN))] = \
                 _int_box(1, 1440)
+        if "em400" in features:
+            schema[vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0))] = \
+                _int_box(0, 20000)
         if "co2high" in features:
             schema[vol.Required(CONF_CO2_LIMIT, default=opts.get(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT))] = \
                 _int_box(400, 5000)

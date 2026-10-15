@@ -3,9 +3,9 @@
 [![Release](https://img.shields.io/github/v/release/Juanko984/milesight-lorawan-ha?label=version)](https://github.com/Juanko984/milesight-lorawan-ha/releases)
 [![HACS](https://img.shields.io/badge/HACS-custom-orange.svg)](https://hacs.xyz)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
-![Models](https://img.shields.io/badge/supported%20models-42-brightgreen.svg)
+![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.6.0** · [Version history](#version-history)
+**Current version: 0.7.1** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -18,6 +18,7 @@ Connect the gateway once; every new sensor that sends data shows up under
 | **VS** – people counting & occupancy | VS121, VS321, VS340, VS341, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
 | **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
 | **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
+| **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
 | **TS** – temperature probes & cold chain | TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602 | Fridges, freezers, cold rooms, transport |
 | **UC** – controllers | UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2) | Digital / analog I/O, PT100, pulse counting, Modbus RS485, SDI-12, irrigation valves |
@@ -58,6 +59,17 @@ Statistics are stored by Home Assistant and survive restarts.
 | **EM300-MCS** door / window | As EM300-TH plus door open / closed, *door left open* alarm, open duration (live), open time & number of openings today / yesterday / this week / last week / this month / last month, longest & average opening |
 | **EM300-SLD / EM300-ZLD** leak | As EM300-TH plus leak detected and leak statistics (same periods as door) |
 | **EM300-DI** | As EM300-TH plus digital input statistics, pulse counter and converted water value |
+
+### EM400 range – ultrasonic distance & bins
+
+| Model | What you get |
+|---|---|
+| **EM400-UDL** | Distance (mm) + daily min/max, distance alarm, temperature, tilt alarm, battery; level % (disabled by default) |
+| **EM400-TLD** trash bin | As UDL, plus **fill level %** |
+| **EM400-MUD** multifunctional | As UDL, plus **fill level %** |
+
+Fill level needs the *empty distance* (sensor to the bottom of the empty bin / tank, in mm): open the device →
+**Configure** → *Empty distance (mm)*. 0 % = empty, 100 % = surface at the sensor.
 
 ### EM500 range – industrial sensors
 
@@ -204,6 +216,8 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.7.1** | Integration icon changed to the Milesight "M". |
+| **0.7.0** | EM400 range added: EM400-UDL, EM400-TLD, EM400-MUD, with fill level % from a configurable empty distance. |
 | **0.6.0** | UC range added: UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2). Controllers get entities per channel as data arrives. |
 | **0.5.0** | TS range added: TS101, TS201 / TS201 v2, TS301, TS302 (current and older firmware), TS601, TS602. Alarm states default to *off* instead of *unknown*. |
 | **0.4.0** | EM500 range added: EM500-CO2, LGT, PP, PT100, SMTC, SWL, UDL. Probe error markers shown as *Sensor status*. |

@@ -8,6 +8,7 @@ from typing import Callable
 from .decoders import (
     decode_am300,
     decode_em300,
+    decode_em400,
     decode_em500,
     decode_em500_smtc,
     decode_ts60x,
@@ -135,6 +136,15 @@ MODELS: dict[str, Model] = {
                    frozenset({"battery", "ts60x", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS60_DEF),
     "TS602": Model("TS602", "TS602 cold-chain temperature & humidity sensor (display)", decode_ts60x,
                    frozenset({"battery", "ts60x", "sensor_error"}), minmax_fields=("temperature", "humidity"), defaults=_TS60_DEF),
+    "EM400-UDL": Model("EM400-UDL", "EM400-UDL ultrasonic distance / level", decode_em400,
+                       frozenset({"battery", "em400"}), minmax_fields=("distance", "temperature"),
+                       defaults=(("distance_alarm_active", False), ("temperature_alarm_active", False))),
+    "EM400-TLD": Model("EM400-TLD", "EM400-TLD trash bin fill level", decode_em400,
+                       frozenset({"battery", "em400", "fill"}), minmax_fields=("distance", "temperature"),
+                       defaults=(("distance_alarm_active", False), ("temperature_alarm_active", False))),
+    "EM400-MUD": Model("EM400-MUD", "EM400-MUD multifunctional ultrasonic distance", decode_em400,
+                       frozenset({"battery", "em400", "fill"}), minmax_fields=("distance", "temperature"),
+                       defaults=(("distance_alarm_active", False), ("temperature_alarm_active", False))),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -181,6 +191,9 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
+    e4 = decode_em400(raw)
+    if "distance" in e4 or ("position" in e4 and "temperature" in e4):
+        return "EM400-UDL", ["EM400-UDL", "EM400-TLD", "EM400-MUD"]
     uc = _guess_uc(raw)
     if uc:
         return uc
@@ -639,6 +652,19 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     specs += _em500(f)
     if "ts" in f or "ts60x" in f:
         specs += _ts(f)
+    if "em400" in f:
+        specs += _measure("distance", "Distance", "mm", "distance", icon="mdi:arrow-expand-vertical")
+        specs += _alarm("distance", "Distance")
+        specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
+        specs += _alarm("temperature", "Temperature", enabled=False)
+        specs.append(EntitySpec("tilted", "Tilted", platform="binary_sensor", device_class="problem",
+                                icon="mdi:angle-acute"))
+        if "fill" in f:
+            specs.append(EntitySpec("fill_level", "Fill level", unit="%", state_class="measurement",
+                                    icon="mdi:delete-variant", precision=0))
+        else:
+            specs.append(EntitySpec("fill_level", "Level", unit="%", state_class="measurement",
+                                    icon="mdi:waves-arrow-up", precision=0, enabled_default=False))
     if "uc11t1" in f:
         specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
         specs += _measure("humidity", "Humidity", "%", "humidity", precision=1)

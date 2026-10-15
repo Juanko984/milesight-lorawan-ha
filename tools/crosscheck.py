@@ -178,6 +178,11 @@ MODELS = {
                                   lambda: bytes([0xB4, 0x67, random.randint(0, 2)])]),
  "ts-series/ts601": ("ts60x", TS60X),
  "ts-series/ts602": ("ts60x", TS60X),
+ "em-series/em400-udl": ("em400", [seg([1, 0x75], rb(1)), seg([3, 0x67], lambda: i16(R(-300, 600))), seg([4, 0x82], rb(2)),
+                                     seg([5, 0], lambda: bytes([R(0, 1)])), seg([0x83, 0x67], lambda: i16(R(-300, 600)), lambda: bytes([R(0, 1)])),
+                                     seg([0x84, 0x82], rb(2), lambda: bytes([R(0, 1)]))]),
+ "em-series/em400-tld": ("em400", [seg([1, 0x75], rb(1)), seg([4, 0x82], rb(2)), seg([5, 0], lambda: bytes([R(0, 1)])), seg([0x84, 0x82], rb(2), lambda: bytes([R(0, 1)]))]),
+ "em-series/em400-mud": ("em400", [seg([1, 0x75], rb(1)), seg([3, 0x67], lambda: i16(R(-300, 600))), seg([4, 0x82], rb(2)), seg([0x83, 0x67], lambda: i16(R(-300, 600)), lambda: bytes([R(0, 1)]))]),
  "uc-series/uc11-t1": ("uc11t1", [seg([3, 0x75], rb(1)), seg([1, 0x67], lambda: i16(R(-300, 600))), seg([2, 0x68], rb(1))]),
  "uc-series/uc11xx": ("uc11xx", [seg([1, 0], lambda: bytes([R(0, 1)])), seg([2, 0], lambda: bytes([R(0, 1)])), seg([1, 0xC8], rb(4)), seg([2, 0xC8], rb(4)),
                                  seg([9, 1], lambda: bytes([R(0, 1)])), seg([0x0A, 1], lambda: bytes([R(0, 1)])), seg([0x11, 2], rb(8)), seg([0x12, 2], rb(8)), uc11_mb(0)]),
@@ -242,6 +247,8 @@ for folder,(kind,chans) in MODELS.items():
             if "relative_surface_info" in r:
                 for a in ("x", "y", "z"): exp[f"angle_{a}"] = r["relative_surface_info"][f"angle_{a}"]
             r = {}
+        if kind == "em400":
+            r = {(k + "_status" if k.endswith("_alarm") else k): v for k, v in r.items()}
         if kind.startswith("uc"):
             r = {k: v for k, v in r.items() if k not in ("event", "history") and not isinstance(v, (dict, list))
                  and not (kind == "uc521" and k.endswith("_sensor_status"))
@@ -273,7 +280,7 @@ for folder,(kind,chans) in MODELS.items():
                     v = STR_VS[v]
                 if kind == "vs_occupancy" and k == "occupancy" and v == "unknown": v = 0
                 # detection_status / illuminance etc. stay strings on both sides
-            elif isinstance(v,str) and v in STR and not (kind.startswith("uc") and v == "normal"): v = STR[v]
+            elif isinstance(v,str) and v in STR and not ((kind.startswith("uc") or kind == "em400") and v == "normal"): v = STR[v]
             exp[k2] = v
         def same(a, b):
             if b == "unknown":                     # official returns "unknown" for out-of-range enum bytes

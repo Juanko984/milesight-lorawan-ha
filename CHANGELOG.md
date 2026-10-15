@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.7.1
+### Changed
+- Integration icon is now the Milesight "M" (`brand/icon.png`, `brand/icon@2x.png`).
+
+## 0.7.0
+### Added
+- EM400 range: EM400-UDL, EM400-TLD, EM400-MUD (distance, temperature, tilt, distance / temperature alarms, battery).
+- Fill level % for bins and tanks, calculated from the new *Empty distance (mm)* setting under **Configure**.
+- Crosscheck covers the EM400 decoders (9,000+ payloads against Milesight's official decoders).
+
 ## 0.6.0
 ### Added
 - UC range: UC11-T1, UC11xx (UC1114 / UC1122 / UC1152), UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521,

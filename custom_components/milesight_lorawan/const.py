@@ -27,6 +27,7 @@ CONF_OPEN_HOUR = "open_hour"
 CONF_CLOSE_HOUR = "close_hour"
 CONF_OPEN_DAYS = "open_days"
 CONF_CO2_LIMIT = "co2_limit"
+CONF_INSTALL_HEIGHT_MM = "install_height_mm"
 
 DEFAULT_MAX_GAP_MIN = 120
 DEFAULT_LEFT_OPEN_MIN = 10

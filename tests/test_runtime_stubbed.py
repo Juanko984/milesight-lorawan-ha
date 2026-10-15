@@ -227,6 +227,14 @@ uc_samples = {
     "UC11XX": "010001090100ff0e010214 00".replace(" ", ""),
     "UC11-N1": "0175640300010401",
 }
+
+# EM400 with fill level from the "empty distance" option
+e = types.SimpleNamespace(data={"entry_type": "device", "deveui": "0000000000000400", "model": "EM400-TLD"},
+                          options={"install_height_mm": 1000}, title="Bin")
+rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add("0000000000000400"); rt.async_start()
+send("0000000000000400", bytes.fromhex("01755C036701010482fa00050000"))
+assert rt.values["fill_level"] == 75 and rt.values["tilted"] is False and rt.values["distance_alarm_active"] is False, rt.values
+print("em400 ok")
 for i, (model, hexstr) in enumerate(uc_samples.items()):
     raw = bytes.fromhex(hexstr)
     best, cands = models.guess_model(raw)
