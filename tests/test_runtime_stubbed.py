@@ -191,7 +191,7 @@ for i, (model, raw) in enumerate(samples.items()):
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
         empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
-                 and not k.startswith(("cmd_", "cfg_"))]
+                 and not k.startswith(("cmd_", "cfg_")) and k != "last_command"]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -201,7 +201,7 @@ for i, (model, raw) in enumerate(samples.items()):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
                  and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
-                 and not k.startswith(("cmd_", "cfg_"))]
+                 and not k.startswith(("cmd_", "cfg_")) and k != "last_command"]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -218,7 +218,8 @@ for i, (model, raw) in enumerate(samples.items()):
     if model == "VS373":
         assert st["alarm_fall"] is True and st["detection_status"] == "Fall" and st["last_alarm"] == "Fall", st
         assert st["respiratory_rate"] == 19.0 and st["respiratory_status"] == "Normal" and st["occ_occupied"] is True
-        assert fired and fired[-1][1]["alarm_type"] == "fall"
+        alarms = [f for f in fired if f[0] == "milesight_lorawan_alarm"]
+        assert alarms and alarms[-1][1]["alarm_type"] == "fall"
         send(dev, bytes.fromhex("06fb0100000201"))          # fall alarm deactivated
         assert states(ents)["alarm_fall"] is False
     if model == "AM307":
@@ -411,3 +412,28 @@ rt, ents = make_device("00000000000e0102", "AM102")
 by_key = {e.spec.key: e for e in ents}
 asyncio.run(by_key["cmd_sync_time"].async_press()); assert last_hex().startswith("ff11") and len(last_hex()) == 12
 print("downlinks ok")
+
+# Online / battery low / command confirmation
+rt, ents = make_device("00000000000f0300", "EM300-TH")
+send("00000000000f0300", bytes.fromhex("01750f03671001046860"))
+assert rt.values["online"] is True and rt.values["battery_low"] is True
+rt.meta["last_seen"] -= rt.max_gap_s + 60
+rt._tick(None)
+assert rt.values["online"] is False
+asyncio.run(rt.async_command("report_interval", 600))
+assert rt.values["last_command"] == "report interval: sent" and rt.meta["confirmed"]["report_interval"] is False
+send("00000000000f0300", bytes.fromhex("01755aff035802"))          # device echoes the new interval
+assert rt.values["last_command"] == "report interval: confirmed" and rt.meta["confirmed"]["report_interval"] is True
+assert rt.values["online"] is True and rt.values["battery_low"] is False
+
+# Fleet sensors
+import importlib
+fleet = importlib.import_module("milesight_lorawan.fleet")
+dev_entry = types.SimpleNamespace(data={"entry_type": "device", "deveui": rt.deveui, "area": "Lab"}, title="TH lab",
+                                  runtime_data=rt)
+hub_entry = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="h1", title="GW", runtime_data=hb)
+fake = types.SimpleNamespace(config_entries=types.SimpleNamespace(async_entries=lambda d: [hub_entry, dev_entry]))
+devs = fleet.fleet_devices(fake, hub_entry)
+assert devs == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
+                 "battery": 90, "battery_low": False, "rssi": -95, "snr": 7.0, "last_seen": devs[0]["last_seen"]}], devs
+print("fleet ok")

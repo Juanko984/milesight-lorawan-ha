@@ -43,6 +43,13 @@ class MilesightNumber(MilesightEntity, NumberEntity):
         v = self.raw_value
         return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        if not self._command:
+            return None
+        confirmed = self.runtime.meta.get("confirmed", {}).get(self._command)
+        return {"confirmed_by_device": confirmed} if confirmed is not None else None
+
     async def async_set_native_value(self, value: float) -> None:
         try:
             if self._command:

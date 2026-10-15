@@ -1,0 +1,37 @@
+# Milesight LoRaWAN – fleet overview dashboard
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# Replace sensor.milesight_gateway_devices etc. with the entity ids of YOUR gateway's fleet sensors
+# (Settings → Devices → Milesight gateway).
+title: LoRaWAN fleet
+views:
+  - title: Fleet
+    path: fleet
+    cards:
+      - type: glance
+        entities:
+          - entity: sensor.milesight_gateway_devices
+            name: Devices
+          - entity: sensor.milesight_gateway_devices_online
+            name: Online
+          - entity: sensor.milesight_gateway_devices_offline
+            name: Offline
+          - entity: sensor.milesight_gateway_devices_with_low_battery
+            name: Low battery
+      - type: markdown
+        title: Needs attention
+        content: >
+          {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
+          {% set bad = devs | selectattr('online', 'false') | list + (devs | selectattr('battery_low') | list) %}
+          {% if not bad %}All devices are online with good batteries ✅{% else %}
+          | Device | Area | Problem | Last seen |
+          |---|---|---|---|
+          {% for d in bad | unique(attribute='deveui') %}| {{ d.name }} | {{ d.area or '' }} | {{ 'offline' if not d.online else 'battery ' ~ d.battery ~ ' %' }} | {{ as_timestamp(d.last_seen) | timestamp_custom('%d %b %H:%M') if d.last_seen else 'never' }} |
+          {% endfor %}{% endif %}
+      - type: markdown
+        title: All devices
+        content: >
+          {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
+          | | Device | Model | Area | Battery | RSSI | SNR | Last seen |
+          |---|---|---|---|---|---|---|---|
+          {% for d in devs | sort(attribute='name') %}| {{ '🟢' if d.online else '🔴' }} | {{ d.name }} | {{ d.model }} | {{ d.area or '' }} | {{ (d.battery ~ ' %') if d.battery is not none else '–' }} | {{ d.rssi if d.rssi is not none else '' }} | {{ d.snr if d.snr is not none else '' }} | {{ as_timestamp(d.last_seen) | timestamp_custom('%d %b %H:%M') if d.last_seen else 'never' }} |
+          {% endfor %}

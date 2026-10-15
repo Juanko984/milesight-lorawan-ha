@@ -1667,4 +1667,54 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     control = {s_.key for s_ in specs if s_.platform in ("switch", "number")}
     # a controllable output replaces its read-only binary sensor / sensor
     specs = [s_ for s_ in specs if not (s_.key in control and s_.platform in ("binary_sensor", "sensor"))]
+    keys = {s_.key for s_ in specs}
+    specs.append(EntitySpec("online", "Online", platform="binary_sensor", device_class="connectivity", diagnostic=True))
+    if "battery" in keys or model.dynamic and model_key.startswith(("UC5", "UC11-N1", "UC11-T1")):
+        specs.append(EntitySpec("battery_low", "Battery low", platform="binary_sensor", device_class="battery",
+                                diagnostic=True))
+    if downlinks(model_key):
+        specs.append(EntitySpec("last_command", "Last command", kind="text", icon="mdi:message-arrow-right-outline",
+                                diagnostic=True))
     return specs + _common()
+
+
+# --------------------------------------------------------------------------
+# Bulk onboarding
+# --------------------------------------------------------------------------
+def _resolve_model(text: str) -> str | None:
+    """'em300-mcs', 'EM300 MCS', 'WS501 v4' -> model key."""
+    norm = re.sub(r"[^A-Z0-9]", "", text.upper())
+    if not norm:
+        return None
+    for key in MODELS:
+        if re.sub(r"[^A-Z0-9]", "", key) == norm:
+            return key
+    return None
+
+
+def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
+    """Lines 'DevEUI, model, name, area' (name / area optional; ';' or tab also accepted).
+    Returns (devices, errors)."""
+    devices, errors, seen = [], [], set()
+    for n, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        cols = [c.strip() for c in re.split(r"[,;\t]", line)]
+        if n == 1 and cols[0].lower().replace(" ", "") in ("deveui", "dev_eui", "eui"):
+            continue                                    # header row
+        deveui = re.sub(r"[^0-9a-fA-F]", "", cols[0]).lower()
+        if not re.fullmatch(r"[0-9a-f]{16}", deveui):
+            errors.append(f"line {n}: invalid DevEUI '{cols[0]}'")
+            continue
+        model = _resolve_model(cols[1]) if len(cols) > 1 else None
+        if model is None:
+            errors.append(f"line {n}: unknown model '{cols[1] if len(cols) > 1 else ''}'")
+            continue
+        if deveui in seen:
+            errors.append(f"line {n}: DevEUI {deveui.upper()} listed twice")
+            continue
+        seen.add(deveui)
+        devices.append({"deveui": deveui, "model": model, "name": cols[2] if len(cols) > 2 and cols[2] else None,
+                        "area": cols[3] if len(cols) > 3 and cols[3] else None})
+    return devices, errors

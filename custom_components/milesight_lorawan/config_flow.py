@@ -9,7 +9,7 @@ try:  # Home Assistant 2026.x replaced voluptuous with probatio (same API)
 except ImportError:  # older Home Assistant
     import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     NumberSelector,
@@ -20,9 +20,13 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
+    TextSelectorConfig,
 )
 
 from .const import (
+    CONF_AREA,
+    CONF_BATTERY_LOW,
+    DEFAULT_BATTERY_LOW,
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
@@ -59,9 +63,11 @@ from .const import (
     ENTRY_TYPE_HUB,
     WEEKDAYS,
 )
-from .models import MODELS
+from .models import MODELS, entity_specs, parse_bulk
 
 _DEVEUI_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
 
 
 def _model_selector(order: list[str] | None = None) -> SelectSelector:
@@ -120,7 +126,7 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if not self._hubs():
             return await self.async_step_hub()
-        return self.async_show_menu(step_id="user", menu_options=["manual", "hub"])
+        return self.async_show_menu(step_id="user", menu_options=["manual", "bulk", "hub"])
 
     async def async_step_hub(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -142,12 +148,44 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 await self.async_set_unique_id(deveui)
                 self._abort_if_unique_id_configured()
-                return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"))
+                return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"),
+                                           user_input.get(CONF_AREA))
         return self.async_show_form(step_id="manual", errors=errors, data_schema=vol.Schema({
             vol.Required(CONF_DEVEUI): TextSelector(),
             vol.Required(CONF_MODEL): _model_selector(),
             vol.Optional("name"): TextSelector(),
+            vol.Optional(CONF_AREA): TextSelector(),
         }))
+
+    async def async_step_bulk(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders = {"problems": ""}
+        if user_input is not None:
+            devices, problems = parse_bulk(user_input["devices"])
+            existing = {e.unique_id for e in self._async_current_entries()}
+            new = [d for d in devices if d[CONF_DEVEUI] not in existing]
+            if problems:
+                errors["devices"] = "bulk_invalid"
+                placeholders["problems"] = "\n".join(f"- {p}" for p in problems[:15])
+            elif not new:
+                errors["devices"] = "bulk_nothing_new"
+            else:
+                for dev in new:
+                    self.hass.async_create_task(self.hass.config_entries.flow.async_init(
+                        DOMAIN, context={"source": SOURCE_IMPORT}, data=dev))
+                return self.async_abort(reason="bulk_done", description_placeholders={
+                    "count": str(len(new)), "skipped": str(len(devices) - len(new))})
+        return self.async_show_form(step_id="bulk", errors=errors, description_placeholders=placeholders,
+                                    data_schema=vol.Schema({
+                                        vol.Required("devices", default=(user_input or {}).get("devices", "")):
+                                            TextSelector(TextSelectorConfig(multiline=True)),
+                                    }))
+
+    async def async_step_import(self, data: dict[str, Any]) -> ConfigFlowResult:
+        """One device from the bulk list."""
+        await self.async_set_unique_id(data[CONF_DEVEUI])
+        self._abort_if_unique_id_configured()
+        return self._create_device(data[CONF_DEVEUI], data[CONF_MODEL], data.get("name"), data.get(CONF_AREA))
 
     # ------------------------------------------------------- auto-discovery
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
@@ -166,12 +204,13 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         deveui = self._disc[CONF_DEVEUI]
         guess = self._disc.get("guess")
         if user_input is not None:
-            return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"))
+            return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"), user_input.get(CONF_AREA))
 
         candidates = self._disc.get("candidates") or []
         schema = vol.Schema({
             vol.Required(CONF_MODEL, default=guess or next(iter(MODELS))): _model_selector(candidates),
             vol.Optional("name", default=_device_title(self._disc.get("device_name"), guess, deveui)): TextSelector(),
+            vol.Optional(CONF_AREA): TextSelector(),
         })
         return self.async_show_form(step_id="confirm", data_schema=schema, description_placeholders={
             "deveui": deveui.upper(),
@@ -179,11 +218,11 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
             "candidates": ", ".join(candidates) if candidates else "-",
         })
 
-    def _create_device(self, deveui: str, model: str, name: str | None) -> ConfigFlowResult:
-        return self.async_create_entry(
-            title=_device_title(name, model, deveui),
-            data={CONF_ENTRY_TYPE: ENTRY_TYPE_DEVICE, CONF_DEVEUI: deveui, CONF_MODEL: model},
-        )
+    def _create_device(self, deveui: str, model: str, name: str | None, area: str | None = None) -> ConfigFlowResult:
+        data = {CONF_ENTRY_TYPE: ENTRY_TYPE_DEVICE, CONF_DEVEUI: deveui, CONF_MODEL: model}
+        if area:
+            data[CONF_AREA] = area.strip()
+        return self.async_create_entry(title=_device_title(name, model, deveui), data=data)
 
     # ---------------------------------------------------------------- options
     @staticmethod
@@ -208,6 +247,8 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Required(CONF_MODEL, default=model): _model_selector(),
             vol.Required(CONF_MAX_GAP_MIN, default=opts.get(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)): _int_box(5, 1440),
         }
+        if "battery" in {sp.key for sp in entity_specs(model)}:
+            schema[vol.Required(CONF_BATTERY_LOW, default=opts.get(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))] = _int_box(1, 99)
         if "door" in features:
             schema[vol.Required(CONF_LEFT_OPEN_MIN, default=opts.get(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN))] = \
                 _int_box(1, 1440)

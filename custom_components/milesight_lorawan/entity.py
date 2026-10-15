@@ -34,6 +34,7 @@ class MilesightEntity(Entity):
             serial_number=runtime.deveui.upper(),
             sw_version=runtime.raw.get("firmware_version"),
             hw_version=runtime.raw.get("hardware_version"),
+            suggested_area=runtime.entry.data.get("area"),
         )
 
     @property

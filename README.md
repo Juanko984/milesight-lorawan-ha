@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.15.0** · [Version history](#version-history)
+**Current version: 0.16.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -290,6 +290,59 @@ alarm type (e.g. *Below threshold alarm*, *Mutation alarm*). Mutation (rapid cha
 TS301 and TS302 changed their alarm codes in newer firmware. Discovery picks *current firmware* unless the device
 sends an older-firmware message; if alarms look inverted, switch the model to *(older firmware)* under **Configure**.
 
+## Rolling out to a site
+
+### Bulk onboarding
+
+Add the gateway first, then **Add device → Add many devices (paste a list)** and paste one device per line –
+straight from a spreadsheet (comma, semicolon or tab separated):
+
+```
+DevEUI, Model, Name, Area
+24E124136B322135, EM300-MCS, Back door, Warehouse
+24E124538C220481, AM307, Meeting room 1, 1st floor
+24E124600B251990, VS121, Reception, Ground floor
+```
+
+Model names are matched loosely (`em300 mcs`, `WS501 v4`). Every device is created straight away – no confirm
+dialogs – and placed in its **area** (created if it doesn't exist). Devices that already exist are skipped and
+mistakes are listed line by line. The single-device forms (manual and discovered) also have an *Area* field.
+
+### Fleet overview
+
+The gateway device gets four sensors: **Devices**, **Devices online**, **Devices offline** and **Devices with low
+battery**. Their attributes list the devices (name, model, area, battery, RSSI / SNR, last seen).
+A ready-made dashboard is in [`dashboards/fleet_overview.yaml`](dashboards/fleet_overview.yaml) – a status glance,
+a *Needs attention* table and a table of all devices.
+
+Every device also has an **Online** sensor (off after the *Offline gap*, default 120 min, without an uplink)
+and – for battery devices – a **Battery low** sensor (threshold per device under **Configure**, default 20 %).
+Going offline / online also fires `milesight_lorawan_device_offline` / `milesight_lorawan_device_online` events.
+
+### Blueprints
+
+Import with one click (or copy the files from [`blueprints/`](blueprints/automation/milesight_lorawan)):
+
+| Blueprint | Use |
+|---|---|
+| [Device offline / back online](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/device_offline.yaml) | Notify when any device stops reporting |
+| [Battery low](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/battery_low.yaml) | Notify when a battery drops below the per-device threshold |
+| [Door left open](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/door_left_open.yaml) | Pick the *Door left open* sensors (EM300-MCS, WS301) |
+| [Leak detected](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/leak.yaml) | Leak sensors – e.g. notify and close a valve |
+| [Gas, smoke, vape or other alarm](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/alarm.yaml) | Any Milesight alarm sensor (GS range, CO2 high, threshold alarms) |
+| [Temperature out of range](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/temperature_out_of_range.yaml) | Fridges, freezers, server rooms – low / high limit for N minutes |
+| [Button actions](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/button_actions.yaml) | Short / double / long press → actions (WS101, WS156, WS136, DS3604, WT401) |
+| [Irrigation / valve schedule](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/valve_schedule.yaml) | Open a UC511 / UC512 / UC521 valve or UC300 output at set times for a duration |
+
+Each one has an editable action list (notification by default) – point it at your phone, Telegram, e-mail etc.
+
+### Settings confirmation
+
+After a setting is sent (e.g. *Reporting interval*), the device's **Last command** sensor shows *sent*, and
+*confirmed* once the device echoes the new value (most Milesight devices do on their next uplink); the interval
+entity's `confirmed_by_device` attribute shows the same. Firmware and hardware versions on the device page update
+whenever the device reports them.
+
 ## Device commands (downlinks)
 
 With the gateway's downlink topic set (see step 1), each device page also gets – where the device supports it:
@@ -381,6 +434,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.16.0** | Rollout tools: bulk onboarding with areas, fleet overview sensors + dashboard, online / battery-low sensors and events, 8 blueprints, settings confirmation. |
 | **0.15.0** | Device commands: reboot, time sync, request update, reporting / collection interval, UC output and valve switches, UC521 valve opening; output_command and send_downlink services. |
 | **0.14.0** | 25 more models: AM102 / 103 / 104 / 107, AM304L / 305L, EM300-CL / -MLD / -DI-HALL, EM310-UDL / -TILT, EM320-TH (v1 / v2) / -TILT, EM410 / 411-RDL, VS132 / 133 / 135 / 330 / 350 / 351 / 360, DS3604. People-counter statistics. |
 | **0.13.0** | CTH01 multi-circuit energy meter added (CT range). |

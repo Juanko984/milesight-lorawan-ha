@@ -34,6 +34,9 @@ CONF_CLOSE_HOUR = "close_hour"
 CONF_OPEN_DAYS = "open_days"
 CONF_CO2_LIMIT = "co2_limit"
 CONF_INSTALL_HEIGHT_MM = "install_height_mm"
+CONF_AREA = "area"
+CONF_BATTERY_LOW = "battery_low_pct"
+DEFAULT_BATTERY_LOW = 20
 CONF_RUN_THRESHOLD_A = "run_threshold_a"
 CONF_MAINS_VOLTAGE = "mains_voltage"
 
@@ -50,6 +53,7 @@ WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 # Dispatcher signals
 SIGNAL_UPLINK = f"{DOMAIN}_uplink_{{}}"   # .format(deveui)
 SIGNAL_UPDATE = f"{DOMAIN}_update_{{}}"   # .format(deveui)
+SIGNAL_FLEET = f"{DOMAIN}_fleet"            # any device changed online / battery state
 SIGNAL_EVENT = f"{DOMAIN}_event_{{}}"     # .format(deveui), args: key, event_type
 
 STORAGE_VERSION = 1

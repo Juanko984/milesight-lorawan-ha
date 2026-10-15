@@ -15,6 +15,7 @@ from homeassistant.util import dt as dt_util
 
 from .analytics import BinaryEventTracker, Calendar, CounterTracker, DistanceTracker, MinMaxTracker, OccupancyTracker
 from .const import (
+    CONF_BATTERY_LOW,
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
@@ -27,6 +28,7 @@ from .const import (
     CONF_MODEL,
     CONF_OPEN_DAYS,
     CONF_OPEN_HOUR,
+    DEFAULT_BATTERY_LOW,
     DEFAULT_CLOSE_HOUR,
     DEFAULT_CO2_LIMIT,
     DEFAULT_EMPTY_GRACE_MIN,
@@ -37,6 +39,7 @@ from .const import (
     DEFAULT_RUN_THRESHOLD_A,
     DOMAIN,
     SIGNAL_EVENT,
+    SIGNAL_FLEET,
     SIGNAL_UPDATE,
     SIGNAL_UPLINK,
     STORAGE_VERSION,
@@ -169,6 +172,9 @@ class DeviceRuntime:
         trackers = data.get("trackers", {})
         f = self.model.features
         max_gap_s = float(self._opt(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)) * 60
+        self.max_gap_s = max_gap_s
+        self.battery_low_pct = float(self._opt(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))
+        self._fleet_state: tuple | None = None
 
         for feature in BINARY_FEATURES:
             if feature in f:
@@ -242,6 +248,9 @@ class DeviceRuntime:
         if "vs373" in self.model.features:
             self._handle_vs373(decoded, ts)
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
+        if up.raw:
+            self._check_pending(up.raw, ts)
+        self._update_registry()
 
         for feature, tracker in self.binary.items():
             src = self.raw if feature in LATCHED_FEATURES else decoded
@@ -258,6 +267,47 @@ class DeviceRuntime:
                 self.occupancy.update(ts, count)
 
         self._publish(ts)
+
+    # ------------------------------------------------- command confirmation
+    def _remember(self, name: str, payload: bytes, value: Any) -> None:
+        """Remember a sent setting until the device echoes it (most Milesight devices answer a setting
+        with the same bytes on channel 0xFF or 0xFE)."""
+        pend = self.meta.setdefault("pending", {})
+        pend[name] = {"hex": payload.hex(), "value": value, "sent": time.time()}
+        self.meta["last_command"] = f"{name.replace('_', ' ')}: sent"
+
+    def _check_pending(self, raw: bytes, ts: float) -> None:
+        pend = self.meta.get("pending") or {}
+        hx = raw.hex()
+        for name, p in list(pend.items()):
+            sent = p["hex"]
+            variants = {sent}
+            if sent.startswith("ff"):
+                variants.add("fe" + sent[2:])
+            if any(v in hx for v in variants):
+                if p.get("value") is not None:
+                    self.meta.setdefault("config", {})[name] = p["value"]
+                    self.meta.setdefault("confirmed", {})[name] = True
+                self.meta["last_command"] = f"{name.replace('_', ' ')}: confirmed"
+                del pend[name]
+            elif ts - p["sent"] > 24 * 3600:
+                self.meta["last_command"] = f"{name.replace('_', ' ')}: no confirmation"
+                del pend[name]
+
+    def _update_registry(self) -> None:
+        """Keep firmware / hardware version on the device page up to date."""
+        fw, hw = self.raw.get("firmware_version"), self.raw.get("hardware_version")
+        if (fw, hw) == self.meta.get("_registry_versions") or not (fw or hw):
+            return
+        try:
+            from homeassistant.helpers import device_registry as dr
+            reg = dr.async_get(self.hass)
+            device = reg.async_get_device(identifiers={(DOMAIN, self.deveui)})
+            if device is not None:
+                reg.async_update_device(device.id, sw_version=fw or device.sw_version, hw_version=hw or device.hw_version)
+                self.meta["_registry_versions"] = (fw, hw)
+        except Exception:  # noqa: BLE001 - registry not available (tests) or device not created yet
+            return
 
     def _fire_button(self, key: str, event_type: str) -> None:
         async_dispatcher_send(self.hass, SIGNAL_EVENT.format(self.deveui), key, event_type)
@@ -322,17 +372,22 @@ class DeviceRuntime:
         spec = dl.get(name)
         if spec is None:
             raise ValueError(f"{self.model.key} does not support {name}")
-        await self._downlink(encode_template(spec, value))
+        payload = encode_template(spec, value)
+        await self._downlink(payload)
         if value is not None and name.endswith("_interval"):
             self.meta.setdefault("config", {})[name] = value
-            self._publish(time.time())
+            self.meta.setdefault("confirmed", {})[name] = False
+        self._remember(name, payload, value if name.endswith("_interval") else None)
+        self._publish(time.time())
 
     async def async_output(self, key: str, action: str, value: float | None = None) -> None:
         """action: on | off | set (value) | on_for / off_for / open_for (value = duration) | open_until_pulses."""
         out = output_for_key(self.model.key, key)
         if out is None or action not in out:
             raise ValueError(f"{self.model.key}: {key} does not support {action}")
-        await self._downlink(encode_template(out[action], value))
+        payload = encode_template(out[action], value)
+        await self._downlink(payload)
+        self._remember(f"{key} {action}", payload, None)
         if action in ("on", "off") and "set" in out:
             self.raw[key] = 100 if action == "on" else 0
         elif action in ("on", "off", "on_for", "open_for", "open_until_pulses"):
@@ -377,10 +432,23 @@ class DeviceRuntime:
 
     def _publish(self, ts: float) -> None:
         v: dict[str, Any] = dict(self.raw)
-        v.update({k: val for k, val in self.meta.items() if k != "config"})
+        v.update({k: val for k, val in self.meta.items() if k not in ("config", "pending", "confirmed")
+                  and not k.startswith("_")})
         for k, val in self.meta.get("config", {}).items():
             v[f"cfg_{k}"] = val
 
+        last = self.meta.get("last_seen")
+        v["online"] = (ts - last <= self.max_gap_s) if last else None       # unknown until the first uplink
+        if isinstance(v.get("battery"), (int, float)):
+            v["battery_low"] = v["battery"] < self.battery_low_pct
+        fleet = (v["online"], v.get("battery_low"))
+        if fleet != self._fleet_state:
+            if self._fleet_state is not None and None not in (fleet[0], self._fleet_state[0]) \
+                    and fleet[0] != self._fleet_state[0]:
+                self.hass.bus.async_fire(f"{DOMAIN}_device_{'online' if fleet[0] else 'offline'}", {
+                    "deveui": self.deveui, "device": self.entry.title, "model": self.model.key})
+            self._fleet_state = fleet
+            async_dispatcher_send(self.hass, SIGNAL_FLEET)
         if self.minmax is not None:
             for f in self.model.minmax_fields:
                 v[f"{f}_min_today"] = self.minmax.get(ts, "min", f)

@@ -19,6 +19,7 @@ from .hub import Hub
 from .runtime import DeviceRuntime
 from .services import async_register_services
 
+HUB_PLATFORMS = [Platform.SENSOR]          # fleet overview
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.EVENT, Platform.CLIMATE, Platform.BUTTON, Platform.NUMBER]
@@ -43,6 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hub.async_start()
         entry.runtime_data = hub
         domain_data["hubs"][entry.entry_id] = hub
+        await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
 
@@ -57,6 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if _is_hub(entry):
+        await hass.config_entries.async_unload_platforms(entry, HUB_PLATFORMS)
         await entry.runtime_data.async_stop()
         hass.data.get(DOMAIN, {}).get("hubs", {}).pop(entry.entry_id, None)
         return True

@@ -446,6 +446,22 @@ def test_decode_new_ranges():
     assert dec.decode_em300_mld(bytes.fromhex("0175640500 01".replace(" ", "")))["leak"] == 1
 
 
+def test_bulk_parse():
+    text = """DevEUI,Model,Name,Area
+24E124136B322135, EM300-MCS, Back door, Warehouse
+24-e1-24-13-6b-32-21-36;ws501 v4;Light
+24e124136b322137\tvs350\t\tEntrance
+bad, EM300-TH
+24e124136b322138, nonsense
+24E124136B322135, EM300-TH
+"""
+    devices, errors = mdl.parse_bulk(text)
+    assert [d["model"] for d in devices] == ["EM300-MCS", "WS501-V4", "VS350"]
+    assert devices[0] == {"deveui": "24e124136b322135", "model": "EM300-MCS", "name": "Back door", "area": "Warehouse"}
+    assert devices[1]["name"] == "Light" and devices[1]["area"] is None and devices[2]["name"] is None
+    assert len(errors) == 3 and "invalid DevEUI" in errors[0] and "unknown model" in errors[1] and "twice" in errors[2]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

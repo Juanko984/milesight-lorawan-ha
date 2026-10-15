@@ -9,12 +9,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE, ENTRY_TYPE_HUB
 from .entity import MilesightEntity, setup_platform_entities
+from .fleet import fleet_sensors
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+        async_add_entities(fleet_sensors(hass, entry))
+        return
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return
     setup_platform_entities(entry, async_add_entities, "sensor", MilesightSensor)

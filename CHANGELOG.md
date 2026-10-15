@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.16.0
+### Added
+- Bulk onboarding: paste a list of DevEUI, model, name, area (from a spreadsheet) to add many devices at once;
+  devices are assigned to Home Assistant areas. Area field on the single-device forms too.
+- Fleet overview: gateway sensors for devices total / online / offline / low battery with device lists, plus a
+  ready-made dashboard (dashboards/fleet_overview.yaml).
+- Per device: Online (connectivity) and Battery low sensors (threshold under Configure), online / offline events.
+- Blueprints: device offline, battery low, door left open, leak, alarms, temperature out of range, button actions,
+  valve schedule.
+- Settings confirmation: Last command sensor (sent / confirmed / no confirmation) and confirmed_by_device attribute
+  on interval settings; firmware / hardware version on the device page follow the device's reports.
+
 ## 0.15.0
 ### Added
 - Device commands for 112 models: Reboot, Sync time and Request update buttons, Reporting interval and Collection
