@@ -2,6 +2,12 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.21.1
+### Fixed
+- LoRaWAN fleet, LoRaWAN signal and Tanks & alerts dashboards showed "UndefinedError: … has no attribute
+  'milesight_role'": the cards now skip sensors without that attribute. The installed dashboards are updated
+  automatically after the update (unless you edited them).
+
 ## 0.21.0
 ### Added
 - Blueprints and ready-made dashboards now ship inside the integration (HACS only installs the integration

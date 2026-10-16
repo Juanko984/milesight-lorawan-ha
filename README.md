@@ -743,6 +743,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.21.1** | Fixed the UndefinedError on the fleet, signal and tanks dashboards. |
 | **0.21.0** | Blueprints and dashboards ship inside the integration and are installed / updated automatically (HACS update), with an *Install dashboards and blueprints* button. |
 | **0.20.3** | Devices with a gateway payload codec (e.g. AM107) are discovered and decoded. |
 | **0.20.2** | AppKey prefilled when adding a device; alphabetical model list. |

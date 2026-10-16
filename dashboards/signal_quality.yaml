@@ -9,7 +9,7 @@ views:
       - type: markdown
         title: Gateways
         content: |
-          {% set gws = states.sensor | selectattr('attributes.milesight_role', 'eq', 'net_gateways_online')
+          {% set gws = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_gateways_online')
              | map(attribute='attributes.gateways') | sum(start=[]) | list %}
           {% if not gws %}No gateways seen yet – they appear with the first uplink that lists them (rxInfo).{% else %}
           | | Gateway | Packets today | Devices today |
@@ -19,7 +19,7 @@ views:
       - type: markdown
         title: Weak or lossy devices
         content: |
-          {% set devs = states.sensor | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
+          {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
           {% set bad = devs | selectattr('signal', 'in', ['poor', 'fair']) | list
              + (devs | selectattr('packet_loss', 'defined') | rejectattr('packet_loss', 'none')
                 | selectattr('packet_loss', 'ge', 10) | list) %}
@@ -31,7 +31,7 @@ views:
       - type: markdown
         title: All devices
         content: |
-          {% set devs = states.sensor | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
+          {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
           {% set icon = {'excellent': '🟢', 'good': '🟢', 'fair': '🟡', 'poor': '🔴'} %}
           | | Device | Model | RSSI | SNR | SF | Gateways | Loss | Last command |
           |---|---|---|---|---|---|---|---|---|

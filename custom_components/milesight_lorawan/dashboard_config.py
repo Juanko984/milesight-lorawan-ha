@@ -34,7 +34,7 @@ def _attention(alerts: str) -> str:
 def _heatmap(areas: list[str]) -> str:
     names = json.dumps(areas, ensure_ascii=False)
     return f"""{{% set names = {names} %}}
-{{% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'in', names) | list %}}
+{{% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'defined') | selectattr('attributes.area', 'in', names) | list %}}
 {{% if not rows %}}No occupancy data yet – people counters, PIR and desk sensors in these areas fill this in.{{% else %}}
 {{% set hours = range(7, 20) %}}
 | Area | Now | Today |{{% for h in hours %}} {{{{ '%02d' % h }}}} |{{% endfor %}}

@@ -10,7 +10,7 @@ views:
       - type: markdown
         title: Open alerts
         content: |
-          {% set al = states.sensor | selectattr('attributes.milesight_role', 'eq', 'alerts_open')
+          {% set al = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'alerts_open')
              | map(attribute='attributes.alerts') | sum(start=[]) | list %}
           {% if not al %}<ha-alert alert-type="success">No open alerts</ha-alert>{% else %}
           {% for a in al %}<ha-alert alert-type="{{ 'error' if a.severity == 'critical' else 'warning' }}" title="{{ a.title }}">{{ a.message }} · since {{ a.since }} · {{ a.status }}{% if a.acknowledged_by %} by {{ a.acknowledged_by }}{% endif %}</ha-alert>
@@ -18,7 +18,7 @@ views:
       - type: markdown
         title: Tanks and silos
         content: |
-          {% set tanks = states.sensor | selectattr('attributes.milesight_role', 'eq', 'tank') | list %}
+          {% set tanks = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'tank') | list %}
           {% if not tanks %}No tanks yet – open a level sensor's device → Configure → Tank or silo.{% else %}
           | | Tank | Area | Contents | Fill | Use / day | Days left |
           |---|---|---|---|---|---|---|
@@ -29,7 +29,7 @@ views:
       - type: markdown
         title: Devices on the gateway
         content: |
-          {% set gw = states.sensor | selectattr('attributes.milesight_role', 'eq', 'net_registered') | list %}
+          {% set gw = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_registered') | list %}
           {% if not gw %}Set up gateway → Configure → Add devices to the gateway, then press *Sync devices with gateway*.{% else %}
           {% for g in gw %}{{ g.state }} devices registered on {{ g.attributes.site }} (last sync {{ g.attributes.last_sync or 'never' }}){% if g.attributes.error %} – ⚠ {{ g.attributes.error }}{% endif %}
 
