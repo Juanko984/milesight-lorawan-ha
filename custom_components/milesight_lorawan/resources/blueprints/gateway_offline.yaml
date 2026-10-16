@@ -1,0 +1,37 @@
+blueprint:
+  name: Milesight – gateway offline / back online
+  description: >
+    Notify when a LoRaWAN gateway stops forwarding packets (or reports itself offline) and when it comes back.
+    The offline time is the gateway's *Gateway offline after* setting (default 15 min).
+  domain: automation
+  source_url: https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/gateway_offline.yaml
+  input:
+    offline_actions:
+      name: When a gateway goes offline
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "LoRaWAN gateway offline"
+            message: "{{ trigger.event.data.gateway }} ({{ trigger.event.data.gateway_id }}) at {{ trigger.event.data.hub }} has stopped forwarding packets."
+      selector:
+        action: {}
+    online_actions:
+      name: When it is back online (optional)
+      default: []
+      selector:
+        action: {}
+mode: queued
+max: 20
+trigger:
+  - trigger: event
+    event_type: milesight_lorawan_gateway_offline
+    id: offline
+  - trigger: event
+    event_type: milesight_lorawan_gateway_online
+    id: online
+action:
+  - choose:
+      - conditions: "{{ trigger.id == 'offline' }}"
+        sequence: !input offline_actions
+      - conditions: "{{ trigger.id == 'online' }}"
+        sequence: !input online_actions

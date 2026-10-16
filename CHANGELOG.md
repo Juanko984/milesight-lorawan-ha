@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.21.0
+### Added
+- Blueprints and ready-made dashboards now ship inside the integration (HACS only installs the integration
+  folder). After every update they are put in place automatically: blueprints in
+  `config/blueprints/automation/milesight_lorawan/`, and the LoRaWAN fleet, LoRaWAN signal (installer), Tanks &
+  alerts and Building analytics dashboards in the sidebar. Copies edited in Home Assistant are kept. New gateway
+  button *Install dashboards and blueprints*; a notification lists what was installed.
+- tools/sync_resources.py copies blueprints/ and dashboards/ into the package before a release.
+
 ## 0.20.3
 ### Fixed
 - Devices with a payload codec switched on in the Milesight gateway (e.g. AM107 with the gateway's AM107 codec)

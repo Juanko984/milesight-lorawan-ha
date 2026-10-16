@@ -56,6 +56,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         from .dashboard import async_restore_dashboard
         await async_restore_dashboard(hass, entry)
+        if not domain_data.get("resources_started"):
+            domain_data["resources_started"] = True
+            hass.async_create_task(_async_install_resources(hass))
         return True
 
     runtime = DeviceRuntime(hass, entry)
@@ -98,3 +101,21 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def _async_install_resources(hass: HomeAssistant) -> None:
+    """Blueprints and dashboards ship inside the integration (HACS installs nothing else): put them in place
+    once after every update, and re-add the dashboards to the sidebar at every start."""
+    from homeassistant.loader import async_get_integration
+    from .resources import async_install, summary
+    try:
+        version = str((await async_get_integration(hass, DOMAIN)).version)
+        out = await async_install(hass, version)
+    except Exception:  # noqa: BLE001 - never block the gateway
+        _LOGGER.warning("Could not install the Milesight blueprints / dashboards", exc_info=True)
+        return
+    if out:
+        from homeassistant.components import persistent_notification
+        persistent_notification.async_create(
+            hass, f"Version {version}.\n\n{summary(out)}", title="Milesight LoRaWAN: blueprints and dashboards",
+            notification_id=f"{DOMAIN}_resources")

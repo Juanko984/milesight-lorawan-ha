@@ -73,6 +73,7 @@ mod("homeassistant.components.frontend", async_register_built_in_panel=lambda ha
 class _LovelaceStorage:
     def __init__(self, hass, config): self.config, self.saved = config, None
     async def async_save(self, cfg): self.saved = cfg
+    async def async_load(self, force): return self.saved
 mod("homeassistant.components.lovelace"); mod("homeassistant.components.lovelace.dashboard", LovelaceStorage=_LovelaceStorage)
 mod("homeassistant.helpers.entity", Entity=Entity, EntityCategory=EntityCategory)
 mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
@@ -806,3 +807,32 @@ async def _prov():
     await c.async_stop()
 asyncio.run(_prov())
 print("provisioning ok")
+
+
+# ---------------- blueprints and dashboards shipped inside the integration ----------------
+import tempfile
+res = load("resources")
+STORES = {}
+class _MemStore(Store):
+    async def async_load(self): return STORES.get(self.key)
+    async def async_save(self, d): STORES[self.key] = json.loads(json.dumps(d))
+res.Store = _MemStore
+cfgdir = pathlib.Path(tempfile.mkdtemp())
+async def _executor(fn, *a): return fn(*a)
+hass4 = types.SimpleNamespace(config=types.SimpleNamespace(path=lambda *p: str(cfgdir.joinpath(*p))),
+                              data={"lovelace": types.SimpleNamespace(dashboards={})}, async_add_executor_job=_executor)
+out = asyncio.run(res.async_install(hass4, "0.21.0"))
+bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
+assert len(out["blueprints"]["written"]) == 11 and (bp / "leak.yaml").exists()
+dashes = hass4.data["lovelace"].dashboards
+assert set(dashes) == {"milesight-fleet", "milesight-signal", "milesight-tanks", "milesight-analytics"}
+assert dashes["milesight-tanks"].saved["title"] == "Tanks & alerts" and "milesight-tanks" in PANELS
+assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
+(bp / "leak.yaml").write_text("# my own version\n")                         # user edits a blueprint …
+dashes["milesight-fleet"].saved = {"title": "Mine", "views": []}             # … and a dashboard
+(bp / "alarm.yaml").unlink()
+out = asyncio.run(res.async_install(hass4, "0.22.0"))
+assert out["blueprints"]["written"] == ["alarm.yaml"] and out["blueprints"]["kept"] == ["leak.yaml"]
+assert out["dashboards"]["kept"] == ["LoRaWAN fleet"] and dashes["milesight-fleet"].saved["title"] == "Mine"
+assert "kept" in res.summary(out)
+print("resources ok")

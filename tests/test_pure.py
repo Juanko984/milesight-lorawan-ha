@@ -1005,6 +1005,16 @@ def test_envelope_gateway_codec():
     assert dec.parse_envelope(json.dumps({"devEUI": "24E124128C140924", "deviceName": "x"})).predecoded is None
 
 
+def test_bundled_resources_match_repo():
+    root = PKG.parents[1]
+    for src, dst in ((root / "blueprints" / "automation" / "milesight_lorawan", PKG / "resources" / "blueprints"),
+                     (root / "dashboards", PKG / "resources" / "dashboards")):
+        for f in src.glob("*.yaml"):
+            if f.name == "building_overview.example.yaml":
+                continue
+            assert (dst / f.name).read_bytes() == f.read_bytes(), f"run tools/sync_resources.py ({f.name})"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

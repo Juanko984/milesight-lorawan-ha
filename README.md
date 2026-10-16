@@ -331,9 +331,25 @@ Every device also has an **Online** sensor (off after the *Offline gap*, default
 and – for battery devices – a **Battery low** sensor (threshold per device under **Configure**, default 20 %).
 Going offline / online also fires `milesight_lorawan_device_offline` / `milesight_lorawan_device_online` events.
 
+### Blueprints and dashboards are installed for you
+
+HACS only installs the integration folder, so the blueprints and ready-made dashboards ship *inside* the
+integration and it puts them in place itself:
+
+* **After every update** (first start of a new version) the blueprints are copied to
+  `config/blueprints/automation/milesight_lorawan/` and four dashboards appear in the sidebar: **LoRaWAN fleet**,
+  **LoRaWAN signal** (installer), **Tanks & alerts** and **Building analytics**. A notification lists what changed.
+* **Any time**: the gateway's **Install dashboards and blueprints** button.
+* Blueprints or dashboards you edited in Home Assistant are **kept** (the notification says so). To get ours back,
+  delete your copy and press the button.
+* The Building dashboard is still generated per gateway with *Update building dashboard*.
+
+Developers: the files are edited in `blueprints/` and `dashboards/` and copied into the package with
+`python3 tools/sync_resources.py` (a test fails if they differ).
+
 ### Blueprints
 
-Import with one click (or copy the files from [`blueprints/`](blueprints/automation/milesight_lorawan)):
+Installed automatically (above), or import one by one:
 
 | Blueprint | Use |
 |---|---|
@@ -727,6 +743,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.21.0** | Blueprints and dashboards ship inside the integration and are installed / updated automatically (HACS update), with an *Install dashboards and blueprints* button. |
 | **0.20.3** | Devices with a gateway payload codec (e.g. AM107) are discovered and decoded. |
 | **0.20.2** | AppKey prefilled when adding a device; alphabetical model list. |
 | **0.20.1** | Gateway provisioning accepts answers from more gateway firmware; clearer error when the gateway does not answer. |

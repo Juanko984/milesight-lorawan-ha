@@ -83,22 +83,22 @@ def _lovelace_dashboards(hass: HomeAssistant) -> dict:
     return data.dashboards if hasattr(data, "dashboards") else data["dashboards"]
 
 
-def _register(hass: HomeAssistant, url: str, title: str, config_id: str):
+def _register(hass: HomeAssistant, url: str, title: str, config_id: str, icon: str = ICON):
     """Make the storage dashboard known to the frontend (sidebar) – repeated on every start."""
     from homeassistant.components import frontend
     from homeassistant.components.lovelace.dashboard import LovelaceStorage
     dashboards = _lovelace_dashboards(hass)
     dash = dashboards.get(url)
     if dash is None:
-        dash = LovelaceStorage(hass, {"id": config_id, "url_path": url, "title": title, "icon": ICON,
+        dash = LovelaceStorage(hass, {"id": config_id, "url_path": url, "title": title, "icon": icon,
                                       "show_in_sidebar": True, "require_admin": False, "mode": "storage"})
         dashboards[url] = dash
     try:
-        frontend.async_register_built_in_panel(hass, "lovelace", sidebar_title=title, sidebar_icon=ICON,
+        frontend.async_register_built_in_panel(hass, "lovelace", sidebar_title=title, sidebar_icon=icon,
                                                frontend_url_path=url, config={"mode": "storage"},
                                                require_admin=False, update=True)
     except TypeError:            # older Home Assistant without `update`
-        frontend.async_register_built_in_panel(hass, "lovelace", sidebar_title=title, sidebar_icon=ICON,
+        frontend.async_register_built_in_panel(hass, "lovelace", sidebar_title=title, sidebar_icon=icon,
                                                frontend_url_path=url, config={"mode": "storage"},
                                                require_admin=False)
     return dash
