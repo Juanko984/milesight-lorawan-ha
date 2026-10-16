@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
 
-**Current version: 0.16.0** · [Version history](#version-history)
+**Current version: 0.13.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -15,15 +15,15 @@ Connect the gateway once; every new sensor that sends data shows up under
 
 | Range | Models | Typical use |
 |---|---|---|
-| **VS** – people counting & occupancy | VS121, VS132, VS133, VS135, VS321, VS330, VS340, VS341, VS350, VS351, VS360, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
-| **AM** – indoor air quality | AM102 / AM102L, AM103 / AM103L, AM104, AM107, AM304L, AM305L, AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
-| **EM300 / EM310 / EM320** – environment, contacts, level & tilt | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-MLD, EM300-DI, EM300-DI-HALL, EM300-CL, EM310-UDL, EM310-TILT, EM320-TH (v1 / v2), EM320-TILT | Temperature & humidity, doors / windows, leaks, pulse meters |
+| **VS** – people counting & occupancy | VS121, VS321, VS340, VS341, VS370, VS373 | Meeting rooms, desks, utilisation, elderly-care fall detection |
+| **AM300** – indoor air quality | AM307 / AM307L, AM308 / AM308L, AM319 HCHO / HCHO-IR / HCHO (Well) / O3, AM319L | Offices, classrooms, CO2 / PM / TVOC monitoring |
+| **EM300** – environment & contacts | EM300-TH, EM300-MCS, EM300-SLD, EM300-ZLD, EM300-DI | Temperature & humidity, doors / windows, leaks, pulse meters |
 | **WS** – buttons, sensors, switches & sockets | WS101, WS136, WS156, WS201, WS202, WS203, WS301, WS302, WS303, WS501 / WS502 / WS503 (v1–v3, EU / US, CN, v4), WS513, WS515 (incl. v3), WS523, WS525, WS558 | Scene buttons, washroom refills, motion, doors, noise, leaks, **switching lights and sockets** with energy metering |
 | **WT** – thermostats & radiator valves | WT101, WT102, WT201 (v1 / v2), WT211, WT301, WT302, WT303, WT304, WT401 | **Thermostat control from Home Assistant** – radiators, HVAC, fan coils; heating / cooling run time |
 | **AT** – asset trackers | AT101 | Vehicles, containers, equipment, bins – position on the map, trips, distance, geofence |
 | **CT** – current transformers & energy meter | CT101, CT103, CT105, CT303, CT305, CT310 (firmware v1 / v2), CTH01 | Machine / pump / compressor run time, circuit load, energy (v2); CTH01: 12-circuit sub-metering with power, energy and power quality |
 | **GS** – gas, odour, smoke & vape | GS101, GS301, GS524N, GS601 | Gas leaks (with valve / relay), washroom odour, smoke alarms, vape detection in schools & washrooms |
-| **EM400 / EM410** – ultrasonic & radar distance, bins | EM400-UDL, EM400-TLD, EM400-MUD, EM410-RDL, EM411-RDL | Tank / silo level, waste-bin fill level, distance |
+| **EM400** – ultrasonic distance & bins | EM400-UDL, EM400-TLD, EM400-MUD | Tank / silo level, waste-bin fill level, distance |
 | **EM500** – industrial sensors | EM500-CO2, EM500-LGT, EM500-PP, EM500-PT100, EM500-SMTC, EM500-SWL, EM500-UDL | CO2, light, pipe pressure, probes, soil, water level, distance / tank level |
 | **TS** – temperature probes & cold chain | TS101, TS201 / TS201 v2, TS301, TS302, TS601, TS602 | Fridges, freezers, cold rooms, transport |
 | **UC** – controllers | UC11-T1, UC11xx, UC11-N1, UC300, UC501, UC502, UC511, UC512, UC521, UC100 (v1 / v2) | Digital / analog I/O, PT100, pulse counting, Modbus RS485, SDI-12, irrigation valves |
@@ -44,21 +44,9 @@ Statistics are stored by Home Assistant and survive restarts.
 | **VS321** occupancy & people counting | Everything the VS121 has, plus temperature, humidity, battery, light (dim / bright) and occupancy per region (10 regions, disabled by default) |
 | **VS340 / VS341** desk occupancy | Occupied (debounced), occupied since / duration, last & longest session, occupied today / yesterday, sessions, utilisation %, battery |
 | **VS370** radar occupancy | As VS340 plus light (dim / bright) |
-| **VS132 / VS133 / VS135** ToF people counters | People in / out per report, device totals, **people in / out today, yesterday, this / last week, this / last month**, people inside (in − out today); VS133 / VS135 also per line (4) and per region (people, children, dwell times) and lens-blocked alarms |
-| **VS350 / VS351 / VS360** passage people counters | As above (in / out statistics), count alarms, temperature (VS350 / VS351), power source (VS351), receiver battery and alignment alarms (VS360) |
-| **VS330** bathroom occupancy | Occupancy statistics (occupied since, sessions, utilisation), distance, battery |
 | **VS373** radar fall detection | Fall detected, motionless / out-of-bed / dwell / lying-down / abnormal-breathing alarms, last alarm + time, room status, person status, breathing + respiratory rate, room in use now / today, occupancy statistics, per-region occupancy and out-of-bed time (disabled by default) |
 
-### AM range – indoor air quality
-
-| Model | What you get |
-|---|---|
-| **AM102 / AM102L** | Temperature, humidity, feels-like, daily min / max, battery |
-| **AM103 / AM103L** | As AM102 plus CO2 (+ air quality, daily max, time above limit) |
-| **AM104** | As AM102 plus illuminance (lx) and motion activity |
-| **AM107** | As AM104 plus CO2, TVOC (ppb) and pressure |
-| **AM304L / AM305L** | Temperature, humidity, motion + **occupancy statistics**, light level, illuminance, motion count, temperature alarm; AM305L also CO2 + CO2 alarm |
-| **AM307 – AM319** | see below |
+### AM300 range – indoor air quality
 
 | Model | What you get |
 |---|---|
@@ -76,11 +64,6 @@ Statistics are stored by Home Assistant and survive restarts.
 | **EM300-MCS** door / window | As EM300-TH plus door open / closed, *door left open* alarm, open duration (live), open time & number of openings today / yesterday / this week / last week / this month / last month, longest & average opening |
 | **EM300-SLD / EM300-ZLD** leak | As EM300-TH plus leak detected and leak statistics (same periods as door) |
 | **EM300-DI** | As EM300-TH plus digital input statistics, pulse counter and converted water value |
-
-### DS3604 e-ink display
-
-Button presses as an event entity (single / double click, short / long press), current template, battery – and
-the screen content from Home Assistant, see [DS3604 display content](#ds3604-display-content).
 
 ### WS range – buttons, sensors, wall switches, sockets
 
@@ -170,17 +153,6 @@ Gas, smoke and vape alarms stay on until the device reports the all-clear, and e
 door sensors (detected since, duration, today / yesterday / week / month, number of events, longest).
 The odour level is a rough guide (Strong from 5 ppm NH3 or 0.1 ppm H2S, Noticeable from 1 ppm NH3 or 0.02 ppm H2S).
 
-### EM300 / EM310 / EM320 additions
-
-| Model | What you get |
-|---|---|
-| **EM300-MLD** membrane leak | Leak with statistics (as EM300-SLD), battery |
-| **EM300-DI-HALL** pulse counter | As EM300-DI |
-| **EM300-CL** capacitive level | Liquid level (full / critical / uncalibrated), critical-level alarm, calibration result |
-| **EM310-UDL** ultrasonic distance | Distance + daily min / max, tilted |
-| **EM310-TILT / EM320-TILT** | Angle X / Y / Z, per-axis threshold alarms, tilted |
-| **EM320-TH** (v1 / v2) | Temperature, humidity, feels-like, daily min / max; v2 also temperature / humidity alarms |
-
 ### EM400 range – ultrasonic distance & bins
 
 | Model | What you get |
@@ -189,13 +161,8 @@ The odour level is a rough guide (Strong from 5 ppm NH3 or 0.1 ppm H2S, Noticeab
 | **EM400-TLD** trash bin | As UDL, plus **fill level %** |
 | **EM400-MUD** multifunctional | As UDL, plus **fill level %** |
 
-**EM410-RDL / EM411-RDL** radar sensors get the same entities as the EM400-UDL plus radar signal strength,
-distance change and blind-spot / no-target alarms.
-
 Fill level needs the *empty distance* (sensor to the bottom of the empty bin / tank, in mm): open the device →
-**Configure** (→ *Tank or silo* for the level sensors). 0 % = empty, 100 % = surface at the sensor.
-For tanks and silos see [Tanks and silos](#tanks-and-silos) – litres, usage per day, days until empty, refills and
-theft alarms.
+**Configure** → *Empty distance (mm)*. 0 % = empty, 100 % = surface at the sensor.
 
 ### EM500 range – industrial sensors
 
@@ -235,9 +202,8 @@ created **per channel the first time it reports** – unused channels never show
 | **UC521** | Valve 1 / 2 opening %, valve type and direction, valve pulses, GPIO, pipe pressure 1 / 2 + alarms, battery |
 | **UC100** / **UC100 v2** | Every configured Modbus channel (v2 also register 2–4 of multi-register channels and 64-bit values), alarm status per channel |
 
-Modbus values arrive as the controller reports them (raw register value). Give them a name, unit and scale under
-**Configure → Channels** – see [Modbus and analog channels](#modbus-and-analog-channels). The UC711 thermostat
-controller is not supported yet.
+Modbus values are shown as the controller reports them (raw register value); set a unit or scaling with a
+template sensor if needed. The UC711 thermostat controller is not supported yet.
 
 ## Requirements
 
@@ -251,13 +217,9 @@ On the gateway: **Network Server → Applications → (your application) → Dat
 * Broker: the MQTT broker Home Assistant uses (e.g. the Mosquitto add-on), with a user/password.
 * **Uplink data topic**: e.g. `milesight/uplink/$deveui` (anything works – you enter it in step 2).
 * Payload: leave the default JSON with Base64 `data`. No payload codec is needed – the integration decodes.
-* **Downlink data topic** (needed for any command from Home Assistant): e.g.
+* **Downlink data topic** (only needed to switch WS wall switches / sockets from Home Assistant): e.g.
   `milesight/downlink/$deveui`. In the integration's gateway settings the same topic is written as
   `milesight/downlink/{deveui}` (the default).
-* Optional, for [command confirmation](#command-confirmation) and [gateway health](#gateway-health):
-  **ACK Notification** → `milesight/ack`, **Join Notification** → `milesight/join`, and – on gateways that have it
-  (UG63, SG50) – **Gateway Information** → `milesight/gateway`. Enter these under the integration's gateway
-  settings as *Notification / gateway status topics*: `milesight/ack, milesight/join, milesight/gateway`.
 
 ## 2 – Install the integration (once per site)
 
@@ -298,394 +260,6 @@ alarm type (e.g. *Below threshold alarm*, *Mutation alarm*). Mutation (rapid cha
 TS301 and TS302 changed their alarm codes in newer firmware. Discovery picks *current firmware* unless the device
 sends an older-firmware message; if alarms look inverted, switch the model to *(older firmware)* under **Configure**.
 
-## Rolling out to a site
-
-### Bulk onboarding
-
-Add the gateway first, then **Add device → Add many devices (paste a list)** and paste one device per line –
-straight from a spreadsheet (comma, semicolon or tab separated):
-
-```
-DevEUI, Model, Name, Area, AppKey
-24E124136B322135, EM300-MCS, Back door, Warehouse
-24E124538C220481, AM307, Meeting room 1, 1st floor
-24E124600B251990, VS121, Reception, Ground floor, 00112233445566778899aabbccddeeff
-```
-
-With [gateway provisioning](#add-devices-to-the-gateway-from-home-assistant) set up, tick *Also add them to the
-gateway* and every DevEUI is registered on the gateway's network server too (AppKey column optional – empty uses the
-gateway setting, the Milesight factory key by default).
-
-Model names are matched loosely (`em300 mcs`, `WS501 v4`). Every device is created straight away – no confirm
-dialogs – and placed in its **area** (created if it doesn't exist). Devices that already exist are skipped and
-mistakes are listed line by line. The single-device forms (manual and discovered) also have an *Area* field.
-
-### Fleet overview
-
-The gateway device gets four sensors: **Devices**, **Devices online**, **Devices offline** and **Devices with low
-battery**. Their attributes list the devices (name, model, area, battery, RSSI / SNR, last seen).
-A ready-made dashboard is in [`dashboards/fleet_overview.yaml`](dashboards/fleet_overview.yaml) – a status glance,
-a *Needs attention* table and a table of all devices.
-
-Every device also has an **Online** sensor (off after the *Offline gap*, default 120 min, without an uplink)
-and – for battery devices – a **Battery low** sensor (threshold per device under **Configure**, default 20 %).
-Going offline / online also fires `milesight_lorawan_device_offline` / `milesight_lorawan_device_online` events.
-
-### Blueprints and dashboards are installed for you
-
-HACS only installs the integration folder, so the blueprints and ready-made dashboards ship *inside* the
-integration and it puts them in place itself:
-
-* **After every update** (first start of a new version) the blueprints are copied to
-  `config/blueprints/automation/milesight_lorawan/` and four dashboards appear in the sidebar: **LoRaWAN fleet**,
-  **LoRaWAN signal** (installer), **Tanks & alerts** and **Building analytics**. A notification lists what changed.
-* **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
-  (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL), *People & occupancy* (VS range, people
-  counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). LoRaWAN fleet and LoRaWAN
-  signal are always there; **Tanks & alerts** appears when the first tank / silo sensor is added and
-  **Building analytics** with the first comfort or occupancy sensor. Remove the last one and the dashboard leaves
-  the sidebar again (its content is kept for later).
-* The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
-  occupancy*, *Milesight · Air & comfort*), so you can filter devices, entities and automations by them. A label
-  you remove by hand is not added back.
-* **Any time**: the gateway's **Install dashboards and blueprints** button.
-* Blueprints or dashboards you edited in Home Assistant are **kept** (the notification says so). To get ours back,
-  delete your copy and press the button.
-* The Building dashboard is still generated per gateway with *Update building dashboard*.
-
-Developers: the files are edited in `blueprints/` and `dashboards/` and copied into the package with
-`python3 tools/sync_resources.py` (a test fails if they differ).
-
-### Blueprints
-
-Installed automatically (above), or import one by one:
-
-| Blueprint | Use |
-|---|---|
-| [Device offline / back online](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/device_offline.yaml) | Notify when any device stops reporting |
-| [Battery low](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/battery_low.yaml) | Notify when a battery drops below the per-device threshold |
-| [Door left open](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/door_left_open.yaml) | Pick the *Door left open* sensors (EM300-MCS, WS301) |
-| [Leak detected](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/leak.yaml) | Leak sensors – e.g. notify and close a valve |
-| [Gas, smoke, vape or other alarm](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/alarm.yaml) | Any Milesight alarm sensor (GS range, CO2 high, threshold alarms) |
-| [Temperature out of range](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/temperature_out_of_range.yaml) | Fridges, freezers, server rooms – low / high limit for N minutes |
-| [Button actions](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/button_actions.yaml) | Short / double / long press → actions (WS101, WS156, WS136, DS3604, WT401) |
-| [Irrigation / valve schedule](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/valve_schedule.yaml) | Open a UC511 / UC512 / UC521 valve or UC300 output at set times for a duration |
-| [Command not confirmed](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/command_failed.yaml) | Notify when a command / setting fails after its retries |
-| [Gateway offline / back online](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/gateway_offline.yaml) | Notify when a gateway stops forwarding packets |
-| [DS3604 room sign](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/ds3604_room_status.yaml) | Room name, free / occupied, current or next meeting and booking QR code on a DS3604 |
-
-Each one has an editable action list (notification by default) – point it at your phone, Telegram, e-mail etc.
-
-### Settings confirmation
-
-After a setting is sent (e.g. *Reporting interval*), the device's **Last command** sensor shows *sent*, and
-*confirmed* once the device echoes the new value (most Milesight devices do on their next uplink); the interval
-entity's `confirmed_by_device` attribute shows the same. Firmware and hardware versions on the device page update
-whenever the device reports them.
-
-### Building dashboard
-
-A ready-made **Building** dashboard for each site, built from Home Assistant's own cards only (no HACS):
-a banner with the company details, badges, overall health, air quality, system health, a section per area and
-the occupancy heat map.
-
-1. Gateway entry → **Configure** → **Site information**. Home Assistant already provides the **company name**
-   (Settings → System → General → Name), country, time zone, the Home zone, the **areas** (Settings → Areas) and the
-   **facilities contact** (a person from Settings → People). Fill in only what Home Assistant does not know:
-   address, phone, e-mail, logo, which areas to show and in what order, an optional outside temperature sensor,
-   and the CO₂ alert level (default 1,200 ppm). *Company name* overrides the Home Assistant name when they differ;
-   the site name is the gateway entry's name.
-2. Leave **Create / update the Building dashboard** ticked and submit. The dashboard appears in the sidebar as
-   *Building – &lt;site&gt;*. After adding areas or devices, press the gateway's **Update building dashboard**
-   button. The banner, badges, gauges, heat map and *Needs attention* update by themselves.
-
-Logo: copy the file into the `www` folder of your configuration (File editor / Samba add-on) and enter
-`/local/<file name>` (default `/local/logo.png`).
-
-The gateway device gets the sensors behind it, also usable in your own dashboards and automations:
-
-| Sensor | |
-|---|---|
-| **Site** | Company name; attributes: site, address, contact (+ picture), phone, e-mail, logo, country, time zone, areas, status |
-| **Building health** | 0–100: 40 % comfort, 40 % air quality, 20 % systems (devices online with good batteries, gateways online) |
-| **Building comfort** | Average area comfort; comfortable areas as an attribute |
-| **Air quality** | Good / Moderate / Poor / Unhealthy – the worst of CO₂, PM2.5, PM10, TVOC, formaldehyde; score as an attribute |
-| **Systems health**, **People in building**, **Alerts** | Alerts lists what needs attention (high CO₂ / humidity / temperature per area, offline devices and gateways, low batteries, failed commands) with the time it started |
-| **Average temperature / humidity / CO₂ / PM2.5 / PM10 / TVOC / formaldehyde / pressure** | Over online devices – only measures your devices have (TVOC only from devices reporting µg/m³) |
-
-The dashboard is saved like any dashboard edited in the UI, so it can be changed afterwards – but pressing
-*Update building dashboard* again replaces it. To keep your own changes, copy it (⋮ → Edit → ⋮ → Raw
-configuration editor) into a dashboard of your own. If Home Assistant refuses the direct save, the YAML is written
-to `/config/milesight_building-<site>.yaml` with a notification on how to paste it.
-[`dashboards/building_overview.example.yaml`](dashboards/building_overview.example.yaml) shows what is generated.
-
-**Entity ids** of the gateway's sensors follow the gateway entry's name: with the default topic it is
-"Milesight gateway (milesight/uplink/#)", so e.g. `sensor.milesight_gateway_milesight_uplink_building_health`.
-The generated dashboard and the ready-made dashboards look the sensors up themselves; in your own templates
-you can do the same with the `milesight_role` attribute, e.g.
-`{{ states.sensor | selectattr('attributes.milesight_role', 'eq', 'building_health') | map(attribute='state') | first }}`.
-
-### Building analytics
-
-Give devices an area (bulk onboarding, the onboarding form, or the device page) and the gateway device gets, per area:
-
-* **&lt;Area&gt; comfort** (0–100): temperature 20–24 °C, humidity 30–60 % and CO2 up to 800 ppm count as fully
-  comfortable, falling to 0 at 15 / 29 °C, 15 / 80 % and 1800 ppm. Attributes: average temperature, humidity, CO2.
-* **&lt;Area&gt; occupancy**: share of today the area was occupied (people counters, PIR / desk sensors, VS range,
-  GS601), with `occupied_now`, `people_now`, `utilisation_today` (within opening hours) and an hourly heat map
-  (`hourly_today`, `hourly_yesterday` – % of each hour occupied).
-
-Dashboard: [`dashboards/building_analytics.yaml`](dashboards/building_analytics.yaml) – comfort table, occupancy
-heat map for today and yesterday, utilisation per area. No entity ids to edit.
-
-## Device settings as entities
-
-Settings from Milesight's encoders appear on the device page under **Configuration** (89 models), generated from and
-checked against the official encoders in CI (`tools/checks/set_*.py`, 1,100+ cases):
-
-* **Switches**: child lock, LED indicator, buzzer (where the device has them).
-* **Alarm thresholds**: a *condition* select (disable / below / above / between / outside) plus *low* / *high*
-  numbers – temperature, humidity, CO2, PM2.5, TVOC, current, distance, illuminance, pressure, people counts, …
-
-Changing one sends the whole setting to the device on its next receive window. Devices don't report most of these
-back, so the entities show the last value sent (*assumed state*); **Last command** shows whether it was confirmed.
-
-## Stored data / backfill (57 models)
-
-Most Milesight sensors store readings while the gateway or network is down. Devices that support it get:
-
-* **Fetch stored data (24 h)** button – asks the device to resend the last 24 h of stored readings.
-* **Data storage** and **Resend missed data** switches (the device's own data-storage settings).
-* **Stored data received** sensor – when stored readings were last imported and how many.
-* Option **Fetch stored data after an outage** (Configure, on by default) – fetches automatically when a device comes back after a
-  gap longer than the *Offline gap*.
-
-Stored readings are written to Home Assistant's **long-term statistics** for the matching sensors (hourly mean / min /
-max), filling only hours that have no statistics yet – the gap disappears from history graphs and statistics cards.
-The live state history is not rewritten.
-
-## Pulse counters → water / gas / energy meters
-
-For EM300-DI, EM300-DI-HALL, UC11xx, UC300 and UC50x, open **Configure** and choose a **Pulse meter type** (water,
-gas or electricity), the **unit**, **pulses per unit** and the **meter reading at start** (the number on the physical
-meter). The device gets a *Water / Gas / Energy meter* sensor (`total_increasing`) that you can add under
-**Settings → Dashboards → Energy** (water consumption, gas consumption, or grid consumption).
-Example: a 1 pulse = 0.5 L water meter showing 1 000 L → pulses per unit 2, unit L, reading at start 1000.
-
-## Device commands (downlinks)
-
-With the gateway's downlink topic set (see step 1), each device page also gets – where the device supports it:
-
-| Entity | What it does |
-|---|---|
-| **Reboot** button | Restarts the device |
-| **Sync time** button | Synchronises the device clock (or sends Home Assistant's time where the device has no sync command) |
-| **Request update** button | Asks the device to report now |
-| **Reporting interval** / **Collection interval** (Configuration) | Sets how often the device reports / measures – unit (s or min) and allowed range per model |
-| **Output / valve switches** | UC300 DO1 / DO2, UC501 / UC502 GPIO outputs, UC511 / UC512 valves, GS101 valve & relay, VS373 digital output |
-| **Valve opening** number | UC521 motorised valves (0–100 %) |
-
-All commands were generated from and checked against Milesight's official encoders (1,600+ cases).
-The interval fields show the last value set from Home Assistant (devices don't report their interval).
-Battery-powered (Class A) devices receive commands after their next uplink.
-
-Two services are available for automations and scripts:
-
-* `milesight_lorawan.output_command` – `output` (e.g. `gpio_output_1`, `valve_1`, `valve_1_opening`), `action`
-  (`on`, `off`, `on_for` / `off_for` – UC300, value in ms –, `open_for` – UC511 / UC512 seconds, UC521 minutes –,
-  `open_until_pulses`, `set`), `value`. Example: open a UC511 valve for 10 minutes:
-  ```yaml
-  action: milesight_lorawan.output_command
-  data:
-    device_id: <your device>
-    output: valve_1
-    action: open_for
-    value: 600
-  ```
-* `milesight_lorawan.send_downlink` – send any raw command in hex (advanced; see Milesight's device user guide), e.g.
-  `ff10ff` = reboot.
-
-UC11xx / UC11-N1 / UC11-T1: Milesight publishes no downlink encoder for these, so their outputs stay read-only (use
-`send_downlink` with the commands from the user guide if needed).
-
-## Command confirmation
-
-Every command, setting and display update is tracked until the device answers it. The **Command status** sensor
-(diagnostic) shows the latest one:
-
-| Status | Meaning |
-|---|---|
-| *pending* | Sent to the gateway, waiting for the device (Class A devices pick it up after their next uplink) |
-| *retrying* | No answer after two uplinks – sent again (default 2 retries, **Configure → Retries**) |
-| *delivered* | Confirmed downlink acknowledged by the device's radio, waiting for its status report |
-| *confirmed* | The device echoed the setting, its status report shows the new state (switches, outputs, valves, thermostat target), the DS3604 reported the block updated, or – for commands nothing else can check – the network ACK arrived |
-| *failed* | No answer after all retries, or rejected by the device (e.g. DS3604 *content is too long*). Switches and outputs fall back to the last reported state |
-| *sent* | The device does not answer this kind of command and confirmed downlinks are off – nothing to check |
-
-The integration learns per device whether it echoes settings (most current Milesight firmware does; older EM300
-firmware does not), so devices that never answer are not retried pointlessly. **Configure → Confirmed downlinks**
-asks for a LoRaWAN ACK on every command (needs the gateway's ACK notification topic, step 1). Each final state also
-fires a `milesight_lorawan_command` event (`command`, `status`, `attempts`, `detail`) – the
-[Command not confirmed](#blueprints) blueprint notifies on failures.
-
-## Signal quality
-
-Every device gets diagnostic sensors that help installers place sensors and gateways:
-
-| Sensor | |
-|---|---|
-| **Signal quality** | excellent / good / fair / poor from the *link margin* (SNR above what the spreading factor needs) and RSSI. Attribute `advice` says what to do, e.g. "Weak link: move the sensor … or add a gateway" |
-| **RSSI**, **SNR** | Best gateway; kept in the history / long-term statistics |
-| **Spreading factor** | SF7 – SF12 (higher = slower, more battery) |
-| **Gateway** | The gateway that heard it best; attribute `gateways` lists every gateway in range with RSSI / SNR |
-| **Gateways in range** | How many gateways heard it in the last 24 h |
-| **Packet loss today** | From gaps in the frame counter (a rejoin is not counted); yesterday's value as an attribute |
-| *Link margin*, *Uplinks today*, *Frequency*, *Frame counter* | Disabled by default |
-
-The same frame forwarded by two gateways is counted once. Dashboard for installers:
-[`dashboards/signal_quality.yaml`](dashboards/signal_quality.yaml) – gateways, weak / lossy devices, all devices.
-
-## DS3604 display content
-
-The DS3604 shows two templates designed in Milesight ToolBox, each with up to 10 text blocks and a QR code.
-Home Assistant fills the blocks:
-
-* **Template 1 text 1 – 3** text entities on the device page (all other blocks and template 2 can be enabled) –
-  type a value and it is sent. The entity shows what the display reports, or what was last sent.
-* **Displayed template** select, **Refresh display**, **Beep** and **Read display content** buttons.
-* Service `milesight_lorawan.display_content` for automations (templates allowed):
-  ```yaml
-  action: milesight_lorawan.display_content
-  data:
-    device_id: <your display(s)>
-    template: 1
-    content:
-      text_1: Meeting room 1
-      text_2: "{{ 'Occupied' if is_state('binary_sensor.room_1_occupancy', 'on') else 'Free' }}"
-      text_3: "Next: {{ state_attr('calendar.room_1', 'message') }}"
-      qrcode: https://example.com/book/room-1
-  ```
-  Unchanged blocks are skipped (saves battery and airtime; `force: true` sends them anyway). Blocks are packed
-  into as few downlinks as fit – at most 51 bytes each by default, which works at every EU868 data rate
-  (**Configure → Max bytes per display downlink**; up to 222 near a gateway, 11 for US915 SF10).
-* Blueprint [DS3604 room sign](#blueprints): room name, free / occupied from a sensor or the calendar, the
-  current or next meeting, booking QR code.
-
-Each block update is confirmed by the display itself (*Command status*); a rejected block shows in
-**Display error** (e.g. "text_3: content is too long" – the text does not fit the block in the template).
-
-## Gateway health
-
-Each LoRaWAN gateway that forwards packets appears as its own device (linked to the gateway entry), with:
-
-* **Online** – off when the gateway has forwarded nothing for *Gateway offline after* minutes (default 15,
-  gateway settings) – or, with status reports, when it reports itself offline. Fires
-  `milesight_lorawan_gateway_offline` / `_online` events ([blueprint](#blueprints)).
-* **Packets today**, **Packets this hour** (attribute: last 24 hours), **Devices heard today** (with names),
-  **Last packet**.
-* With status reports: **CPU temperature**, firmware / model on the device page, WAN / cellular status as
-  attributes (Milesight *Gateway Information*, UG63 / SG50), **Radio packets received / sent today** (ChirpStack
-  gateway stats, topic `gateway/+/event/stats` with the JSON marshaler, and connection state
-  `gateway/+/state/conn`).
-
-The gateway entry itself gets **Gateways online**, **Uplinks today** (duplicates / errors as attributes),
-**Downlinks today**, **Joins today** and **Downlink ACKs today**.
-
-UG65 / UG56 / UG67 do not publish their own status over MQTT; for them everything is derived from the packets
-they forward, which is reliable as long as some devices report more often than the offline time. (Their HTTP API
-needs a password copied from the browser's developer tools, so it is not used.)
-
-## Add devices to the gateway from Home Assistant
-
-No more typing DevEUIs into the gateway's web page: Home Assistant registers new devices on the Milesight gateway's
-built-in network server through MQTT (Milesight *ns-api*).
-
-1. On the gateway: **Network Server → Applications →** your application → **Data Transmission → MQTT**: set
-   **Request Data Topic** (e.g. `milesight/request`) and **Response Data Topic** (e.g. `milesight/response`) –
-   they must be different. Same broker as the uplinks.
-2. In Home Assistant: gateway entry → **Configure → Add devices to the gateway**: enter the two topics (and the
-   default AppKey – Milesight devices ship with `5572404c696e6b4c6f52613230313823`). Home Assistant reads the
-   gateway's device list to check the connection, then asks for the **application** and **device profile** new
-   devices go into (ClassA-OTAA for battery sensors).
-3. **Add a device manually** and **Add many devices** now have *Also add it to the gateway* (manual add also an
-   *AppKey* field). A device that is already registered is left as it is.
-
-The gateway device gets **Devices on gateway** (with the list, and which ones Home Assistant doesn't have yet) and a
-**Sync devices with gateway** button – devices registered on the gateway but missing in Home Assistant are offered
-under *Discovered*, with the model guessed from their name. Services: `milesight_lorawan.add_to_gateway`,
-`remove_from_gateway`, `sync_gateway_devices`. AppKeys are never stored by Home Assistant (the default key is
-redacted in diagnostics); note that MQTT debug logging prints the request, key included.
-
-## Tanks and silos
-
-Level and distance sensors (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL) turn into tank
-gauges: device → **Configure → Tank or silo**.
-
-| Shape | Size to enter |
-|---|---|
-| Upright cylinder | diameter, height |
-| Lying cylinder | diameter, length |
-| Rectangular | length, width, height |
-| Silo with cone bottom | diameter, total height, cone height |
-| Any other shape | capacity (L) and height – litres follow the level |
-
-Distance sensors also need the *distance reading when empty* (sensor to floor); the submersible EM500-SWL needs the
-probe's height above the floor. The form shows the resulting capacity.
-
-New entities: **Contents** (L), **Tank fill** (%), **Liquid level**, **Usage per day** (L/d, over the last week,
-refills and sensor jitter ignored), **Days until empty**, **Empty around**, **Last refill**, **Space left**
-(disabled), optional **Contents weight** (density, e.g. diesel 840 kg/m³, feed pellets 650), **Tank low** (below
-20 % by default) and a **Tank refilled** button.
-
-**Sudden drop** (theft or leak – e.g. diesel): set *Sudden-drop alarm when it falls by* (% of the capacity) *within*
-(minutes). The binary sensor stays on until **Clear sudden-drop alarm** is pressed or the tank is refilled.
-Refills (also slow pump refills) and sudden drops fire `milesight_lorawan_tank` (`type: refill | sudden_drop`,
-`added` / `amount` in litres). A big jump is only believed when the next reading confirms it, so a single bad echo
-doesn't raise an alarm. Dashboard: [`dashboards/tanks_and_alerts.yaml`](dashboards/tanks_and_alerts.yaml).
-
-## Modbus and analog channels
-
-Third-party probes on a UC300 / UC50x / UC11xx / UC100 (pressure transmitters, flow meters, level probes, energy
-meters) become proper sensors: device → **Configure → Channels**, one line per channel:
-
-```
-channel; name; unit; scale; offset; device class; decimals; state class
-3;       Line pressure; bar;  0.01
-3.2;     Flow;          m³/h; 0.1; 0; volume_flow_rate; 1
-adc_1;   Borehole level; m;   4-20>0-10
-pt100_1; Cold room;     °C
-```
-
-* **channel** – the Modbus channel number from Milesight ToolBox (`3`; `3.2` = channel 3 register 2 on UC100 v2) or
-  the input: `adc_1`, `adv_1`, `analog_input_1`, `pt100_1`, `gpio_counter_1`.
-* **scale** – a multiplier, or a range `4-20>0-10` that maps the raw span onto the real one (4–20 mA → 0–10 m).
-* **device class** is taken from the unit when left empty (bar → pressure, °C → temperature, m³/h → flow …).
-* Empty columns (or `-`) keep the default; `#` starts a comment. Mistakes are listed line by line in the form.
-
-The entity keeps its id and history, it just gets the new name, unit and scaled value. The form lists the channels
-the controller has reported so far with their raw values. (Which registers are read is still set on the controller
-in Milesight ToolBox – the Milesight encoders have no downlink for it.)
-
-## Alert escalation
-
-Gateway entry → **Configure → Alert escalation** sends alerts to phones (Home Assistant Companion app) and makes
-sure someone reacts:
-
-* **Notify first** / **Escalate to** – notify services (e.g. `notify.mobile_app_juans_phone`). Nobody presses
-  *Acknowledge* within *Escalate after* (default 15 min) → the backup people get it too; optional reminders.
-* **Quiet hours** – non-critical alerts wait until the morning. Leaks, smoke, gas, falls, sudden tank drops and
-  gateway outages always go through, as critical alerts (they sound on a muted iPhone / use the Android alarm
-  stream).
-* **Duplicates** – a sensor that flaps on and off continues the same alert; *Resolved* is only sent once it stays
-  resolved for a few minutes.
-* **Actions** – every alert has *Acknowledge*; tank-low alerts can have an extra button (e.g. *Start pump*) that
-  runs a switch, script or button.
-* **Alerts to send** – safety, tanks, building (CO₂ / temperature / humidity), devices (offline, battery),
-  gateways offline, commands not confirmed.
-
-The gateway gets **Open alerts** (with the list and who acknowledged) and **Acknowledge all alerts**; service
-`milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
-
 ## Settings per device
 
 Open the device's integration entry → **Configure** (⚙️). Picked the wrong model during onboarding? Change **Model** here; afterwards delete the old, now-unavailable entities from the device page.
@@ -695,22 +269,11 @@ Open the device's integration entry → **Configure** (⚙️). Picked the wrong
 | Offline gap (min) – time isn't counted across longer gaps | all | 120 |
 | Door left open after (min) | EM300-MCS | 10 |
 | CO2 limit (ppm) | AM300 range, EM500-CO2 | 1000 |
-| Empty distance (mm) – for fill level % | EM400-TLD (level sensors: under *Tank or silo*) | 0 (off) |
-| Tank or silo – shape, size, low level, refill / sudden-drop alarm | level & distance sensors | off |
-| Channels – name / unit / scale per Modbus register or analog input | UC controllers | – |
+| Empty distance (mm) – for fill level % | EM400 range | 0 (off) |
 | Running above (A) – for run time and starts | CT range | 0.5 |
 | Voltage for power estimate (V) | CT range | 0 (off) |
 | Count as empty after (min at 0 people / vacant) | VS121, VS321, VS340, VS341, VS370, VS373, GS601 | 2 |
 | Opening hour / closing hour / open days (for utilisation %) | VS-range, GS601 | 08–17, Mon–Fri |
-| Confirmed downlinks (network ACK) | devices with commands | off |
-| Retries for unanswered commands | devices with commands | 2 |
-| Max bytes per display downlink | DS3604 | 51 |
-
-Devices with these extra sections show a menu under **Configure**: *Device settings*, *Channels*, *Tank or silo*.
-
-Gateway entry → **Configure**: *Site information*, *Alert escalation*, *Add devices to the gateway* and *Gateway
-connection* (uplink / downlink topics, *Notification / gateway status topics* – ACK, join, gateway information,
-comma separated, wildcards allowed – and *Gateway offline after*, min, default 15).
 
 ## Troubleshooting
 
@@ -752,22 +315,6 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
-| **0.22.2** | Area occupancy history kept across restarts. |
-| **0.22.1** | Gateway device list read automatically (start + every 6 h). |
-| **0.22.0** | Devices are tagged by use (tank, people, comfort) as Home Assistant labels; dashboards appear only when a site has devices that need them. |
-| **0.21.1** | Fixed the UndefinedError on the fleet, signal and tanks dashboards. |
-| **0.21.0** | Blueprints and dashboards ship inside the integration and are installed / updated automatically (HACS update), with an *Install dashboards and blueprints* button. |
-| **0.20.3** | Devices with a gateway payload codec (e.g. AM107) are discovered and decoded. |
-| **0.20.2** | AppKey prefilled when adding a device; alphabetical model list. |
-| **0.20.1** | Gateway provisioning accepts answers from more gateway firmware; clearer error when the gateway does not answer. |
-| **0.20.0** | Add devices to the gateway from Home Assistant (ns-api over MQTT, also bulk), tanks and silos (litres, usage, days left, refills, sudden-drop theft alarm), alert escalation with actionable phone notifications, named / scaled Modbus and analog channels; UC300 Modbus readings after a settings reply fixed. |
-| **0.19.1** | Dashboards find the gateway's sensors by themselves (entity ids depend on the gateway's name); corrected example entity ids. |
-| **0.19.0** | Building dashboard: Site information (from Home Assistant + gateway settings), building health / comfort / air quality / people / alerts / averages sensors, one-click generated dashboard with built-in cards. |
-| **0.18.0** | Command confirmation with retries (pending / confirmed / failed, network ACKs), signal quality per device (gateways in range, SF, packet loss, advice) with installer dashboard, DS3604 display content (text entities, service, room-sign blueprint), gateway health (a device per gateway: online, packets, devices heard, status reports). |
-| **0.17.0** | Device settings as entities (alarm thresholds, child lock, LED, buzzer), stored-data backfill into long-term statistics, pulse counters as water / gas / energy meters for the Energy dashboard, building analytics (area comfort, occupancy heat map, utilisation) with dashboard. |
-| **0.16.0** | Rollout tools: bulk onboarding with areas, fleet overview sensors + dashboard, online / battery-low sensors and events, 8 blueprints, settings confirmation. |
-| **0.15.0** | Device commands: reboot, time sync, request update, reporting / collection interval, UC output and valve switches, UC521 valve opening; output_command and send_downlink services. |
-| **0.14.0** | 25 more models: AM102 / 103 / 104 / 107, AM304L / 305L, EM300-CL / -MLD / -DI-HALL, EM310-UDL / -TILT, EM320-TH (v1 / v2) / -TILT, EM410 / 411-RDL, VS132 / 133 / 135 / 330 / 350 / 351 / 360, DS3604. People-counter statistics. |
 | **0.13.0** | CTH01 multi-circuit energy meter added (CT range). |
 | **0.12.0** | WT range added (WT101, WT102, WT201 v1 / v2, WT211, WT301, WT302, WT303, WT304, WT401) with thermostat control from Home Assistant. |
 | **0.11.0** | WS range added (27 models): buttons as event entities, WS sensors, and wall switches / sockets / light controllers that can be switched from Home Assistant, with energy metering. |

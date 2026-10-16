@@ -1,8 +1,6 @@
 """Device model registry and entity specifications (pure Python)."""
 from __future__ import annotations
 
-import json
-import pathlib
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -39,28 +37,6 @@ from .decoders import (
     decode_ts302_v1,
     ts60x_parses_completely,
     decode_vs121,
-    decode_am102,
-    decode_am103,
-    decode_am104,
-    decode_am107,
-    decode_am304l,
-    decode_am305l,
-    decode_ds3604,
-    decode_em300_cl,
-    decode_em300_mld,
-    decode_em310_tilt,
-    decode_em320_tilt,
-    decode_em310_udl,
-    decode_em320_th_v2,
-    decode_em410_rdl,
-    decode_em411_rdl,
-    decode_vs132,
-    decode_vs133,
-    decode_vs135,
-    decode_vs330,
-    decode_vs350,
-    decode_vs351,
-    decode_vs360,
     cth01_parses_cleanly,
     decode_cth01,
     wt102_parses_completely,
@@ -133,7 +109,6 @@ class Model:
     control: str | None = None     # downlink encoder kind for switch entities (see decoders.encode_ws_switch)
     gangs: int = 0                 # number of switchable channels (switch_1 .. switch_n)
     climate: str | None = None     # thermostat encoder kind (see decoders.encode_wt)
-    counters: tuple[str, ...] = ()  # per-report counts summed per day / week / month (people counters)
 
 
 _EM = frozenset({"env", "battery"})
@@ -335,62 +310,6 @@ MODELS: dict[str, Model] = {
     "CTH01": Model("CTH01", "CTH01 multi-circuit energy meter (12 CT, 3-phase)", decode_cth01,
                    frozenset({"cth01", "sensor_error"}), minmax_fields=(), dynamic=True,
                    defaults=(("power_loss_alarm", False),)),
-    "AM102": Model("AM102", "AM102 / AM102L ambience sensor (temperature & humidity)", decode_am102, _EM),
-    "AM103": Model("AM103", "AM103 / AM103L ambience sensor (CO2, temperature, humidity)", decode_am103,
-                   _EM | {"co2", "co2high"}, minmax_fields=("temperature", "humidity", "co2")),
-    "AM104": Model("AM104", "AM104 ambience sensor (activity, light)", decode_am104, _EM | {"am10x_light"}),
-    "AM107": Model("AM107", "AM107 ambience sensor (7-in-1)", decode_am107,
-                   _EM | {"am10x_light", "co2", "co2high", "tvoc_ppb", "pressure"},
-                   minmax_fields=("temperature", "humidity", "co2")),
-    "AM304L": Model("AM304L", "AM304L indoor ambience sensor (PIR, light)", decode_am304l,
-                    _EM | {"pir", "light", "am30xl", "occupancy", "sensor_error"}, occupancy_fn=_presence, counting=False,
-                    defaults=(("temperature_alarm_active", False),)),
-    "AM305L": Model("AM305L", "AM305L indoor ambience sensor (PIR, light, CO2)", decode_am305l,
-                    _EM | {"pir", "light", "am30xl", "co2", "co2high", "occupancy", "sensor_error"},
-                    minmax_fields=("temperature", "humidity", "co2"), occupancy_fn=_presence, counting=False,
-                    defaults=(("temperature_alarm_active", False), ("co2_alarm_active", False))),
-    "DS3604": Model("DS3604", "DS3604 e-ink display", decode_ds3604, frozenset({"battery", "ds3604"}), minmax_fields=(),
-                    buttons=("button",), event_types=("single_click", "double_click", "short_press", "long_press")),
-    "EM300-CL": Model("EM300-CL", "EM300-CL capacitive liquid level sensor", decode_em300_cl,
-                      frozenset({"battery", "em300cl", "sensor_error"}), minmax_fields=(),
-                      defaults=(("liquid_alarm_active", False),)),
-    "EM300-DI-HALL": Model("EM300-DI-HALL", "EM300-DI-HALL pulse counter (hall sensor)", decode_em300,
-                           _EM | {"input", "pulse"}),
-    "EM300-MLD": Model("EM300-MLD", "EM300-MLD membrane leak detector", decode_em300_mld,
-                       frozenset({"battery", "leak"}), minmax_fields=()),
-    "EM310-TILT": Model("EM310-TILT", "EM310-TILT tilt sensor", decode_em310_tilt, frozenset({"battery", "emtilt"}),
-                        minmax_fields=()),
-    "EM320-TILT": Model("EM320-TILT", "EM320-TILT tilt sensor", decode_em320_tilt, frozenset({"battery", "emtilt"}),
-                        minmax_fields=()),
-    "EM310-UDL": Model("EM310-UDL", "EM310-UDL ultrasonic distance / level", decode_em310_udl,
-                       frozenset({"battery", "em310udl"}), minmax_fields=("distance",)),
-    "EM320-TH": Model("EM320-TH", "EM320-TH temperature & humidity (firmware v1)", decode_em300, _EM),
-    "EM320-TH-V2": Model("EM320-TH-V2", "EM320-TH temperature & humidity (firmware v2)", decode_em320_th_v2,
-                         _EM | {"em320th", "sensor_error"},
-                         defaults=(("temperature_alarm_active", False), ("humidity_alarm_active", False))),
-    "EM410-RDL": Model("EM410-RDL", "EM410-RDL radar distance / level", decode_em410_rdl,
-                       frozenset({"battery", "em400", "rdl", "sensor_error"}), minmax_fields=("distance", "temperature"),
-                       defaults=(("distance_alarm_active", False), ("distance_exception_alarm_active", False))),
-    "EM411-RDL": Model("EM411-RDL", "EM411-RDL radar distance / level", decode_em411_rdl,
-                       frozenset({"battery", "em400", "rdl", "sensor_error"}), minmax_fields=("distance", "temperature"),
-                       defaults=(("distance_alarm_active", False), ("distance_exception_alarm_active", False))),
-    "VS132": Model("VS132", "VS132 3D ToF people counter", decode_vs132, frozenset({"peoplecount"}), minmax_fields=(),
-                   counters=("people_in", "people_out")),
-    "VS133": Model("VS133", "VS133 AI ToF people counter", decode_vs133, frozenset({"peoplecount"}), minmax_fields=(),
-                   counters=("people_in", "people_out"), dynamic=True),
-    "VS135": Model("VS135", "VS135 AI ToF people counter", decode_vs135, frozenset({"peoplecount"}), minmax_fields=(),
-                   counters=("people_in", "people_out"), dynamic=True),
-    "VS330": Model("VS330", "VS330 bathroom occupancy sensor", decode_vs330,
-                   frozenset({"battery", "occupancy", "vs330"}), minmax_fields=(), occupancy_fn=_presence, counting=False),
-    "VS350": Model("VS350", "VS350 passage people counter", decode_vs350,
-                   frozenset({"battery", "peoplecount", "vs35x", "vs35x_temp"}), minmax_fields=("temperature",),
-                   counters=("people_in", "people_out"), defaults=(("temperature_alarm_active", False),)),
-    "VS351": Model("VS351", "VS351 thermopile people counter", decode_vs351,
-                   frozenset({"battery", "peoplecount", "vs35x", "vs35x_temp", "vs351"}), minmax_fields=("temperature",),
-                   counters=("people_in", "people_out"), defaults=(("temperature_alarm_active", False),)),
-    "VS360": Model("VS360", "VS360 IR break-beam people counter", decode_vs360,
-                   frozenset({"battery", "peoplecount", "vs35x", "vs360"}), minmax_fields=(),
-                   counters=("people_in", "people_out")),
     "UC11-T1": Model("UC11-T1", "UC11-T1 temperature & humidity", decode_uc11t1,
                      frozenset({"battery", "uc11t1"}), minmax_fields=("temperature", "humidity")),
     "UC11XX": Model("UC11XX", "UC11xx I/O controller (UC1114 / UC1122 / UC1152 …)", decode_uc11xx,
@@ -437,9 +356,6 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     vs = decode_vs121(raw)
     if "people_count_all" in vs:
         return "VS121", ["VS121"]
-    new = _guess_new_ranges(raw)
-    if new:
-        return new
     ws = _guess_ws(raw)
     if ws:
         return ws
@@ -451,7 +367,7 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
         return "AT101", ["AT101"]
     e4 = decode_em400(raw)
     if "distance" in e4 or ("position" in e4 and "temperature" in e4):
-        return "EM400-UDL", ["EM400-UDL", "EM400-TLD", "EM400-MUD", "EM410-RDL", "EM411-RDL"]
+        return "EM400-UDL", ["EM400-UDL", "EM400-TLD", "EM400-MUD"]
     gs = _guess_gs(raw)
     if gs:
         return gs
@@ -471,10 +387,6 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
     ts = _guess_ts(raw)
     if ts:
         return ts
-    th2 = decode_em320_th_v2(raw)
-    if th2.keys() & {"temperature_change", "humidity_change", "trigger_type", "storage_status",
-                     "temperature_alarm_status", "humidity_alarm_status"} or (raw[:2] == b"\x04\x9a"):
-        return "EM320-TH-V2", ["EM320-TH-V2", "EM320-TH", "EM300-TH"]
     vo = decode_vs_occupancy(raw)
     if "occupancy" in vo:
         if "illuminance" in vo:
@@ -505,22 +417,18 @@ def guess_model(raw: bytes | None) -> tuple[str | None, list[str]]:
             return best, [best, "AM319-HCHO", "AM319-HCHO-WELL"]
         if "pm2_5" in am:
             return "AM308", ["AM308", "AM319-HCHO", "AM319-O3", "AM319-HCHO-WELL"]
-        if "co2" in am and not am.keys() & {"pir", "light_level", "tvoc", "tvoc_iaq", "pressure"}:
-            return "AM103", list(dict.fromkeys(["AM103"] + am_all))
-        return "AM307", list(dict.fromkeys(am_all + ["AM103"]))
+        return "AM307", am_all
     em = decode_em300(raw)
     if "pulse_count" in em or "water" in em:
-        return "EM300-DI", ["EM300-DI", "EM300-DI-HALL"]
+        return "EM300-DI", ["EM300-DI"]
     if "magnet_status" in em:
         return "EM300-MCS", ["EM300-MCS"]
     if "input_05" in em:
-        return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-MLD", "EM300-DI", "WS203"]
+        return "EM300-SLD", ["EM300-SLD", "EM300-ZLD", "EM300-DI", "WS203"]
     if "temperature" in em and "humidity" not in em:
         return "EM500-PT100", ["EM500-PT100", "TS101", "TS201", "TS301", "EM300-TH", "EM500-SMTC"]
     if "temperature" in em or "humidity" in em:
-        return "EM300-TH", ["EM300-TH", "EM320-TH", "EM320-TH-V2", "AM102"] + \
-            [k for k in MODELS if k.startswith("EM300") and k != "EM300-TH"] + ["TS201"] + \
-            [k for k in MODELS if k.startswith("AM") and k != "AM102"]
+        return "EM300-TH", [k for k in MODELS if k.startswith("EM300")] + ["TS201"] + [k for k in MODELS if k.startswith("AM")]
     wtc = _guess_wt_commands(raw)
     if wtc:
         return wtc
@@ -551,7 +459,7 @@ _WS_TEMP = {(0x09, 0x67), (0x89, 0x67), (0x99, 0x67)}
 
 def _guess_ws(raw: bytes) -> tuple[str, list[str]] | None:
     if "button_event" in decode_ws101(raw):
-        return "WS101", ["WS101", "DS3604"]
+        return "WS101", ["WS101"]
     panel = decode_ws156(raw)
     if any(k.endswith("_event") for k in panel):
         if all(v != "unknown" for k, v in panel.items() if k.endswith(("_mode", "_event"))):
@@ -587,62 +495,6 @@ def _guess_ws(raw: bytes) -> tuple[str, list[str]] | None:
 
 
 _WT201_FAMILY = ["WT201-V2", "WT211", "WT201"]
-
-
-def _pairs(raw: bytes) -> set[tuple[int, int]]:
-    """(channel id, type) pairs at the positions a channel-format decoder would read them – approximate,
-    used only together with a decoder check."""
-    return {(raw[k], raw[k + 1]) for k in range(len(raw) - 1)}
-
-
-def _guess_new_ranges(raw: bytes) -> tuple[str, list[str]] | None:
-    """AM10x / AM30xL / DS3604 / EM300-CL / EM310 / EM320 / EM410 / VS13x / VS330 / VS35x signatures."""
-    d = decode_ds3604(raw)
-    if "current_template_id" in d or ("button_event" in d and len(d.get("sn", "")) == 16) \
-            or b"\xfb\x01" in (raw[:2], raw[3:5]):          # display content frames
-        return "DS3604", ["DS3604", "WS101"]
-    a4 = decode_am107(raw)
-    if "pir_activity" in a4 or "infrared" in a4:
-        if a4.keys() & {"co2", "tvoc_ppb", "pressure"}:
-            return "AM107", ["AM107", "AM104"]
-        return "AM104", ["AM104", "AM107"]
-    a3 = decode_am305l(raw)
-    if a3.keys() & {"pir_count", "illuminance_lux", "illuminance_alarm_status", "co2_alarm_status"}:
-        return ("AM305L", ["AM305L", "AM304L"]) if "co2" in a3 or "co2_alarm_status" in a3 else ("AM304L", ["AM304L", "AM305L"])
-    if decode_em300_cl(raw).keys() & {"liquid", "liquid_alarm_status", "calibration_result"}:
-        return "EM300-CL", ["EM300-CL"]
-    if "angle_x" in decode_em310_tilt(raw):
-        return "EM310-TILT", ["EM310-TILT", "EM320-TILT"]
-    if "angle_x" in decode_em320_tilt(raw):
-        return "EM320-TILT", ["EM320-TILT", "EM310-TILT"]
-    rd = decode_em410_rdl(raw)
-    if rd.keys() & {"radar_signal_rssi", "distance_exception_alarm_status", "distance_mutation"}:
-        return "EM410-RDL", ["EM410-RDL", "EM411-RDL", "EM400-UDL"]
-    ud = decode_em310_udl(raw)
-    if "distance" in ud and "position" in ud and "temperature" not in ud:
-        return "EM310-UDL", ["EM310-UDL", "EM400-UDL", "EM500-UDL"]
-    v3 = decode_vs330(raw)
-    if "occupancy" in v3 and v3.keys() & {"distance", "calibration_status"}:
-        return "VS330", ["VS330"]
-    v13 = decode_vs133(raw)
-    if any(k.startswith(("line_2", "line_3", "line_4", "region_", "master_", "node_")) for k in v13) or \
-            "device_version" in v13:
-        return "VS133", ["VS133", "VS135", "VS132"]
-    if "people_total_in" in decode_vs132(raw) or "people_total_out" in decode_vs132(raw):
-        return "VS132", ["VS132", "VS133", "VS135"]
-    v5 = decode_vs350(raw)
-    v6 = decode_vs360(raw)
-    if v6.keys() & {"battery_node", "counting_anomaly_alarm_status", "devices_misaligned_alarm_status",
-                    "node_device_without_response_alarm_status"}:
-        return "VS360", ["VS360"]
-    if v5.keys() & {"people_total_in", "people_total_out", "people_in", "total_count_alarm_status"} and \
-            "people_count_all" not in v5:
-        if "power_status" in decode_vs351(raw):
-            return "VS351", ["VS351", "VS350"]
-        if "temperature" in v5 or "current_sensitivity" in v5:
-            return "VS350", ["VS350", "VS351"]
-        return "VS350", ["VS350", "VS351", "VS360"]
-    return None
 
 
 def _guess_wt_channels(raw: bytes) -> tuple[str, list[str]] | None:
@@ -770,155 +622,6 @@ def _guess_ts(raw: bytes) -> tuple[str, list[str]] | None:
 
 
 # --------------------------------------------------------------------------
-# Downlink commands (generated from Milesight's official encoders, see tools/checks/dl_*.py)
-# --------------------------------------------------------------------------
-DOWNLINKS: dict[str, dict] = json.loads((pathlib.Path(__file__).parent / "downlinks.json").read_text())
-
-
-def downlinks(model_key: str) -> dict:
-    return DOWNLINKS.get(model_key, {})
-
-
-def _command_specs(model_key: str) -> list[EntitySpec]:
-    dl = downlinks(model_key)
-    specs: list[EntitySpec] = []
-    cfg = dict(diagnostic=True)
-    if "reboot" in dl:
-        specs.append(EntitySpec("cmd_reboot", "Reboot", platform="button", device_class="restart", **cfg))
-    if "sync_time" in dl or "set_time" in dl:
-        specs.append(EntitySpec("cmd_sync_time", "Sync time", platform="button", icon="mdi:clock-check-outline", **cfg))
-    if "report_status" in dl:
-        specs.append(EntitySpec("cmd_report_status", "Request update", platform="button", icon="mdi:refresh", **cfg))
-    for key, name in (("report_interval", "Reporting interval"), ("collection_interval", "Collection interval")):
-        if key in dl and "prefix" in dl[key]:
-            unit = {"s": "s", "min": "min"}.get(dl[key].get("unit"), dl[key].get("unit"))
-            specs.append(EntitySpec(f"cfg_{key}", name, platform="number", unit=unit, device_class="duration",
-                                    icon="mdi:timer-cog-outline", **cfg))
-    fixed = {s.key for s in specs}
-    for name, out in dl.get("outputs", {}).items():
-        key = out.get("key") or name
-        label = name.replace("_", " ").capitalize()
-        if key in fixed:
-            continue
-        if "set" in out:          # proportional valve: opening %
-            specs.append(EntitySpec(key, f"{label} opening", platform="number", unit="%", icon="mdi:valve"))
-        else:
-            specs.append(EntitySpec(key, label, platform="switch",
-                                    device_class="switch", icon="mdi:valve" if "valve" in name else None))
-        fixed.add(key)
-    return specs
-
-
-def _ds3604() -> list[EntitySpec]:
-    """DS3604 e-ink display: text / QR-code blocks of both templates, template select, display buttons."""
-    specs = [EntitySpec("display_template", "Displayed template", platform="select", icon="mdi:page-layout-body"),
-             EntitySpec("cmd_display_refresh", "Refresh display", platform="button", icon="mdi:monitor-shimmer"),
-             EntitySpec("cmd_display_beep", "Beep", platform="button", icon="mdi:volume-high", diagnostic=True),
-             EntitySpec("cmd_display_report_display", "Read display content", platform="button",
-                        icon="mdi:monitor-arrow-down", diagnostic=True),
-             EntitySpec("display_error", "Display error", kind="text", icon="mdi:monitor-off", diagnostic=True)]
-    for t in (1, 2):
-        for n in range(1, 11):
-            specs.append(EntitySpec(f"display_t{t}_text_{n}", f"Template {t} text {n}", platform="text",
-                                    icon="mdi:form-textbox", enabled_default=t == 1 and n <= 3))
-        specs.append(EntitySpec(f"display_t{t}_qrcode", f"Template {t} QR code", platform="text", icon="mdi:qrcode",
-                                enabled_default=False))
-    return specs
-
-
-_SETTING_LABEL = {"child_lock": ("Child lock", "mdi:lock"), "child_lock_feature": ("Child lock feature", "mdi:lock-check"),
-                  "led_indicator": ("LED indicator", "mdi:led-on"), "buzzer": ("Buzzer", "mdi:volume-high"),
-                  "button": ("Button", "mdi:gesture-tap-button"),
-                  "template_button": ("Template switch button", "mdi:swap-horizontal")}
-_FIELD_LABEL = {"min": "low", "max": "high", "condition": "", "enable": "enabled", "level1": "level 1", "level2": "level 2",
-                "threshold": "threshold", "threshold_in": "in threshold", "threshold_out": "out threshold"}
-_MAIN_FIELDS = ("condition", "enable", "min", "max", "level1", "level2", "threshold", "threshold_in", "threshold_out",
-                "mode")
-
-
-def _measure_label(setting: str) -> str:
-    base = setting.removesuffix("_alarm")
-    m = re.fullmatch(r"(\w+?)_(\d)", base)
-    words = {"pm2_5": "PM2.5", "co2": "CO2", "tvoc": "TVOC", "vaping_index": "Vaping index",
-             "people_period": "People per period", "people_cumulative": "People total"}
-    if m and base not in words:
-        return f"{words.get(m[1], m[1].replace('_', ' ').capitalize())} {m[2]}"
-    return words.get(base, base.replace("_", " ").capitalize())
-
-
-PULSE_SOURCES = ("pulse_count", "gpio_counter", "gpio_counter_1", "gpio_counter_2", "gpio_counter_3", "gpio_counter_4")
-
-
-def pulse_capable(model_key: str) -> bool:
-    """Models with a pulse counter that can be turned into a utility meter reading."""
-    m = MODELS[model_key]
-    return "pulse" in m.features or model_key in ("UC11XX", "UC11-N1", "UC300", "UC501", "UC502")
-
-
-def meter_spec(meter_type: str, unit: str) -> EntitySpec:
-    dc = {"water": "water", "gas": "gas", "energy": "energy"}[meter_type]
-    icon = {"water": "mdi:water", "gas": "mdi:meter-gas", "energy": "mdi:meter-electric"}[meter_type]
-    return EntitySpec("meter_reading", f"{meter_type.capitalize()} meter", unit=unit, device_class=dc,
-                      state_class="total_increasing", icon=icon, precision=3)
-
-
-def setting_spec(model_key: str, setting: str) -> dict | None:
-    return downlinks(model_key).get("settings", {}).get(setting)
-
-
-def setting_field(model_key: str, key: str) -> tuple[str, dict | None]:
-    """Entity key 'set_<setting>__<field>' -> (setting, field spec)."""
-    setting, _, field = key.removeprefix("set_").partition("__")
-    spec = setting_spec(model_key, setting) or {}
-    return setting, next((f for f in spec.get("fields", []) if f["name"] == field), None)
-
-
-def _setting_specs(model_key: str) -> list[EntitySpec]:
-    specs: list[EntitySpec] = []
-    cfg = dict(diagnostic=True)
-    for name, sp in downlinks(model_key).get("settings", {}).items():
-        if "on" in sp:
-            label, icon = _SETTING_LABEL.get(name, (name.replace("_", " ").capitalize(), "mdi:cog"))
-            specs.append(EntitySpec(f"set_{name}", label, platform="switch", icon=icon, **cfg))
-            continue
-        measure = _measure_label(name)
-        for f in sp.get("fields", []):
-            fname = f["name"]
-            if fname.startswith("_") or "const" in f or "from" in f:
-                continue
-            extra = _FIELD_LABEL.get(fname, fname.replace("_", " "))
-            label = f"{measure} alarm {extra}".strip()
-            enabled = fname in _MAIN_FIELDS
-            key = f"set_{name}__{fname}"
-            if "map" in f:
-                specs.append(EntitySpec(key, label, platform="select", icon="mdi:alarm-light-outline",
-                                        enabled_default=enabled, **cfg))
-            else:
-                specs.append(EntitySpec(key, label, platform="number", unit=f.get("unit") or None,
-                                        icon="mdi:tune-vertical", enabled_default=enabled, **cfg))
-    hist = downlinks(model_key).get("history")
-    if hist:
-        if hist.get("fetch") or hist.get("fetch_since"):
-            specs.append(EntitySpec("cmd_fetch_history", "Fetch stored data (24 h)", platform="button",
-                                    icon="mdi:database-arrow-down", **cfg))
-        if hist.get("enable"):
-            specs.append(EntitySpec("set_history_enable", "Data storage", platform="switch", icon="mdi:database", **cfg))
-        specs.append(EntitySpec("last_backfill", "Stored data received", kind="text", icon="mdi:database-check",
-                                diagnostic=True))
-        if hist.get("retransmit"):
-            specs.append(EntitySpec("set_history_retransmit", "Resend missed data", platform="switch",
-                                    icon="mdi:database-sync", **cfg))
-    return specs
-
-
-def output_for_key(model_key: str, key: str) -> dict | None:
-    for out_name, out in downlinks(model_key).get("outputs", {}).items():
-        if (out.get("key") or out_name) == key:
-            return out
-    return None
-
-
-# --------------------------------------------------------------------------
 # Entity specs
 # --------------------------------------------------------------------------
 def _common() -> list[EntitySpec]:
@@ -927,19 +630,6 @@ def _common() -> list[EntitySpec]:
                    state_class="measurement", diagnostic=True),
         EntitySpec("snr", "SNR", unit="dB", state_class="measurement", icon="mdi:access-point", diagnostic=True),
         EntitySpec("last_seen", "Last seen", kind="timestamp", device_class="timestamp", diagnostic=True),
-        EntitySpec("signal_quality", "Signal quality", kind="label", icon="mdi:signal-cellular-2", diagnostic=True),
-        EntitySpec("spreading_factor", "Spreading factor", state_class="measurement", icon="mdi:sine-wave",
-                   diagnostic=True),
-        EntitySpec("link_margin", "Link margin", unit="dB", state_class="measurement", icon="mdi:signal-distance-variant",
-                   diagnostic=True, enabled_default=False),
-        EntitySpec("gateway", "Gateway", kind="text", icon="mdi:router-wireless", diagnostic=True),
-        EntitySpec("gateways_heard", "Gateways in range", state_class="measurement", icon="mdi:router-network",
-                   diagnostic=True),
-        EntitySpec("packet_loss_today", "Packet loss today", unit="%", state_class="measurement",
-                   icon="mdi:package-variant-remove", diagnostic=True, precision=1),
-        EntitySpec("uplinks_today", "Uplinks today", icon="mdi:upload", diagnostic=True, enabled_default=False),
-        EntitySpec("frequency", "Frequency", unit="MHz", icon="mdi:sine-wave", diagnostic=True, enabled_default=False),
-        EntitySpec("frame_counter", "Frame counter", icon="mdi:counter", diagnostic=True, enabled_default=False),
     ]
 
 
@@ -977,17 +667,17 @@ def _air(f: frozenset[str]) -> list[EntitySpec]:
     if "tvoc" in f:
         specs += [
             EntitySpec("tvoc_iaq", "TVOC index", icon="mdi:air-filter", precision=2, **m),
-            EntitySpec("tvoc", "TVOC", unit="μg/m³", device_class="volatile_organic_compounds", enabled_default=False, **m),
+            EntitySpec("tvoc", "TVOC", unit="µg/m³", device_class="volatile_organic_compounds", enabled_default=False, **m),
         ]
     if "pressure" in f:
         specs.append(EntitySpec("pressure", "Pressure", unit="hPa", device_class="atmospheric_pressure", **m))
     if "pm" in f or "pm25_only" in f:
         specs += [
-            EntitySpec("pm2_5", "PM2.5", unit="μg/m³", device_class="pm25", **m),
-            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="μg/m³", device_class="pm25", icon="mdi:blur"),
+            EntitySpec("pm2_5", "PM2.5", unit="µg/m³", device_class="pm25", **m),
+            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="µg/m³", device_class="pm25", icon="mdi:blur"),
         ]
     if "pm" in f:
-        specs.append(EntitySpec("pm10", "PM10", unit="μg/m³", device_class="pm10", **m))
+        specs.append(EntitySpec("pm10", "PM10", unit="µg/m³", device_class="pm10", **m))
     if "hcho" in f:
         specs.append(EntitySpec("hcho", "Formaldehyde (HCHO)", unit="mg/m³", icon="mdi:chemical-weapon", precision=3, **m))
     if "o3" in f:
@@ -1030,7 +720,7 @@ def _em500(f: frozenset[str]) -> list[EntitySpec]:
     if "soil" in f:
         specs += _measure("temperature", "Soil temperature", "°C", "temperature")
         specs += _measure("moisture", "Soil moisture", "%", "moisture", precision=1)
-        specs += _measure("electricity", "Soil conductivity (EC)", "μS/cm", "conductivity", icon="mdi:flash-outline")
+        specs += _measure("electricity", "Soil conductivity (EC)", "µS/cm", "conductivity", icon="mdi:flash-outline")
     if "depth" in f:
         specs += _measure("depth", "Water level", "cm", "distance", icon="mdi:waves-arrow-up")
     if "distance" in f:
@@ -1068,19 +758,6 @@ def _cth_measure(m) -> EntitySpec:
 
 
 _DYN = [   # (regex, builder) – applied to decoded keys of controllers with configurable channels
-    # VS133 / VS135 lines and regions
-    (r"line_(\d)_(child_)?(in|out)", lambda m: EntitySpec(m[0], f"Line {m[1]}{' child' if m[2] else ''} {m[3]} (last report)",
-                                                         state_class="measurement", icon="mdi:account-arrow-right")),
-    (r"line_(\d)_(child_)?total_(in|out)", lambda m: EntitySpec(m[0], f"Line {m[1]}{' child' if m[2] else ''} {m[3]} (device total)",
-                                                               state_class="total_increasing", icon="mdi:counter")),
-    (r"region_(\d)_(child_)?count", lambda m: EntitySpec(m[0], f"Region {m[1]}{' children' if m[2] else ' people'}",
-                                                        state_class="measurement", icon="mdi:account-group")),
-    (r"region_(\d)_(child_)?dwell_time_(avg|max)", lambda m: EntitySpec(
-        m[0], f"Region {m[1]}{' child' if m[2] else ''} dwell time {m[3]}", unit="s", device_class="duration",
-        state_class="measurement", enabled_default=False)),
-    (r"(master|node_\d+)_occlusion_alarm_active", lambda m: EntitySpec(
-        m[0], f"{'Sensor' if m[1] == 'master' else m[1].replace('_', ' ').capitalize()} lens blocked", platform="binary_sensor",
-        device_class="problem")),
     # CTH01 energy meter
     (r"current_ct(\d+)", lambda m: EntitySpec(m[0], f"Current CT {m[1]}", unit="A", device_class="current",
                                               state_class="measurement", precision=2)),
@@ -1286,7 +963,7 @@ def _gs(f: frozenset[str]) -> list[EntitySpec]:
             fault,
         ]
     if "gs601" in f:
-        pm = dict(unit="μg/m³", state_class="measurement")
+        pm = dict(unit="µg/m³", state_class="measurement")
         specs += _measure("vaping_index", "Vaping index", None, None, icon="mdi:smoking")
         specs += _alarm("vaping_index", "Vaping")
         specs += [
@@ -1297,7 +974,7 @@ def _gs(f: frozenset[str]) -> list[EntitySpec]:
             EntitySpec("buzzer", "Buzzer", platform="binary_sensor", device_class="sound", icon="mdi:bullhorn"),
             EntitySpec("pm1_0", "PM1", device_class="pm1", **pm),
             EntitySpec("pm2_5", "PM2.5", device_class="pm25", **pm),
-            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="μg/m³", device_class="pm25", icon="mdi:blur"),
+            EntitySpec("pm2_5_max_today", "PM2.5 max today", unit="µg/m³", device_class="pm25", icon="mdi:blur"),
             EntitySpec("pm10", "PM10", device_class="pm10", **pm),
             EntitySpec("tvoc", "TVOC", state_class="measurement", icon="mdi:air-filter"),
             EntitySpec("tvoc_max_today", "TVOC max today", icon="mdi:air-filter"),
@@ -1486,96 +1163,6 @@ def _wt(model: "Model") -> list[EntitySpec]:
     return specs
 
 
-def _new_ranges(model: "Model") -> list[EntitySpec]:
-    f = model.features
-    specs: list[EntitySpec] = []
-    cnt = dict(state_class="measurement", icon="mdi:account-arrow-right")
-    if "am10x_light" in f:
-        specs += [
-            EntitySpec("illuminance_lux", "Illuminance", unit="lx", device_class="illuminance", state_class="measurement"),
-            EntitySpec("pir_activity", "Motion activity", state_class="measurement", icon="mdi:motion-sensor"),
-            EntitySpec("infrared", "Infrared", diagnostic=True, enabled_default=False),
-            EntitySpec("infrared_and_visible", "Infrared + visible", diagnostic=True, enabled_default=False),
-        ]
-    if "tvoc_ppb" in f:
-        specs.append(EntitySpec("tvoc_ppb", "TVOC", unit="ppb", device_class="volatile_organic_compounds_parts",
-                                state_class="measurement"))
-    if "am30xl" in f:
-        specs += [
-            EntitySpec("illuminance_lux", "Illuminance", unit="lx", device_class="illuminance", state_class="measurement"),
-            EntitySpec("pir_count", "Motion count", state_class="total_increasing", icon="mdi:counter"),
-            EntitySpec("illuminance_alarm_status", "Light alarm", kind="label", icon="mdi:brightness-6",
-                       enabled_default=False),
-        ]
-        specs += _alarm("temperature", "Temperature", enabled=False)
-        if "co2" in f:
-            specs += _alarm("co2", "CO2")
-    if "ds3604" in f:
-        specs += _ds3604()
-    if "em300cl" in f:
-        specs += [
-            EntitySpec("liquid", "Liquid level", kind="label", icon="mdi:waves"),
-            EntitySpec("liquid_critical", "Liquid level critical", platform="binary_sensor", device_class="problem",
-                       icon="mdi:waves-arrow-up"),
-            EntitySpec("calibration_result", "Calibration", kind="label", icon="mdi:tune", diagnostic=True),
-        ]
-        specs += _alarm("liquid", "Liquid level", enabled=False)
-    if "emtilt" in f:
-        specs += [EntitySpec(f"angle_{a}", f"Angle {a.upper()}", unit="°", state_class="measurement",
-                             icon="mdi:angle-acute", precision=2) for a in "xyz"]
-        specs += [EntitySpec(f"angle_{a}_alarm", f"Angle {a.upper()} alarm", platform="binary_sensor",
-                             device_class="problem", enabled_default=False) for a in "xyz"]
-        specs.append(EntitySpec("tilt", "Tilted", platform="binary_sensor", device_class="problem", icon="mdi:angle-acute"))
-    if "em310udl" in f:
-        specs += _measure("distance", "Distance", "mm", "distance", icon="mdi:arrow-expand-vertical")
-        specs.append(EntitySpec("tilted", "Tilted", platform="binary_sensor", device_class="problem", icon="mdi:angle-acute"))
-    if "em320th" in f:
-        specs += _alarm("temperature", "Temperature", enabled=False) + _alarm("humidity", "Humidity", enabled=False)
-    if "rdl" in f:
-        specs += [
-            EntitySpec("radar_signal_rssi", "Radar signal", unit="dB", state_class="measurement", icon="mdi:radar",
-                       diagnostic=True, precision=2),
-            EntitySpec("distance_mutation", "Distance change", unit="mm", icon="mdi:delta", enabled_default=False),
-        ]
-        specs += _alarm("distance_exception", "Distance exception", enabled=False)
-    if "peoplecount" in f:
-        specs += [
-            EntitySpec("people_in", "People in (last report)", **cnt),
-            EntitySpec("people_out", "People out (last report)", state_class="measurement", icon="mdi:account-arrow-left"),
-            EntitySpec("people_total_in", "People in (device total)", state_class="total_increasing",
-                       icon="mdi:account-arrow-right"),
-            EntitySpec("people_total_out", "People out (device total)", state_class="total_increasing",
-                       icon="mdi:account-arrow-left"),
-        ]
-        for f_, label, icon in (("people_in", "People in", "mdi:account-arrow-right"),
-                                ("people_out", "People out", "mdi:account-arrow-left")):
-            for suffix, period, sc in (("today", "today", "total_increasing"), ("yesterday", "yesterday", None),
-                                       ("week", "this week", "total_increasing"), ("last_week", "last week", None),
-                                       ("month", "this month", "total_increasing"), ("last_month", "last month", None)):
-                specs.append(EntitySpec(f"{f_}_{suffix}", f"{label} {period}", state_class=sc, icon=icon))
-        specs.append(EntitySpec("people_net_today", "People inside (in − out today)", state_class="measurement",
-                                icon="mdi:account-group"))
-    if "vs35x" in f:
-        specs += _alarm("total_count", "Total count", enabled=False) + _alarm("period_count", "Period count", enabled=False)
-    if "vs35x_temp" in f:
-        specs += _measure("temperature", "Temperature", "°C", "temperature", precision=1)
-        specs += _alarm("temperature", "Temperature", enabled=False)
-    if "vs351" in f:
-        specs.append(EntitySpec("power_status", "Power source", kind="label", icon="mdi:power-plug-battery"))
-    if "vs360" in f:
-        specs.append(EntitySpec("battery_node", "Battery (receiver)", unit="%", device_class="battery",
-                                state_class="measurement", diagnostic=True))
-        specs += _alarm("counting_anomaly", "Counting anomaly") + _alarm("devices_misaligned", "Devices misaligned") \
-            + _alarm("node_device_without_response", "Receiver not responding")
-    if "vs330" in f:
-        specs += [
-            EntitySpec("distance", "Distance", unit="mm", device_class="distance", state_class="measurement",
-                       enabled_default=False),
-            EntitySpec("calibration_status", "Calibration", kind="label", icon="mdi:tune", diagnostic=True),
-        ]
-    return specs
-
-
 def _vs373() -> list[EntitySpec]:
     dur = dict(kind="duration", unit="min", device_class="duration", precision=1)
     specs = [
@@ -1722,7 +1309,6 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
                        icon="mdi:power-plug-off"),
         ]
     specs += _ws(model)
-    specs += _new_ranges(model)
     if "wt" in f:
         specs += _wt(model)
     if "heating" in f:
@@ -1778,147 +1364,4 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
         specs.append(EntitySpec("pulse_count", "Pulse count", state_class="total_increasing", icon="mdi:counter"))
         specs.append(EntitySpec("water", "Water (converted)", state_class="total_increasing", icon="mdi:water",
                                 enabled_default=False))
-    specs += _command_specs(model_key)
-    specs += _setting_specs(model_key)
-    control = {s_.key for s_ in specs if s_.platform in ("switch", "number")}
-    # a controllable output replaces its read-only binary sensor / sensor
-    specs = [s_ for s_ in specs if not (s_.key in control and s_.platform in ("binary_sensor", "sensor"))]
-    keys = {s_.key for s_ in specs}
-    specs.append(EntitySpec("online", "Online", platform="binary_sensor", device_class="connectivity", diagnostic=True))
-    if "battery" in keys or model.dynamic and model_key.startswith(("UC5", "UC11-N1", "UC11-T1")):
-        specs.append(EntitySpec("battery_low", "Battery low", platform="binary_sensor", device_class="battery",
-                                diagnostic=True))
-    if downlinks(model_key):
-        specs.append(EntitySpec("last_command", "Last command", kind="text", icon="mdi:message-arrow-right-outline",
-                                diagnostic=True))
-        specs.append(EntitySpec("command_status", "Command status", kind="label", icon="mdi:message-check-outline",
-                                diagnostic=True))
     return specs + _common()
-
-
-# --------------------------------------------------------------------------
-# Bulk onboarding
-# --------------------------------------------------------------------------
-def _resolve_model(text: str) -> str | None:
-    """'em300-mcs', 'EM300 MCS', 'WS501 v4' -> model key."""
-    norm = re.sub(r"[^A-Z0-9]", "", text.upper())
-    if not norm:
-        return None
-    for key in MODELS:
-        if re.sub(r"[^A-Z0-9]", "", key) == norm:
-            return key
-    return None
-
-
-def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
-    """Lines 'DevEUI, model, name, area, AppKey' (name / area / AppKey optional; ';' or tab also accepted).
-    Returns (devices, errors)."""
-    devices, errors, seen = [], [], set()
-    for n, line in enumerate(text.splitlines(), 1):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        cols = [c.strip() for c in re.split(r"[,;\t]", line)]
-        if n == 1 and cols[0].lower().replace(" ", "") in ("deveui", "dev_eui", "eui"):
-            continue                                    # header row
-        deveui = re.sub(r"[^0-9a-fA-F]", "", cols[0]).lower()
-        if not re.fullmatch(r"[0-9a-f]{16}", deveui):
-            errors.append(f"line {n}: invalid DevEUI '{cols[0]}'")
-            continue
-        model = _resolve_model(cols[1]) if len(cols) > 1 else None
-        if model is None:
-            errors.append(f"line {n}: unknown model '{cols[1] if len(cols) > 1 else ''}'")
-            continue
-        if deveui in seen:
-            errors.append(f"line {n}: DevEUI {deveui.upper()} listed twice")
-            continue
-        key = re.sub(r"\s", "", cols[4]).lower() if len(cols) > 4 and cols[4] else None
-        if key and not re.fullmatch(r"[0-9a-f]{32}", key):
-            errors.append(f"line {n}: AppKey must be 32 hex digits")
-            continue
-        seen.add(deveui)
-        dev = {"deveui": deveui, "model": model, "name": cols[2] if len(cols) > 2 and cols[2] else None,
-               "area": cols[3] if len(cols) > 3 and cols[3] else None}
-        if key:
-            dev["app_key"] = key
-        devices.append(dev)
-    return devices, errors
-
-
-# ------------------------------------------------------------------ tanks & silos
-def tank_source(model_key: str) -> str | None:
-    """'distance' (mm, sensor above the surface) or 'depth' (cm, submersible probe) – None = no tank options."""
-    model = MODELS.get(model_key)
-    if model is None or model_key == "EM400-TLD":       # trash bins have their own fill level
-        return None
-    f = model.features
-    if "depth" in f:
-        return "depth"
-    if f & {"em400", "rdl", "em310udl", "distance"}:
-        return "distance"
-    return None
-
-
-def tank_specs(density: bool = False, low: bool = True, drop: bool = False) -> list[EntitySpec]:
-    specs = [
-        EntitySpec("tank_level", "Liquid level", unit="mm", device_class="distance", state_class="measurement",
-                   icon="mdi:waves-arrow-up", precision=0),
-        EntitySpec("tank_volume", "Contents", unit="L", device_class="volume_storage", state_class="measurement",
-                   icon="mdi:storage-tank", precision=0),
-        EntitySpec("tank_fill", "Tank fill", unit="%", state_class="measurement", icon="mdi:storage-tank-outline",
-                   precision=0),
-        EntitySpec("tank_free", "Space left", unit="L", device_class="volume_storage", state_class="measurement",
-                   icon="mdi:storage-tank-outline", precision=0, enabled_default=False),
-        EntitySpec("tank_usage_per_day", "Usage per day", unit="L/d", state_class="measurement",
-                   icon="mdi:water-minus", precision=0),
-        EntitySpec("tank_days_left", "Days until empty", unit="d", device_class="duration", state_class="measurement",
-                   icon="mdi:calendar-clock", precision=1),
-        EntitySpec("tank_empty_at", "Empty around", kind="timestamp", device_class="timestamp",
-                   icon="mdi:calendar-alert"),
-        EntitySpec("tank_last_refill", "Last refill", kind="timestamp", device_class="timestamp",
-                   icon="mdi:water-plus"),
-        EntitySpec("cmd_tank_refilled", "Tank refilled", platform="button", icon="mdi:water-plus"),
-    ]
-    if density:
-        specs.append(EntitySpec("tank_mass", "Contents weight", unit="kg", device_class="weight",
-                                state_class="measurement", precision=0))
-    if low:
-        specs.append(EntitySpec("tank_low", "Tank low", platform="binary_sensor", device_class="problem",
-                                icon="mdi:storage-tank-outline"))
-    if drop:
-        specs.append(EntitySpec("tank_sudden_drop", "Sudden drop", platform="binary_sensor", device_class="problem",
-                                icon="mdi:water-alert"))
-        specs.append(EntitySpec("cmd_tank_clear_alarm", "Clear sudden-drop alarm", platform="button",
-                                icon="mdi:bell-off-outline"))
-    return specs
-
-
-def channel_specs(channels: dict) -> list[EntitySpec]:
-    """Entities for the channels named in a controller's channel map (same keys = same entities, history kept)."""
-    return [EntitySpec(c.key, c.name, unit=c.unit, device_class=c.device_class, state_class=c.state_class,
-                       icon=None if c.device_class else ("mdi:lan" if c.key.startswith("modbus") else "mdi:sine-wave"),
-                       precision=c.decimals) for c in channels.values()]
-
-
-# ------------------------------------------------------------------ solution tags
-TAGS = {  # tag -> (Home Assistant label name, icon)
-    "tank": ("Milesight · Tank / silo", "mdi:storage-tank"),
-    "people": ("Milesight · People & occupancy", "mdi:account-group"),
-    "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
-}
-
-
-def device_tags(model_key: str) -> frozenset[str]:
-    """What a model is used for – decides which ready-made dashboards a site gets and labels its device."""
-    model = MODELS.get(model_key)
-    if model is None:
-        return frozenset()
-    keys = {s.key for s in entity_specs(model_key)}
-    tags = set()
-    if tank_source(model_key):
-        tags.add("tank")
-    if "occupancy" in model.features or model.occupancy_fn is not None or model.counters:
-        tags.add("people")
-    if {"temperature", "humidity"} <= keys or "co2" in keys:
-        tags.add("comfort")
-    return frozenset(tags)
