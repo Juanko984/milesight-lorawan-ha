@@ -20,12 +20,28 @@ from .const import DOMAIN, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 RES = pathlib.Path(__file__).parent / "resources"
-DASHBOARDS = {  # file -> (url, icon)
-    "fleet_overview.yaml": ("milesight-fleet", "mdi:access-point-network"),
-    "signal_quality.yaml": ("milesight-signal", "mdi:signal"),
-    "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank"),
-    "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline"),
+DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
+    "fleet_overview.yaml": ("milesight-fleet", "mdi:access-point-network", None),
+    "signal_quality.yaml": ("milesight-signal", "mdi:signal", None),
+    "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank", {"tank"}),
+    "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
 }
+
+
+def site_tags(hass: HomeAssistant) -> set[str]:
+    """Tags of every Milesight device set up in Home Assistant (from its model)."""
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+    from .models import device_tags
+    tags: set[str] = set()
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_DEVICE:
+            tags |= device_tags(e.options.get("model", e.data.get("model")))
+    return tags
+
+
+def wanted_dashboards(tags: set[str]) -> dict[str, bool]:
+    """Pure: url -> whether the site needs this dashboard."""
+    return {url: needs is None or bool(needs & tags) for url, _icon, needs in DASHBOARDS.values()}
 
 
 def _hash(data: Any) -> str:
@@ -81,7 +97,8 @@ async def async_install_blueprints(hass: HomeAssistant, state: dict[str, Any]) -
     return result
 
 
-async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any]) -> dict[str, list[str]]:
+async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
+                                   tags: set[str] | None = None) -> dict[str, list[str]]:
     import yaml
     from .dashboard import _lovelace_dashboards, _register
 
@@ -90,15 +107,23 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any]) -
     configs = await hass.async_add_executor_job(_read)
     done = state.setdefault("dashboards", {})
     dashboards = _lovelace_dashboards(hass)
-    result: dict[str, list[str]] = {"written": [], "kept": []}
-    for f, (url, icon) in DASHBOARDS.items():
+    result: dict[str, list[str]] = {"written": [], "kept": [], "removed": []}
+    wanted = wanted_dashboards(site_tags(hass) if tags is None else tags)
+    for f, (url, icon, _needs) in DASHBOARDS.items():
         config = configs[f]
         title = config.get("title") or url
         mine = done.get(url)
+        if not wanted[url]:
+            if mine is not None and not mine.get("hidden"):
+                _hide(hass, url)
+                mine["hidden"] = True
+                result["removed"].append(title)
+            continue
         if url in dashboards and mine is None:
             result["kept"].append(title)              # a dashboard the user made with this URL
             continue
         dash = _register(hass, url, title, f"milesight_{url.replace('-', '_')}", icon)
+        current = None
         if mine is not None:
             try:
                 current = await dash.async_load(False)
@@ -107,10 +132,29 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any]) -
             if current is not None and _hash(current) != mine.get("hash") and _hash(current) != _hash(config):
                 result["kept"].append(title)          # edited in Home Assistant: keep the user's version
                 continue
+        if mine is not None and current is not None and _hash(current) == mine.get("hash") == _hash(config):
+            if mine.get("hidden"):
+                mine["hidden"] = False              # back in the sidebar, nothing to rewrite
+                result["written"].append(title)
+            continue                                # already up to date
         await dash.async_save(config)
-        done[url] = {"title": title, "icon": icon, "hash": _hash(config)}
+        done[url] = {"title": title, "icon": icon, "hash": _hash(config), "hidden": False}
         result["written"].append(title)
     return result
+
+
+def _hide(hass: HomeAssistant, url: str) -> None:
+    """Take an integration-made dashboard out of the sidebar (its content stays stored for later)."""
+    from .dashboard import _lovelace_dashboards
+    try:
+        from homeassistant.components import frontend
+        frontend.async_remove_panel(hass, url)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        _lovelace_dashboards(hass).pop(url, None)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def async_install(hass: HomeAssistant, version: str | None = None, force: bool = False) -> dict[str, Any]:
@@ -122,12 +166,18 @@ async def async_install(hass: HomeAssistant, version: str | None = None, force: 
         return {}
     out = {"blueprints": await async_install_blueprints(hass, state)}
     try:
-        out["dashboards"] = await async_install_dashboards(hass, state)
+        tags = site_tags(hass)
+        out["dashboards"] = await async_install_dashboards(hass, state, tags)
+        state["tags"] = sorted(tags)
     except Exception as err:  # noqa: BLE001 - dashboards (lovelace) not available
         _LOGGER.warning("Could not install the Milesight dashboards: %s", err)
         out["dashboards"] = {"written": [], "kept": [], "error": str(err)}
     state["version"] = version
     await store.async_save(state)
+    try:
+        await async_label_devices(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not label the Milesight devices", exc_info=True)
     _LOGGER.info("Milesight resources: %s", out)
     return out
 
@@ -138,6 +188,8 @@ async def async_restore(hass: HomeAssistant, state: dict[str, Any] | None = None
         state = await _store(hass).async_load() or {}
     from .dashboard import _register
     for url, d in (state.get("dashboards") or {}).items():
+        if d.get("hidden"):
+            continue
         try:
             _register(hass, url, d["title"], f"milesight_{url.replace('-', '_')}", d.get("icon") or "mdi:view-dashboard")
         except Exception:  # noqa: BLE001
@@ -153,8 +205,70 @@ def summary(out: dict[str, Any]) -> str:
         lines.append(f"Blueprints you changed were kept: {', '.join(n.removesuffix('.yaml') for n in bp['kept'])}.")
     if db.get("written"):
         lines.append(f"Dashboards in the sidebar: {', '.join(db['written'])}.")
+    if db.get("removed"):
+        lines.append(f"Dashboards removed from the sidebar (no devices need them yet): {', '.join(db['removed'])}.")
     if db.get("kept"):
         lines.append(f"Dashboards you changed were kept: {', '.join(db['kept'])}.")
     if db.get("error"):
         lines.append(f"Dashboards could not be created: {db['error']}.")
     return "\n\n".join(lines) or "Everything is up to date."
+
+
+async def async_sync(hass: HomeAssistant) -> dict[str, Any]:
+    """Devices were added / removed / changed model: show or hide the dashboards that depend on them and
+    label the devices. Does not touch blueprints."""
+    store = _store(hass)
+    state = await store.async_load() or {}
+    tags = site_tags(hass)
+    if state.get("tags") == sorted(tags) and state.get("dashboards"):
+        await async_label_devices(hass)
+        return {}
+    try:
+        out = {"dashboards": await async_install_dashboards(hass, state, tags)}
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Could not update the Milesight dashboards", exc_info=True)
+        return {"dashboards": {"written": [], "kept": [], "error": str(err)}}
+    state["tags"] = sorted(tags)
+    await store.async_save(state)
+    await async_label_devices(hass)
+    return out
+
+
+async def async_label_devices(hass: HomeAssistant) -> None:
+    """Give each Milesight device Home Assistant labels for what it is used for (filter devices, entities
+    and automations by 'Milesight · Tank / silo' …). Labels people removed by hand are not added again."""
+    from homeassistant.helpers import device_registry as dr
+    from .const import CONF_DEVEUI, CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+    from .models import TAGS, device_tags
+    try:
+        from homeassistant.helpers import label_registry as lr
+    except ImportError:            # Home Assistant before labels
+        return
+    store = _store(hass)
+    state = await store.async_load() or {}
+    labelled: dict[str, list[str]] = state.setdefault("labelled", {})
+    lreg, dreg = lr.async_get(hass), dr.async_get(hass)
+    ids: dict[str, str] = {}
+    changed = False
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
+            continue
+        device = dreg.async_get_device(identifiers={(DOMAIN, e.data.get(CONF_DEVEUI))})
+        if device is None:
+            continue
+        tags = device_tags(e.options.get("model", e.data.get("model")))
+        new = [t for t in sorted(tags) if t not in labelled.get(device.id, [])]
+        if not new:
+            continue
+        add = set()
+        for t in new:
+            if t not in ids:
+                name, icon = TAGS[t]
+                label = lreg.async_get_label_by_name(name) or lreg.async_create(name, icon=icon)
+                ids[t] = label.label_id
+            add.add(ids[t])
+        dreg.async_update_device(device.id, labels=set(device.labels) | add)
+        labelled[device.id] = sorted(set(labelled.get(device.id, [])) | set(new))
+        changed = True
+    if changed:
+        await store.async_save(state)

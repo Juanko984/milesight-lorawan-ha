@@ -67,6 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     runtime.async_start()
     entry.async_on_unload(entry.add_update_listener(_async_reload))
+    _schedule_sync(hass)
     return True
 
 
@@ -95,6 +96,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         return
     deveui = entry.data[CONF_DEVEUI]
     await Store(hass, STORAGE_VERSION, f"{DOMAIN}.{deveui}").async_remove()
+    _schedule_sync(hass)
     for hub in hass.data.get(DOMAIN, {}).get("hubs", {}).values():
         hub.forget(deveui)
 
@@ -119,3 +121,26 @@ async def _async_install_resources(hass: HomeAssistant) -> None:
         persistent_notification.async_create(
             hass, f"Version {version}.\n\n{summary(out)}", title="Milesight LoRaWAN: blueprints and dashboards",
             notification_id=f"{DOMAIN}_resources")
+
+
+def _schedule_sync(hass: HomeAssistant) -> None:
+    """A device was added, removed or changed model: a few seconds later, show / hide the dashboards that
+    depend on the site's devices (Tanks & alerts only with a tank or silo sensor …) and label the device."""
+    from homeassistant.helpers.event import async_call_later
+    data = hass.data.setdefault(DOMAIN, {"hubs": {}})
+    if data.get("sync_pending") or not data.get("resources_started"):
+        return                              # at start-up the version install does the same
+    async def _run(_now) -> None:
+        data["sync_pending"] = None
+        from .resources import async_sync, summary
+        try:
+            out = await async_sync(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not update the Milesight dashboards", exc_info=True)
+            return
+        db = out.get("dashboards") or {}
+        if db.get("written") or db.get("removed"):
+            from homeassistant.components import persistent_notification
+            persistent_notification.async_create(hass, summary(out), title="Milesight LoRaWAN: dashboards",
+                                                 notification_id=f"{DOMAIN}_resources")
+    data["sync_pending"] = async_call_later(hass, 10, _run)

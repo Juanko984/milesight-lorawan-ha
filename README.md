@@ -339,6 +339,15 @@ integration and it puts them in place itself:
 * **After every update** (first start of a new version) the blueprints are copied to
   `config/blueprints/automation/milesight_lorawan/` and four dashboards appear in the sidebar: **LoRaWAN fleet**,
   **LoRaWAN signal** (installer), **Tanks & alerts** and **Building analytics**. A notification lists what changed.
+* **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
+  (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL), *People & occupancy* (VS range, people
+  counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). LoRaWAN fleet and LoRaWAN
+  signal are always there; **Tanks & alerts** appears when the first tank / silo sensor is added and
+  **Building analytics** with the first comfort or occupancy sensor. Remove the last one and the dashboard leaves
+  the sidebar again (its content is kept for later).
+* The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
+  occupancy*, *Milesight · Air & comfort*), so you can filter devices, entities and automations by them. A label
+  you remove by hand is not added back.
 * **Any time**: the gateway's **Install dashboards and blueprints** button.
 * Blueprints or dashboards you edited in Home Assistant are **kept** (the notification says so). To get ours back,
   delete your copy and press the button.
@@ -743,6 +752,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.22.0** | Devices are tagged by use (tank, people, comfort) as Home Assistant labels; dashboards appear only when a site has devices that need them. |
 | **0.21.1** | Fixed the UndefinedError on the fleet, signal and tanks dashboards. |
 | **0.21.0** | Blueprints and dashboards ship inside the integration and are installed / updated automatically (HACS update), with an *Install dashboards and blueprints* button. |
 | **0.20.3** | Devices with a gateway payload codec (e.g. AM107) are discovered and decoded. |

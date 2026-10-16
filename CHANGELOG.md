@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.22.0
+### Added
+- Devices are tagged by what they are used for, from their model: Tank / silo, People & occupancy, Air & comfort.
+  The tags become Home Assistant labels on the devices (*Milesight · …*), for filtering devices, entities and
+  automations.
+- Dashboards follow the tags: Tanks & alerts is only in the sidebar when the site has a tank or silo sensor and
+  Building analytics only with comfort or occupancy sensors; they appear as soon as such a device is added (and
+  leave the sidebar when the last one is removed). LoRaWAN fleet and LoRaWAN signal are always there.
+
 ## 0.21.1
 ### Fixed
 - LoRaWAN fleet, LoRaWAN signal and Tanks & alerts dashboards showed "UndefinedError: … has no attribute

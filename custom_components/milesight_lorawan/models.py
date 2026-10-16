@@ -1898,3 +1898,27 @@ def channel_specs(channels: dict) -> list[EntitySpec]:
     return [EntitySpec(c.key, c.name, unit=c.unit, device_class=c.device_class, state_class=c.state_class,
                        icon=None if c.device_class else ("mdi:lan" if c.key.startswith("modbus") else "mdi:sine-wave"),
                        precision=c.decimals) for c in channels.values()]
+
+
+# ------------------------------------------------------------------ solution tags
+TAGS = {  # tag -> (Home Assistant label name, icon)
+    "tank": ("Milesight · Tank / silo", "mdi:storage-tank"),
+    "people": ("Milesight · People & occupancy", "mdi:account-group"),
+    "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
+}
+
+
+def device_tags(model_key: str) -> frozenset[str]:
+    """What a model is used for – decides which ready-made dashboards a site gets and labels its device."""
+    model = MODELS.get(model_key)
+    if model is None:
+        return frozenset()
+    keys = {s.key for s in entity_specs(model_key)}
+    tags = set()
+    if tank_source(model_key):
+        tags.add("tank")
+    if "occupancy" in model.features or model.occupancy_fn is not None or model.counters:
+        tags.add("people")
+    if {"temperature", "humidity"} <= keys or "co2" in keys:
+        tags.add("comfort")
+    return frozenset(tags)
