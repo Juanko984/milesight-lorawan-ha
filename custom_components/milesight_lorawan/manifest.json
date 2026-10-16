@@ -1,13 +1,24 @@
 {
   "domain": "milesight_lorawan",
   "name": "Milesight LoRaWAN",
+  "after_dependencies": [
+    "frontend",
+    "http",
+    "lovelace",
+    "panel_custom",
+    "persistent_notification",
+    "recorder",
+    "websocket_api"
+  ],
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["mqtt"],
+  "dependencies": [
+    "mqtt"
+  ],
   "documentation": "https://github.com/YOUR_GITHUB/milesight-lorawan-ha",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/YOUR_GITHUB/milesight-lorawan-ha/issues",
   "requirements": [],
-  "version": "0.13.0"
+  "version": "0.23.0"
 }

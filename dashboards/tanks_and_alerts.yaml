@@ -1,0 +1,40 @@
+# Milesight LoRaWAN – tanks, silos and alerts
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# No entity ids to edit: the cards find the tank sensors (Configure → Tank or silo) and the gateway's
+# Open alerts / Devices on gateway sensors themselves.
+title: Tanks & alerts
+views:
+  - title: Tanks
+    path: tanks
+    cards:
+      - type: markdown
+        title: Open alerts
+        content: |
+          {% set al = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'alerts_open')
+             | map(attribute='attributes.alerts') | sum(start=[]) | list %}
+          {% if not al %}<ha-alert alert-type="success">No open alerts</ha-alert>{% else %}
+          {% for a in al %}<ha-alert alert-type="{{ 'error' if a.severity == 'critical' else 'warning' }}" title="{{ a.title }}">{{ a.message }} · since {{ a.since }} · {{ a.status }}{% if a.acknowledged_by %} by {{ a.acknowledged_by }}{% endif %}</ha-alert>
+          {% endfor %}{% endif %}
+      - type: markdown
+        title: Tanks and silos
+        content: |
+          {% set tanks = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'tank') | list %}
+          {% if not tanks %}No tanks yet – open a level sensor's device → Configure → Tank or silo.{% else %}
+          | | Tank | Area | Contents | Fill | Use / day | Days left |
+          |---|---|---|---|---|---|---|
+          {% for t in tanks | sort(attribute='attributes.device') %}{% set a = t.attributes %}| {{ '🔴' if a.sudden_drop else ('🟠' if a.low else '🟢') }} | {{ a.device }} | {{ a.area or '' }} | {{ t.state if t.state not in ('unknown', 'unavailable') else '–' }} L of {{ a.capacity_l | round(0) | int }} | {{ (a.fill | round(0) | int) ~ ' %' if a.fill is not none else '–' }} | {{ (a.usage_per_day | round(0) | int) ~ ' L' if a.usage_per_day is not none else '–' }} | {{ a.days_left if a.days_left is not none else '–' }} |
+          {% endfor %}
+
+          🟢 OK · 🟠 low · 🔴 sudden drop (theft or leak) – press the tank's *Clear sudden-drop alarm* button once checked{% endif %}
+      - type: markdown
+        title: Devices on the gateway
+        content: |
+          {% set gw = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_registered') | list %}
+          {% if not gw %}Set up gateway → Configure → Add devices to the gateway, then press *Sync devices with gateway*.{% else %}
+          {% for g in gw %}{% if g.state in ('unknown', 'unavailable') %}{{ g.attributes.site }}: not read yet – press *Sync devices with gateway* on the gateway device (it also syncs by itself every 6 hours).{% else %}{{ g.state }} devices registered on {{ g.attributes.site }} (last sync {{ as_timestamp(g.attributes.last_sync) | timestamp_custom('%d %b %H:%M') if g.attributes.last_sync else 'never' }}){% endif %}{% if g.attributes.error %} – ⚠ {{ g.attributes.error }}{% endif %}
+
+          {% set missing = (g.attributes.devices or []) | rejectattr('in_home_assistant') | list %}
+          {% if missing %}Not in Home Assistant yet (see Settings → Devices & services → Discovered):
+          {% for d in missing %}- {{ d.name or '' }} `{{ d.deveui | upper }}`
+          {% endfor %}{% elif g.state not in ('unknown', 'unavailable') %}All registered devices are in Home Assistant ✅{% endif %}
+          {% endfor %}{% endif %}

@@ -19,7 +19,8 @@ def _load(name):
     spec = importlib.util.spec_from_file_location(f"mlw.{name}", PKG / f"{name}.py")
     mod = importlib.util.module_from_spec(spec); sys.modules[f"mlw.{name}"] = mod
     spec.loader.exec_module(mod); return mod
-dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models")
+dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
+cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -83,7 +84,8 @@ def test_guess_model():
     assert mdl.guess_model(bytes.fromhex("01755c03673401046865050000"))[0] == "EM300-SLD"
     am = "03670a0104685805000106cb01077dff02087de3000973fe270b7d07000c7d0800017562"
     assert mdl.guess_model(bytes.fromhex(am))[0] == "AM308"
-    assert mdl.guess_model(bytes.fromhex("077d2003"))[0] == "AM307"
+    assert mdl.guess_model(bytes.fromhex("077d2003"))[0] == "AM103"            # CO2 only: AM103 (AM307 also sends PIR / light)
+    assert mdl.guess_model(bytes.fromhex("0367f40004688005000106cb01077d2003"))[0] == "AM307"
     assert mdl.guess_model(bytes.fromhex("077d20030a7d10000c7d0500"))[0] == "AM319-HCHO"
     assert mdl.guess_model(bytes.fromhex("077d20030d7d1000"))[0] == "AM319-O3"
 
@@ -412,6 +414,631 @@ def test_decode_cth01():
     assert d["power_loss_alarm"] is True
     assert mdl.guess_model(bytes.fromhex(CTH_EX[0]))[0] == "CTH01"
     assert dec.cth01_parses_cleanly(bytes.fromhex(CTH_EX[1])) and not dec.cth01_parses_cleanly(bytes.fromhex("99016aff"))
+
+
+NEW_SAMPLES = {   # official codec.json samples -> expected model
+    "0175640367040104687B077DAC02": "AM103",
+    "0175640367000104688206653100c2001b00056a0000": "AM104",
+    "01756403ED01": "EM300-CL",
+    "01756403D4000001005046": "EM320-TILT",
+    "01755C03824408040001": "EM310-UDL",
+    "01756202820F00038E01048E01": "VS330",
+    "03D24800000004D2C800000006D20000000007D20000000009D2000000000AD2000000000CD2B41400000DD28D1A0000": "VS133",
+    "01756403670C0184CC011108110185CCE803E90301": "VS350",
+}
+
+
+def test_guess_new_ranges():
+    for hx, model in NEW_SAMPLES.items():
+        best, cands = mdl.guess_model(bytes.fromhex(hx))
+        assert best == model, (hx, best, cands)
+
+
+def test_decode_new_ranges():
+    d = dec.decode_am104(bytes.fromhex("0175640367000104688206653100c2001b00056a0000"))
+    assert d["illuminance_lux"] == 49 and d["pir_activity"] == 0 and d["temperature"] == 25.6
+    d = dec.decode_vs330(bytes.fromhex("01756202820F00038E01048E01"))
+    assert d["occupancy"] == 1 and d["distance"] == 15 and d["battery"] == 98
+    d = dec.decode_vs350(bytes.fromhex("01756403670C0184CC011108110185CCE803E90301"))
+    assert d["people_total_in"] == 4353 and d["people_in"] == 1000 and d["people_out"] == 1001
+    d = dec.decode_vs133(bytes.fromhex("03D24800000004D2C800000006D20000000007D20000000009D2000000000AD2000000000CD2B41400000DD28D1A0000"))
+    assert d["people_total_in"] == 72 and d["line_4_total_in"] == 5300
+    assert dec.decode_em300_cl(bytes.fromhex("01756403ED01"))["liquid"] == "full"
+    assert dec.decode_em300_mld(bytes.fromhex("0175640500 01".replace(" ", "")))["leak"] == 1
+
+
+def test_bulk_parse():
+    text = """DevEUI,Model,Name,Area
+24E124136B322135, EM300-MCS, Back door, Warehouse
+24-e1-24-13-6b-32-21-36;ws501 v4;Light
+24e124136b322137\tvs350\t\tEntrance
+bad, EM300-TH
+24e124136b322138, nonsense
+24E124136B322135, EM300-TH
+"""
+    devices, errors = mdl.parse_bulk(text)
+    assert [d["model"] for d in devices] == ["EM300-MCS", "WS501-V4", "VS350"]
+    assert devices[0] == {"deveui": "24e124136b322135", "model": "EM300-MCS", "name": "Back door", "area": "Warehouse"}
+    assert devices[1]["name"] == "Light" and devices[1]["area"] is None and devices[2]["name"] is None
+    assert len(errors) == 3 and "invalid DevEUI" in errors[0] and "unknown model" in errors[1] and "twice" in errors[2]
+
+
+
+def test_envelope_radio_metadata():
+    ms = {"devEUI": "24E124126B316403", "fCnt": 12, "fPort": 85, "data": "AXVk",
+          "rxInfo": [{"loRaSNR": -3, "mac": "24e124fffefa0aaa", "rssi": -110},
+                     {"loRaSNR": 6.2, "mac": "24e124fffefa0fa8", "name": "Local Gateway", "rssi": -49}],
+          "txInfo": {"frequency": 904700000, "dataRate": {"modulation": "LORA", "bandwidth": 125, "spreadFactor": 8}}}
+    up = dec.parse_envelope(json.dumps(ms))
+    assert [g["id"] for g in up.gateways] == ["24e124fffefa0fa8", "24e124fffefa0aaa"]      # strongest first
+    assert up.rssi == -49 and up.snr == 6.2 and up.sf == 8 and up.frequency == 904700000 and up.fcnt == 12
+    cs = {"deviceInfo": {"devEui": "0102030405060708"}, "fCnt": 5, "data": "AXVk",
+          "rxInfo": [{"gatewayId": "0016C001FF10A235", "rssi": -80, "snr": 9.5}],
+          "txInfo": {"modulation": {"lora": {"spreadingFactor": 12}}}}
+    up = dec.parse_envelope(json.dumps(cs))
+    assert up.gateways[0]["id"] == "0016c001ff10a235" and up.sf == 12
+    ttn = {"end_device_ids": {"dev_eui": "0102030405060709"},
+           "uplink_message": {"frm_payload": "AXVk", "f_cnt": 7,
+                              "rx_metadata": [{"gateway_ids": {"gateway_id": "roof", "eui": "B827EBFFFE000001"},
+                                               "rssi": -101, "snr": 2.5}],
+                              "settings": {"data_rate": {"lora": {"spreading_factor": 10}}, "frequency": "868300000"}}}
+    up = dec.parse_envelope(json.dumps(ttn))
+    assert up.gateways == [{"id": "b827ebfffe000001", "name": "roof", "rssi": -101, "snr": 2.5}]
+    assert up.sf == 10 and up.fcnt == 7 and up.frequency == 868300000
+
+
+def test_notifications():
+    ack = dec.parse_notification(json.dumps({"applicationID": 1, "devEUI": "24E124527F418093", "acknowledged": True,
+                                             "fcnt": 4996, "time": "2026-03-12T06:10:30Z"}))
+    assert ack["kind"] == "ack" and ack["deveui"] == "24e124527f418093" and ack["acknowledged"] and ack["fcnt"] == 4996
+    join = dec.parse_notification(json.dumps({"devEUI": "24e124527f418093", "devAddr": "0642fa41"}))
+    assert join["kind"] == "join" and join["dev_addr"] == "0642fa41"
+    info = dec.parse_notification(json.dumps({"tunnel_support": True, "device_info": {
+        "eui": "24E124FFFEF00001", "model": "UG63", "firmware_version": "64.0.0.5", "cpu_tempeture": "47"},
+        "network_info": {"wan_status": 1, "wan_ip": "10.0.0.2"}}))
+    assert info["kind"] == "gateway_info" and info["gateway_id"] == "24e124fffef00001"
+    assert info["info"]["cpu_tempeture"] == "47" and info["info"]["wan_ip"] == "10.0.0.2"
+    st = dec.parse_notification(json.dumps({"gatewayId": "0016c001ff10a235", "rxPacketsReceived": 10,
+                                            "rxPacketsReceivedOk": 9, "txPacketsReceived": 2, "txPacketsEmitted": 2}))
+    assert st == {"kind": "gateway_stats", "gateway_id": "0016c001ff10a235", "rx_received": 10, "rx_ok": 9,
+                  "tx_received": 2, "tx_emitted": 2}
+    conn = dec.parse_notification(json.dumps({"gatewayId": "0016c001ff10a235", "state": "OFFLINE"}))
+    assert conn == {"kind": "gateway_state", "gateway_id": "0016c001ff10a235", "online": False}
+    # device uplinks are not notifications
+    assert dec.parse_notification(json.dumps({"devEUI": "24e1", "data": "AXVk", "fCnt": 1})) is None
+    assert dec.parse_notification(json.dumps({"deviceInfo": {"devEui": "0102"}, "devAddr": "01", "fCnt": 3,
+                                              "data": "AXVk"})) is None
+
+
+def test_commands_echo_retry_fail():
+    pc = lnk.PendingCommands()
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 0)
+    # first uplink after sending (delivers the downlink) – nothing yet
+    assert pc.on_uplink("017564", {}, 10, retries=2) == ([], [])
+    # device never answered a setting so far -> unconfirmable: 'sent', and it learns the device does not echo
+    resend, done = pc.on_uplink("017564", {}, 20, retries=2)
+    assert not resend and done[0]["status"] == "sent" and pc.echoes is False
+    # a device that does echo: retried twice, then failed
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 0)
+    statuses = []
+    for t in range(1, 8):
+        resend, done = pc.on_uplink("017564", {}, t, retries=2)
+        statuses += [("resend", r["attempts"]) for r in resend] + [(d["status"], d["attempts"]) for d in done]
+    assert statuses == [("resend", 2), ("resend", 3), ("failed", 3)], statuses
+    # echo on fe channel confirms
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 100)
+    resend, done = pc.on_uplink("0175" + "fe035802", {}, 101, retries=2)
+    assert done[0]["status"] == "confirmed" and pc.last["status"] == "confirmed" and not pc.items
+
+
+def test_commands_state_ack_display():
+    pc = lnk.PendingCommands()
+    pc.add("switch_1", bytes.fromhex("080100ff"), 85, 0, state={"switch_1": True}, prev={"switch_1": False})
+    _, done = pc.on_uplink("", {"switch_1": "on"}, 1, retries=1)
+    assert done[0]["status"] == "confirmed" and done[0]["detail"] == "device reports the new state"
+    # still the old state after two uplinks -> resent, then failed with prev kept for the revert
+    pc.add("switch_1", bytes.fromhex("080100ff"), 85, 0, state={"switch_1": True}, prev={"switch_1": False})
+    r1, _ = pc.on_uplink("", {"switch_1": False}, 1, retries=1)
+    r2, _ = pc.on_uplink("", {"switch_1": False}, 2, retries=1)
+    assert not r1 and r2 and r2[0]["attempts"] == 2
+    pc.on_uplink("", {}, 3, retries=1)
+    _, done = pc.on_uplink("", {}, 4, retries=1)
+    assert done[0]["status"] == "failed" and done[0]["prev"] == {"switch_1": False}
+    # confirmed downlink with nothing else to check: the network ACK confirms it
+    pc = lnk.PendingCommands({"echoes": False})
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 0, confirmed=True)
+    done = pc.on_ack(True, 5)
+    assert done[0]["status"] == "confirmed" and done[0]["detail"] == "acknowledged by the device"
+    # NACK -> resent at the next uplink
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 10, confirmed=True)
+    assert pc.on_ack(False, 11) == [] and pc.items["reboot"]["status"] == "not acknowledged"
+    resend, _ = pc.on_uplink("", {}, 12, retries=2)
+    assert resend and resend[0]["attempts"] == 2
+    # DS3604: per-block results
+    pc = lnk.PendingCommands()
+    pc.add("display text_1, text_2", b"\xfb\x01", 85, 0, results=[[1, 0], [1, 1]])
+    _, done = pc.on_uplink("", {"update_content_result": [{"template_id": 1, "block_id": 0, "result": "success"}]}, 1, 2)
+    assert not done and pc.items["display text_1, text_2"]["results"] == [[1, 1]]
+    _, done = pc.on_uplink("", {"update_content_result": [{"template_id": 1, "block_id": 1, "block_name": "text_2",
+                                                            "result": "content is too long"}]}, 2, 2)
+    assert done[0]["status"] == "failed" and done[0]["detail"] == "text_2: content is too long"
+    # migration from the 0.17 format
+    meta = {"pending": {"report_interval": {"hex": "ff035802", "value": 600, "sent": 5}}}
+    pc = lnk.PendingCommands.from_meta(meta)
+    assert pc.items["report_interval"]["value"] == 600 and "pending" not in meta
+
+
+def test_commands_regressions():
+    # a device that echoes settings must not get a reboot resent (reboot is never echoed)
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 0, echo=False)
+    pc.on_uplink("017564", {}, 1, retries=2)
+    resend, done = pc.on_uplink("017564", {}, 2, retries=2)
+    assert not resend and done[0]["status"] == "sent" and pc.echoes is True
+    # an un-echoed reboot does not teach "this device never echoes"
+    pc = lnk.PendingCommands()
+    pc.add("reboot", bytes.fromhex("ff10ff"), 85, 0, echo=False)
+    pc.on_uplink("", {}, 1, 2); pc.on_uplink("", {}, 2, 2)
+    assert pc.echoes is None
+    # the ACK of a resend belongs to the resend, not to the next command
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("report_interval", bytes.fromhex("ff035802"), 85, 0, confirmed=True)
+    pc.on_ack(True, 1)                                       # delivered, waiting for the echo
+    pc.on_uplink("", {}, 2, 2)
+    resend, _ = pc.on_uplink("", {}, 3, 2)                   # no echo -> resent
+    pc.add("led_indicator", bytes.fromhex("ff2f01"), 85, 4, confirmed=True)
+    pc.on_ack(True, 5)
+    assert pc.items["report_interval"]["status"] == "delivered" and "delivered" not in pc.items["led_indicator"]
+    # byte-aligned echo match only
+    pc = lnk.PendingCommands({"echoes": True})
+    pc.add("x", bytes.fromhex("ff0358"), 85, 0)
+    _, done = pc.on_uplink("0ff03580", {}, 1, 2)             # 'ff0358' appears half a byte off
+    assert not done
+
+
+def test_link_stats_and_quality():
+    ls = lnk.LinkStats()
+    for f in (1, 2, 3, 6, 7):                       # 4 and 5 lost
+        ls.update("2026-10-15", f * 600.0, f, [{"id": "gw1", "name": "Roof", "rssi": -100, "snr": 3}])
+    assert ls.received == 5 and ls.expected == 7 and ls.loss() == 28.6
+    assert ls.is_duplicate(7, 7 * 600.0 + 2) and not ls.is_duplicate(8, 7 * 600.0 + 2)
+    ls.update("2026-10-15", 5000.0, 1, [])           # counter reset (rejoin) is not loss
+    assert ls.expected == 8 and ls.received == 6
+    ls.update("2026-10-16", 90000.0, 2, [])
+    assert ls.loss_yesterday == 25.0 and ls.received == 1 and ls.heard_by(90000.0, 86400)[0]["name"] == "Roof"
+    assert lnk.link_quality(-60, 9, 7) == "excellent"        # margin 16.5
+    assert lnk.link_quality(-110, -6, 12) == "good"          # margin 14
+    assert lnk.link_quality(-115, -14, 12) == "fair"         # margin 6
+    assert lnk.link_quality(-121, -18, 12) == "poor"
+    assert lnk.link_quality(-127, 9, 7) == "poor"            # RSSI cap
+    assert lnk.link_quality(None, None, 7) is None
+    assert "SF12" in lnk.link_advice("fair", 12, None, 1) and lnk.link_advice("excellent", 7, 0, 2) == "OK"
+
+
+def test_gateway_stats():
+    gs = lnk.GatewayStats()
+    rx = [{"id": "gw1", "name": "Local Gateway", "rssi": -60}, {"id": "gw2", "name": None, "rssi": -100}]
+    assert gs.uplink("2026-10-15", 3600 * 10 + 5, "dev1", rx) == ["gw1", "gw2"]
+    assert gs.uplink("2026-10-15", 3600 * 10 + 65, "dev2", rx[:1]) == []
+    gs.uplink("2026-10-15", 3600 * 10 + 70, "dev2", rx[:1], duplicate=True)
+    assert gs.counts["uplinks"] == 2 and gs.counts["duplicates"] == 1
+    assert gs.gateways["gw1"]["packets_today"] == 3 and gs.gateways["gw1"]["devices_today"] == ["dev1", "dev2"]
+    assert gs.packets_last_hour("gw1", 3600 * 10 + 100) == 3 and gs.hourly("gw1", 3600 * 10 + 100)[-1] == 3
+    assert gs.online("gw2", 3600 * 10 + 300, 900) is True and gs.online("gw2", 3600 * 12, 900) is False
+    gs.state("gw2", 3600 * 12 + 1, True)                      # ChirpStack connection state wins
+    assert gs.online("gw2", 3600 * 12 + 2, 900) is True
+    assert gs.info("gw3", 50000, {"model": "UG63", "cpu_tempeture": "45"}) and gs.gateways["gw3"]["name"] == "UG63 gw3"
+    gs.count("joins", "2026-10-16")
+    assert gs.counts == {"uplinks": 0, "duplicates": 0, "downlinks": 0, "joins": 1, "acks": 0, "nacks": 0,
+                         "errors": 0} and gs.gateways["gw1"]["packets_today"] == 0
+
+
+def test_ds3604_encode_and_decode():
+    f = dec.encode_ds3604_content(2, "text_3", "Free")
+    assert f.hex() == "fb0142" + "04" + b"Free".hex()
+    d = dec.decode_ds3604(bytes.fromhex("fb0100054d696c6573" + "fa010000" + "fa010a03" + "ff7301"))
+    assert d["template_1"] == {"text_1": "Miles"} and d["current_template_id"] == 2
+    assert d["update_content_result"] == [{"template_id": 1, "block_id": 0, "block_name": "text_1", "result": "success"},
+                                          {"template_id": 1, "block_id": 10, "block_name": "qrcode",
+                                           "result": "content is too long"}]
+    frames = [dec.encode_ds3604_content(1, f"text_{n}", "x" * 20) for n in range(1, 6)]   # 24 bytes each
+    assert [len(p) for p in dec.ds3604_frames(frames, 51)] == [48, 48, 24]
+    try:
+        dec.ds3604_frames([dec.encode_ds3604_content(1, "text_1", "x" * 60)], 51)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+
+def _dev(name, online=True, battery=80, low=False, **values):
+    return {"deveui": name.upper(), "name": name, "model": "AM307", "online": online, "battery": battery,
+            "battery_low": low, "values": values, "units": {"tvoc": "μg/m³"}, "last_seen_text": "15 Oct 09:12",
+            "command_failed": None}
+
+
+def test_air_quality_levels():
+    assert bc.air_quality({"co2": 600, "pm2_5": 5}) == ("Good", 100)
+    level, score = bc.air_quality({"co2": 1000, "pm2_5": 5})
+    assert level == "Moderate" and 80 < score < 100
+    assert bc.air_quality({"co2": 1300}, co2_alert=1200)[0] == "Poor"
+    assert bc.air_quality({"pm2_5": 80})[0] == "Unhealthy"
+    assert bc.air_quality({"temperature": 22}) == (None, None)
+
+
+def test_compute_building():
+    devices = [_dev("Office AM307", co2=948, temperature=23.6, humidity=41, pm2_5=9, tvoc=200),
+               _dev("Meeting AM307", co2=1340, temperature=25.1, humidity=58, pm2_5=7, tvoc=400),
+               _dev("GS601", co2=None, tvoc=3),                       # TVOC index -> different unit, ignored
+               _dev("Back door", online=False), _dev("Fridge", battery=14, low=True)]
+    devices[2]["units"] = {"tvoc": None}
+    areas = {"Open office": {"temperature": 23.6, "humidity": 41, "co2": 948, "comfort": 85, "occupied": True,
+                             "people": 34},
+             "Meeting room 1": {"temperature": 25.1, "humidity": 58, "co2": 1340, "comfort": 54, "occupied": True,
+                                "people": 8},
+             "Kitchen": {"temperature": 22.9, "humidity": 63, "co2": 720, "comfort": 72, "occupied": False,
+                         "people": None}}
+    gws = [{"name": "Roof", "online": True}, {"name": "Basement", "online": False}]
+    b = bc.compute_building(devices, areas, gws, co2_alert=1200, area_order=["Meeting room 1", "Open office"])
+    assert b["areas"] == ["Meeting room 1", "Open office"]                    # configured order, others left out
+    assert b["averages"]["co2"] == 1144 and b["averages"]["tvoc"] == 300      # GS601 index not averaged
+    assert b["air_quality"] == "Moderate" and b["comfort"] == 70 and b["comfortable_areas"] == 1
+    assert b["systems"] == round(100 * 4 / 7)            # 3 healthy devices + 1 gateway of 5 + 2
+    assert b["people"] == 42 and b["occupied_areas"] == 2
+    assert b["health"] == round(0.4 * 70 + 0.4 * b["air_score"] + 0.2 * b["systems"])
+    kinds = [(a["severity"], a["where"], a["what"]) for a in b["alerts"]]
+    assert ("serious", "Meeting room 1", "CO₂ 1,340 ppm") in kinds and ("serious", "Back door", "Offline") in kinds
+    assert ("warning", "Fridge", "Battery 14 %") in kinds and ("serious", "Basement", "Gateway offline") in kinds
+    assert kinds[0][0] == "serious" and kinds[-1][0] == "warning"
+    assert not any(a["where"] == "Kitchen" for a in b["alerts"])             # not on the dashboard list
+    empty = bc.compute_building([], {}, [])
+    assert empty["health"] is None and empty["alerts"] == [] and empty["systems"] is None
+
+
+def test_dashboard_config_and_templates():
+    import jinja2
+    ctx = {"title": "Building – Head office", "site": "sensor.head_office_site", "health": "sensor.h",
+           "comfort": "sensor.c", "air_quality": "sensor.aq", "systems": "sensor.sys", "people": "sensor.p",
+           "alerts": "sensor.al", "avg": {"co2": "sensor.avg_co2", "pm2_5": "sensor.avg_pm"},
+           "devices_online": "sensor.on", "battery_low": None, "gateways_online": "sensor.gw", "uplinks": None,
+           "outside": None, "co2_alert": 1100,
+           "areas": [{"name": "Board room", "icon": "mdi:table-furniture", "comfort": "sensor.br_c",
+                      "occupancy": "sensor.br_o", "co2": "sensor.br_co2"},
+                     {"name": "Sam's office", "icon": None, "comfort": None, "occupancy": None, "co2": None}]}
+    cfg = dcfg.build_config(ctx)
+    view = cfg["views"][0]
+    assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == \
+        ["Building health", "People in building", "Devices online", "Alerts"]
+    secs = view["sections"]
+    heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
+    assert heads == [None, "Overall health", "Air quality", "System health", "Board room", "Occupancy today"]
+    air = secs[2]["cards"]
+    co2 = next(c for c in air if c["type"] == "gauge" and c["name"] == "CO₂")
+    assert co2["segments"][-1]["from"] == 1100 and co2["needle"] is True
+    assert next(c for c in air if c["type"] == "history-graph")["entities"] == [{"entity": "sensor.br_co2",
+                                                                                 "name": "Board room"}]
+    assert secs[4]["cards"][1]["state_content"] == ["state", "temperature", "humidity", "co2"]
+    assert all(c.get("entity") is None or c["entity"] for s_ in secs for c in s_["cards"])   # no empty entities
+    json.dumps(cfg)                                                                          # storable
+
+    env = jinja2.Environment()
+    env.filters["select"] = lambda xs: [x for x in xs if x]
+    site = {"logo": "/local/logo.png", "site": "Head office", "address": "1 Main Rd, Cape Town",
+            "contact": "Sam Smith", "phone": "+27 21 000 0000", "email": "fm@example.com", "alerts": 2,
+            "status": "2 items need attention"}
+    class Now:
+        def strftime(self, f): return "Wednesday 15 October 2026 · 14:32"
+    banner = env.from_string(secs[0]["cards"][0]["content"]).render(
+        state_attr=lambda e, a: site.get(a), states=lambda e: "Acme Facilities", now=Now)
+    assert "<h2>Acme Facilities</h2>" in banner and "Head office · 1 Main Rd, Cape Town" in banner
+    assert "Facilities: Sam Smith · +27 21 000 0000 · <a href=\"mailto:fm@example.com\">" in banner
+    assert '<ha-alert alert-type="warning">2 items need attention</ha-alert>' in banner
+    site.update(contact=None, phone=None, email=None, alerts=0, logo=None)
+    banner = env.from_string(secs[0]["cards"][0]["content"]).render(
+        state_attr=lambda e, a: site.get(a), states=lambda e: "Acme", now=Now)
+    assert "Facilities" not in banner and "<img" not in banner and "All systems normal" in banner
+    md = next(c for c in secs[3]["cards"] if c["type"] == "markdown")["content"]
+    al = [{"severity": "serious", "where": "Meeting room 1", "what": "CO₂ 1,340 ppm", "detail": "Above", "since": "14:05"}]
+    out = env.from_string(md).render(state_attr=lambda e, a: al)
+    assert 'alert-type="error" title="Meeting room 1 · CO₂ 1,340 ppm"' in out and "since 14:05" in out
+    heat = secs[5]["cards"][1]["content"]
+    assert '["Board room", "Sam\'s office"]' in heat                 # names safely quoted
+    S = types.SimpleNamespace
+    sensor = S(state="40", attributes={"area": "Board room", "hourly_today": [None] * 7 + [0, 30, 80] + [None] * 14,
+                                        "occupied_now": True, "people_now": 3})
+    env.tests["defined"] = lambda v: v is not None and not isinstance(v, jinja2.Undefined)
+    out = env.from_string(heat).render(states=S(sensor=[sensor]))
+    assert "| Board room | Occupied 3 | 40 % | ⬛ | 🟨 | 🟥 | ⬜ |" in out, out
+
+
+
+def test_uc300_modbus_after_setting_reply():
+    import struct
+    # a reply to 'reporting interval' (ff03) or 'output control' (ff93) before the Modbus values must not hide them
+    d = dec.decode_uc300(bytes.fromhex("ff035802" + "ff19000102d204"))
+    assert d == {"report_interval": 600, "modbus_chn_1": 1234}
+    d = dec.decode_uc300(bytes.fromhex("ff93010100000000" + "ff190104" + "07" + struct.pack("<f", 23.5).hex()
+                                       + "ff1502"))
+    assert d == {"modbus_chn_2": 23.5, "modbus_chn_3_alarm": "read error"}
+    assert mdl.dynamic_spec("modbus_chn_2").name == "Modbus channel 2"
+
+
+def test_channel_map():
+    m, err = chm.parse_channel_map(
+        "# comment\n3; Tank pressure; bar; 0.01\n3.2 | Flow | m³/h | 0.1 | 0 | volume_flow_rate | 1\n"
+        "adc_1; Borehole level; m; 4-20>0-10; ; ; 2\npt100_1; Cold room; °C\ngpio_counter_1; Water; L; ; ; water\n"
+        "ch5; ; kPa; -; 2   # inline comment\n")
+    assert err == [], err
+    p = m["modbus_chn_3"]
+    assert (p.name, p.unit, p.device_class, p.state_class) == ("Tank pressure", "bar", "pressure", "measurement")
+    assert p.apply(1234) == 12.34 and p.apply("read error") == "read error" and p.apply(True) is True
+    f = m["modbus_chn_3_reg_2"]
+    assert f.device_class == "volume_flow_rate" and f.decimals == 1 and f.apply(123) == 12.3
+    lvl = m["adc_1"]
+    assert lvl.apply(4) == 0 and lvl.apply(20) == 10 and lvl.apply(12) == 5 and lvl.device_class == "distance"
+    assert m["pt100_1"].device_class == "temperature" and m["pt100_1"].scale == 1
+    assert m["gpio_counter_1"].state_class == "total_increasing"
+    c5 = m["modbus_chn_5"]
+    assert c5.name == "Modbus channel 5" and c5.apply(10) == 12 and c5.device_class == "pressure"
+    _, err = chm.parse_channel_map("x9; a\n3; a; b; abc\n2; ok\n2; dup\n4; a; u; 1; 0; colour\n6;a;;;;;9\n7;a;;;;;;sum")
+    assert len(err) == 6 and "unknown channel" in err[0] and "numbers" in err[1] and "twice" in err[2]
+    assert "device class" in err[3] and "decimals" in err[4] and "state class" in err[5]
+    assert chm.channel_key("3/2") == "modbus_chn_3_reg_2" and chm.channel_key("ADC_2") == "adc_2"
+    specs = mdl.channel_specs(m)
+    assert {s.key for s in specs} == set(m) and next(s for s in specs if s.key == "adc_1").precision == 2
+
+
+def test_tank_geometry():
+    vc = tnk.TankConfig("vertical_cylinder", height_mm=2000, diameter_mm=1000)
+    assert abs(tnk.capacity_l(vc) - 1570.8) < 0.1 and abs(tnk.volume_l(vc, 1000) - 785.4) < 0.1
+    assert tnk.volume_l(vc, 5000) == tnk.capacity_l(vc) and tnk.volume_l(vc, -5) == 0
+    hc = tnk.tank_config({"tank_shape": "horizontal_cylinder", "tank_diameter_mm": 1000, "tank_length_mm": 2000,
+                          "install_height_mm": 1200})
+    assert hc.height_mm == 1000 and hc.empty_distance_mm == 1200
+    full = tnk.capacity_l(hc)
+    assert abs(full - 1570.8) < 0.1 and abs(tnk.volume_l(hc, 500) - full / 2) < 0.1
+    assert tnk.volume_l(hc, 250) < full * 0.25                       # less than linear near the bottom
+    assert tnk.level_mm(hc, "distance", 700) == 500 and tnk.level_mm(hc, "distance", 1300) == 0
+    rect = tnk.TankConfig("rectangular", height_mm=1000, length_mm=2000, width_mm=1000)
+    assert tnk.capacity_l(rect) == 2000
+    silo = tnk.TankConfig("cone_bottom", height_mm=6000, diameter_mm=3000, cone_mm=2000)
+    cone = 3.14159265 * 1500 ** 2 * 2000 / 3 / 1e6
+    assert abs(tnk.volume_l(silo, 2000) - cone) < 1 and abs(tnk.volume_l(silo, 1000) - cone / 8) < 1
+    lin = tnk.TankConfig("linear", height_mm=1000, capacity_l=5000)
+    assert tnk.volume_l(lin, 250) == 1250 and tnk.capacity_l(lin) == 5000
+    swl = tnk.tank_config({"tank_shape": "vertical_cylinder", "tank_height_mm": 3000, "tank_diameter_mm": 2000,
+                           "tank_probe_offset_mm": 100})
+    assert tnk.level_mm(swl, "depth", 150) == 1600 and tnk.level_mm(swl, "depth", None) is None
+    assert not tnk.tank_config({}).enabled and tnk.tank_config({"tank_shape": "rectangular"}).enabled is False
+    assert mdl.tank_source("EM400-UDL") == "distance" and mdl.tank_source("EM500-SWL") == "depth"
+    assert mdl.tank_source("EM400-TLD") is None and mdl.tank_source("EM300-TH") is None
+    assert mdl.tank_source("EM310-UDL") == mdl.tank_source("EM410-RDL") == mdl.tank_source("EM500-UDL") == "distance"
+
+
+def test_tank_usage_refill_and_drop():
+    cfg = tnk.TankConfig("linear", height_mm=1000, capacity_l=10000, drop_pct=5, drop_minutes=60, density=840)
+    tr = tnk.TankTracker()
+    t0 = T("2026-10-01 00:00")
+    for h in range(0, 48):                     # 2 days, hourly, 240 L/day with ±20 L jitter
+        jitter = 20 if h % 2 else -20
+        assert tr.update(cfg, t0 + h * 3600, 8000 - h * 10 + jitter) == []
+    v = tr.values(cfg, t0 + 47 * 3600, 8000 - 470 + 20)
+    assert 200 <= v["tank_usage_per_day"] <= 270, v
+    assert 25 <= v["tank_days_left"] <= 40 and v["tank_fill"] == 75.5 and v["tank_mass"] == round(7550 * 0.84, 1)
+    assert v["tank_low"] is False and v["tank_sudden_drop"] is False and v["tank_empty_at"] > t0
+    t = t0 + 48 * 3600
+    assert tr.update(cfg, t, 9900) == []                      # big rise: waits for confirmation
+    ev = tr.update(cfg, t + 600, 9895)
+    assert ev and ev[0]["type"] == "refill" and ev[0]["added"] > 2000, ev
+    use = tr.values(cfg, t + 600, 9895)["tank_usage_per_day"]
+    assert 200 <= use <= 270, use                              # a refill is not 'negative usage'
+    # one echo glitch (drop and back) is ignored: no alarm, no refill
+    assert tr.update(cfg, t + 1200, 8000) == [] and tr.update(cfg, t + 1800, 9890) == []
+    assert tr.values(cfg, t + 1800, 9890)["tank_sudden_drop"] is False
+    # a real drop: 600 L within 30 minutes, confirmed by the next reading
+    assert tr.update(cfg, t + 2400, 9300) == []
+    ev = tr.update(cfg, t + 3000, 9295)
+    assert ev and ev[0]["type"] == "sudden_drop" and ev[0]["amount"] >= 595, ev
+    v = tr.values(cfg, t + 3000, 9295)
+    assert v["tank_sudden_drop"] is True and v["tank_drop_amount"] >= 595
+    assert tr.update(cfg, t + 3600, 9290) == []                # latched, no repeat event
+    tr.clear_alarm(t + 3700)
+    assert tr.update(cfg, t + 4200, 9285) == []                # cleared: the old drop does not fire again
+    assert tr.values(cfg, t + 4200, 9285)["tank_sudden_drop"] is False
+    tr.mark_refilled(t + 5000, 9285)
+    assert tr.values(cfg, t + 5000, 9285)["tank_last_refill"] == t + 5000
+    low = tnk.TankConfig("linear", height_mm=1000, capacity_l=1000, low_pct=20)
+    assert tnk.TankTracker().values(low, 0, 150)["tank_low"] is True
+    assert tnk.TankTracker().values(low, 0, None)["tank_low"] is None
+    # slow pump refill (+60 L per reading, below the 5 % step) is a refill, and does not wipe out usage
+    slow = tnk.TankConfig("linear", height_mm=1000, capacity_l=1560, refill_pct=5)
+    tr = tnk.TankTracker()
+    for h in range(72):
+        tr.update(slow, t0 + h * 3600, 1500 - h * 20)
+    before = tr.values(slow, t0 + 71 * 3600, 80)["tank_usage_per_day"]
+    evs = []
+    for k in range(1, 6):
+        evs += tr.update(slow, t0 + 71 * 3600 + k * 900, 80 + 60 * k)
+    assert [e["type"] for e in evs] == ["refill"] and tr.s["last_refill"]["added"] == 300
+    after = tr.values(slow, t0 + 71 * 3600 + 5 * 900, 380)["tank_usage_per_day"]
+    assert before > 400 and after > 400, (before, after)
+    # thinning: readings every 2 or 5 minutes keep about one sample per 10 minutes
+    for step in (120, 300):
+        tr = tnk.TankTracker()
+        for i in range(60):
+            tr.update(cfg, t0 + i * step, 5000 - i)
+        assert len(tr.s["samples"]) <= 60 * step / 480 + 2, (step, len(tr.s["samples"]))
+    assert tr.update(cfg, t0 - 10, 1) == []                    # out of order ignored
+    st = tnk.TankTracker(json.loads(json.dumps(tr.s)))         # survives a restart
+    assert st.s["samples"] == tr.s["samples"]
+    st.check_config(cfg)
+    assert st.s["samples"]
+    st.check_config(tnk.TankConfig("linear", height_mm=1000, capacity_l=20000))   # new size: start afresh
+    assert st.s["samples"] == []
+
+
+def test_alert_escalation():
+    cfg = alr.AlertSettings(primary=["notify.a"], backup=["notify.b"], escalate_min=15, repeat_min=30,
+                            quiet_start=22, quiet_end=6, dedupe_min=30, action_title="Start pump")
+    eng = alr.AlertEngine()
+    day = datetime(2026, 10, 16, 14, 0, tzinfo=TZ)
+    night = datetime(2026, 10, 16, 23, 0, tzinfo=TZ)
+    t = T("2026-10-16 14:00")
+    low = {"t:low": {"title": "Tank low – Diesel", "message": "low", "severity": "warning", "category": "tank",
+                     "action": True}}
+    out = eng.update(low, t, day, cfg)
+    assert [m["kind"] for m in out] == ["new"] and out[0]["targets"] == ["notify.a"] and out[0]["action"] == "Start pump"
+    aid = out[0]["id"]
+    data = alr.notify_data(out[0])
+    assert [a["action"] for a in data["data"]["actions"]] == [f"MSL_ACK_{aid}", f"MSL_RUN_{aid}"]
+    assert data["data"]["tag"] == f"milesight_{aid}" and "push" not in data["data"]
+    assert eng.update(low, t + 600, day, cfg) == []                    # not yet
+    out = eng.update(low, t + 900, day, cfg)
+    assert out[0]["kind"] == "escalated" and out[0]["targets"] == ["notify.a", "notify.b"]
+    out = eng.update(low, t + 900 + 1800, day, cfg)
+    assert out[0]["kind"] == "reminder" and out[0]["targets"] == ["notify.a", "notify.b"]
+    acks = eng.acknowledge(aid, t + 3000, "Juan")
+    assert acks[0]["kind"] == "acknowledged" and "by Juan" in acks[0]["message"] and not eng.unacknowledged()
+    assert "actions" not in alr.notify_data(acks[0])["data"]
+    assert eng.update(low, t + 9000, day, cfg) == []                   # acknowledged: quiet
+    assert eng.update({}, t + 9100, day, cfg) == []                     # resolved – but wait 5 min for flapping
+    assert eng.update(low, t + 9200, day, cfg) == [] and eng.alerts["t:low"]["flaps"] == 1   # back: continues
+    assert eng.update({}, t + 9300, day, cfg) == []
+    out = eng.update({}, t + 9300 + 300, day, cfg)
+    assert out[0]["kind"] == "resolved" and set(out[0]["targets"]) == {"notify.a", "notify.b"}
+    out = eng.update(low, t + 9300 + 600, day, cfg)                   # back after 'resolved' was sent: tell again
+    assert out[0]["kind"] == "again" and out[0]["id"] == aid and out[0]["title"].startswith("Again")
+    eng.update({}, t + 9300 + 700, day, cfg)
+    eng.update({}, t + 9300 + 1000, day, cfg)                          # resolved again
+    out = eng.update(low, t + 9300 + 1000 + 3600, day, cfg)           # much later: a new alert with a new id
+    assert out[0]["kind"] == "new" and out[0]["id"] != aid
+    # escalation is not postponed by reminders
+    e2 = alr.AlertEngine()
+    c2 = alr.AlertSettings(primary=["notify.a"], backup=["notify.b"], escalate_min=15, repeat_min=5)
+    kinds = [m["kind"] for i in range(0, 21) for m in e2.update(low, t + i * 60, day, c2)]
+    assert kinds[:4] == ["new", "reminder", "reminder", "escalated"], kinds
+    # alerts of a device that is not loaded yet are kept, not resolved
+    e3 = alr.AlertEngine()
+    e3.update({"dev1:leak": {"title": "Leak", "message": "m", "severity": "critical", "category": "safety"}}, t, day, cfg)
+    assert e3.update({}, t + 900, day, cfg, keep=("dev1:",)) == [] and e3.alerts["dev1:leak"]["resolved_at"] is None
+    # quiet hours: warnings wait, critical go out
+    eng = alr.AlertEngine()
+    leak = {"d:leak": {"title": "Water leak", "message": "leak", "severity": "critical", "category": "safety"}}
+    out = eng.update({**low, **leak}, t, night, cfg)
+    assert [m["key"] for m in out] == ["d:leak"] and out[0]["critical"]
+    crit = alr.notify_data(out[0])["data"]
+    assert crit["push"]["interruption-level"] == "critical" and crit["channel"] == "alarm_stream"
+    assert eng.alerts["t:low"]["held"] is True
+    morning = datetime(2026, 10, 17, 6, 5, tzinfo=TZ)
+    out = eng.update({**low, **leak}, t + 8 * 3600, morning, cfg)
+    assert {m["key"]: m["kind"] for m in out} == {"t:low": "new", "d:leak": "escalated"}
+    # categories filter and disabled
+    assert alr.AlertEngine().update(low, t, day, alr.AlertSettings(primary=["notify.a"], categories=("safety",))) == []
+    eng = alr.AlertEngine()
+    assert eng.update(low, t, day, alr.AlertSettings()) == [] and len(eng.unacknowledged()) == 1
+    assert alr.in_quiet(23.5, 22, 6) and alr.in_quiet(1, 22, 6) and not alr.in_quiet(12, 22, 6)
+    assert alr.in_quiet(13, 12, 14) and not alr.in_quiet(14, 12, 14) and not alr.in_quiet(3, None, 6)
+    # device alerts from values
+    al = alr.device_alerts("Diesel", "abc", {"leak_active": True, "tank_low": True, "tank_fill": 12.0,
+                                             "tank_days_left": 3.5, "tank_sudden_drop": True,
+                                             "tank_drop_amount": 450.0, "online": False, "battery_low": True,
+                                             "battery": 9}, "Yard")
+    assert set(al) == {"abc:leak_active", "abc:tank_low", "abc:tank_drop", "abc:offline", "abc:battery"}
+    assert al["abc:tank_low"]["message"] == "Diesel (Yard) is low (12 % left, about 3.5 days)."
+    assert "450 L" in al["abc:tank_drop"]["message"] and al["abc:tank_drop"]["severity"] == "critical"
+    assert alr.device_alerts("x", "e", {"online": None, "leak_active": False}) == {}
+
+
+def test_ns_api_helpers():
+    rid, text = nsa.build_request("post", "/api/urdevices", {"a": 1}, "24E124FFFEF00001", rid="r1")
+    msg = json.loads(text)
+    assert msg == {"type": "ns-api", "id": "r1", "method": "POST", "url": "/api/urdevices",
+                   "gatewayEUI": "24e124fffef00001", "body": {"a": 1}}
+    assert "gatewayEUI" not in json.loads(nsa.build_request("GET", "/x")[1])
+    ok = json.dumps({"type": "ns-api", "id": "r1", "method": "POST", "url": "/api/urdevices",
+                     "body": {"code": 200, "error": ""}})
+    assert nsa.parse_response(ok) == ("r1", 200, "", {"code": 200, "error": ""})
+    dup = json.dumps({"type": "ns-api", "id": "r2", "body": json.dumps({"code": 6, "error": "device exist"})})
+    assert nsa.parse_response(dup)[1:3] == (6, "device exist")
+    assert nsa.parse_response('{"devEUI": "x"}') is None and nsa.parse_response(b"garbage") is None
+    assert "already exists" in str(nsa.NsApiError(6)) and "no answer" in str(nsa.NsApiError(None))
+    body = nsa.device_body("24E124136D000001", "Tank", "1", "uuid-a")
+    assert body["devEUI"] == "24e124136d000001" and body["appKey"] == nsa.DEFAULT_APP_KEY and body["fPort"] == 85
+    assert body["applicationID"] == "1" and body["profileID"] == "uuid-a"
+    listing = {"code": 200, "deviceResult": [{"devEUI": "24E124136D000001", "name": "EM300-TH Office",
+                                              "applicationID": "1", "profileName": "ClassA-OTAA", "active": True}],
+               "appResult": [{"appName": "cloud", "applicationID": "1"}],
+               "profileResult": [{"profileID": "uuid-a", "profileName": "ClassA-OTAA"}]}
+    assert nsa.parse_devices(listing)[0]["deveui"] == "24e124136d000001"
+    assert nsa.parse_applications(listing) == {"1": "cloud"} and nsa.parse_profiles(listing) == {"uuid-a": "ClassA-OTAA"}
+    profs = {"result": [{"name": "ClassC-OTAA", "profile": {"profileID": "uuid-c", "supportsJoin": True}}]}
+    assert nsa.parse_profiles(profs) == {"uuid-c": "ClassC-OTAA"}
+    assert nsa.valid_key("5572404c696e6b4c6f52613230313823") and not nsa.valid_key("55")
+    # a UG65's real answer: no "type", no "code", keys in the device list
+    real = json.dumps({"id": "ff3f9022d28244cb", "gatewayEUI": "24E124FFFEFA2994", "method": "GET",
+                       "url": "/api/urdevices?applicationID=0&offset=0&limit=9999",
+                       "body": {"devTotalCount": "1", "deviceResult": [
+                           {"devEUI": "24E124329F088306", "name": "EM400-MUD", "applicationID": "6",
+                            "appKey": "5572404c696e6b4c6f52613230313823", "appSKey": "2ec7f93a91a5e3a835e82ec0d73d7ce6",
+                            "lastSeenAt": "24 seconds ago", "lastSeenAtTime": "2026-10-16 19:16:01.926484 +0800 CST",
+                            "active": True}],
+                           "appResult": [{"appName": "HA Milesight Integration", "applicationID": "6"}],
+                           "profileResult": [{"profileID": "33a910a5", "profileName": "ClassA-OTAA", "supportsJoin": True}]}})
+    rid, code, err, body = nsa.parse_response(real)
+    assert rid == "ff3f9022d28244cb" and code is None and err == ""
+    d = nsa.parse_devices(body)[0]
+    assert d["application_id"] == "6" and d["last_seen"].startswith("2026-10-16 19:16") and "appKey" not in d
+    masked = nsa.mask_secrets(real)
+    assert "5572404c" not in masked and "2ec7f93a" not in masked and '"appKey": "***"' in masked
+    devs, errs = mdl.parse_bulk("24E124136D000001, EM300-TH, Office, , 00112233445566778899AABBCCDDEEFF\n"
+                                "24E124136D000002, EM300-TH, , , 1234")
+    assert devs[0]["app_key"] == "00112233445566778899aabbccddeeff" and "AppKey" in errs[0]
+
+
+def test_envelope_gateway_codec():
+    # gateway payload codec on: decoded fields next to devEUI, no "data"
+    up = dec.parse_envelope(json.dumps({"devEUI": "24E124128C140924", "deviceName": "AM107", "fCnt": 5,
+                                        "temperature": 22.1, "humidity": 50, "co2": 600, "rssi": -80}))
+    assert up.raw is None and up.predecoded == {"temperature": 22.1, "humidity": 50, "co2": 600}
+    assert mdl.guess_from_name(up.device_name) == "AM107"
+    assert dec.parse_envelope(json.dumps({"devEUI": "24E124128C140924", "deviceName": "x"})).predecoded is None
+
+
+def test_bundled_resources_match_repo():
+    root = PKG.parents[1]
+    for src, dst in ((root / "blueprints" / "automation" / "milesight_lorawan", PKG / "resources" / "blueprints"),
+                     (root / "dashboards", PKG / "resources" / "dashboards")):
+        for f in src.glob("*.yaml"):
+            if f.name == "building_overview.example.yaml":
+                continue
+            assert (dst / f.name).read_bytes() == f.read_bytes(), f"run tools/sync_resources.py ({f.name})"
+
+
+def test_commissioning_qr_and_walk():
+    g = mdl.guess_from_name
+    assert cms.parse_qr("24E124136D058239", g)["deveui"] == "24e124136d058239"
+    tr = cms.parse_qr("LW:D0:24E124C0002A0001:24E124136D058239:FF0C0001:O123:S6136D05823900:C1A2B", g)
+    assert tr["format"] == "tr005" and tr["deveui"] == "24e124136d058239" and tr["sn"] == "6136D05823900"
+    js = cms.parse_qr('{"DevEUI":"24E124136D058239","AppKey":"5572404c696e6b4c6f52613230313823","Model":"EM300-ZLD"}', g)
+    assert js["app_key"] == "5572404c696e6b4c6f52613230313823" and js["model"] == "EM300-ZLD"
+    tx = cms.parse_qr("Model: AM307\nSN: 6707D1234567\nDevEUI: 24 E1 24 70 7D 22 33 93\nAppKey: 5572404C696E6B4C6F52613230313823", g)
+    assert tx["deveui"] == "24e124707d223393" and tx["model"] == "AM307" and tx["app_key"].startswith("5572")
+    both = cms.parse_qr("24E124136D058239 5572404c696e6b4c6f52613230313823", g)
+    assert both["deveui"] == "24e124136d058239" and both["app_key"] == "5572404c696e6b4c6f52613230313823"
+    assert cms.parse_qr("0004A30B0021C668 24E124126A211292", g)["deveui"] == "24e124126a211292"   # Milesight EUI first
+    assert cms.parse_qr("hello", g)["deveui"] is None and cms.parse_qr("", g)["deveui"] is None
+    pts = [{"rssi": -88, "snr": 6.5, "sf": 7, "quality": "good", "margin": 14, "gateways": [{"name": "UG65"}]},
+           {"rssi": -109, "snr": -4, "sf": 9, "quality": "fair", "margin": 8.5, "gateways": [{"name": "UG56"}]},
+           {"rssi": -60, "snr": 9, "sf": 7, "quality": "excellent", "duplicate": True}]
+    s = cms.walk_summary(pts)
+    assert s["count"] == 2 and s["verdict"] == "fair" and s["rssi"]["min"] == -109 and s["gateways"] == ["UG56", "UG65"]
+    assert "little margin" in s["advice"] and cms.walk_summary([])["verdict"] is None
+    assert cms.fast_interval({"unit": "s", "min": 60}) == (60, "s") and cms.fast_interval({"unit": "min", "min": 1}) == (1, "min")
+    assert cms.fast_interval({"unit": "s", "min": 300}) == (300, "s") and cms.default_interval("min") == 10
+    up = dec.Uplink(deveui="x", rssi=None, snr=None, sf=9, fcnt=4, gateways=[{"id": "gw", "name": "UG65", "rssi": -100, "snr": 2}])
+    smp = cms.sample(up, False, 1.0)
+    assert smp["rssi"] == -100 and smp["quality"] in ("fair", "good") and smp["gateways"][0]["name"] == "UG65"
 
 
 if __name__ == "__main__":

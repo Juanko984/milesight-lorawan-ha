@@ -34,6 +34,7 @@ class MilesightEntity(Entity):
             serial_number=runtime.deveui.upper(),
             sw_version=runtime.raw.get("firmware_version"),
             hw_version=runtime.raw.get("hardware_version"),
+            suggested_area=runtime.entry.data.get("area"),
         )
 
     @property
@@ -54,8 +55,9 @@ def setup_platform_entities(entry, async_add_entities, platform: str, factory) -
     entities for every channel as soon as it first reports (no 'unknown' placeholders)."""
     runtime: DeviceRuntime = entry.runtime_data
     added: set[str] = set()
-    fixed = [s for s in entity_specs(runtime.model.key) if s.platform == platform]
-    added.update(s.key for s in fixed)
+    all_fixed = entity_specs(runtime.model.key) + runtime.extra_specs()
+    fixed = [s for s in all_fixed if s.platform == platform]
+    added.update(s.key for s in all_fixed)       # keys owned by any platform are never added dynamically
     async_add_entities(factory(runtime, s) for s in fixed)
     if not runtime.model.dynamic:
         return
