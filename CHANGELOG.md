@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.20.1
+### Fixed
+- Add devices to the gateway: answers from gateway firmware that does not echo the request's `type` / `id` were
+  ignored, so the connection test timed out. Any answer on the response topic is now matched to the waiting request.
+- The "gateway did not answer" message now says whether nothing arrived on the response topic or what did arrive,
+  and every answer is logged at debug level.
+
 ## 0.20.0
 ### Added
 - **Add devices to the gateway** from Home Assistant: gateway → Configure → *Add devices to the gateway* (Milesight

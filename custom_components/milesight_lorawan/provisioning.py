@@ -36,6 +36,8 @@ class NsApiClient:
         self._waiting: dict[str, asyncio.Future] = {}
         self._unsub: Callable[[], None] | None = None
         self._lock = asyncio.Lock()
+        self.unmatched = 0                  # messages on the response topic that matched no request
+        self.last_unmatched: str | None = None
 
     async def _ensure_subscribed(self) -> None:
         async with self._lock:
@@ -56,13 +58,19 @@ class NsApiClient:
 
     @callback
     def _message(self, msg) -> None:
-        parsed = parse_response(msg.payload)
-        if parsed is None:
+        text = msg.payload if isinstance(msg.payload, str) else bytes(msg.payload).decode("utf-8", "replace")
+        _LOGGER.debug("ns-api answer on %s: %s", self.response_topic, text[:500])
+        parsed = parse_response(text)
+        rid = parsed[0] if parsed else None
+        fut = self._waiting.pop(rid, None) if rid else None
+        if fut is None and parsed is not None and len(self._waiting) == 1:
+            fut = self._waiting.pop(next(iter(self._waiting)))       # answer without (or with another) id
+        if fut is None:
+            self.unmatched += 1
+            self.last_unmatched = text[:200]
             return
-        rid, code, error, body = parsed
-        fut = self._waiting.pop(rid, None)
-        if fut is not None and not fut.done():
-            fut.set_result((code, error, body))
+        if not fut.done():
+            fut.set_result(parsed[1:])
 
     async def async_request(self, method: str, url: str, body: dict | None = None,
                             timeout: float = TIMEOUT_S) -> dict[str, Any]:
@@ -75,7 +83,13 @@ class NsApiClient:
         try:
             code, error, rbody = await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError as err:
-            raise NsApiError(None, f"no answer on {self.response_topic} within {timeout:.0f} s") from err
+            if self.unmatched:
+                detail = (f"{self.unmatched} message(s) arrived on {self.response_topic} but none was an answer "
+                          f"to this request – last one: {self.last_unmatched}")
+            else:
+                detail = (f"nothing arrived on {self.response_topic} within {timeout:.0f} s after publishing to "
+                          f"{self.request_topic}")
+            raise NsApiError(None, detail) from err
         finally:
             self._waiting.pop(rid, None)
         if code not in (200, None):

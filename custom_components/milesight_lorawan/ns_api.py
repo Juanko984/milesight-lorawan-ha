@@ -42,13 +42,16 @@ def build_request(method: str, url: str, body: dict | None = None, gateway_eui: 
     return rid, json.dumps(msg, separators=(",", ":"))
 
 
-def parse_response(payload: str | bytes) -> tuple[str, int | None, str, dict[str, Any]] | None:
-    """(id, code, error, body) of an ns-api answer, None for anything else on the topic."""
+def parse_response(payload: str | bytes) -> tuple[str | None, int | None, str, dict[str, Any]] | None:
+    """(id, code, error, body) of an ns-api answer, None for anything that is not one. Tolerant: gateway firmware
+    differs in whether it echoes "type" / "id", so any JSON object with an id, a body or a code counts."""
     try:
         msg = json.loads(payload)
     except (ValueError, TypeError):
         return None
-    if not isinstance(msg, dict) or msg.get("type") != "ns-api" or not msg.get("id"):
+    if not isinstance(msg, dict) or msg.get("type") not in (None, "ns-api"):
+        return None
+    if not (msg.get("id") or "body" in msg or "code" in msg):
         return None
     body = msg.get("body")
     if isinstance(body, str):
@@ -62,7 +65,9 @@ def parse_response(payload: str | bytes) -> tuple[str, int | None, str, dict[str
         code = int(code) if code is not None else None
     except (TypeError, ValueError):
         code = None
-    return str(msg["id"]), code, str(body.get("error") or msg.get("error") or ""), body
+    if not body and "code" in msg:
+        body = {k: v for k, v in msg.items() if k not in ("type", "id", "method", "url", "gatewayEUI")}
+    return (str(msg["id"]) if msg.get("id") else None), code, str(body.get("error") or msg.get("error") or ""), body
 
 
 def valid_key(key: str | None) -> bool:
