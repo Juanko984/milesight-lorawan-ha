@@ -15,6 +15,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
         async_setup_gateway_entities(hass, entry, async_add_entities, "binary_sensor")
+        from .irrigation_ha import irrigation_entities
+        async_add_entities(irrigation_entities(hass, entry, "binary_sensor"))
         return
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return

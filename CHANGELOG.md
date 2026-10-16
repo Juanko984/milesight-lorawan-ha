@@ -2,6 +2,25 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.24.0
+### Added
+- **Pump analytics** for current clamps (device → Configure → Pump): run hours, starts in the last hour / 24 h,
+  short-cycling, dry-run (current below normal) and overload (above normal) against a set or learned normal
+  current, energy today (counter or estimate), and with a water meter *Pumped today* and *Water per kWh*.
+  Event `milesight_lorawan_pump`.
+- **Centre-pivot analytics** from an AT101 on the end tower (device → Configure → Centre pivot): arm angle, % of
+  the round done, speed, time to finish / finish time, status, and a **stall alarm** when the position stops
+  changing during a round (checked every minute). *Pivot stopped (end round)* button. Event
+  `milesight_lorawan_pivot`.
+- **Forecast-aware irrigation and frost** (gateway → Configure → Irrigation and frost): *Irrigation advice*
+  (irrigate / skip with reason and minutes) from the weather forecast and soil moisture, *Rain expected*, *Frost
+  tonight* from the afternoon before. Event `milesight_lorawan_frost`.
+- The valve schedule blueprint can follow the irrigation advice (skip on rain / moist soil, shorter runs).
+- **Farm** dashboard (irrigation & frost, pumps, pivots); installed when the site has a pump, pivot, valve
+  controller or irrigation forecast. Tags *Milesight · Pump / motor* and *Milesight · Irrigation*.
+- Alert categories *pumps* (dry-run, overload, short-cycling) and *irrigation* (pivot stalled, frost); they start
+  switched on, also for alert settings saved with an earlier version.
+
 ## 0.23.1
 ### Changed
 - Version bump (same features as 0.23.0) so HACS offers the update.

@@ -21,6 +21,7 @@ def _load(name):
     spec.loader.exec_module(mod); return mod
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
+pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1039,6 +1040,163 @@ def test_commissioning_qr_and_walk():
     up = dec.Uplink(deveui="x", rssi=None, snr=None, sf=9, fcnt=4, gateways=[{"id": "gw", "name": "UG65", "rssi": -100, "snr": 2}])
     smp = cms.sample(up, False, 1.0)
     assert smp["rssi"] == -100 and smp["quality"] in ("fair", "good") and smp["gateways"][0]["name"] == "UG65"
+
+
+def test_pump_analytics():
+    cfg = pmp.pump_config({"pump_enabled": True, "pump_max_starts": 3, "mains_voltage": 230}, 0.5)
+    assert cfg.enabled and cfg.max_starts_hour == 3 and cfg.normal_a == 0
+    t, day = T("2026-10-14 06:00"), "2026-10-14"
+    pt = pmp.PumpTracker()
+    evs = []
+    for i in range(8):                       # 8 readings, 10 A, every 5 min → learns normal = 10 A
+        evs += pt.update(cfg, t + i * 300, 10.0 if i else 0.0, day)
+    assert [e["type"] for e in evs] == ["start"]
+    v = pt.values(cfg, t + 7 * 300, None, None)
+    assert v["pump_running"] and v["pump_normal_current"] == 10.0 and abs(v["pump_run_hours"] - 0.5) < 0.01
+    assert abs(v["pump_energy_today"] - 10 * 230 * 0.85 * 1800 / 3.6e6) < 0.002          # estimate from amps × volts
+    # dry-run: two readings below 60 % of normal
+    t2 = t + 8 * 300
+    assert pt.update(cfg, t2, 4.0, day) == []
+    ev = pt.update(cfg, t2 + 60, 4.0, day)
+    assert ev[0]["type"] == "dry_run" and pt.values(cfg, t2 + 60, None, None)["pump_dry_run"]
+    pt.update(cfg, t2 + 120, 10.0, day)
+    assert not pt.values(cfg, t2 + 120, None, None)["pump_dry_run"]
+    # overload, then a stop clears it
+    pt.update(cfg, t2 + 180, 14.0, day)
+    assert pt.update(cfg, t2 + 240, 14.0, day)[0]["type"] == "overload"
+    assert pt.update(cfg, t2 + 300, 0.0, day)[0]["type"] == "stop"
+    assert not pt.values(cfg, t2 + 300, None, None)["pump_overload"]
+    # short-cycling: the 4th start within an hour (max 3)
+    t3, kinds = t2 + 400, []
+    for i in range(4):
+        kinds += [e["type"] for e in pt.update(cfg, t3 + i * 600, 10.0, day)]
+        pt.update(cfg, t3 + i * 600 + 120, 0.0, day)
+    assert kinds.count("short_cycling") == 1
+    assert pt.values(cfg, t3 + 1900, None, None)["pump_short_cycling"]
+    # energy counter + water meter → m³ per kWh; a new day starts the counters again
+    p2 = pmp.PumpTracker()
+    p2.update(cfg, t, 10.0, day, 100.0, 50.0)
+    p2.update(cfg, t + 3600, 10.0, day, 102.0, 80.0)
+    v = p2.values(cfg, t + 3600, 102.0, 80.0)
+    assert v["pump_energy_today"] == 2.0 and v["pump_water_today"] == 30.0 and v["pump_m3_per_kwh"] == 15.0
+    p2.update(cfg, t + 86400, 10.0, "2026-10-15", 110.0, 90.0)
+    assert p2.values(cfg, t + 86400, 110.0, 90.0)["pump_energy_today"] == 0.0
+    # restored from storage
+    assert pmp.PumpTracker(json.loads(json.dumps(p2.s))).s == p2.s
+    assert pmp.pump_config({}, 0.5).enabled is False
+
+
+def _pivot_point(b, r=400.0, lat0=-26.0, lon0=28.0):
+    import math
+    return (lat0 + r * math.cos(math.radians(b)) / 111195,
+            lon0 + r * math.sin(math.radians(b)) / (111195 * math.cos(math.radians(lat0))))
+
+
+def test_pivot_analytics():
+    cfg = pvt.pivot_config({"pivot_centre": {"latitude": -26.0, "longitude": 28.0}, "pivot_stall_min": 30})
+    assert cfg.enabled and cfg.sector == 360 and not pvt.pivot_config({}).enabled
+    assert abs(pvt.bearing(-26.0, 28.0, *_pivot_point(90)) - 90) < 0.1
+    assert abs(pvt.distance_m(-26.0, 28.0, *_pivot_point(200)) - 400) < 1
+    pt, t = pvt.PivotTracker(), T("2026-10-14 06:00")
+    assert pt.update(cfg, t, *_pivot_point(10)) == []                       # first fix
+    ev = pt.update(cfg, t + 3600, *_pivot_point(25))                         # 15°/h clockwise
+    assert ev[0]["type"] == "started" and ev[0]["direction"] == "clockwise"
+    pt.update(cfg, t + 7200, *_pivot_point(40))
+    v = pt.values(cfg, t + 7200)
+    assert v["pivot_status"] == "running" and abs(v["pivot_angle"] - 40) < 0.2 and abs(v["pivot_speed"] - 15) < 0.3
+    assert abs(v["pivot_progress"] - 30 / 360 * 100) < 0.2 and abs(v["pivot_finish_in"] - 330 / 15) < 0.5
+    assert v["pivot_radius"] and abs(v["pivot_radius"] - 400) < 1
+    # GPS noise does not count as movement; no movement for 30 min = stalled
+    assert pt.update(cfg, t + 7200 + 600, *_pivot_point(40.3)) == []
+    assert pt.check(cfg, t + 7200 + 1500) == []
+    st = pt.check(cfg, t + 7200 + 1800)
+    assert st[0]["type"] == "stalled" and pt.values(cfg, t + 9000)["pivot_stalled"] is True
+    assert pt.check(cfg, t + 9100) == []                                     # once
+    assert pt.values(cfg, t + 9000)["pivot_finish_in"] is None
+    pt.update(cfg, t + 10800, *_pivot_point(55))                             # moves again: stall clears
+    assert pt.values(cfg, t + 10800)["pivot_stalled"] is False
+    # a bad fix far away is ignored
+    assert pt.update(cfg, t + 10900, -25.0, 28.0) == [] and abs(pt.values(cfg, t + 10900)["pivot_angle"] - 55) < 0.3
+    # complete the round (crossing north)
+    ts, ang, fin = t + 10800, 55, []
+    while ang < 380 and not fin:
+        ang += 15; ts += 3600
+        fin = [e for e in pt.update(cfg, ts, *_pivot_point(ang % 360)) if e["type"] == "finished"]
+    assert fin and pt.values(cfg, ts)["pivot_status"] == "finished" and pt.values(cfg, ts)["pivot_progress"] == 100
+    # the 'Pivot stopped' button clears a stall
+    p2 = pvt.PivotTracker(json.loads(json.dumps(pt.s)))
+    p2.update(cfg, ts + 3600, *_pivot_point(30)); p2.update(cfg, ts + 7200, *_pivot_point(45))
+    p2.check(cfg, ts + 7200 + 3600)
+    assert p2.values(cfg, ts + 11000)["pivot_stalled"]
+    p2.stop()
+    assert p2.values(cfg, ts + 11000)["pivot_stalled"] is False and p2.values(cfg, ts + 11000)["pivot_status"] == "stopped"
+    # part circle (90°) that reverses
+    c90 = pvt.pivot_config({"pivot_centre": {"latitude": -26.0, "longitude": 28.0}, "pivot_sector": 90})
+    p3 = pvt.PivotTracker()
+    p3.update(c90, t, *_pivot_point(0)); p3.update(c90, t + 3600, *_pivot_point(30))
+    assert p3.values(c90, t + 3600)["pivot_progress"] == round(30 / 90 * 100, 1)
+    p3.update(c90, t + 7200, *_pivot_point(10))                             # reversed: a new pass
+    v = p3.values(c90, t + 7200)
+    assert v["pivot_direction"] == "anticlockwise" and abs(v["pivot_progress"] - 20 / 90 * 100) < 0.5
+
+
+def test_irrigation_advice_and_frost():
+    tz = TZ
+    now = datetime(2026, 10, 14, 17, 0, tzinfo=tz)
+    hourly = [{"datetime": (now.replace(minute=0) + __import__("datetime").timedelta(hours=h)).isoformat(),
+               "temperature": 12 - h * 0.8, "precipitation": 0.0, "precipitation_probability": 10} for h in range(30)]
+    cfg = irr.irrigation_config({"irr_weather": "weather.home", "irr_soil": ["sensor.soil"], "irr_target": 30,
+                                 "irr_frost_c": 2, "irr_base_minutes": 60})
+    r = irr.rain_ahead(hourly, now, 24)
+    assert r["mm"] == 0 and r["probability"] == 10 and r["periods"] == 24
+    a = irr.advice([15.0, 15.0], r, cfg)
+    assert a["advice"] == "irrigate" and a["minutes"] == 30 and a["soil_moisture"] == 15
+    assert irr.advice([31.0], r, cfg)["advice"] == "skip"
+    assert irr.advice([29.0], r, cfg)["advice"] == "skip"                     # < 5 min needed
+    assert irr.advice([], r, cfg)["minutes"] == 60                             # no soil sensor: full time
+    wet = [dict(f, precipitation=1.0, precipitation_probability=80) for f in hourly]
+    rw = irr.rain_ahead(wet, now, 24)
+    assert rw["mm"] == 24 and irr.advice([10.0], rw, cfg)["advice"] == "skip" and "rain" in irr.advice([10.0], rw, cfg)["reason"]
+    unlikely = [dict(f, precipitation=1.0, precipitation_probability=30) for f in hourly]
+    a2 = irr.advice([15.0], irr.rain_ahead(unlikely, now, 24), cfg)
+    assert a2["advice"] == "irrigate" and a2["minutes"] < 30                    # some rain credited, not skipped
+    # frost: lowest temperature until 10:00 tomorrow
+    f = irr.frost_tonight(hourly, now, 2)
+    assert f["expected"] and f["active"] and f["low"] <= 2
+    noon = datetime(2026, 10, 14, 12, 0, tzinfo=tz)
+    hf = [dict(x, datetime=(noon + __import__("datetime").timedelta(hours=i)).isoformat()) for i, x in enumerate(hourly)]
+    fn = irr.frost_tonight(hf, noon, 2)
+    assert fn["expected"] and not fn["active"]                                # known at noon, warned from 15:00
+    warm = [dict(x, temperature=15) for x in hourly]
+    assert not irr.frost_tonight(warm, now, 2)["expected"]
+    # daily forecasts: tomorrow's templow, rain of the days in the window
+    daily = [{"datetime": "2026-10-14T00:00:00+02:00", "temperature": 18, "templow": 9, "precipitation": 10},
+             {"datetime": "2026-10-15T00:00:00+02:00", "temperature": 14, "templow": 1, "precipitation": 2}]
+    fd = irr.frost_tonight(daily, now, 2, daily=True)
+    assert fd["active"] and fd["low"] == 1
+    rd = irr.rain_ahead(daily, now, 24, daily=True)
+    assert abs(rd["mm"] - (10 * 7 / 24 + 2)) < 0.11
+
+
+def test_pump_pivot_alerts_and_categories():
+    v = {"pump_dry_run": True, "pump_short_cycling": True, "pump_starts_last_hour": 9, "pivot_stalled": True,
+         "pivot_angle": 123.4}
+    al = alr.device_alerts("Borehole", "abc", v, "North")
+    assert al["abc:pump_dry"]["severity"] == "critical" and al["abc:pump_dry"]["category"] == "pumps"
+    assert "9 times" in al["abc:pump_cycling"]["message"] and "123°" in al["abc:pivot_stalled"]["message"]
+    assert al["abc:pivot_stalled"]["category"] == "irrigation"
+    assert "pumps" in alr.effective_categories({}) and "irrigation" in alr.effective_categories({})
+    old = {"alert_categories": ["safety", "devices"]}                          # saved before 0.24
+    assert set(alr.effective_categories(old)) == {"safety", "devices", "pumps", "irrigation"}
+    new = {"alert_categories": ["safety"], "alert_categories_known": list(alr.CATEGORIES)}
+    assert alr.effective_categories(new) == ("safety",)
+    assert "pump" not in mdl.device_tags("CT101") and {"pump"} <= mdl.device_tags("CT101", {"pump_enabled": True})
+    assert "irrigation" not in mdl.device_tags("AT101")
+    assert "irrigation" in mdl.device_tags("AT101", {"pivot_centre": {"latitude": 1, "longitude": 2}})
+    assert "irrigation" in mdl.device_tags("UC511")
+    assert mdl.pump_capable("CT103") and not mdl.pump_capable("AM307")
+    assert {s.key for s in mdl.pump_specs(True)} >= {"pump_m3_per_kwh", "pump_dry_run"}
+    assert "cmd_pivot_stop" in {s.key for s in mdl.pivot_specs()}
 
 
 if __name__ == "__main__":

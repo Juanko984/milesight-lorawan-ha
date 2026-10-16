@@ -337,13 +337,16 @@ HACS only installs the integration folder, so the blueprints and ready-made dash
 integration and it puts them in place itself:
 
 * **After every update** (first start of a new version) the blueprints are copied to
-  `config/blueprints/automation/milesight_lorawan/` and four dashboards appear in the sidebar: **LoRaWAN fleet**,
-  **LoRaWAN signal** (installer), **Tanks & alerts** and **Building analytics**. A notification lists what changed.
+  `config/blueprints/automation/milesight_lorawan/` and the dashboards appear in the sidebar: **LoRaWAN fleet**,
+  **LoRaWAN signal** (installer), **Tanks & alerts**, **Building analytics** and **Farm** (each only when the site
+  needs it, see below). A notification lists what changed.
 * **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
   (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL), *People & occupancy* (VS range, people
   counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). LoRaWAN fleet and LoRaWAN
   signal are always there; **Tanks & alerts** appears when the first tank / silo sensor is added and
-  **Building analytics** with the first comfort or occupancy sensor. Remove the last one and the dashboard leaves
+  **Building analytics** with the first comfort or occupancy sensor, **Farm** with the first pump, pivot, valve
+  controller or the gateway's irrigation forecast. *Pump / motor* and *Irrigation* also follow a device's options
+  (a clamp set up as a pump, a tracker set up on a pivot). Remove the last one and the dashboard leaves
   the sidebar again (its content is kept for later).
 * The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
   occupancy*, *Milesight · Air & comfort*), so you can filter devices, entities and automations by them. A label
@@ -705,11 +708,67 @@ sure someone reacts:
   resolved for a few minutes.
 * **Actions** – every alert has *Acknowledge*; tank-low alerts can have an extra button (e.g. *Start pump*) that
   runs a switch, script or button.
-* **Alerts to send** – safety, tanks, building (CO₂ / temperature / humidity), devices (offline, battery),
-  gateways offline, commands not confirmed.
+* **Alerts to send** – safety, tanks, pumps (dry-run, overload, short-cycling), irrigation (pivot stalled, frost
+  tonight), building (CO₂ / temperature / humidity), devices (offline, battery), gateways offline, commands not
+  confirmed. Categories added in a later version start switched on.
 
 The gateway gets **Open alerts** (with the list and who acknowledged) and **Acknowledge all alerts**; service
 `milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
+
+## Pumps (current clamps)
+
+A CT101 / CT103 / CT303 / CT310 (any clamp with *Load running*) on a pump or motor → device **Configure → Pump**,
+tick *This clamp measures a pump* (on a 3-channel clamp the channels are taken as the phases of one motor and
+added up):
+
+* **Pump run hours**, **starts last hour / 24 h** and **Pump short-cycling** (more starts per hour than allowed,
+  default 6 – a failing pressure switch or a waterlogged pressure tank).
+* **Pump dry-run** – running at less than 60 % of its normal current (lost prime, empty borehole, broken shaft) –
+  and **Pump overload** above 125 % (blockage, seized bearing, low voltage). Two readings in a row are needed; a stop
+  ends the alarm. *Normal running current*: type it in, or leave 0 and it is learned (median of the last 7 days'
+  running readings, shown as *Pump normal current*).
+* **Pump energy today** from the clamp's energy counter, or estimated from current × *mains voltage* (Device
+  settings) × power factor.
+* Choose a **water meter** (e.g. an EM300-DI / UC pulse counter set up as a water meter) and you also get
+  **Pumped today** and **Water per kWh** (m³/kWh) – a falling figure means a worn impeller or a dropping water table.
+
+Events `milesight_lorawan_pump` (`start`, `stop`, `dry_run`, `overload`, `short_cycling`) and alerts in the
+*pumps* category. Rated for dry-run protection? Use the alert / event to switch the pump off with your own
+automation – the integration only warns.
+
+## Centre pivots (AT101)
+
+Mount an AT101 on the pivot's end tower → device **Configure → Centre pivot**, drag the marker to the pivot point,
+set *Degrees in a full round* (360, or the sector of a part-circle pivot) and *Stalled after* (default 30 min):
+
+* **Pivot angle** (0° = north, clockwise), **Pivot round done** (%), **Pivot speed** (°/h), **Pivot finishes in**
+  and **Pivot finishes at**, **Pivot status** (running, stalled, finished, stopped), **Distance from pivot centre**.
+* **Pivot stalled** – no movement for the set time during a round (checked every minute, also when the tracker
+  stops sending). Alert in the *irrigation* category and event `milesight_lorawan_pivot` (`started`, `stalled`,
+  `finished`). Stopped it on purpose? Press **Pivot stopped (end round)**.
+* Part-circle pivots that reverse at the ends start a new pass on every reversal. GPS fixes more than 1.5 km from
+  the centre are ignored, movements under 1° count as GPS noise.
+
+Set the tracker's reporting interval to 5–10 minutes while the pivot runs.
+
+## Forecast-aware irrigation and frost
+
+Gateway entry → **Configure → Irrigation and frost**: choose a **weather entity** with a forecast (Met.no,
+Open-Meteo, OpenWeatherMap …) and optionally **soil moisture sensors** (EM500-SMTC …). The gateway gets:
+
+* **Irrigation advice** – *irrigate* or *skip*, with the reason and suggested **minutes**: skip when at least
+  5 mm of rain is forecast within 24 h (with a probability of 60 % or more when the forecast gives one) or when
+  the soil is at the target (30 %); otherwise *irrigation time for dry soil* scaled by how dry the soil is, minus
+  a share for smaller rain on the way.
+* **Rain expected** and **Frost tonight** – on from 15:00 the afternoon before when the forecast low until 10:00
+  the next morning is at or below the frost temperature (default 2 °C). Event `milesight_lorawan_frost` once per
+  night and an alert in the *irrigation* category.
+* The **Milesight – irrigation / valve schedule** blueprint takes the advice: it skips on *skip* and shortens the
+  duration by the suggested minutes.
+
+Hourly forecasts are used when the weather integration has them, else daily ones. The forecast is read every
+30 minutes – the only part that needs the internet; with the link down the advice keeps the last forecast for up
+to 6 hours and then falls back to soil moisture alone.
 
 ## Settings per device
 
@@ -777,6 +836,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.24.0** | Pump analytics (run hours, short-cycling, dry-run, overload, m³ per kWh), centre-pivot analytics from an AT101 (angle, % done, speed, time to finish, stall alarm), forecast-aware irrigation advice and frost warnings, Farm dashboard. |
 | **0.23.1** | Version bump of 0.23.0. |
 | **0.23.0** | Commissioning mode: scan a device's QR code to add it (and register it on the gateway), live walk test with fast reporting and saved results. |
 | **0.22.2** | Area occupancy history kept across restarts. |

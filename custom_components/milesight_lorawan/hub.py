@@ -86,7 +86,9 @@ class Hub:
         self.ns_fport: int = int(cfg.get(CONF_NS_FPORT) or DOWNLINK_FPORT)
         self.gateway_devices: dict[str, Any] = {}   # last sync: {devices, applications, profiles, at, error}
         from .escalation import AlertManager
+        from .irrigation_ha import IrrigationManager
         self.alerts = AlertManager(hass, entry, self)
+        self.irrigation = IrrigationManager(hass, entry)
 
     async def async_start(self) -> None:
         self.stats = GatewayStats(await self.store.async_load())
@@ -102,11 +104,13 @@ class Hub:
             self._unsubs.append(async_call_later(self.hass, 45, self._auto_sync))
             self._unsubs.append(async_track_time_interval(self.hass, self._auto_sync, timedelta(hours=6)))
         await self.alerts.async_start()
+        await self.irrigation.async_start()
 
     async def async_stop(self) -> None:
         while self._unsubs:
             self._unsubs.pop()()
         await self.alerts.async_stop()
+        await self.irrigation.async_stop()
         if self.ns is not None:
             await self.ns.async_stop()
         await self.store.async_save(self.stats.to_dict())

@@ -17,6 +17,8 @@ from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
+    LocationSelector,
+    LocationSelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -132,9 +134,9 @@ from .const import (
     ENTRY_TYPE_HUB,
     WEEKDAYS,
 )
-from .alerts import CATEGORIES, DEFAULT_CATEGORIES
+from .alerts import CATEGORIES, effective_categories
 from .channel_map import parse_channel_map
-from .models import MODELS, downlinks, entity_specs, parse_bulk, pulse_capable, tank_source
+from .models import MODELS, downlinks, entity_specs, parse_bulk, pulse_capable, pump_capable, tank_source
 from .ns_api import DEFAULT_APP_KEY, DEFAULT_FPORT, valid_key
 from .tank import SHAPES, capacity_l, tank_config
 
@@ -200,6 +202,13 @@ def _schedule_dashboard(hass, entry: ConfigEntry) -> None:
 
 _SITE_KEYS = (CONF_SITE_COMPANY, CONF_SITE_ADDRESS, CONF_SITE_CONTACT, CONF_SITE_PHONE, CONF_SITE_EMAIL, CONF_SITE_LOGO,
               CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT)
+
+
+PUMP_KEYS = ("pump_enabled", "pump_normal_a", "pump_dry_pct", "pump_overload_pct", "pump_max_starts",
+             "pump_power_factor", "pump_water_entity")
+PIVOT_KEYS = ("pivot_centre", "pivot_sector", "pivot_stall_min")
+IRRIGATION_KEYS = ("irr_weather", "irr_soil", "irr_target", "irr_base_minutes", "irr_rain_mm", "irr_rain_hours",
+                   "irr_rain_prob", "irr_frost_c")
 
 
 def _int_box(lo: int, hi: int) -> NumberSelector:
@@ -446,9 +455,11 @@ class MilesightOptionsFlow(OptionsFlow):
             return self.async_create_entry(data=user_input)
 
         if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-            return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "provisioning", "connection"])
+            return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "irrigation", "provisioning",
+                                                                      "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
-        sections = (["channels"] if MODELS[model].dynamic else []) + (["tank"] if tank_source(model) else [])
+        sections = ((["channels"] if MODELS[model].dynamic else []) + (["tank"] if tank_source(model) else [])
+                    + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if sections:
             return self.async_show_menu(step_id="init", menu_options=["general", *sections])
         return await self.async_step_general()
@@ -585,6 +596,82 @@ class MilesightOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="tank", errors=errors, description_placeholders=placeholders,
                                     data_schema=vol.Schema(schema))
 
+    # ---------------------------------------------------------------- pump
+    async def async_step_pump(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Current clamps on a pump: run hours, starts per hour, dry-run / overload, water per kWh."""
+        entry = self.config_entry
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in PUMP_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+            return self.async_create_entry(data=data)
+        o = entry.options
+        schema = {
+            vol.Required("pump_enabled", default=o.get("pump_enabled", False)): BooleanSelector(),
+            vol.Required("pump_normal_a", default=o.get("pump_normal_a", 0)): _float_box(0, 5000, "A"),
+            vol.Required("pump_dry_pct", default=o.get("pump_dry_pct", 60)): _float_box(10, 99, "%"),
+            vol.Required("pump_overload_pct", default=o.get("pump_overload_pct", 125)): _float_box(101, 300, "%"),
+            vol.Required("pump_max_starts", default=o.get("pump_max_starts", 6)): _int_box(1, 60),
+            vol.Required("pump_power_factor", default=o.get("pump_power_factor", 0.85)): _float_box(0.3, 1),
+            vol.Optional("pump_water_entity", description={"suggested_value": o.get("pump_water_entity")}):
+                EntitySelector(EntitySelectorConfig(domain="sensor", device_class=["water", "volume"])),
+        }
+        return self.async_show_form(step_id="pump", data_schema=vol.Schema(schema))
+
+    # --------------------------------------------------------------- pivot
+    async def async_step_pivot(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """AT101 on a centre pivot's end tower: where the centre is, how big the round is, when it is stalled."""
+        entry = self.config_entry
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in PIVOT_KEYS}
+            if user_input.get("pivot_enabled"):
+                c = user_input.get("pivot_centre") or {}
+                data.update({"pivot_centre": {"latitude": c.get("latitude"), "longitude": c.get("longitude")},
+                             "pivot_sector": user_input.get("pivot_sector", 360),
+                             "pivot_stall_min": user_input.get("pivot_stall_min", 30)})
+            return self.async_create_entry(data=data)
+        o = entry.options
+        rt = getattr(entry, "runtime_data", None)
+        raw = getattr(rt, "raw", {}) or {}
+        centre = o.get("pivot_centre") or {"latitude": self.hass.config.latitude,
+                                           "longitude": self.hass.config.longitude}
+        schema = {
+            vol.Required("pivot_enabled", default=bool(o.get("pivot_centre"))): BooleanSelector(),
+            vol.Required("pivot_centre", default=centre): LocationSelector(LocationSelectorConfig(radius=False)),
+            vol.Required("pivot_sector", default=o.get("pivot_sector", 360)): _float_box(10, 360, "°"),
+            vol.Required("pivot_stall_min", default=o.get("pivot_stall_min", 30)): _int_box(5, 1440),
+        }
+        last = (f"{raw['latitude']:.6f}, {raw['longitude']:.6f}"
+                if isinstance(raw.get("latitude"), (int, float)) and isinstance(raw.get("longitude"), (int, float))
+                else "no fix yet")
+        return self.async_show_form(step_id="pivot", data_schema=vol.Schema(schema),
+                                    description_placeholders={"last_fix": last})
+
+    # ---------------------------------------------------------- irrigation
+    async def async_step_irrigation(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: weather forecast + soil moisture → irrigate or skip, frost warning the evening before."""
+        entry = self.config_entry
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in IRRIGATION_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "", [])})
+            return self.async_create_entry(data=data)
+        o = entry.options
+
+        def num(key: str, default: float, lo: float, hi: float, unit: str | None = None) -> None:
+            schema[vol.Required(key, default=o.get(key, default))] = _float_box(lo, hi, unit)
+        schema: dict = {
+            vol.Optional("irr_weather", description={"suggested_value": o.get("irr_weather")}):
+                EntitySelector(EntitySelectorConfig(domain="weather")),
+            vol.Optional("irr_soil", description={"suggested_value": o.get("irr_soil", [])}):
+                EntitySelector(EntitySelectorConfig(domain="sensor", multiple=True)),
+        }
+        num("irr_target", 30, 1, 100, "%")
+        num("irr_base_minutes", 60, 1, 1440, "min")
+        num("irr_rain_mm", 5, 0.1, 200, "mm")
+        num("irr_rain_hours", 24, 1, 72, "h")
+        num("irr_rain_prob", 60, 0, 100, "%")
+        num("irr_frost_c", 2, -10, 10, "°C")
+        return self.async_show_form(step_id="irrigation", data_schema=vol.Schema(schema))
+
     # -------------------------------------------------- alert escalation
     async def async_step_alerts(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Gateway: who gets alerts, when to escalate, quiet hours."""
@@ -595,6 +682,7 @@ class MilesightOptionsFlow(OptionsFlow):
         if user_input is not None:
             data = {k: v for k, v in entry.options.items() if k not in keys}
             data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+            data["alert_categories_known"] = list(CATEGORIES)      # categories added later start switched on
             return self.async_create_entry(data=data)
         o = entry.options
         services = sorted(f"notify.{s}" for s in self.hass.services.async_services().get("notify", {})
@@ -613,7 +701,7 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Optional(CONF_ALERT_QUIET_END, description=sv(CONF_ALERT_QUIET_END)): _int_box(0, 23),
             vol.Required(CONF_ALERT_DEDUPE_MIN, default=o.get(CONF_ALERT_DEDUPE_MIN, 30)): _int_box(0, 1440),
             vol.Required(CONF_ALERT_RESOLVED, default=o.get(CONF_ALERT_RESOLVED, True)): BooleanSelector(),
-            vol.Required(CONF_ALERT_CATEGORIES, default=o.get(CONF_ALERT_CATEGORIES, DEFAULT_CATEGORIES)):
+            vol.Required(CONF_ALERT_CATEGORIES, default=list(effective_categories(dict(o)))):
                 SelectSelector(SelectSelectorConfig(options=list(CATEGORIES), multiple=True,
                                                     translation_key="alert_category")),
             vol.Optional(CONF_ALERT_ACTION_ENTITY, description=sv(CONF_ALERT_ACTION_ENTITY)):

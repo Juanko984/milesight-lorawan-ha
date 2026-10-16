@@ -14,7 +14,7 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .alerts import ACTION_ACK, ACTION_RUN, DEFAULT_CATEGORIES, AlertEngine, AlertSettings, device_alerts, notify_data
+from .alerts import ACTION_ACK, ACTION_RUN, AlertEngine, AlertSettings, device_alerts, effective_categories, notify_data
 from .const import (
     CONF_ALERT_ACTION_ENTITY,
     CONF_ALERT_ACTION_TITLE,
@@ -49,7 +49,7 @@ def alert_settings(opts: dict[str, Any]) -> AlertSettings:
         quiet_start=qs if qs != qe else None, quiet_end=qe if qs != qe else None,
         dedupe_min=float(opts.get(CONF_ALERT_DEDUPE_MIN, 30) or 0),
         notify_resolved=bool(opts.get(CONF_ALERT_RESOLVED, True)),
-        categories=tuple(opts.get(CONF_ALERT_CATEGORIES) or DEFAULT_CATEGORIES),
+        categories=effective_categories(opts),
         action_title=(opts.get(CONF_ALERT_ACTION_TITLE) or "Start pump") if opts.get(CONF_ALERT_ACTION_ENTITY) else "",
     )
 
@@ -114,6 +114,9 @@ class AlertManager:
                 out[f"building:{a['key']}"] = {"title": f"{a['what']} – {a['where']}", "severity": "warning",
                                                "message": f"{a['where']}: {a['what']}. {a['detail']}.",
                                                "category": "building"}
+        irrigation = getattr(self.hub, "irrigation", None)
+        if irrigation is not None:
+            out.update(irrigation.alerts())
         ts = time.time()
         for gid, g in self.hub.stats.gateways.items():
             if self.hub.stats.online(gid, ts, self.hub.offline_s) is False:

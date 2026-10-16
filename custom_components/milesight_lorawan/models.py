@@ -1905,11 +1905,15 @@ TAGS = {  # tag -> (Home Assistant label name, icon)
     "tank": ("Milesight · Tank / silo", "mdi:storage-tank"),
     "people": ("Milesight · People & occupancy", "mdi:account-group"),
     "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
+    "pump": ("Milesight · Pump / motor", "mdi:pump"),
+    "irrigation": ("Milesight · Irrigation", "mdi:sprinkler-variant"),
 }
 
 
-def device_tags(model_key: str) -> frozenset[str]:
-    """What a model is used for – decides which ready-made dashboards a site gets and labels its device."""
+def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
+    """What a device is used for (its model, plus what its options say: a clamp set up as a pump, a tracker on a
+    pivot) – decides which ready-made dashboards a site gets and labels its device."""
+    options = options or {}
     model = MODELS.get(model_key)
     if model is None:
         return frozenset()
@@ -1921,4 +1925,64 @@ def device_tags(model_key: str) -> frozenset[str]:
         tags.add("people")
     if {"temperature", "humidity"} <= keys or "co2" in keys:
         tags.add("comfort")
+    if "load" in model.features and options.get("pump_enabled"):
+        tags.add("pump")
+    if model_key.startswith(("UC51", "UC52")) or ("at101" in model.features and options.get("pivot_centre")):
+        tags.add("irrigation")
     return frozenset(tags)
+
+
+# ------------------------------------------------------------------ pumps & pivots
+def pump_capable(model_key: str) -> bool:
+    model = MODELS.get(model_key)
+    return model is not None and "load" in model.features
+
+
+def pump_specs(water: bool = False) -> list[EntitySpec]:
+    specs = [
+        EntitySpec("pump_run_hours", "Pump run hours", unit="h", device_class="duration", state_class="total_increasing",
+                   icon="mdi:timer-cog-outline", precision=1),
+        EntitySpec("pump_starts_last_hour", "Pump starts last hour", unit="starts", state_class="measurement",
+                   icon="mdi:restart"),
+        EntitySpec("pump_starts_24h", "Pump starts last 24 h", unit="starts", state_class="measurement",
+                   icon="mdi:restart", enabled_default=False),
+        EntitySpec("pump_short_cycling", "Pump short-cycling", platform="binary_sensor", device_class="problem",
+                   icon="mdi:sync-alert"),
+        EntitySpec("pump_dry_run", "Pump dry-run", platform="binary_sensor", device_class="problem",
+                   icon="mdi:water-off"),
+        EntitySpec("pump_overload", "Pump overload", platform="binary_sensor", device_class="problem",
+                   icon="mdi:flash-alert"),
+        EntitySpec("pump_normal_current", "Pump normal current", unit="A", device_class="current",
+                   state_class="measurement", precision=2, diagnostic=True),
+        EntitySpec("pump_energy_today", "Pump energy today", unit="kWh", device_class="energy",
+                   state_class="total", precision=2),
+    ]
+    if water:
+        specs += [
+            EntitySpec("pump_water_today", "Pumped today", unit="m³", device_class="water", state_class="total",
+                       precision=2),
+            EntitySpec("pump_m3_per_kwh", "Water per kWh", unit="m³/kWh", state_class="measurement",
+                       icon="mdi:water-pump", precision=2),
+        ]
+    return specs
+
+
+def pivot_specs() -> list[EntitySpec]:
+    return [
+        EntitySpec("pivot_angle", "Pivot angle", unit="°", state_class="measurement", icon="mdi:rotate-right",
+                   precision=0),
+        EntitySpec("pivot_progress", "Pivot round done", unit="%", state_class="measurement",
+                   icon="mdi:progress-clock", precision=0),
+        EntitySpec("pivot_speed", "Pivot speed", unit="°/h", state_class="measurement", icon="mdi:speedometer",
+                   precision=1),
+        EntitySpec("pivot_finish_in", "Pivot finishes in", unit="h", device_class="duration", state_class="measurement",
+                   icon="mdi:timer-sand", precision=1),
+        EntitySpec("pivot_finish_at", "Pivot finishes at", kind="timestamp", device_class="timestamp",
+                   icon="mdi:flag-checkered"),
+        EntitySpec("pivot_status", "Pivot status", kind="label", icon="mdi:sprinkler-variant"),
+        EntitySpec("pivot_stalled", "Pivot stalled", platform="binary_sensor", device_class="problem",
+                   icon="mdi:alert-octagon"),
+        EntitySpec("pivot_radius", "Distance from pivot centre", unit="m", device_class="distance",
+                   state_class="measurement", precision=0, diagnostic=True),
+        EntitySpec("cmd_pivot_stop", "Pivot stopped (end round)", platform="button", icon="mdi:stop-circle-outline"),
+    ]

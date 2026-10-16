@@ -65,8 +65,10 @@ from .decoders import (Uplink, ds3604_frames, encode_ds3604, encode_ds3604_conte
 from .link import LinkStats, PendingCommands, link_advice, link_margin, link_quality
 from .alerts import device_alerts
 from .channel_map import parse_channel_map
-from .models import (MODELS, Model, channel_specs, downlinks, entity_specs, meter_spec, output_for_key, setting_spec,
-                     tank_source, tank_specs)
+from .models import (MODELS, Model, channel_specs, downlinks, entity_specs, meter_spec, output_for_key, pivot_specs,
+                     pump_capable, pump_specs, setting_spec, tank_source, tank_specs)
+from .pivot import PivotTracker, pivot_config
+from .pump import PumpTracker, pump_config
 from .tank import TankTracker, level_mm, tank_config, volume_l
 
 _LOGGER = logging.getLogger(__name__)
@@ -190,6 +192,10 @@ class DeviceRuntime:
         self.tank_src = tank_source(self.model.key)
         self.tank_cfg = tank_config(dict(entry.options)) if self.tank_src else None
         self.tank: TankTracker | None = None
+        self.pump: PumpTracker | None = None
+        self.pump_cfg = None
+        self.pivot: PivotTracker | None = None
+        self.pivot_cfg = pivot_config(dict(entry.options)) if "at101" in self.model.features else None
         self.channels, self.channel_errors = (parse_channel_map(entry.options.get(CONF_CHANNEL_MAP, ""))
                                               if self.model.dynamic else ({}, []))
         self._alert_sig: Any = None
@@ -230,6 +236,17 @@ class DeviceRuntime:
             self.tank_cfg = None
         if "at101" in f:
             self.distance = DistanceTracker(self.cal, trackers.get("distance"))
+        if pump_capable(self.model.key):
+            cfg = pump_config(dict(self.entry.options), self.limits["run_a"])
+            if cfg.enabled:
+                self.pump_cfg, self.pump = cfg, PumpTracker(trackers.get("pump"))
+        if self.pivot_cfg is not None and self.pivot_cfg.enabled:
+            st = trackers.get("pivot")
+            if st and st.get("centre") != [self.pivot_cfg.lat, self.pivot_cfg.lon]:
+                st = None                                   # centre moved: start again
+            self.pivot = PivotTracker(st)
+        else:
+            self.pivot_cfg = None
         if self.model.counters:
             self.counters = CounterTracker(self.cal, self.model.counters, trackers.get("counters"))
         if "occupancy" in f:
@@ -326,6 +343,16 @@ class DeviceRuntime:
             self._tank_reading(ts, decoded)
         if self.distance is not None and "latitude" in decoded:
             self.distance.update(ts, decoded.get("latitude"), decoded.get("longitude"))
+        if self.pivot is not None and "latitude" in decoded:
+            self._pivot_events(self.pivot.update(self.pivot_cfg, ts, decoded.get("latitude"),
+                                                 decoded.get("longitude")))
+        if self.pump is not None:
+            amps = self._pump_amps(decoded)
+            if amps is not None or self._pump_energy(decoded) is not None:
+                for ev in self.pump.update(self.pump_cfg, ts, amps, self._day(ts), self._pump_energy(self.raw),
+                                           self._pump_water()):
+                    self.hass.bus.async_fire(f"{DOMAIN}_pump", {"deveui": self.deveui, "device": self.entry.title,
+                                                               "area": self.entry.data.get("area"), **ev})
         if self.minmax is not None:
             self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
         if self.occupancy is not None and self.model.occupancy_fn is not None:
@@ -453,8 +480,54 @@ class DeviceRuntime:
                                                      {"water": "m³", "gas": "m³", "energy": "kWh"}[mtype])))
         if self.tank_cfg is not None:
             specs += tank_specs(self.tank_cfg.density > 0, self.tank_cfg.low_pct > 0, self.tank_cfg.drop_pct > 0)
+        if self.pump is not None:
+            specs += pump_specs(bool(self._opt("pump_water_entity", None)))
+        if self.pivot is not None:
+            specs += pivot_specs()
         specs += channel_specs(self.channels)
         return specs
+
+    # ------------------------------------------------------------- pumps & pivots
+    @staticmethod
+    def _pump_amps(src: dict[str, Any]) -> float | None:
+        """Pump current: the sum of the phases on a 3-channel clamp, else the single channel."""
+        phases = [src[k] for k in ("current_1", "current_2", "current_3") if isinstance(src.get(k), (int, float))]
+        if phases:
+            return round(sum(phases), 3)
+        v = src.get("current")
+        return float(v) if isinstance(v, (int, float)) else None
+
+    @staticmethod
+    def _pump_energy(src: dict[str, Any]) -> float | None:
+        if isinstance(src.get("energy"), (int, float)):
+            return float(src["energy"])
+        parts = [src[k] for k in ("energy_1", "energy_2", "energy_3") if isinstance(src.get(k), (int, float))]
+        return round(sum(parts), 3) if parts else None
+
+    def _pump_water(self) -> float | None:
+        """The water meter entity chosen in the pump options, in m³ (L, gal and ft³ converted)."""
+        eid = self._opt("pump_water_entity", None)
+        st = self.hass.states.get(eid) if eid else None
+        if st is None:
+            return None
+        try:
+            val = float(st.state)
+        except (TypeError, ValueError):
+            return None
+        unit = (st.attributes.get("unit_of_measurement") or "m³").strip()
+        return val * {"L": 0.001, "l": 0.001, "gal": 0.00378541, "ft³": 0.0283168, "CCF": 2.83168}.get(unit, 1.0)
+
+    def _pivot_events(self, events: list[dict[str, Any]]) -> None:
+        for ev in events:
+            self.hass.bus.async_fire(f"{DOMAIN}_pivot", {"deveui": self.deveui, "device": self.entry.title,
+                                                        "area": self.entry.data.get("area"), **ev})
+
+    def pivot_stopped(self) -> None:
+        """'Pivot stopped' button: the round was ended on purpose (clears the stall alarm)."""
+        if self.pivot is None:
+            raise ValueError("no pivot centre configured")
+        self.pivot.stop()
+        self._publish(time.time())
 
     # ------------------------------------------------------------- tanks
     def _tank_litres(self, src: dict[str, Any]) -> tuple[float | None, float | None]:
@@ -817,6 +890,8 @@ class DeviceRuntime:
             tracker.tick(ts)
         if self.occupancy is not None:
             self.occupancy.tick(ts)
+        if self.pivot is not None:
+            self._pivot_events(self.pivot.check(self.pivot_cfg, ts))
         self._publish(ts)
 
     # ---------------------------------------------------------------- values
@@ -881,6 +956,28 @@ class DeviceRuntime:
             self._ct_values(v)
         if self.distance is not None:
             v.update(self.distance.values(ts))
+        if self.pump is not None:
+            v.update(self.pump.values(self.pump_cfg, ts, self._pump_energy(v), self._pump_water()))
+            self.attrs["pump_run_hours"] = {"milesight_role": "pump", "device": self.entry.title,
+                                            "area": self.entry.data.get("area"), "running": v["pump_running"],
+                                            "starts_last_hour": v["pump_starts_last_hour"],
+                                            "dry_run": v["pump_dry_run"], "overload": v["pump_overload"],
+                                            "short_cycling": v["pump_short_cycling"],
+                                            "normal_current": v["pump_normal_current"],
+                                            "current": self._pump_amps(v)}
+            self.attrs["pump_starts_last_hour"] = {"limit": self.pump_cfg.max_starts_hour}
+            normal = v["pump_normal_current"]
+            self.attrs["pump_dry_run"] = {"below_a": round(normal * self.pump_cfg.dry_pct / 100, 2) if normal else None}
+            self.attrs["pump_overload"] = {"above_a": round(normal * self.pump_cfg.overload_pct / 100, 2)
+                                           if normal else None}
+        if self.pivot is not None:
+            v.update(self.pivot.values(self.pivot_cfg, ts))
+            self.attrs["pivot_progress"] = {"milesight_role": "pivot", "device": self.entry.title,
+                                            "area": self.entry.data.get("area"), "angle": v["pivot_angle"],
+                                            "status": v["pivot_status"], "speed": v["pivot_speed"],
+                                            "finish_in_h": v["pivot_finish_in"], "direction": v["pivot_direction"],
+                                            "sector": self.pivot_cfg.sector,
+                                            "centre": [self.pivot_cfg.lat, self.pivot_cfg.lon]}
         meter = self._meter_value(v)
         if meter is not None:
             v["meter_reading"] = meter
@@ -991,6 +1088,10 @@ class DeviceRuntime:
             trackers["counters"] = self.counters.s
         if self.tank is not None:
             trackers["tank"] = self.tank.s
+        if self.pump is not None:
+            trackers["pump"] = self.pump.s
+        if self.pivot is not None:
+            trackers["pivot"] = {**self.pivot.s, "centre": [self.pivot_cfg.lat, self.pivot_cfg.lon]}
         return {"raw": self.raw, "meta": self.meta, "trackers": trackers, "commands": self.commands.to_dict(),
                 "link": self.link.to_dict(), "display": self.display}
 

@@ -92,7 +92,10 @@
           "connection": "Gateway connection",
           "general": "Device settings",
           "channels": "Channels (Modbus / analog)",
-          "tank": "Tank or silo"
+          "tank": "Tank or silo",
+          "irrigation": "Irrigation and frost (weather forecast)",
+          "pump": "Pump (current clamp)",
+          "pivot": "Centre pivot (GPS tracker)"
         }
       },
       "connection": {
@@ -266,6 +269,60 @@
           "ns_application_id": "Application",
           "ns_profile_id": "Device profile"
         }
+      },
+      "pump": {
+        "title": "Pump analytics",
+        "description": "For a current clamp on a pump or motor: run hours, starts per hour (short-cycling), dry-run when the current falls well below normal (lost prime, empty well) and overload when it rises well above (blockage, bearing, low voltage). With a water meter you also get m³ pumped today and m³ per kWh.",
+        "data": {
+          "pump_enabled": "This clamp measures a pump",
+          "pump_normal_a": "Normal running current",
+          "pump_dry_pct": "Dry-run below",
+          "pump_overload_pct": "Overload above",
+          "pump_max_starts": "Short-cycling above (starts per hour)",
+          "pump_power_factor": "Power factor (energy estimate)",
+          "pump_water_entity": "Water meter (optional)"
+        },
+        "data_description": {
+          "pump_normal_a": "Leave 0 to learn it: the median running current of the last 7 days (about a day of running is needed).",
+          "pump_dry_pct": "Share of the normal current.",
+          "pump_overload_pct": "Share of the normal current.",
+          "pump_power_factor": "Only used when the clamp has no energy counter: energy = current × mains voltage (Device settings) × power factor.",
+          "pump_water_entity": "A water meter sensor for the water this pump delivers, e.g. a pulse counter set up as a water meter."
+        }
+      },
+      "pivot": {
+        "title": "Centre pivot",
+        "description": "For an AT101 on the end tower of a centre pivot: arm angle, % of the round done, speed, time to finish and a stall alarm when the position stops changing during a round. Last fix from the tracker: **{last_fix}**.\n\nTip: set the tracker's reporting interval to 5–10 minutes while the pivot runs.",
+        "data": {
+          "pivot_enabled": "This tracker is on a pivot",
+          "pivot_centre": "Pivot centre",
+          "pivot_sector": "Degrees in a full round",
+          "pivot_stall_min": "Stalled after (no movement)"
+        },
+        "data_description": {
+          "pivot_centre": "Drag the marker to the pivot point (the tower in the middle).",
+          "pivot_sector": "360 for a full circle; less for a part-circle pivot that reverses at the ends.",
+          "pivot_stall_min": "Minutes without movement during a round before the stall alarm. Press 'Pivot stopped (end round)' when you stop it on purpose."
+        }
+      },
+      "irrigation": {
+        "title": "Irrigation and frost",
+        "description": "Uses a weather forecast and soil moisture sensors: skip irrigation when rain is forecast or the soil is moist enough, otherwise suggest how long to irrigate; warn of frost from the afternoon before. Creates 'Irrigation advice', 'Rain expected' and 'Frost tonight' on the gateway. Use the advice in the 'Milesight – valve schedule' blueprint.",
+        "data": {
+          "irr_weather": "Weather forecast",
+          "irr_soil": "Soil moisture sensors",
+          "irr_target": "Irrigate below (soil moisture)",
+          "irr_base_minutes": "Irrigation time for dry soil",
+          "irr_rain_mm": "Skip when rain of at least",
+          "irr_rain_hours": "… is forecast within",
+          "irr_rain_prob": "… with a probability of at least",
+          "irr_frost_c": "Frost warning at or below"
+        },
+        "data_description": {
+          "irr_weather": "Any weather entity with a forecast (Met.no, OpenWeatherMap, Open-Meteo …). Hourly forecasts work best.",
+          "irr_soil": "Their average is used (e.g. EM500-SMTC, WTS506 soil moisture).",
+          "irr_base_minutes": "The time is scaled by how far the soil is below the target and reduced when some rain is expected."
+        }
       }
     },
     "error": {
@@ -314,7 +371,9 @@
         "building": "Building (CO₂, temperature, humidity)",
         "devices": "Devices (offline, battery low)",
         "gateways": "Gateways offline",
-        "commands": "Commands not confirmed"
+        "commands": "Commands not confirmed",
+        "pumps": "Pumps (dry-run, overload, short-cycling)",
+        "irrigation": "Irrigation (pivot stalled, frost)"
       }
     }
   },
@@ -490,6 +549,17 @@
         "device_id": {
           "name": "Tank sensor",
           "description": "One or more level sensors with a tank set up."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "irrigation_advice": {
+        "name": "Irrigation advice",
+        "state": {
+          "irrigate": "Irrigate",
+          "skip": "Skip"
         }
       }
     }

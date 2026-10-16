@@ -54,7 +54,8 @@ mod("homeassistant.helpers"); mod("homeassistant.util", dt=dt_mod); mod("homeass
 mod("homeassistant.helpers.dispatcher", async_dispatcher_connect=dispatcher_connect, async_dispatcher_send=dispatcher_send)
 LATER = []
 mod("homeassistant.helpers.event", async_track_time_interval=lambda h, f, i: (lambda: None),
-    async_call_later=lambda h, d, f: (LATER.append(f), (lambda: None))[1])
+    async_call_later=lambda h, d, f: (LATER.append(f), (lambda: None))[1],
+    async_track_state_change_event=lambda h, ids, f: (lambda: None))
 mod("homeassistant.helpers.storage", Store=Store)
 class _DevReg:
     def async_get_device(self, **kw): return None
@@ -892,3 +893,120 @@ try:
 except ValueError as err:
     assert "button" in str(err)
 print("walk test ok")
+
+
+# ---------------- 0.24: pumps, pivots, forecast-aware irrigation ----------------
+import math, struct
+entries.async_entry_for_domain_unique_id = lambda d, u: u in entries.known      # undo the provisioning test's patch
+WATER = {"state": "10.0"}
+hass.states = types.SimpleNamespace(get=lambda eid: types.SimpleNamespace(
+    state=WATER["state"], attributes={"unit_of_measurement": "m³"}) if eid == "sensor.borehole_water" else None)
+def ct101(amps):
+    return bytes([0x04, 0x98]) + int(amps * 100).to_bytes(2, "little")
+e_p, rt = make_with("0000000000c70101", "CT101", {"pump_enabled": True, "pump_normal_a": 10, "pump_max_starts": 2,
+                                                   "pump_water_entity": "sensor.borehole_water", "mains_voltage": 230},
+                    title="Borehole pump", area="Field 3")
+keys = {s.key for s in rt.extra_specs()}
+assert {"pump_run_hours", "pump_dry_run", "pump_m3_per_kwh", "pump_water_today"} <= keys
+n = len(fired)
+send("0000000000c70101", ct101(0))
+send("0000000000c70101", ct101(10))
+assert rt.values["pump_running"] is True and rt.values["pump_starts_last_hour"] == 1
+assert [d["type"] for e, d in fired[n:] if e == "milesight_lorawan_pump"] == ["start"]
+send("0000000000c70101", ct101(3)); send("0000000000c70101", ct101(3))       # 30 % of normal, twice
+assert rt.values["pump_dry_run"] is True and rt.attrs["pump_dry_run"]["below_a"] == 6.0
+assert any(d["type"] == "dry_run" and d["device"] == "Borehole pump" and d["area"] == "Field 3"
+           for e, d in fired[n:] if e == "milesight_lorawan_pump")
+al = alr_mod = sys.modules["milesight_lorawan.alerts"].device_alerts(e_p.title, rt.deveui, rt.values)
+assert "0000000000c70101:pump_dry" in al
+assert rt.attrs["pump_run_hours"]["milesight_role"] == "pump" and rt.attrs["pump_run_hours"]["current"] == 3.0
+rt.pump.s["last_ts"] -= 3600                                                   # an hour of running at 3 A …
+WATER["state"] = "16.0"
+send("0000000000c70101", ct101(10))
+v = rt.values
+assert v["pump_water_today"] == 6.0 and v["pump_energy_today"] and v["pump_m3_per_kwh"] == round(6.0 / v["pump_energy_today"], 2)
+assert rt._data_to_save()["trackers"]["pump"]["run_s"] > 3600
+
+def at101(lat, lon):
+    return bytes([0x04, 0x88]) + struct.pack("<ii", round(lat * 1e6), round(lon * 1e6)) + bytes([0x01])
+def pt(b, r=400.0, lat0=-26.0, lon0=28.0):
+    return (lat0 + r * math.cos(math.radians(b)) / 111195,
+            lon0 + r * math.sin(math.radians(b)) / (111195 * math.cos(math.radians(lat0))))
+e_v, rt = make_with("0000000000a70101", "AT101", {"pivot_centre": {"latitude": -26.0, "longitude": 28.0},
+                                                   "pivot_stall_min": 30}, title="Pivot 1")
+assert "cmd_pivot_stop" in {s.key for s in rt.extra_specs()}
+send("0000000000a70101", at101(*pt(100)))
+rt.pivot.s["moved_ts"] -= 3600; rt.pivot.s["ts"] -= 3600
+n = len(fired)
+send("0000000000a70101", at101(*pt(112)))
+v = rt.values
+assert v["pivot_status"] == "running" and abs(v["pivot_angle"] - 112) < 0.5 and abs(v["pivot_speed"] - 12) < 0.5
+assert [d["type"] for e, d in fired[n:] if e == "milesight_lorawan_pivot"] == ["started"]
+rt.pivot.s["moved_ts"] -= 1900
+rt._tick(None)                                                                  # no fixes: the minute tick spots it
+assert rt.values["pivot_stalled"] is True and rt.attrs["pivot_progress"]["status"] == "stalled"
+assert any(d["type"] == "stalled" for e, d in fired[n:] if e == "milesight_lorawan_pivot")
+assert "0000000000a70101:pivot_stalled" in sys.modules["milesight_lorawan.alerts"].device_alerts("P", rt.deveui, rt.values)
+b = button.MilesightCommandButton(rt, next(s for s in rt.extra_specs() if s.key == "cmd_pivot_stop"))
+asyncio.run(b.async_press())
+assert rt.values["pivot_stalled"] is False and rt.values["pivot_status"] == "stopped"
+saved = rt._data_to_save()["trackers"]["pivot"]
+assert saved["centre"] == [-26.0, 28.0]
+e_v.options = {**e_v.options, "pivot_centre": {"latitude": -26.1, "longitude": 28.0}}   # centre moved
+rt2 = runtime.DeviceRuntime(hass, e_v); rt2.store.async_load = lambda: asyncio.sleep(0, {"trackers": {"pivot": saved}})
+asyncio.run(rt2.async_load())
+assert rt2.pivot.s["angle"] is None
+print("pump and pivot ok")
+
+irr_ha = load("irrigation_ha")
+now_local = datetime(2026, 10, 14, 18, 0, tzinfo=ZoneInfo("Africa/Johannesburg"))
+dt_mod.now = lambda: now_local
+dt_mod.utcnow = lambda: now_local.astimezone(timezone.utc)
+dt_mod.parse_datetime = lambda s: datetime.fromisoformat(s)
+dt_mod.as_local = lambda d: d.astimezone(ZoneInfo("Africa/Johannesburg"))
+from datetime import timedelta as _td
+FORECAST = [{"datetime": (now_local + _td(hours=h)).isoformat(), "temperature": 9 - h * 0.6,
+             "precipitation": 0.0, "precipitation_probability": 5} for h in range(36)]
+CALLS = []
+async def _svc(domain, service, data, blocking=False, return_response=False):
+    CALLS.append((domain, service, data["type"]))
+    if data["type"] == "hourly":
+        raise RuntimeError("hourly forecast not supported")
+    return {data["entity_id"]: {"forecast": FORECAST}}
+hass.services = types.SimpleNamespace(async_call=_svc)
+SOIL = {"sensor.soil_1": "12", "sensor.soil_2": "unavailable"}
+_old_get = hass.states.get
+hass.states = types.SimpleNamespace(get=lambda eid: types.SimpleNamespace(state=SOIL[eid], attributes={}) if eid in SOIL else _old_get(eid))
+irr_entry = types.SimpleNamespace(entry_id="h", title="Farm gateway", options={
+    "irr_weather": "weather.farm", "irr_soil": ["sensor.soil_1", "sensor.soil_2"], "irr_target": 30,
+    "irr_base_minutes": 60, "irr_frost_c": 2})
+mgr = irr_ha.IrrigationManager(hass, irr_entry)
+assert mgr.enabled
+n = len(fired)
+asyncio.run(mgr._refresh())
+assert CALLS == [("weather", "get_forecasts", "hourly"), ("weather", "get_forecasts", "daily")] and mgr.daily
+# daily fallback with hourly-looking data still gives an answer; use hourly directly for the checks below
+mgr.daily = False; mgr._evaluate()
+a = mgr.data["advice"]
+assert a["advice"] == "irrigate" and a["minutes"] == 36 and a["soil_moisture"] == 12.0
+assert mgr.data["frost"]["active"] is True
+frost_ev = [d for e, d in fired[n:] if e == "milesight_lorawan_frost"]
+assert len(frost_ev) == 1 and frost_ev[0]["site"] == "Farm gateway"
+mgr._evaluate()
+assert len([1 for e, d in fired[n:] if e == "milesight_lorawan_frost"]) == 1          # once per night
+al = mgr.alerts()
+assert al["frost:h"]["category"] == "irrigation" and "around" in al["frost:h"]["message"]
+hub_entry.runtime_data = types.SimpleNamespace(irrigation=mgr)
+ents = irr_ha.irrigation_entities(hass, hub_entry, "sensor") + irr_ha.irrigation_entities(hass, hub_entry, "binary_sensor")
+by = {x._attr_name: x for x in ents}
+assert by["Irrigation advice"].native_value == "irrigate" and by["Irrigation advice"].extra_state_attributes["minutes"] == 36
+assert by["Frost tonight"].is_on is True and by["Rain expected"].is_on is False
+FORECAST[:] = [dict(f, precipitation=2.0, precipitation_probability=90) for f in FORECAST]
+mgr._evaluate()
+assert by["Irrigation advice"].native_value == "skip" and by["Rain expected"].is_on is True
+assert "rain" in by["Irrigation advice"].extra_state_attributes["reason"]
+assert irr_ha.irrigation_entities(hass, types.SimpleNamespace(runtime_data=types.SimpleNamespace(
+    irrigation=irr_ha.IrrigationManager(hass, types.SimpleNamespace(entry_id="x", title="x", options={})))), "sensor") == []
+res2 = load("resources")
+assert res2.wanted_dashboards({"pump"})["milesight-farm"] and not res2.wanted_dashboards({"tank"})["milesight-farm"]
+print("irrigation ok")

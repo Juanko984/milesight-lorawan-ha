@@ -9,8 +9,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-CATEGORIES = ("safety", "tank", "building", "devices", "gateways", "commands")
-DEFAULT_CATEGORIES = ["safety", "tank", "devices", "gateways"]
+CATEGORIES = ("safety", "tank", "pumps", "irrigation", "building", "devices", "gateways", "commands")
+DEFAULT_CATEGORIES = ["safety", "tank", "pumps", "irrigation", "devices", "gateways"]
+_CATEGORIES_V1 = ("safety", "tank", "building", "devices", "gateways", "commands")   # before 0.24
+
+
+def effective_categories(opts: dict[str, Any]) -> tuple[str, ...]:
+    """The chosen alert categories; categories added after the choice was saved start switched on."""
+    chosen = opts.get("alert_categories")
+    if not chosen:
+        return tuple(DEFAULT_CATEGORIES)
+    known = opts.get("alert_categories_known") or _CATEGORIES_V1
+    return tuple(c for c in CATEGORIES if c in chosen or (c in DEFAULT_CATEGORIES and c not in known))
 ACTION_ACK = "MSL_ACK_"
 ACTION_RUN = "MSL_RUN_"
 
@@ -210,6 +220,25 @@ def device_alerts(name: str, deveui: str, values: dict[str, Any], area: str | No
         out[f"{deveui}:tank_low"] = {"title": f"Tank low – {name}", "severity": "warning", "category": "tank",
                                      "message": f"{where} is low" + (f" ({', '.join(parts)})" if parts else "") + ".",
                                      "action": True}
+    if values.get("pump_dry_run") is True:
+        out[f"{deveui}:pump_dry"] = {
+            "title": f"Pump running dry – {name}", "severity": "critical", "category": "pumps",
+            "message": f"{where}: the current is well below normal – lost prime, empty well or broken shaft?"}
+    if values.get("pump_overload") is True:
+        out[f"{deveui}:pump_overload"] = {
+            "title": f"Pump overload – {name}", "severity": "critical", "category": "pumps",
+            "message": f"{where}: the current is well above normal – blockage, seized bearing or low voltage?"}
+    if values.get("pump_short_cycling") is True:
+        n = values.get("pump_starts_last_hour")
+        out[f"{deveui}:pump_cycling"] = {
+            "title": f"Pump short-cycling – {name}", "severity": "warning", "category": "pumps",
+            "message": f"{where} started {n} times in the last hour – check the pressure switch / tank."}
+    if values.get("pivot_stalled") is True:
+        ang = values.get("pivot_angle")
+        out[f"{deveui}:pivot_stalled"] = {
+            "title": f"Pivot stalled – {name}", "severity": "critical", "category": "irrigation",
+            "message": f"{where} has stopped moving" + (f" at {ang:.0f}°" if isinstance(ang, (int, float)) else "")
+                       + " during a round."}
     if values.get("online") is False:
         out[f"{deveui}:offline"] = {"title": f"Offline – {name}", "severity": "warning", "category": "devices",
                                     "message": f"{where} has not reported for a while."}
