@@ -44,7 +44,7 @@
           "deveui": "16 hex characters, printed on the device label.",
           "area": "Room / area name – created if it doesn't exist.",
           "register_on_gateway": "Registers the DevEUI on the Milesight gateway's network server so the device can join – no need to open the gateway's web page.",
-          "app_key": "32 hex digits. Leave empty for the gateway setting (Milesight factory key by default)."
+          "app_key": "32 hex digits, filled in with the gateway's default AppKey (Milesight factory key unless changed). Change it if the device label shows its own key."
         }
       },
       "confirm": {

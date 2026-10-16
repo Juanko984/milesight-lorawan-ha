@@ -2,12 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.20.2
+### Changed
+- Add a device: the AppKey field is filled in with the gateway's default AppKey; the model list is alphabetical
+  (discovery guesses still come first).
+
 ## 0.20.1
 ### Fixed
 - Add devices to the gateway: answers from gateway firmware that does not echo the request's `type` / `id` were
   ignored, so the connection test timed out. Any answer on the response topic is now matched to the waiting request.
 - The "gateway did not answer" message now says whether nothing arrived on the response topic or what did arrive,
   and every answer is logged at debug level.
+- *Sync devices with gateway* only offers devices of the gateway application chosen for Home Assistant (not every
+  application on the gateway); *Last seen* uses the gateway's timestamp.
+- AppKeys and session keys in the gateway's answers are masked in logs and error messages.
+
 
 ## 0.20.0
 ### Added

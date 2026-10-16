@@ -144,7 +144,10 @@ _DEVEUI_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
 def _model_selector(order: list[str] | None = None) -> SelectSelector:
-    keys = list(dict.fromkeys((order or []) + list(MODELS)))
+    # discovery guesses first, then every model alphabetically (natural order: VS121 before VS1210)
+    def natural(k: str) -> list:
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", MODELS[k].label)]
+    keys = list(dict.fromkeys([k for k in (order or []) if k in MODELS] + sorted(MODELS, key=natural)))
     return SelectSelector(SelectSelectorConfig(
         options=[SelectOptionDict(value=k, label=MODELS[k].label) for k in keys],
         mode=SelectSelectorMode.DROPDOWN,
@@ -303,9 +306,11 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Optional("name", description={"suggested_value": (user_input or {}).get("name")}): TextSelector(),
             vol.Optional(CONF_AREA, description={"suggested_value": (user_input or {}).get(CONF_AREA)}): TextSelector(),
         }
-        if _provisioning_hub(self.hass) is not None:
+        hub = _provisioning_hub(self.hass)
+        if hub is not None:
             schema[vol.Required(CONF_REGISTER, default=(user_input or {}).get(CONF_REGISTER, True))] = BooleanSelector()
-            schema[vol.Optional(CONF_APP_KEY, description={"suggested_value": (user_input or {}).get(CONF_APP_KEY)})] = \
+            key_now = (user_input or {}).get(CONF_APP_KEY) if user_input else (hub.ns_app_key or DEFAULT_APP_KEY)
+            schema[vol.Optional(CONF_APP_KEY, description={"suggested_value": key_now})] = \
                 TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
         return self.async_show_form(step_id="manual", errors=errors, description_placeholders=placeholders,
                                     data_schema=vol.Schema(schema))

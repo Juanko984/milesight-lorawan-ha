@@ -18,6 +18,7 @@ from .ns_api import (
     NsApiError,
     build_request,
     device_body,
+    mask_secrets,
     parse_applications,
     parse_devices,
     parse_profiles,
@@ -59,7 +60,7 @@ class NsApiClient:
     @callback
     def _message(self, msg) -> None:
         text = msg.payload if isinstance(msg.payload, str) else bytes(msg.payload).decode("utf-8", "replace")
-        _LOGGER.debug("ns-api answer on %s: %s", self.response_topic, text[:500])
+        _LOGGER.debug("ns-api answer on %s (%d bytes): %s", self.response_topic, len(text), mask_secrets(text[:500]))
         parsed = parse_response(text)
         rid = parsed[0] if parsed else None
         fut = self._waiting.pop(rid, None) if rid else None
@@ -67,7 +68,7 @@ class NsApiClient:
             fut = self._waiting.pop(next(iter(self._waiting)))       # answer without (or with another) id
         if fut is None:
             self.unmatched += 1
-            self.last_unmatched = text[:200]
+            self.last_unmatched = mask_secrets(text)[:200]
             return
         if not fut.done():
             fut.set_result(parsed[1:])

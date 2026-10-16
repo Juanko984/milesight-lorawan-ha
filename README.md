@@ -727,6 +727,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.20.2** | AppKey prefilled when adding a device; alphabetical model list. |
 | **0.20.1** | Gateway provisioning accepts answers from more gateway firmware; clearer error when the gateway does not answer. |
 | **0.20.0** | Add devices to the gateway from Home Assistant (ns-api over MQTT, also bulk), tanks and silos (litres, usage, days left, refills, sudden-drop theft alarm), alert escalation with actionable phone notifications, named / scaled Modbus and analog channels; UC300 Modbus readings after a settings reply fixed. |
 | **0.19.1** | Dashboards find the gateway's sensors by themselves (entity ids depend on the gateway's name); corrected example entity ids. |

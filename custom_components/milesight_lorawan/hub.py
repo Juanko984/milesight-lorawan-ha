@@ -136,6 +136,8 @@ class Hub:
         self.gateway_devices = {**data, "at": time.time(), "error": None}
         if discover:
             for d in data["devices"]:
+                if self.ns_application and d.get("application_id") not in ("", self.ns_application):
+                    continue                     # only offer the gateway application Home Assistant uses
                 eui = d["deveui"]
                 if self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, eui) or eui in self._announced:
                     continue

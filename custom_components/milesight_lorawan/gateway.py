@@ -262,7 +262,9 @@ class GatewayDevicesSensor(_Base, SensorEntity):
         at = g.get("at")
         return {"milesight_role": "net_registered", "site": self.entry.title,
                 "devices": [{**d, "in_home_assistant": d["deveui"] in known} for d in g.get("devices", [])],
-                "not_in_home_assistant": sum(1 for d in g.get("devices", []) if d["deveui"] not in known),
+                "not_in_home_assistant": sum(1 for d in g.get("devices", []) if d["deveui"] not in known
+                                             and (not hub or not hub.ns_application
+                                                  or d.get("application_id") in ("", hub.ns_application))),
                 "applications": g.get("applications"), "profiles": g.get("profiles"),
                 "application_id": hub.ns_application if hub else None, "profile_id": hub.ns_profile if hub else None,
                 "last_sync": dt_util.utc_from_timestamp(at).isoformat() if at else None, "error": g.get("error")}

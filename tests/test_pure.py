@@ -975,6 +975,22 @@ def test_ns_api_helpers():
     profs = {"result": [{"name": "ClassC-OTAA", "profile": {"profileID": "uuid-c", "supportsJoin": True}}]}
     assert nsa.parse_profiles(profs) == {"uuid-c": "ClassC-OTAA"}
     assert nsa.valid_key("5572404c696e6b4c6f52613230313823") and not nsa.valid_key("55")
+    # a UG65's real answer: no "type", no "code", keys in the device list
+    real = json.dumps({"id": "ff3f9022d28244cb", "gatewayEUI": "24E124FFFEFA2994", "method": "GET",
+                       "url": "/api/urdevices?applicationID=0&offset=0&limit=9999",
+                       "body": {"devTotalCount": "1", "deviceResult": [
+                           {"devEUI": "24E124329F088306", "name": "EM400-MUD", "applicationID": "6",
+                            "appKey": "5572404c696e6b4c6f52613230313823", "appSKey": "2ec7f93a91a5e3a835e82ec0d73d7ce6",
+                            "lastSeenAt": "24 seconds ago", "lastSeenAtTime": "2026-10-16 19:16:01.926484 +0800 CST",
+                            "active": True}],
+                           "appResult": [{"appName": "HA Milesight Integration", "applicationID": "6"}],
+                           "profileResult": [{"profileID": "33a910a5", "profileName": "ClassA-OTAA", "supportsJoin": True}]}})
+    rid, code, err, body = nsa.parse_response(real)
+    assert rid == "ff3f9022d28244cb" and code is None and err == ""
+    d = nsa.parse_devices(body)[0]
+    assert d["application_id"] == "6" and d["last_seen"].startswith("2026-10-16 19:16") and "appKey" not in d
+    masked = nsa.mask_secrets(real)
+    assert "5572404c" not in masked and "2ec7f93a" not in masked and '"appKey": "***"' in masked
     devs, errs = mdl.parse_bulk("24E124136D000001, EM300-TH, Office, , 00112233445566778899AABBCCDDEEFF\n"
                                 "24E124136D000002, EM300-TH, , , 1234")
     assert devs[0]["app_key"] == "00112233445566778899aabbccddeeff" and "AppKey" in errs[0]

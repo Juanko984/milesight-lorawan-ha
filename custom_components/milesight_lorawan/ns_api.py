@@ -70,6 +70,14 @@ def parse_response(payload: str | bytes) -> tuple[str | None, int | None, str, d
     return (str(msg["id"]) if msg.get("id") else None), code, str(body.get("error") or msg.get("error") or ""), body
 
 
+_SECRET_RE = re.compile(r'("(?:appKey|appSKey|nwkSKey)"\s*:\s*")[0-9a-fA-F]*(")')
+
+
+def mask_secrets(text: str) -> str:
+    """Hide AppKeys and session keys (the gateway's device list contains them) before logging or showing text."""
+    return _SECRET_RE.sub(r"\1***\2", text)
+
+
 def valid_key(key: str | None) -> bool:
     return bool(key) and re.fullmatch(r"[0-9a-fA-F]{32}", key) is not None
 
@@ -97,7 +105,9 @@ def parse_devices(body: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         out.append({"deveui": str(d["devEUI"]).lower(), "name": d.get("name"),
                     "application_id": str(d.get("applicationID", "")), "profile": d.get("profileName"),
-                    "active": d.get("active"), "last_seen": d.get("lastSeenAt") or None})
+                    "active": d.get("active"),
+                    "last_seen": next((v for v in (d.get("lastSeenAtTime"), d.get("lastSeenAt")) if v and v != "-"),
+                                      None)})
     return out
 
 
