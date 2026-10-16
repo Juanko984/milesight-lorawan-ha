@@ -727,6 +727,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.20.3** | Devices with a gateway payload codec (e.g. AM107) are discovered and decoded. |
 | **0.20.2** | AppKey prefilled when adding a device; alphabetical model list. |
 | **0.20.1** | Gateway provisioning accepts answers from more gateway firmware; clearer error when the gateway does not answer. |
 | **0.20.0** | Add devices to the gateway from Home Assistant (ns-api over MQTT, also bulk), tanks and silos (litres, usage, days left, refills, sudden-drop theft alarm), alert escalation with actionable phone notifications, named / scaled Modbus and analog channels; UC300 Modbus readings after a settings reply fixed. |

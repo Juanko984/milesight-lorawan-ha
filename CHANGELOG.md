@@ -2,6 +2,12 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.20.3
+### Fixed
+- Devices with a payload codec switched on in the Milesight gateway (e.g. AM107 with the gateway's AM107 codec)
+  send their decoded values instead of the raw payload; these uplinks were ignored, so the device was never
+  discovered. They are now accepted (the model is taken from the gateway's device name).
+
 ## 0.20.2
 ### Changed
 - Add a device: the AppKey field is filled in with the gateway's default AppKey; the model list is alphabetical

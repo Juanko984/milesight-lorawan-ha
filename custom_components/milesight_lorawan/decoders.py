@@ -76,6 +76,14 @@ def _parse_time(value: Any) -> datetime | None:
     return dt if dt.tzinfo else None
 
 
+_ENVELOPE_KEYS = {
+    "devEUI", "deveui", "devEui", "dev_eui", "DevEUI", "applicationID", "applicationName", "deviceName", "device_name",
+    "devAddr", "fCnt", "fcnt", "f_cnt", "fPort", "fport", "port", "time", "received_at", "rssi", "snr", "loRaSNR",
+    "frequency", "adr", "confirmed", "dr", "class", "type", "gatewayEUI", "deduplicationId", "data", "payload",
+    "rxInfo", "txInfo", "deviceInfo", "object", "decoded",
+}
+
+
 def parse_envelope(payload: str | bytes, encoding: str = "base64") -> Uplink | None:
     """Parse a network-server uplink message. Returns None if it isn't one."""
     if isinstance(payload, bytes):
@@ -113,6 +121,11 @@ def parse_envelope(payload: str | bytes, encoding: str = "base64") -> Uplink | N
     obj = _first(msg, "object", "decoded")
     if isinstance(obj, dict) and up.predecoded is None:
         up.predecoded = obj
+    if up.raw is None and up.predecoded is None and not dev_info and not ttn_ids:
+        # gateway payload codec switched on: the decoded fields sit next to devEUI instead of "data"
+        fields = {k: v for k, v in msg.items() if k not in _ENVELOPE_KEYS and not isinstance(v, (dict, list))}
+        if any(isinstance(v, (int, float)) and not isinstance(v, bool) for v in fields.values()):
+            up.predecoded = fields
 
     up.gateways = _gateways(msg, ttn_up)
     best = up.gateways[0] if up.gateways else {}

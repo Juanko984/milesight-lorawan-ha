@@ -996,6 +996,15 @@ def test_ns_api_helpers():
     assert devs[0]["app_key"] == "00112233445566778899aabbccddeeff" and "AppKey" in errs[0]
 
 
+def test_envelope_gateway_codec():
+    # gateway payload codec on: decoded fields next to devEUI, no "data"
+    up = dec.parse_envelope(json.dumps({"devEUI": "24E124128C140924", "deviceName": "AM107", "fCnt": 5,
+                                        "temperature": 22.1, "humidity": 50, "co2": 600, "rssi": -80}))
+    assert up.raw is None and up.predecoded == {"temperature": 22.1, "humidity": 50, "co2": 600}
+    assert mdl.guess_from_name(up.device_name) == "AM107"
+    assert dec.parse_envelope(json.dumps({"devEUI": "24E124128C140924", "deviceName": "x"})).predecoded is None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
