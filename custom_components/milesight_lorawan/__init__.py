@@ -91,7 +91,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     if _is_hub(entry):
         # the generated dashboard and the gateway's statistics belong to this entry
         for key in (f"{DOMAIN}.dashboard_{entry.entry_id}", f"lovelace.milesight_{entry.entry_id}",
-                    f"{DOMAIN}.hub_{entry.entry_id}", f"{DOMAIN}.alerts_{entry.entry_id}"):
+                    f"{DOMAIN}.hub_{entry.entry_id}", f"{DOMAIN}.alerts_{entry.entry_id}",
+                    f"{DOMAIN}.areas_{entry.entry_id}"):
             await Store(hass, STORAGE_VERSION if key.startswith(DOMAIN) else 1, key).async_remove()
         return
     deveui = entry.data[CONF_DEVEUI]

@@ -94,6 +94,12 @@ class Hub:
             self._unsubs.append(await mqtt.async_subscribe(self.hass, topic, self._message_received, qos=0))
             _LOGGER.debug("Subscribed to %s", topic)
         self._unsubs.append(async_track_time_interval(self.hass, self._tick, timedelta(seconds=60)))
+        if self.ns is not None:
+            # read the gateway's device list shortly after start and every 6 hours, so 'Devices on gateway'
+            # is never empty just because nobody pressed Sync
+            from homeassistant.helpers.event import async_call_later
+            self._unsubs.append(async_call_later(self.hass, 45, self._auto_sync))
+            self._unsubs.append(async_track_time_interval(self.hass, self._auto_sync, timedelta(hours=6)))
         await self.alerts.async_start()
 
     async def async_stop(self) -> None:
@@ -122,6 +128,12 @@ class Hub:
                                                     "last_seen": None, "application_id": self.ns_application})
         async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
         return result
+
+    async def _auto_sync(self, _now: Any = None) -> None:
+        try:
+            await self.async_sync_devices(discover=False)
+        except Exception:  # noqa: BLE001 - shown on the sensor as 'error'
+            _LOGGER.debug("Automatic sync with the gateway failed", exc_info=True)
 
     async def async_sync_devices(self, discover: bool = True) -> dict[str, Any]:
         """Read the gateway's device list; devices that Home Assistant does not know yet are offered for adding."""

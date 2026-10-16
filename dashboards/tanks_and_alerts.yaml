@@ -31,10 +31,10 @@ views:
         content: |
           {% set gw = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_registered') | list %}
           {% if not gw %}Set up gateway → Configure → Add devices to the gateway, then press *Sync devices with gateway*.{% else %}
-          {% for g in gw %}{{ g.state }} devices registered on {{ g.attributes.site }} (last sync {{ g.attributes.last_sync or 'never' }}){% if g.attributes.error %} – ⚠ {{ g.attributes.error }}{% endif %}
+          {% for g in gw %}{% if g.state in ('unknown', 'unavailable') %}{{ g.attributes.site }}: not read yet – press *Sync devices with gateway* on the gateway device (it also syncs by itself every 6 hours).{% else %}{{ g.state }} devices registered on {{ g.attributes.site }} (last sync {{ as_timestamp(g.attributes.last_sync) | timestamp_custom('%d %b %H:%M') if g.attributes.last_sync else 'never' }}){% endif %}{% if g.attributes.error %} – ⚠ {{ g.attributes.error }}{% endif %}
 
-          {% set missing = g.attributes.devices | rejectattr('in_home_assistant') | list %}
+          {% set missing = (g.attributes.devices or []) | rejectattr('in_home_assistant') | list %}
           {% if missing %}Not in Home Assistant yet (see Settings → Devices & services → Discovered):
           {% for d in missing %}- {{ d.name or '' }} `{{ d.deveui | upper }}`
-          {% endfor %}{% else %}All registered devices are in Home Assistant ✅{% endif %}
+          {% endfor %}{% elif g.state not in ('unknown', 'unavailable') %}All registered devices are in Home Assistant ✅{% endif %}
           {% endfor %}{% endif %}

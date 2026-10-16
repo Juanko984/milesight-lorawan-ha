@@ -259,6 +259,7 @@ class AreaTracker:
         self.summary: dict[str, dict] = {}
         self.known: set[tuple[str, str]] = set()
         self.data: dict[str, dict] = {}       # area -> {"day": iso, "occ": [24], "n": [24], "prev": [24] | None}
+        self.store = None                     # Store: the hourly history survives restarts and reloads
 
     @callback
     def sample(self, _now=None) -> None:
@@ -285,6 +286,8 @@ class AreaTracker:
                     new.append(AreaSensor(self.hass, self.entry, area, kind, self))
         if new:
             self.add(new)
+        if self.store is not None:
+            self.store.async_delay_save(lambda: self.data, 120)
         from homeassistant.helpers.dispatcher import async_dispatcher_send
         async_dispatcher_send(self.hass, f"{DOMAIN}_areas_{self.entry.entry_id}")
 
@@ -302,7 +305,14 @@ class AreaTracker:
 
 
 async def async_setup_areas(hass: HomeAssistant, entry: ConfigEntry, async_add_entities) -> AreaTracker:
+    from homeassistant.helpers.storage import Store
+    from .const import STORAGE_VERSION
     tracker = AreaTracker(hass, entry, async_add_entities)
+    tracker.store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.areas_{entry.entry_id}")
+    saved = await tracker.store.async_load()
+    if isinstance(saved, dict):
+        tracker.data = {a: d for a, d in saved.items() if isinstance(d, dict) and "day" in d}
+    entry.async_on_unload(lambda: hass.async_create_task(tracker.store.async_save(tracker.data)))
     tracker.sample()
     entry.async_on_unload(async_track_time_interval(hass, tracker.sample, timedelta(seconds=60)))
     return tracker

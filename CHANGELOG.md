@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.22.2
+### Fixed
+- Occupancy today / yesterday (per area, per hour) was only kept in memory, so every restart, update or change of
+  the gateway's options started the day again with "no data". It is now saved and restored. Hours while Home
+  Assistant was not running stay "no data".
+
+## 0.22.1
+### Fixed
+- *Devices on gateway* stayed "unknown" until *Sync devices with gateway* was pressed: the gateway's device list is
+  now read 45 s after start and every 6 hours. The Tanks & alerts card says "not read yet" instead of
+  "unknown devices … All registered devices are in Home Assistant".
+
 ## 0.22.0
 ### Added
 - Devices are tagged by what they are used for, from their model: Tank / silo, People & occupancy, Air & comfort.

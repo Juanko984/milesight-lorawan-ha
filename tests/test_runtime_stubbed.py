@@ -850,3 +850,22 @@ assert out["blueprints"]["written"] == ["alarm.yaml"] and out["blueprints"]["kep
 assert out["dashboards"]["kept"] == ["LoRaWAN fleet"] and dashes["milesight-fleet"].saved["title"] == "Mine"
 assert "kept" in res.summary(out)
 print("resources ok")
+
+
+# area occupancy history survives a restart
+from datetime import date as _date
+fl = sys.modules["milesight_lorawan.fleet"]
+today = datetime.now(ZoneInfo("Africa/Johannesburg")).date().isoformat()
+SAVED = {"Reception": {"day": today, "occ": [0] * 24, "n": [0] * 24, "prev": [5] * 24, "occ_pct": [None] * 9 + [80] + [None] * 14}}
+class _AreaStore(Store):
+    async def async_load(self): return SAVED
+sys.modules["homeassistant.helpers.storage"].Store = _AreaStore
+unloads = []
+ae = types.SimpleNamespace(entry_id="h", title="Site gateway", data={"entry_type": "hub"}, async_on_unload=unloads.append)
+hass5 = types.SimpleNamespace(config_entries=types.SimpleNamespace(async_entries=lambda d: []), async_create_task=lambda c: c.close())
+fl.async_track_time_interval = lambda h, f, i: (lambda: None)
+fl.dt_util = types.SimpleNamespace(now=lambda: datetime.now(ZoneInfo("Africa/Johannesburg")))
+tr = asyncio.run(fl.async_setup_areas(hass5, ae, lambda ents: None))
+assert tr.hourly("Reception")[9] == 80 and tr.hourly("Reception", yesterday=True)[0] == 5
+sys.modules["homeassistant.helpers.storage"].Store = Store
+print("areas ok")

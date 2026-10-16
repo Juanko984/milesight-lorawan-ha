@@ -752,6 +752,8 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.22.2** | Area occupancy history kept across restarts. |
+| **0.22.1** | Gateway device list read automatically (start + every 6 h). |
 | **0.22.0** | Devices are tagged by use (tank, people, comfort) as Home Assistant labels; dashboards appear only when a site has devices that need them. |
 | **0.21.1** | Fixed the UndefinedError on the fleet, signal and tanks dashboards. |
 | **0.21.0** | Blueprints and dashboards ship inside the integration and are installed / updated automatically (HACS update), with an *Install dashboards and blueprints* button. |
