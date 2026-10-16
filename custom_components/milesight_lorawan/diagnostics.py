@@ -10,11 +10,16 @@ from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_HUB
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
-    data: dict[str, Any] = {"data": dict(entry.data), "options": dict(entry.options)}
+    options = dict(entry.options)
+    if options.get("ns_app_key"):
+        options["ns_app_key"] = "**REDACTED**"
+    data: dict[str, Any] = {"data": dict(entry.data), "options": options}
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
         hub = entry.runtime_data
         data["topic"] = hub.topic
         data["seen_devices"] = sorted(hub.last_uplink)
+        data["alerts"] = hub.alerts.engine.to_dict()
+        data["gateway_devices"] = hub.gateway_devices
     else:
         data["runtime"] = entry.runtime_data.diagnostics()
     return data

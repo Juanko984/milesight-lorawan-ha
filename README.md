@@ -193,7 +193,9 @@ The odour level is a rough guide (Strong from 5 ppm NH3 or 0.1 ppm H2S, Noticeab
 distance change and blind-spot / no-target alarms.
 
 Fill level needs the *empty distance* (sensor to the bottom of the empty bin / tank, in mm): open the device →
-**Configure** → *Empty distance (mm)*. 0 % = empty, 100 % = surface at the sensor.
+**Configure** (→ *Tank or silo* for the level sensors). 0 % = empty, 100 % = surface at the sensor.
+For tanks and silos see [Tanks and silos](#tanks-and-silos) – litres, usage per day, days until empty, refills and
+theft alarms.
 
 ### EM500 range – industrial sensors
 
@@ -233,8 +235,9 @@ created **per channel the first time it reports** – unused channels never show
 | **UC521** | Valve 1 / 2 opening %, valve type and direction, valve pulses, GPIO, pipe pressure 1 / 2 + alarms, battery |
 | **UC100** / **UC100 v2** | Every configured Modbus channel (v2 also register 2–4 of multi-register channels and 64-bit values), alarm status per channel |
 
-Modbus values are shown as the controller reports them (raw register value); set a unit or scaling with a
-template sensor if needed. The UC711 thermostat controller is not supported yet.
+Modbus values arrive as the controller reports them (raw register value). Give them a name, unit and scale under
+**Configure → Channels** – see [Modbus and analog channels](#modbus-and-analog-channels). The UC711 thermostat
+controller is not supported yet.
 
 ## Requirements
 
@@ -303,11 +306,15 @@ Add the gateway first, then **Add device → Add many devices (paste a list)** a
 straight from a spreadsheet (comma, semicolon or tab separated):
 
 ```
-DevEUI, Model, Name, Area
+DevEUI, Model, Name, Area, AppKey
 24E124136B322135, EM300-MCS, Back door, Warehouse
 24E124538C220481, AM307, Meeting room 1, 1st floor
-24E124600B251990, VS121, Reception, Ground floor
+24E124600B251990, VS121, Reception, Ground floor, 00112233445566778899aabbccddeeff
 ```
+
+With [gateway provisioning](#add-devices-to-the-gateway-from-home-assistant) set up, tick *Also add them to the
+gateway* and every DevEUI is registered on the gateway's network server too (AppKey column optional – empty uses the
+gateway setting, the Milesight factory key by default).
 
 Model names are matched loosely (`em300 mcs`, `WS501 v4`). Every device is created straight away – no confirm
 dialogs – and placed in its **area** (created if it doesn't exist). Devices that already exist are skipped and
@@ -563,6 +570,97 @@ UG65 / UG56 / UG67 do not publish their own status over MQTT; for them everythin
 they forward, which is reliable as long as some devices report more often than the offline time. (Their HTTP API
 needs a password copied from the browser's developer tools, so it is not used.)
 
+## Add devices to the gateway from Home Assistant
+
+No more typing DevEUIs into the gateway's web page: Home Assistant registers new devices on the Milesight gateway's
+built-in network server through MQTT (Milesight *ns-api*).
+
+1. On the gateway: **Network Server → Applications →** your application → **Data Transmission → MQTT**: set
+   **Request Data Topic** (e.g. `milesight/request`) and **Response Data Topic** (e.g. `milesight/response`) –
+   they must be different. Same broker as the uplinks.
+2. In Home Assistant: gateway entry → **Configure → Add devices to the gateway**: enter the two topics (and the
+   default AppKey – Milesight devices ship with `5572404c696e6b4c6f52613230313823`). Home Assistant reads the
+   gateway's device list to check the connection, then asks for the **application** and **device profile** new
+   devices go into (ClassA-OTAA for battery sensors).
+3. **Add a device manually** and **Add many devices** now have *Also add it to the gateway* (manual add also an
+   *AppKey* field). A device that is already registered is left as it is.
+
+The gateway device gets **Devices on gateway** (with the list, and which ones Home Assistant doesn't have yet) and a
+**Sync devices with gateway** button – devices registered on the gateway but missing in Home Assistant are offered
+under *Discovered*, with the model guessed from their name. Services: `milesight_lorawan.add_to_gateway`,
+`remove_from_gateway`, `sync_gateway_devices`. AppKeys are never stored by Home Assistant (the default key is
+redacted in diagnostics); note that MQTT debug logging prints the request, key included.
+
+## Tanks and silos
+
+Level and distance sensors (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL) turn into tank
+gauges: device → **Configure → Tank or silo**.
+
+| Shape | Size to enter |
+|---|---|
+| Upright cylinder | diameter, height |
+| Lying cylinder | diameter, length |
+| Rectangular | length, width, height |
+| Silo with cone bottom | diameter, total height, cone height |
+| Any other shape | capacity (L) and height – litres follow the level |
+
+Distance sensors also need the *distance reading when empty* (sensor to floor); the submersible EM500-SWL needs the
+probe's height above the floor. The form shows the resulting capacity.
+
+New entities: **Contents** (L), **Tank fill** (%), **Liquid level**, **Usage per day** (L/d, over the last week,
+refills and sensor jitter ignored), **Days until empty**, **Empty around**, **Last refill**, **Space left**
+(disabled), optional **Contents weight** (density, e.g. diesel 840 kg/m³, feed pellets 650), **Tank low** (below
+20 % by default) and a **Tank refilled** button.
+
+**Sudden drop** (theft or leak – e.g. diesel): set *Sudden-drop alarm when it falls by* (% of the capacity) *within*
+(minutes). The binary sensor stays on until **Clear sudden-drop alarm** is pressed or the tank is refilled.
+Refills (also slow pump refills) and sudden drops fire `milesight_lorawan_tank` (`type: refill | sudden_drop`,
+`added` / `amount` in litres). A big jump is only believed when the next reading confirms it, so a single bad echo
+doesn't raise an alarm. Dashboard: [`dashboards/tanks_and_alerts.yaml`](dashboards/tanks_and_alerts.yaml).
+
+## Modbus and analog channels
+
+Third-party probes on a UC300 / UC50x / UC11xx / UC100 (pressure transmitters, flow meters, level probes, energy
+meters) become proper sensors: device → **Configure → Channels**, one line per channel:
+
+```
+channel; name; unit; scale; offset; device class; decimals; state class
+3;       Line pressure; bar;  0.01
+3.2;     Flow;          m³/h; 0.1; 0; volume_flow_rate; 1
+adc_1;   Borehole level; m;   4-20>0-10
+pt100_1; Cold room;     °C
+```
+
+* **channel** – the Modbus channel number from Milesight ToolBox (`3`; `3.2` = channel 3 register 2 on UC100 v2) or
+  the input: `adc_1`, `adv_1`, `analog_input_1`, `pt100_1`, `gpio_counter_1`.
+* **scale** – a multiplier, or a range `4-20>0-10` that maps the raw span onto the real one (4–20 mA → 0–10 m).
+* **device class** is taken from the unit when left empty (bar → pressure, °C → temperature, m³/h → flow …).
+* Empty columns (or `-`) keep the default; `#` starts a comment. Mistakes are listed line by line in the form.
+
+The entity keeps its id and history, it just gets the new name, unit and scaled value. The form lists the channels
+the controller has reported so far with their raw values. (Which registers are read is still set on the controller
+in Milesight ToolBox – the Milesight encoders have no downlink for it.)
+
+## Alert escalation
+
+Gateway entry → **Configure → Alert escalation** sends alerts to phones (Home Assistant Companion app) and makes
+sure someone reacts:
+
+* **Notify first** / **Escalate to** – notify services (e.g. `notify.mobile_app_juans_phone`). Nobody presses
+  *Acknowledge* within *Escalate after* (default 15 min) → the backup people get it too; optional reminders.
+* **Quiet hours** – non-critical alerts wait until the morning. Leaks, smoke, gas, falls, sudden tank drops and
+  gateway outages always go through, as critical alerts (they sound on a muted iPhone / use the Android alarm
+  stream).
+* **Duplicates** – a sensor that flaps on and off continues the same alert; *Resolved* is only sent once it stays
+  resolved for a few minutes.
+* **Actions** – every alert has *Acknowledge*; tank-low alerts can have an extra button (e.g. *Start pump*) that
+  runs a switch, script or button.
+* **Alerts to send** – safety, tanks, building (CO₂ / temperature / humidity), devices (offline, battery),
+  gateways offline, commands not confirmed.
+
+The gateway gets **Open alerts** (with the list and who acknowledged) and **Acknowledge all alerts**; service
+`milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
+
 ## Settings per device
 
 Open the device's integration entry → **Configure** (⚙️). Picked the wrong model during onboarding? Change **Model** here; afterwards delete the old, now-unavailable entities from the device page.
@@ -572,7 +670,9 @@ Open the device's integration entry → **Configure** (⚙️). Picked the wrong
 | Offline gap (min) – time isn't counted across longer gaps | all | 120 |
 | Door left open after (min) | EM300-MCS | 10 |
 | CO2 limit (ppm) | AM300 range, EM500-CO2 | 1000 |
-| Empty distance (mm) – for fill level % | EM400 range | 0 (off) |
+| Empty distance (mm) – for fill level % | EM400-TLD (level sensors: under *Tank or silo*) | 0 (off) |
+| Tank or silo – shape, size, low level, refill / sudden-drop alarm | level & distance sensors | off |
+| Channels – name / unit / scale per Modbus register or analog input | UC controllers | – |
 | Running above (A) – for run time and starts | CT range | 0.5 |
 | Voltage for power estimate (V) | CT range | 0 (off) |
 | Count as empty after (min at 0 people / vacant) | VS121, VS321, VS340, VS341, VS370, VS373, GS601 | 2 |
@@ -581,8 +681,11 @@ Open the device's integration entry → **Configure** (⚙️). Picked the wrong
 | Retries for unanswered commands | devices with commands | 2 |
 | Max bytes per display downlink | DS3604 | 51 |
 
-Gateway entry → **Configure**: uplink / downlink topics, *Notification / gateway status topics* (ACK, join,
-gateway information – comma separated, wildcards allowed) and *Gateway offline after* (min, default 15).
+Devices with these extra sections show a menu under **Configure**: *Device settings*, *Channels*, *Tank or silo*.
+
+Gateway entry → **Configure**: *Site information*, *Alert escalation*, *Add devices to the gateway* and *Gateway
+connection* (uplink / downlink topics, *Notification / gateway status topics* – ACK, join, gateway information,
+comma separated, wildcards allowed – and *Gateway offline after*, min, default 15).
 
 ## Troubleshooting
 
@@ -624,6 +727,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.20.0** | Add devices to the gateway from Home Assistant (ns-api over MQTT, also bulk), tanks and silos (litres, usage, days left, refills, sudden-drop theft alarm), alert escalation with actionable phone notifications, named / scaled Modbus and analog channels; UC300 Modbus readings after a settings reply fixed. |
 | **0.19.1** | Dashboards find the gateway's sensors by themselves (entity ids depend on the gateway's name); corrected example entity ids. |
 | **0.19.0** | Building dashboard: Site information (from Home Assistant + gateway settings), building health / comfort / air quality / people / alerts / averages sensors, one-click generated dashboard with built-in cards. |
 | **0.18.0** | Command confirmation with retries (pending / confirmed / failed, network ACKs), signal quality per device (gateways in range, SF, packet loss, advice) with installer dashboard, DS3604 display content (text entities, service, room-sign blueprint), gateway health (a device per gateway: online, packets, devices heard, status reports). |

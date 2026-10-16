@@ -18,6 +18,11 @@ from .const import CONF_DEVEUI, DOMAIN
 SERVICE_SEND_DOWNLINK = "send_downlink"
 SERVICE_OUTPUT_COMMAND = "output_command"
 SERVICE_DISPLAY = "display_content"
+SERVICE_ACK = "acknowledge_alert"
+SERVICE_PROVISION = "add_to_gateway"
+SERVICE_DEPROVISION = "remove_from_gateway"
+SERVICE_SYNC = "sync_gateway_devices"
+SERVICE_TANK_REFILLED = "tank_refilled"
 DISPLAY_BLOCKS = [f"text_{n}" for n in range(1, 11)] + ["qrcode"]
 ACTIONS = ["on", "off", "on_for", "off_for", "open_for", "open_until_pulses", "set"]
 
@@ -43,6 +48,33 @@ DISPLAY_SCHEMA = vol.Schema({
     vol.Optional("refresh", default=False): cv.boolean,
     vol.Optional("beep", default=False): cv.boolean,
 })
+
+
+ACK_SCHEMA = vol.Schema({vol.Optional("alert_id"): cv.string})
+PROVISION_SCHEMA = vol.Schema({
+    vol.Required("deveui"): cv.string,
+    vol.Optional("name"): cv.string,
+    vol.Optional("app_key"): cv.string,
+    vol.Optional("profile_id"): cv.string,
+})
+DEPROVISION_SCHEMA = vol.Schema({vol.Required("deveui"): cv.string})
+TANK_SCHEMA = vol.Schema({vol.Required("device_id"): vol.Any(cv.string, [cv.string])})
+
+
+def _hubs(hass: HomeAssistant, provisioning: bool = False) -> list:
+    hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+    if provisioning:
+        hubs = [h for h in hubs if h.ns is not None]
+        if not hubs:
+            raise ServiceValidationError("Set up 'Add devices to the gateway' in the gateway's options first")
+    return hubs
+
+
+def _eui(text: str) -> str:
+    eui = re.sub(r"[^0-9a-fA-F]", "", text).lower()
+    if len(eui) != 16:
+        raise ServiceValidationError(f"'{text}' is not a 16-digit DevEUI")
+    return eui
 
 
 def _runtime(hass: HomeAssistant, device_id: str):
@@ -94,6 +126,72 @@ def async_register_services(hass: HomeAssistant) -> None:
             except Exception as err:  # noqa: BLE001
                 raise HomeAssistantError(str(err)) from err
 
+    async def _ack(call: ServiceCall) -> None:
+        user = None
+        if call.context.user_id:
+            u = await hass.auth.async_get_user(call.context.user_id)
+            user = u.name if u else None
+        for hub in _hubs(hass):
+            await hub.alerts.async_acknowledge(call.data.get("alert_id"), user)
+
+    async def _provision(call: ServiceCall) -> dict:
+        from .ns_api import valid_key
+        key = call.data.get("app_key")
+        if key and not valid_key(key):
+            raise ServiceValidationError("app_key must be 32 hex digits")
+        hubs = [h for h in _hubs(hass, True) if h.can_provision]
+        if not hubs:
+            raise ServiceValidationError("Pick the gateway application and profile under 'Add devices to the gateway'")
+        eui = _eui(call.data["deveui"])
+        try:
+            result = await hubs[0].async_provision(eui, call.data.get("name"), key, call.data.get("profile_id"))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+        return {"result": result}
+
+    async def _deprovision(call: ServiceCall) -> dict:
+        hub = _hubs(hass, True)[0]
+        eui = _eui(call.data["deveui"])
+        try:
+            removed = await hub.ns.async_remove_device(eui)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+        if "devices" in hub.gateway_devices:
+            hub.gateway_devices["devices"] = [d for d in hub.gateway_devices["devices"] if d["deveui"] != eui]
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .const import SIGNAL_GATEWAY
+            async_dispatcher_send(hass, SIGNAL_GATEWAY.format(hub.entry.entry_id))
+        return {"removed": removed}
+
+    async def _sync(call: ServiceCall) -> dict:
+        out = {}
+        for hub in _hubs(hass, True):
+            try:
+                data = await hub.async_sync_devices()
+            except Exception as err:  # noqa: BLE001
+                raise HomeAssistantError(str(err)) from err
+            out[hub.entry.title] = len(data["devices"])
+        return {"devices": out}
+
+    async def _tank(call: ServiceCall) -> None:
+        ids = call.data["device_id"]
+        for device_id in ids if isinstance(ids, list) else [ids]:
+            try:
+                _runtime(hass, device_id).tank_refilled()
+            except ValueError as err:
+                raise ServiceValidationError(str(err)) from err
+
+    from homeassistant.core import SupportsResponse
+    hass.services.async_register(DOMAIN, SERVICE_ACK, _ack, schema=ACK_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_PROVISION, _provision, schema=PROVISION_SCHEMA,
+                                 supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, SERVICE_DEPROVISION, _deprovision, schema=DEPROVISION_SCHEMA,
+                                 supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, SERVICE_SYNC, _sync, schema=vol.Schema({}),
+                                 supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, SERVICE_TANK_REFILLED, _tank, schema=TANK_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_SEND_DOWNLINK, _send, schema=SEND_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_DISPLAY, _display, schema=DISPLAY_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_OUTPUT_COMMAND, _output, schema=OUTPUT_SCHEMA)

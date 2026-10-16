@@ -1811,7 +1811,7 @@ def _resolve_model(text: str) -> str | None:
 
 
 def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
-    """Lines 'DevEUI, model, name, area' (name / area optional; ';' or tab also accepted).
+    """Lines 'DevEUI, model, name, area, AppKey' (name / area / AppKey optional; ';' or tab also accepted).
     Returns (devices, errors)."""
     devices, errors, seen = [], [], set()
     for n, line in enumerate(text.splitlines(), 1):
@@ -1832,7 +1832,69 @@ def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
         if deveui in seen:
             errors.append(f"line {n}: DevEUI {deveui.upper()} listed twice")
             continue
+        key = re.sub(r"\s", "", cols[4]).lower() if len(cols) > 4 and cols[4] else None
+        if key and not re.fullmatch(r"[0-9a-f]{32}", key):
+            errors.append(f"line {n}: AppKey must be 32 hex digits")
+            continue
         seen.add(deveui)
-        devices.append({"deveui": deveui, "model": model, "name": cols[2] if len(cols) > 2 and cols[2] else None,
-                        "area": cols[3] if len(cols) > 3 and cols[3] else None})
+        dev = {"deveui": deveui, "model": model, "name": cols[2] if len(cols) > 2 and cols[2] else None,
+               "area": cols[3] if len(cols) > 3 and cols[3] else None}
+        if key:
+            dev["app_key"] = key
+        devices.append(dev)
     return devices, errors
+
+
+# ------------------------------------------------------------------ tanks & silos
+def tank_source(model_key: str) -> str | None:
+    """'distance' (mm, sensor above the surface) or 'depth' (cm, submersible probe) – None = no tank options."""
+    model = MODELS.get(model_key)
+    if model is None or model_key == "EM400-TLD":       # trash bins have their own fill level
+        return None
+    f = model.features
+    if "depth" in f:
+        return "depth"
+    if f & {"em400", "rdl", "em310udl", "distance"}:
+        return "distance"
+    return None
+
+
+def tank_specs(density: bool = False, low: bool = True, drop: bool = False) -> list[EntitySpec]:
+    specs = [
+        EntitySpec("tank_level", "Liquid level", unit="mm", device_class="distance", state_class="measurement",
+                   icon="mdi:waves-arrow-up", precision=0),
+        EntitySpec("tank_volume", "Contents", unit="L", device_class="volume_storage", state_class="measurement",
+                   icon="mdi:storage-tank", precision=0),
+        EntitySpec("tank_fill", "Tank fill", unit="%", state_class="measurement", icon="mdi:storage-tank-outline",
+                   precision=0),
+        EntitySpec("tank_free", "Space left", unit="L", device_class="volume_storage", state_class="measurement",
+                   icon="mdi:storage-tank-outline", precision=0, enabled_default=False),
+        EntitySpec("tank_usage_per_day", "Usage per day", unit="L/d", state_class="measurement",
+                   icon="mdi:water-minus", precision=0),
+        EntitySpec("tank_days_left", "Days until empty", unit="d", device_class="duration", state_class="measurement",
+                   icon="mdi:calendar-clock", precision=1),
+        EntitySpec("tank_empty_at", "Empty around", kind="timestamp", device_class="timestamp",
+                   icon="mdi:calendar-alert"),
+        EntitySpec("tank_last_refill", "Last refill", kind="timestamp", device_class="timestamp",
+                   icon="mdi:water-plus"),
+        EntitySpec("cmd_tank_refilled", "Tank refilled", platform="button", icon="mdi:water-plus"),
+    ]
+    if density:
+        specs.append(EntitySpec("tank_mass", "Contents weight", unit="kg", device_class="weight",
+                                state_class="measurement", precision=0))
+    if low:
+        specs.append(EntitySpec("tank_low", "Tank low", platform="binary_sensor", device_class="problem",
+                                icon="mdi:storage-tank-outline"))
+    if drop:
+        specs.append(EntitySpec("tank_sudden_drop", "Sudden drop", platform="binary_sensor", device_class="problem",
+                                icon="mdi:water-alert"))
+        specs.append(EntitySpec("cmd_tank_clear_alarm", "Clear sudden-drop alarm", platform="button",
+                                icon="mdi:bell-off-outline"))
+    return specs
+
+
+def channel_specs(channels: dict) -> list[EntitySpec]:
+    """Entities for the channels named in a controller's channel map (same keys = same entities, history kept)."""
+    return [EntitySpec(c.key, c.name, unit=c.unit, device_class=c.device_class, state_class=c.state_class,
+                       icon=None if c.device_class else ("mdi:lan" if c.key.startswith("modbus") else "mdi:sine-wave"),
+                       precision=c.decimals) for c in channels.values()]

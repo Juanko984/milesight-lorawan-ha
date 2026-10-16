@@ -2,6 +2,36 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.20.0
+### Added
+- **Add devices to the gateway** from Home Assistant: gateway → Configure → *Add devices to the gateway* (Milesight
+  ns-api request / response topics; the connection is tested and the application and device profile are picked
+  from the gateway's lists). Manual and bulk add can register the DevEUI (with an optional AppKey – new 5th column
+  in the bulk list) on the gateway. *Devices on gateway* sensor, *Sync devices with gateway* button (devices on the
+  gateway but not in Home Assistant are offered under Discovered) and services `add_to_gateway`,
+  `remove_from_gateway`, `sync_gateway_devices`.
+- **Tanks and silos** for level / distance sensors (Configure → *Tank or silo*): upright / lying cylinder,
+  rectangular, cone-bottom silo or any shape → Contents (L), Tank fill, Liquid level, Usage per day, Days until
+  empty, Empty around, Last refill, optional Contents weight, Tank low, Sudden drop (theft / leak) with *Clear* and
+  *Tank refilled* buttons, `milesight_lorawan_tank` events and service `tank_refilled`. Jumps are confirmed by the
+  next reading; slow refills are recognised. Dashboard dashboards/tanks_and_alerts.yaml.
+- **Alert escalation** (gateway → Configure → *Alert escalation*): Companion-app notifications with Acknowledge
+  (and an optional *Start pump*-style action), escalation to backup people, reminders, quiet hours (critical alerts
+  always go through as critical notifications), flapping suppression, resolved messages. *Open alerts* sensor,
+  *Acknowledge all alerts* button, service `acknowledge_alert`, event `milesight_lorawan_alert`.
+- **Modbus / analog channel map** for UC controllers (Configure → *Channels*): name, unit, scale (or a range like
+  `4-20>0-10`), offset, device class, decimals and state class per channel; existing entities keep their history.
+- Diagnostics include the last raw payload and fPort of each device (for decoder questions).
+
+### Changed
+- Device options are a menu (Device settings / Channels / Tank or silo) for controllers and level sensors; the
+  empty distance of level sensors moved to *Tank or silo*. Gateway options menu: Site information, Alert
+  escalation, Add devices to the gateway, Gateway connection.
+
+### Fixed
+- UC300: Modbus and other readings that follow a reply to a settings command (reporting interval, output control
+  …) in the same uplink were dropped.
+
 ## 0.19.1
 ### Fixed
 - Example and ready-made dashboards used wrong entity ids (`sensor.milesight_gateway_…`). A gateway added with

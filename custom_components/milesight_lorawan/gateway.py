@@ -234,3 +234,90 @@ def async_setup_gateway_entities(hass: HomeAssistant, entry: ConfigEntry, async_
     for gid in list(hub.stats.gateways):
         _add(gid)
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_GATEWAY_NEW.format(entry.entry_id), _add))
+
+
+class GatewayDevicesSensor(_Base, SensorEntity):
+    """Devices registered on the gateway's network server (read with 'Sync devices with gateway')."""
+
+    _attr_name = "Devices on gateway"
+    _attr_icon = "mdi:format-list-checks"
+    _attr_native_unit_of_measurement = "devices"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{entry.entry_id}_ns_devices"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"hub_{entry.entry_id}")})
+
+    @property
+    def native_value(self) -> int | None:
+        hub = _hub(self.entry)
+        devs = hub.gateway_devices.get("devices") if hub else None
+        return len(devs) if devs is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        hub = _hub(self.entry)
+        g = hub.gateway_devices if hub else {}
+        known = {e.unique_id for e in self.hass.config_entries.async_entries(DOMAIN)}
+        at = g.get("at")
+        return {"milesight_role": "net_registered", "site": self.entry.title,
+                "devices": [{**d, "in_home_assistant": d["deveui"] in known} for d in g.get("devices", [])],
+                "not_in_home_assistant": sum(1 for d in g.get("devices", []) if d["deveui"] not in known),
+                "applications": g.get("applications"), "profiles": g.get("profiles"),
+                "application_id": hub.ns_application if hub else None, "profile_id": hub.ns_profile if hub else None,
+                "last_sync": dt_util.utc_from_timestamp(at).isoformat() if at else None, "error": g.get("error")}
+
+
+class OpenAlertsSensor(SensorEntity):
+    """Alerts that nobody has acknowledged yet (alert escalation)."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_name = "Open alerts"
+    _attr_icon = "mdi:bell-ring-outline"
+    _attr_native_unit_of_measurement = "alerts"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass, self.entry = hass, entry
+        self._attr_unique_id = f"{entry.entry_id}_alerts_open"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"hub_{entry.entry_id}")})
+
+    async def async_added_to_hass(self) -> None:
+        from .const import SIGNAL_ALERTS_CHANGED
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id), self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> int | None:
+        hub = _hub(self.entry)
+        return len(hub.alerts.engine.unacknowledged()) if hub else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        hub = _hub(self.entry)
+        if hub is None:
+            return {"milesight_role": "alerts_open"}
+        tz = dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.UTC
+        level = {0: "waiting", 1: "notified", 2: "escalated"}
+
+        def fmt(ts: float | None) -> str | None:
+            return dt_util.utc_from_timestamp(ts).astimezone(tz).strftime("%d %b %H:%M") if ts else None
+        alerts = [{"id": a["id"], "title": a["title"], "message": a["message"], "severity": a.get("severity"),
+                   "category": a.get("category"), "since": fmt(a.get("first")),
+                   "status": "acknowledged" if a.get("acked") else ("quiet hours" if a.get("held")
+                                                                    else level.get(a.get("level", 0))),
+                   "acknowledged_by": (a.get("acked") or {}).get("by"), "notified": a.get("notified")}
+                  for a in sorted(hub.alerts.engine.open_alerts(), key=lambda x: x.get("first") or 0)]
+        last = hub.alerts.last_sent
+        return {"milesight_role": "alerts_open", "site": self.entry.title, "alerts": alerts,
+                "escalation_enabled": hub.alerts.cfg.enabled,
+                "last_notification": {**last, "at": fmt(last["at"])} if last else None}
+
+
+def hub_extra_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:
+    hub = _hub(entry)
+    out: list = [OpenAlertsSensor(hass, entry)]
+    if hub is not None and hub.ns is not None:
+        out.append(GatewayDevicesSensor(hass, entry))
+    return out

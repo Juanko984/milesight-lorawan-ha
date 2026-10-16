@@ -36,11 +36,15 @@
           "deveui": "DevEUI",
           "model": "Model",
           "name": "Name",
-          "area": "Area"
+          "area": "Area",
+          "register_on_gateway": "Also add it to the gateway",
+          "app_key": "AppKey (optional)"
         },
         "data_description": {
           "deveui": "16 hex characters, printed on the device label.",
-          "area": "Room / area name – created if it doesn't exist."
+          "area": "Room / area name – created if it doesn't exist.",
+          "register_on_gateway": "Registers the DevEUI on the Milesight gateway's network server so the device can join – no need to open the gateway's web page.",
+          "app_key": "32 hex digits. Leave empty for the gateway setting (Milesight factory key by default)."
         }
       },
       "confirm": {
@@ -54,82 +58,41 @@
       },
       "bulk": {
         "title": "Add many devices",
-        "description": "One device per line: **DevEUI, model, name, area** (name and area optional; comma, semicolon or tab separated – paste straight from a spreadsheet). Example:\n\n`24E124136B322135, EM300-MCS, Back door, Warehouse`\n\n{problems}",
+        "description": "One device per line: **DevEUI, model, name, area, AppKey** (name, area and AppKey optional; comma, semicolon or tab separated – paste straight from a spreadsheet). Example:\n\n`24E124136B322135, EM300-MCS, Back door, Warehouse`\n\n{problems}",
         "data": {
-          "devices": "Devices"
+          "devices": "Devices",
+          "register_on_gateway": "Also add them to the gateway"
+        },
+        "data_description": {
+          "register_on_gateway": "Registers every DevEUI on the Milesight gateway (with its AppKey, or the gateway setting) so the devices can join."
         }
       }
     },
     "error": {
       "invalid_deveui": "A DevEUI must be 16 hexadecimal characters.",
       "bulk_invalid": "Some lines could not be read – see the list above.",
-      "bulk_nothing_new": "All these devices are already set up."
+      "bulk_nothing_new": "All these devices are already set up.",
+      "invalid_app_key": "The AppKey must be 32 hex digits.",
+      "provision_failed": "The gateway did not accept the device: {error}. Untick 'Also add it to the gateway' to add it to Home Assistant only."
     },
     "abort": {
       "already_configured": "This device or gateway is already set up.",
       "already_in_progress": "Setup for this device is already in progress.",
-      "bulk_done": "Adding {count} devices ({skipped} already set up). They appear under Milesight LoRaWAN in a moment."
+      "bulk_done": "Adding {count} devices ({skipped} already set up). They appear under Milesight LoRaWAN in a moment.{gateway}"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Settings",
-        "data": {
-          "model": "Model",
-          "topic": "Uplink MQTT topic",
-          "payload_encoding": "Payload encoding",
-          "max_gap_min": "Offline gap (minutes)",
-          "left_open_min": "Door left open after (minutes)",
-          "empty_grace_min": "Count as empty after (minutes at 0 people)",
-          "open_hour": "Opening hour",
-          "close_hour": "Closing hour",
-          "open_days": "Open days",
-          "co2_limit": "CO2 limit (ppm)",
-          "install_height_mm": "Empty distance (mm)",
-          "run_threshold_a": "Running above (A)",
-          "mains_voltage": "Voltage for power estimate (V)",
-          "downlink_topic": "Downlink MQTT topic",
-          "downlink_format": "Downlink format",
-          "battery_low_pct": "Battery low below (%)",
-          "meter_type": "Pulse meter type",
-          "meter_unit": "Meter unit",
-          "meter_pulses_per_unit": "Pulses per unit",
-          "meter_offset": "Meter reading at start",
-          "meter_source": "Counter (advanced)",
-          "auto_backfill": "Fetch stored data after an outage",
-          "extra_topics": "Notification / gateway status topics",
-          "gateway_offline_min": "Gateway offline after (minutes)",
-          "confirmed_downlinks": "Confirmed downlinks (network ACK)",
-          "downlink_retries": "Retries for unanswered commands",
-          "display_max_bytes": "Max bytes per display downlink"
-        },
-        "data_description": {
-          "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
-          "open_hour": "Used for utilisation %.",
-          "close_hour": "Use 24 for midnight.",
-          "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page.",
-          "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline.",
-          "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off.",
-          "run_threshold_a": "The load counts as running while the current (any channel) is at or above this. Used for running time and start counts.",
-          "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, apparent power in VA). 0 = off.",
-          "downlink_topic": "Used to switch WS wall switches and sockets. {deveui} is replaced by the device's DevEUI (Milesight gateway: set the downlink topic to e.g. milesight/downlink/$deveui).",
-          "downlink_format": "Milesight gateway JSON (confirmed / fPort / data) or ChirpStack v4 (adds devEui).",
-          "battery_low_pct": "The 'Battery low' sensor turns on below this level.",
-          "meter_type": "Turn the pulse counter into a water / gas / electricity meter for the Energy dashboard.",
-          "meter_pulses_per_unit": "e.g. 1 pulse per litre with unit L = 1; 100 pulses per m³ = 100.",
-          "meter_offset": "Reading of the physical meter when counting started, so Home Assistant shows the same number.",
-          "meter_source": "Leave empty (pulse_count / gpio_counter_1). For a second UC counter enter e.g. gpio_counter_2.",
-          "auto_backfill": "When the device comes back after a gap, ask it to resend what it stored and fill the history graphs.",
-          "extra_topics": "Optional, comma separated, wildcards allowed. Point the gateway's ACK Notification, Join Notification and Gateway Information MQTT topics here (e.g. milesight/ack, milesight/join, milesight/gateway) – or ChirpStack gateway/+/event/stats, application/+/device/+/event/ack.",
-          "gateway_offline_min": "A gateway is shown offline when it has forwarded nothing (and sent no status report) for this long.",
-          "confirmed_downlinks": "Ask the device to acknowledge every downlink (LoRaWAN confirmed). Needs the gateway's ACK notification topic under the gateway's settings. Uses a little more airtime.",
-          "downlink_retries": "Commands the device does not answer within two uplinks are sent again this many times, then marked failed. 0 = never retry.",
-          "display_max_bytes": "Text blocks are packed into downlinks of at most this size. 51 works at every EU868 data rate; raise it (up to 222) for displays close to a gateway, lower it to 11 for US915 SF10."
-        },
+        "title": "Configure",
         "menu_options": {
           "site": "Site information",
-          "connection": "Gateway connection"
+          "alerts": "Alert escalation",
+          "provisioning": "Add devices to the gateway",
+          "connection": "Gateway connection",
+          "general": "Device settings",
+          "channels": "Channels (Modbus / analog)",
+          "tank": "Tank or silo"
         }
       },
       "connection": {
@@ -174,7 +137,144 @@
           "co2_alert": "Areas above this level appear in Needs attention and the banner.",
           "update_dashboard": "Generates the dashboard with a section per area. Also available as the gateway's 'Update building dashboard' button."
         }
+      },
+      "general": {
+        "title": "Device settings",
+        "data": {
+          "model": "Model",
+          "max_gap_min": "Offline gap (minutes)",
+          "left_open_min": "Door left open after (minutes)",
+          "empty_grace_min": "Count as empty after (minutes at 0 people)",
+          "open_hour": "Opening hour",
+          "close_hour": "Closing hour",
+          "open_days": "Open days",
+          "co2_limit": "CO2 limit (ppm)",
+          "install_height_mm": "Empty distance (mm)",
+          "run_threshold_a": "Running above (A)",
+          "mains_voltage": "Voltage for power estimate (V)",
+          "battery_low_pct": "Battery low below (%)",
+          "meter_type": "Pulse meter type",
+          "meter_unit": "Meter unit",
+          "meter_pulses_per_unit": "Pulses per unit",
+          "meter_offset": "Meter reading at start",
+          "meter_source": "Counter (advanced)",
+          "auto_backfill": "Fetch stored data after an outage",
+          "confirmed_downlinks": "Confirmed downlinks (network ACK)",
+          "downlink_retries": "Retries for unanswered commands",
+          "display_max_bytes": "Max bytes per display downlink"
+        },
+        "data_description": {
+          "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
+          "open_hour": "Used for utilisation %.",
+          "close_hour": "Use 24 for midnight.",
+          "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page.",
+          "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline.",
+          "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off.",
+          "run_threshold_a": "The load counts as running while the current (any channel) is at or above this. Used for running time and start counts.",
+          "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, apparent power in VA). 0 = off.",
+          "battery_low_pct": "The 'Battery low' sensor turns on below this level.",
+          "meter_type": "Turn the pulse counter into a water / gas / electricity meter for the Energy dashboard.",
+          "meter_pulses_per_unit": "e.g. 1 pulse per litre with unit L = 1; 100 pulses per m³ = 100.",
+          "meter_offset": "Reading of the physical meter when counting started, so Home Assistant shows the same number.",
+          "meter_source": "Leave empty (pulse_count / gpio_counter_1). For a second UC counter enter e.g. gpio_counter_2.",
+          "auto_backfill": "When the device comes back after a gap, ask it to resend what it stored and fill the history graphs.",
+          "confirmed_downlinks": "Ask the device to acknowledge every downlink (LoRaWAN confirmed). Needs the gateway's ACK notification topic under the gateway's settings. Uses a little more airtime.",
+          "downlink_retries": "Commands the device does not answer within two uplinks are sent again this many times, then marked failed. 0 = never retry.",
+          "display_max_bytes": "Text blocks are packed into downlinks of at most this size. 51 works at every EU868 data rate; raise it (up to 222) for displays close to a gateway, lower it to 11 for US915 SF10."
+        }
+      },
+      "channels": {
+        "title": "Channels (Modbus / analog)",
+        "description": "Give the controller's channels a name, unit and scale so third-party probes become proper sensors. One line per channel:\n\n`channel; name; unit; scale; offset; device class; decimals`\n\n`3; Tank pressure; bar; 0.01`\n`3.2; Flow; m³/h; 0.1; 0; volume_flow_rate; 1`\n`adc_1; Borehole level; m; 4-20>0-10`\n\nChannel: the Modbus channel number set in Milesight ToolBox (3 = channel 3, 3.2 = channel 3 register 2) or the input (adc_1, adv_1, analog_input_1, pt100_1, gpio_counter_1). Scale: a multiplier, or a range 4-20>0-10 that maps the raw span onto the real one. Leave columns empty (or -) for the default.\n\nReported so far: {seen}{problems}",
+        "data": {
+          "channel_map": "Channel map"
+        }
+      },
+      "tank": {
+        "title": "Tank or silo",
+        "description": "Turns the level reading into litres, fill %, usage per day and days until empty, and spots refills and sudden drops (theft or a leak). Capacity with these settings: **{capacity}**.\n\nUpright cylinder: diameter + height. Lying cylinder: diameter + length. Rectangular: length + width + height. Silo with a cone: diameter + total height + cone height. Any other shape: capacity + height (litres follow the level).",
+        "data": {
+          "tank_shape": "Shape",
+          "install_height_mm": "Distance reading when empty",
+          "tank_height_mm": "Height when full (level)",
+          "tank_diameter_mm": "Diameter",
+          "tank_length_mm": "Length",
+          "tank_width_mm": "Width",
+          "tank_cone_mm": "Cone height (silo)",
+          "tank_capacity_l": "Capacity (optional override)",
+          "tank_probe_offset_mm": "Probe height above the floor",
+          "tank_density": "Density for weight (optional)",
+          "tank_low_pct": "Low below",
+          "tank_refill_pct": "Refill when it rises by",
+          "tank_drop_pct": "Sudden-drop alarm when it falls by",
+          "tank_drop_minutes": "… within"
+        },
+        "data_description": {
+          "install_height_mm": "What the sensor measures when the tank is empty (sensor to floor).",
+          "tank_height_mm": "Liquid level when the tank is full. Leave 0 to use the empty distance (sensor at the top of a full tank). A lying cylinder uses its diameter.",
+          "tank_capacity_l": "Leave 0 to calculate it from the size. Set it for 'Any other shape', or to match the tank's label.",
+          "tank_density": "kg/m³, e.g. diesel 840, water 1000, feed pellets 650. Adds a 'Contents weight' sensor. 0 = off.",
+          "tank_low_pct": "The 'Tank low' sensor turns on below this fill. 0 = off.",
+          "tank_refill_pct": "A rise of at least this share of the capacity counts as a refill (event milesight_lorawan_tank).",
+          "tank_drop_pct": "Diesel / theft protection: a fall of at least this share of the capacity within the time below turns on 'Sudden drop'. 0 = off."
+        }
+      },
+      "alerts": {
+        "title": "Alert escalation",
+        "description": "Sends alerts to phones (Home Assistant Companion app) with an Acknowledge button. Nobody acknowledges within the escalation time → the backup people are notified too. Non-critical alerts wait until quiet hours end; leaks, smoke, gas, falls, sudden tank drops and gateway outages always go through.",
+        "data": {
+          "alert_primary": "Notify first",
+          "alert_backup": "Escalate to",
+          "alert_escalate_min": "Escalate after (minutes)",
+          "alert_repeat_min": "Remind every (minutes)",
+          "alert_quiet_start": "Quiet hours from (hour)",
+          "alert_quiet_end": "Quiet hours until (hour)",
+          "alert_dedupe_min": "Treat a re-trigger within (minutes) as the same alert",
+          "alert_notify_resolved": "Tell people when it is resolved",
+          "alert_categories": "Alerts to send",
+          "alert_action_entity": "Extra button on tank-low alerts runs",
+          "alert_action_title": "Extra button label"
+        },
+        "data_description": {
+          "alert_primary": "notify services, e.g. notify.mobile_app_juans_phone. Leave empty to switch escalation off.",
+          "alert_repeat_min": "Until someone acknowledges. 0 = no reminders.",
+          "alert_quiet_start": "e.g. 22 to 6. Leave both empty for none.",
+          "alert_dedupe_min": "Stops a flapping sensor from sending the same alert again and again.",
+          "alert_action_entity": "Optional: a switch, script or button, e.g. the borehole pump. Pressing it on the phone also acknowledges the alert."
+        }
+      },
+      "provisioning": {
+        "title": "Add devices to the gateway",
+        "description": "Lets Home Assistant register new devices on the Milesight gateway (DevEUI + AppKey), so you do not have to open the gateway's web page. On the gateway: Network Server → Applications → your application → Data Transmission → MQTT: set **Request Data Topic** and **Response Data Topic** to the topics below (they must be different). Leave the request topic empty to switch this off.",
+        "data": {
+          "ns_request_topic": "Request topic",
+          "ns_response_topic": "Response topic",
+          "ns_gateway_eui": "Gateway EUI (optional)",
+          "ns_app_key": "Default AppKey",
+          "ns_fport": "Application port (fPort)"
+        },
+        "data_description": {
+          "ns_gateway_eui": "Only needed when several gateways share the broker.",
+          "ns_app_key": "Used when a device is added without its own key. Milesight devices ship with 5572404c696e6b4c6f52613230313823.",
+          "ns_fport": "85 for Milesight devices."
+        }
+      },
+      "provisioning_target": {
+        "title": "Application and profile",
+        "description": "The gateway answered: {devices} devices, {apps} applications, {profiles} profiles. New devices are added to this application with this device profile (ClassA-OTAA suits battery sensors; pick a Class C profile for mains-powered switches and valves added later by hand).",
+        "data": {
+          "ns_application_id": "Application",
+          "ns_profile_id": "Device profile"
+        }
       }
+    },
+    "error": {
+      "channel_map_invalid": "Some lines could not be read – see the list above.",
+      "tank_dimensions": "Fill in the size for this shape (see above).",
+      "tank_empty_distance": "Enter what the sensor measures when the tank is empty.",
+      "ns_topics": "The response topic must be set and different from the request topic.",
+      "invalid_app_key": "The AppKey must be 32 hex digits.",
+      "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker."
     }
   },
   "selector": {
@@ -195,6 +295,26 @@
         "water": "Water",
         "gas": "Gas",
         "energy": "Electricity"
+      }
+    },
+    "tank_shape": {
+      "options": {
+        "none": "Not a tank",
+        "vertical_cylinder": "Upright cylinder",
+        "horizontal_cylinder": "Lying cylinder",
+        "rectangular": "Rectangular",
+        "cone_bottom": "Silo with cone bottom",
+        "linear": "Any other shape (capacity × level)"
+      }
+    },
+    "alert_category": {
+      "options": {
+        "safety": "Safety (leak, smoke, gas, fall)",
+        "tank": "Tanks (low, sudden drop)",
+        "building": "Building (CO₂, temperature, humidity)",
+        "devices": "Devices (offline, battery low)",
+        "gateways": "Gateways offline",
+        "commands": "Commands not confirmed"
       }
     }
   },
@@ -314,6 +434,62 @@
         "force": {
           "name": "Send unchanged blocks",
           "description": "Also send blocks that already show this text (normally skipped to save battery and airtime)."
+        }
+      }
+    },
+    "acknowledge_alert": {
+      "name": "Acknowledge alert",
+      "description": "Stops escalation and reminders for an alert (all open alerts when no ID is given).",
+      "fields": {
+        "alert_id": {
+          "name": "Alert ID",
+          "description": "From the Open alerts sensor; leave empty for all."
+        }
+      }
+    },
+    "add_to_gateway": {
+      "name": "Add device to gateway",
+      "description": "Registers a DevEUI on the Milesight gateway's network server (needs 'Add devices to the gateway' in the gateway's options).",
+      "fields": {
+        "deveui": {
+          "name": "DevEUI",
+          "description": "16 hex digits."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Name on the gateway."
+        },
+        "app_key": {
+          "name": "AppKey",
+          "description": "32 hex digits; empty = the gateway setting."
+        },
+        "profile_id": {
+          "name": "Profile ID",
+          "description": "Optional device profile (from the 'Devices on gateway' sensor's attributes)."
+        }
+      }
+    },
+    "remove_from_gateway": {
+      "name": "Remove device from gateway",
+      "description": "Deletes a DevEUI from the gateway's network server.",
+      "fields": {
+        "deveui": {
+          "name": "DevEUI",
+          "description": "16 hex digits."
+        }
+      }
+    },
+    "sync_gateway_devices": {
+      "name": "Sync devices with gateway",
+      "description": "Reads the gateway's device list; devices Home Assistant does not have yet are offered under Discovered."
+    },
+    "tank_refilled": {
+      "name": "Tank refilled",
+      "description": "Records a refill now and clears a sudden-drop alarm.",
+      "fields": {
+        "device_id": {
+          "name": "Tank sensor",
+          "description": "One or more level sensors with a tank set up."
         }
       }
     }

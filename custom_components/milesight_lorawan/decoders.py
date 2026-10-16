@@ -1247,9 +1247,18 @@ def decode_uc300(b: bytes) -> dict[str, Any]:
         elif cid == 0xFF and ctype == 0x15 and _need(b, i, 1):
             out[f"modbus_chn_{b[i] + 1}_alarm"] = "read error"
             i += 1
+        elif cid in (0xFE, 0xFF) and ctype in _UC300_REPLY and _need(b, i, _UC300_REPLY[ctype]):
+            # reply to a setting sent from Home Assistant – skip it so the readings after it are not lost
+            if ctype in (0x02, 0x03):
+                out["collection_interval" if ctype == 0x02 else "report_interval"] = _u16le(b, i)
+            i += _UC300_REPLY[ctype]
         else:
             break
     return out
+
+
+# UC300 downlink replies (channel 0xFE / 0xFF): type -> length, as the official decoder's handle_downlink_response
+_UC300_REPLY = {0x02: 2, 0x03: 2, 0x11: 4, 0x17: 2, 0x91: 5, 0x93: 6}
 
 
 def decode_uc50x(b: bytes) -> dict[str, Any]:

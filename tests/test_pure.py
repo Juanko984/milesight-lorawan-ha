@@ -20,6 +20,7 @@ def _load(name):
     mod = importlib.util.module_from_spec(spec); sys.modules[f"mlw.{name}"] = mod
     spec.loader.exec_module(mod); return mod
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
+chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -749,6 +750,234 @@ def test_dashboard_config_and_templates():
     env.tests["defined"] = lambda v: v is not None and not isinstance(v, jinja2.Undefined)
     out = env.from_string(heat).render(states=S(sensor=[sensor]))
     assert "| Board room | Occupied 3 | 40 % | ⬛ | 🟨 | 🟥 | ⬜ |" in out, out
+
+
+
+def test_uc300_modbus_after_setting_reply():
+    import struct
+    # a reply to 'reporting interval' (ff03) or 'output control' (ff93) before the Modbus values must not hide them
+    d = dec.decode_uc300(bytes.fromhex("ff035802" + "ff19000102d204"))
+    assert d == {"report_interval": 600, "modbus_chn_1": 1234}
+    d = dec.decode_uc300(bytes.fromhex("ff93010100000000" + "ff190104" + "07" + struct.pack("<f", 23.5).hex()
+                                       + "ff1502"))
+    assert d == {"modbus_chn_2": 23.5, "modbus_chn_3_alarm": "read error"}
+    assert mdl.dynamic_spec("modbus_chn_2").name == "Modbus channel 2"
+
+
+def test_channel_map():
+    m, err = chm.parse_channel_map(
+        "# comment\n3; Tank pressure; bar; 0.01\n3.2 | Flow | m³/h | 0.1 | 0 | volume_flow_rate | 1\n"
+        "adc_1; Borehole level; m; 4-20>0-10; ; ; 2\npt100_1; Cold room; °C\ngpio_counter_1; Water; L; ; ; water\n"
+        "ch5; ; kPa; -; 2   # inline comment\n")
+    assert err == [], err
+    p = m["modbus_chn_3"]
+    assert (p.name, p.unit, p.device_class, p.state_class) == ("Tank pressure", "bar", "pressure", "measurement")
+    assert p.apply(1234) == 12.34 and p.apply("read error") == "read error" and p.apply(True) is True
+    f = m["modbus_chn_3_reg_2"]
+    assert f.device_class == "volume_flow_rate" and f.decimals == 1 and f.apply(123) == 12.3
+    lvl = m["adc_1"]
+    assert lvl.apply(4) == 0 and lvl.apply(20) == 10 and lvl.apply(12) == 5 and lvl.device_class == "distance"
+    assert m["pt100_1"].device_class == "temperature" and m["pt100_1"].scale == 1
+    assert m["gpio_counter_1"].state_class == "total_increasing"
+    c5 = m["modbus_chn_5"]
+    assert c5.name == "Modbus channel 5" and c5.apply(10) == 12 and c5.device_class == "pressure"
+    _, err = chm.parse_channel_map("x9; a\n3; a; b; abc\n2; ok\n2; dup\n4; a; u; 1; 0; colour\n6;a;;;;;9\n7;a;;;;;;sum")
+    assert len(err) == 6 and "unknown channel" in err[0] and "numbers" in err[1] and "twice" in err[2]
+    assert "device class" in err[3] and "decimals" in err[4] and "state class" in err[5]
+    assert chm.channel_key("3/2") == "modbus_chn_3_reg_2" and chm.channel_key("ADC_2") == "adc_2"
+    specs = mdl.channel_specs(m)
+    assert {s.key for s in specs} == set(m) and next(s for s in specs if s.key == "adc_1").precision == 2
+
+
+def test_tank_geometry():
+    vc = tnk.TankConfig("vertical_cylinder", height_mm=2000, diameter_mm=1000)
+    assert abs(tnk.capacity_l(vc) - 1570.8) < 0.1 and abs(tnk.volume_l(vc, 1000) - 785.4) < 0.1
+    assert tnk.volume_l(vc, 5000) == tnk.capacity_l(vc) and tnk.volume_l(vc, -5) == 0
+    hc = tnk.tank_config({"tank_shape": "horizontal_cylinder", "tank_diameter_mm": 1000, "tank_length_mm": 2000,
+                          "install_height_mm": 1200})
+    assert hc.height_mm == 1000 and hc.empty_distance_mm == 1200
+    full = tnk.capacity_l(hc)
+    assert abs(full - 1570.8) < 0.1 and abs(tnk.volume_l(hc, 500) - full / 2) < 0.1
+    assert tnk.volume_l(hc, 250) < full * 0.25                       # less than linear near the bottom
+    assert tnk.level_mm(hc, "distance", 700) == 500 and tnk.level_mm(hc, "distance", 1300) == 0
+    rect = tnk.TankConfig("rectangular", height_mm=1000, length_mm=2000, width_mm=1000)
+    assert tnk.capacity_l(rect) == 2000
+    silo = tnk.TankConfig("cone_bottom", height_mm=6000, diameter_mm=3000, cone_mm=2000)
+    cone = 3.14159265 * 1500 ** 2 * 2000 / 3 / 1e6
+    assert abs(tnk.volume_l(silo, 2000) - cone) < 1 and abs(tnk.volume_l(silo, 1000) - cone / 8) < 1
+    lin = tnk.TankConfig("linear", height_mm=1000, capacity_l=5000)
+    assert tnk.volume_l(lin, 250) == 1250 and tnk.capacity_l(lin) == 5000
+    swl = tnk.tank_config({"tank_shape": "vertical_cylinder", "tank_height_mm": 3000, "tank_diameter_mm": 2000,
+                           "tank_probe_offset_mm": 100})
+    assert tnk.level_mm(swl, "depth", 150) == 1600 and tnk.level_mm(swl, "depth", None) is None
+    assert not tnk.tank_config({}).enabled and tnk.tank_config({"tank_shape": "rectangular"}).enabled is False
+    assert mdl.tank_source("EM400-UDL") == "distance" and mdl.tank_source("EM500-SWL") == "depth"
+    assert mdl.tank_source("EM400-TLD") is None and mdl.tank_source("EM300-TH") is None
+    assert mdl.tank_source("EM310-UDL") == mdl.tank_source("EM410-RDL") == mdl.tank_source("EM500-UDL") == "distance"
+
+
+def test_tank_usage_refill_and_drop():
+    cfg = tnk.TankConfig("linear", height_mm=1000, capacity_l=10000, drop_pct=5, drop_minutes=60, density=840)
+    tr = tnk.TankTracker()
+    t0 = T("2026-10-01 00:00")
+    for h in range(0, 48):                     # 2 days, hourly, 240 L/day with ±20 L jitter
+        jitter = 20 if h % 2 else -20
+        assert tr.update(cfg, t0 + h * 3600, 8000 - h * 10 + jitter) == []
+    v = tr.values(cfg, t0 + 47 * 3600, 8000 - 470 + 20)
+    assert 200 <= v["tank_usage_per_day"] <= 270, v
+    assert 25 <= v["tank_days_left"] <= 40 and v["tank_fill"] == 75.5 and v["tank_mass"] == round(7550 * 0.84, 1)
+    assert v["tank_low"] is False and v["tank_sudden_drop"] is False and v["tank_empty_at"] > t0
+    t = t0 + 48 * 3600
+    assert tr.update(cfg, t, 9900) == []                      # big rise: waits for confirmation
+    ev = tr.update(cfg, t + 600, 9895)
+    assert ev and ev[0]["type"] == "refill" and ev[0]["added"] > 2000, ev
+    use = tr.values(cfg, t + 600, 9895)["tank_usage_per_day"]
+    assert 200 <= use <= 270, use                              # a refill is not 'negative usage'
+    # one echo glitch (drop and back) is ignored: no alarm, no refill
+    assert tr.update(cfg, t + 1200, 8000) == [] and tr.update(cfg, t + 1800, 9890) == []
+    assert tr.values(cfg, t + 1800, 9890)["tank_sudden_drop"] is False
+    # a real drop: 600 L within 30 minutes, confirmed by the next reading
+    assert tr.update(cfg, t + 2400, 9300) == []
+    ev = tr.update(cfg, t + 3000, 9295)
+    assert ev and ev[0]["type"] == "sudden_drop" and ev[0]["amount"] >= 595, ev
+    v = tr.values(cfg, t + 3000, 9295)
+    assert v["tank_sudden_drop"] is True and v["tank_drop_amount"] >= 595
+    assert tr.update(cfg, t + 3600, 9290) == []                # latched, no repeat event
+    tr.clear_alarm(t + 3700)
+    assert tr.update(cfg, t + 4200, 9285) == []                # cleared: the old drop does not fire again
+    assert tr.values(cfg, t + 4200, 9285)["tank_sudden_drop"] is False
+    tr.mark_refilled(t + 5000, 9285)
+    assert tr.values(cfg, t + 5000, 9285)["tank_last_refill"] == t + 5000
+    low = tnk.TankConfig("linear", height_mm=1000, capacity_l=1000, low_pct=20)
+    assert tnk.TankTracker().values(low, 0, 150)["tank_low"] is True
+    assert tnk.TankTracker().values(low, 0, None)["tank_low"] is None
+    # slow pump refill (+60 L per reading, below the 5 % step) is a refill, and does not wipe out usage
+    slow = tnk.TankConfig("linear", height_mm=1000, capacity_l=1560, refill_pct=5)
+    tr = tnk.TankTracker()
+    for h in range(72):
+        tr.update(slow, t0 + h * 3600, 1500 - h * 20)
+    before = tr.values(slow, t0 + 71 * 3600, 80)["tank_usage_per_day"]
+    evs = []
+    for k in range(1, 6):
+        evs += tr.update(slow, t0 + 71 * 3600 + k * 900, 80 + 60 * k)
+    assert [e["type"] for e in evs] == ["refill"] and tr.s["last_refill"]["added"] == 300
+    after = tr.values(slow, t0 + 71 * 3600 + 5 * 900, 380)["tank_usage_per_day"]
+    assert before > 400 and after > 400, (before, after)
+    # thinning: readings every 2 or 5 minutes keep about one sample per 10 minutes
+    for step in (120, 300):
+        tr = tnk.TankTracker()
+        for i in range(60):
+            tr.update(cfg, t0 + i * step, 5000 - i)
+        assert len(tr.s["samples"]) <= 60 * step / 480 + 2, (step, len(tr.s["samples"]))
+    assert tr.update(cfg, t0 - 10, 1) == []                    # out of order ignored
+    st = tnk.TankTracker(json.loads(json.dumps(tr.s)))         # survives a restart
+    assert st.s["samples"] == tr.s["samples"]
+    st.check_config(cfg)
+    assert st.s["samples"]
+    st.check_config(tnk.TankConfig("linear", height_mm=1000, capacity_l=20000))   # new size: start afresh
+    assert st.s["samples"] == []
+
+
+def test_alert_escalation():
+    cfg = alr.AlertSettings(primary=["notify.a"], backup=["notify.b"], escalate_min=15, repeat_min=30,
+                            quiet_start=22, quiet_end=6, dedupe_min=30, action_title="Start pump")
+    eng = alr.AlertEngine()
+    day = datetime(2026, 10, 16, 14, 0, tzinfo=TZ)
+    night = datetime(2026, 10, 16, 23, 0, tzinfo=TZ)
+    t = T("2026-10-16 14:00")
+    low = {"t:low": {"title": "Tank low – Diesel", "message": "low", "severity": "warning", "category": "tank",
+                     "action": True}}
+    out = eng.update(low, t, day, cfg)
+    assert [m["kind"] for m in out] == ["new"] and out[0]["targets"] == ["notify.a"] and out[0]["action"] == "Start pump"
+    aid = out[0]["id"]
+    data = alr.notify_data(out[0])
+    assert [a["action"] for a in data["data"]["actions"]] == [f"MSL_ACK_{aid}", f"MSL_RUN_{aid}"]
+    assert data["data"]["tag"] == f"milesight_{aid}" and "push" not in data["data"]
+    assert eng.update(low, t + 600, day, cfg) == []                    # not yet
+    out = eng.update(low, t + 900, day, cfg)
+    assert out[0]["kind"] == "escalated" and out[0]["targets"] == ["notify.a", "notify.b"]
+    out = eng.update(low, t + 900 + 1800, day, cfg)
+    assert out[0]["kind"] == "reminder" and out[0]["targets"] == ["notify.a", "notify.b"]
+    acks = eng.acknowledge(aid, t + 3000, "Juan")
+    assert acks[0]["kind"] == "acknowledged" and "by Juan" in acks[0]["message"] and not eng.unacknowledged()
+    assert "actions" not in alr.notify_data(acks[0])["data"]
+    assert eng.update(low, t + 9000, day, cfg) == []                   # acknowledged: quiet
+    assert eng.update({}, t + 9100, day, cfg) == []                     # resolved – but wait 5 min for flapping
+    assert eng.update(low, t + 9200, day, cfg) == [] and eng.alerts["t:low"]["flaps"] == 1   # back: continues
+    assert eng.update({}, t + 9300, day, cfg) == []
+    out = eng.update({}, t + 9300 + 300, day, cfg)
+    assert out[0]["kind"] == "resolved" and set(out[0]["targets"]) == {"notify.a", "notify.b"}
+    out = eng.update(low, t + 9300 + 600, day, cfg)                   # back after 'resolved' was sent: tell again
+    assert out[0]["kind"] == "again" and out[0]["id"] == aid and out[0]["title"].startswith("Again")
+    eng.update({}, t + 9300 + 700, day, cfg)
+    eng.update({}, t + 9300 + 1000, day, cfg)                          # resolved again
+    out = eng.update(low, t + 9300 + 1000 + 3600, day, cfg)           # much later: a new alert with a new id
+    assert out[0]["kind"] == "new" and out[0]["id"] != aid
+    # escalation is not postponed by reminders
+    e2 = alr.AlertEngine()
+    c2 = alr.AlertSettings(primary=["notify.a"], backup=["notify.b"], escalate_min=15, repeat_min=5)
+    kinds = [m["kind"] for i in range(0, 21) for m in e2.update(low, t + i * 60, day, c2)]
+    assert kinds[:4] == ["new", "reminder", "reminder", "escalated"], kinds
+    # alerts of a device that is not loaded yet are kept, not resolved
+    e3 = alr.AlertEngine()
+    e3.update({"dev1:leak": {"title": "Leak", "message": "m", "severity": "critical", "category": "safety"}}, t, day, cfg)
+    assert e3.update({}, t + 900, day, cfg, keep=("dev1:",)) == [] and e3.alerts["dev1:leak"]["resolved_at"] is None
+    # quiet hours: warnings wait, critical go out
+    eng = alr.AlertEngine()
+    leak = {"d:leak": {"title": "Water leak", "message": "leak", "severity": "critical", "category": "safety"}}
+    out = eng.update({**low, **leak}, t, night, cfg)
+    assert [m["key"] for m in out] == ["d:leak"] and out[0]["critical"]
+    crit = alr.notify_data(out[0])["data"]
+    assert crit["push"]["interruption-level"] == "critical" and crit["channel"] == "alarm_stream"
+    assert eng.alerts["t:low"]["held"] is True
+    morning = datetime(2026, 10, 17, 6, 5, tzinfo=TZ)
+    out = eng.update({**low, **leak}, t + 8 * 3600, morning, cfg)
+    assert {m["key"]: m["kind"] for m in out} == {"t:low": "new", "d:leak": "escalated"}
+    # categories filter and disabled
+    assert alr.AlertEngine().update(low, t, day, alr.AlertSettings(primary=["notify.a"], categories=("safety",))) == []
+    eng = alr.AlertEngine()
+    assert eng.update(low, t, day, alr.AlertSettings()) == [] and len(eng.unacknowledged()) == 1
+    assert alr.in_quiet(23.5, 22, 6) and alr.in_quiet(1, 22, 6) and not alr.in_quiet(12, 22, 6)
+    assert alr.in_quiet(13, 12, 14) and not alr.in_quiet(14, 12, 14) and not alr.in_quiet(3, None, 6)
+    # device alerts from values
+    al = alr.device_alerts("Diesel", "abc", {"leak_active": True, "tank_low": True, "tank_fill": 12.0,
+                                             "tank_days_left": 3.5, "tank_sudden_drop": True,
+                                             "tank_drop_amount": 450.0, "online": False, "battery_low": True,
+                                             "battery": 9}, "Yard")
+    assert set(al) == {"abc:leak_active", "abc:tank_low", "abc:tank_drop", "abc:offline", "abc:battery"}
+    assert al["abc:tank_low"]["message"] == "Diesel (Yard) is low (12 % left, about 3.5 days)."
+    assert "450 L" in al["abc:tank_drop"]["message"] and al["abc:tank_drop"]["severity"] == "critical"
+    assert alr.device_alerts("x", "e", {"online": None, "leak_active": False}) == {}
+
+
+def test_ns_api_helpers():
+    rid, text = nsa.build_request("post", "/api/urdevices", {"a": 1}, "24E124FFFEF00001", rid="r1")
+    msg = json.loads(text)
+    assert msg == {"type": "ns-api", "id": "r1", "method": "POST", "url": "/api/urdevices",
+                   "gatewayEUI": "24e124fffef00001", "body": {"a": 1}}
+    assert "gatewayEUI" not in json.loads(nsa.build_request("GET", "/x")[1])
+    ok = json.dumps({"type": "ns-api", "id": "r1", "method": "POST", "url": "/api/urdevices",
+                     "body": {"code": 200, "error": ""}})
+    assert nsa.parse_response(ok) == ("r1", 200, "", {"code": 200, "error": ""})
+    dup = json.dumps({"type": "ns-api", "id": "r2", "body": json.dumps({"code": 6, "error": "device exist"})})
+    assert nsa.parse_response(dup)[1:3] == (6, "device exist")
+    assert nsa.parse_response('{"devEUI": "x"}') is None and nsa.parse_response(b"garbage") is None
+    assert "already exists" in str(nsa.NsApiError(6)) and "no answer" in str(nsa.NsApiError(None))
+    body = nsa.device_body("24E124136D000001", "Tank", "1", "uuid-a")
+    assert body["devEUI"] == "24e124136d000001" and body["appKey"] == nsa.DEFAULT_APP_KEY and body["fPort"] == 85
+    assert body["applicationID"] == "1" and body["profileID"] == "uuid-a"
+    listing = {"code": 200, "deviceResult": [{"devEUI": "24E124136D000001", "name": "EM300-TH Office",
+                                              "applicationID": "1", "profileName": "ClassA-OTAA", "active": True}],
+               "appResult": [{"appName": "cloud", "applicationID": "1"}],
+               "profileResult": [{"profileID": "uuid-a", "profileName": "ClassA-OTAA"}]}
+    assert nsa.parse_devices(listing)[0]["deveui"] == "24e124136d000001"
+    assert nsa.parse_applications(listing) == {"1": "cloud"} and nsa.parse_profiles(listing) == {"uuid-a": "ClassA-OTAA"}
+    profs = {"result": [{"name": "ClassC-OTAA", "profile": {"profileID": "uuid-c", "supportsJoin": True}}]}
+    assert nsa.parse_profiles(profs) == {"uuid-c": "ClassC-OTAA"}
+    assert nsa.valid_key("5572404c696e6b4c6f52613230313823") and not nsa.valid_key("55")
+    devs, errs = mdl.parse_bulk("24E124136D000001, EM300-TH, Office, , 00112233445566778899AABBCCDDEEFF\n"
+                                "24E124136D000002, EM300-TH, , , 1234")
+    assert devs[0]["app_key"] == "00112233445566778899aabbccddeeff" and "AppKey" in errs[0]
 
 
 if __name__ == "__main__":

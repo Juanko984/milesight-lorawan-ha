@@ -16,12 +16,14 @@ from homeassistant.util import dt as dt_util
 from .analytics import BinaryEventTracker, Calendar, CounterTracker, DistanceTracker, MinMaxTracker, OccupancyTracker
 from .const import (
     CONF_BATTERY_LOW,
+    CONF_CHANNEL_MAP,
     CONF_CONFIRMED_DOWNLINKS,
     CONF_DISPLAY_MAX_BYTES,
     CONF_RETRIES,
     DEFAULT_DISPLAY_MAX_BYTES,
     DEFAULT_RETRIES,
     SIGNAL_NOTIFY,
+    SIGNAL_ALERTS,
     CONF_METER_OFFSET,
     CONF_METER_PPU,
     CONF_METER_SOURCE,
@@ -61,7 +63,11 @@ from . import decoders as _decoders
 from .decoders import (Uplink, ds3604_frames, encode_ds3604, encode_ds3604_content, encode_fields, encode_template,
                        encode_wt, encode_ws_switch)
 from .link import LinkStats, PendingCommands, link_advice, link_margin, link_quality
-from .models import MODELS, Model, downlinks, entity_specs, meter_spec, output_for_key, setting_spec
+from .alerts import device_alerts
+from .channel_map import parse_channel_map
+from .models import (MODELS, Model, channel_specs, downlinks, entity_specs, meter_spec, output_for_key, setting_spec,
+                     tank_source, tank_specs)
+from .tank import TankTracker, level_mm, tank_config, volume_l
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,6 +187,12 @@ class DeviceRuntime:
         self.link = LinkStats()
         self.display: dict[str, Any] = {}           # DS3604: {"sent": {tpl: {block: text}}, "reported": {...}}
         self.attrs: dict[str, dict[str, Any]] = {}  # extra state attributes per entity key
+        self.tank_src = tank_source(self.model.key)
+        self.tank_cfg = tank_config(dict(entry.options)) if self.tank_src else None
+        self.tank: TankTracker | None = None
+        self.channels, self.channel_errors = (parse_channel_map(entry.options.get(CONF_CHANNEL_MAP, ""))
+                                              if self.model.dynamic else ({}, []))
+        self._alert_sig: Any = None
         self._unsubs: list[Callable[[], None]] = []
 
     # ------------------------------------------------------------------ setup
@@ -211,6 +223,11 @@ class DeviceRuntime:
                        "run_a": float(self._opt(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))}
         if self.model.minmax_fields:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
+        if self.tank_cfg is not None and self.tank_cfg.enabled:
+            self.tank = TankTracker(trackers.get("tank"))
+            self.tank.check_config(self.tank_cfg)
+        else:
+            self.tank_cfg = None
         if "at101" in f:
             self.distance = DistanceTracker(self.cal, trackers.get("distance"))
         if self.model.counters:
@@ -272,6 +289,9 @@ class DeviceRuntime:
             _LOGGER.exception("Failed to decode uplink from %s", self.deveui)
             return
         self.link.update(self._day(ts), ts, up.fcnt, up.gateways)
+        # for Download diagnostics: what the device really sent (keys starting with _ are not entities)
+        self.meta["_last_payload"] = up.raw.hex() if up.raw else None
+        self.meta["_last_fport"] = up.fport
         if up.sf is not None:
             self.meta["spreading_factor"] = up.sf
         if up.frequency is not None:
@@ -300,6 +320,8 @@ class DeviceRuntime:
             tracker.update(ts, BINARY_FEATURES[feature][0](src, self.limits))
         if self.counters is not None:
             self.counters.update(ts, decoded)
+        if self.tank is not None:
+            self._tank_reading(ts, decoded)
         if self.distance is not None and "latitude" in decoded:
             self.distance.update(ts, decoded.get("latitude"), decoded.get("longitude"))
         if self.minmax is not None:
@@ -421,11 +443,43 @@ class DeviceRuntime:
         self._publish(time.time())
 
     def extra_specs(self) -> list:
-        """Entities that depend on the device's options (utility meter from a pulse counter)."""
+        """Entities that depend on the device's options (utility meter, tank contents, named controller channels)."""
+        specs = []
         mtype = self._opt(CONF_METER_TYPE, "none")
         if mtype in ("water", "gas", "energy"):
-            return [meter_spec(mtype, self._opt(CONF_METER_UNIT, {"water": "m³", "gas": "m³", "energy": "kWh"}[mtype]))]
-        return []
+            specs.append(meter_spec(mtype, self._opt(CONF_METER_UNIT,
+                                                     {"water": "m³", "gas": "m³", "energy": "kWh"}[mtype])))
+        if self.tank_cfg is not None:
+            specs += tank_specs(self.tank_cfg.density > 0, self.tank_cfg.low_pct > 0, self.tank_cfg.drop_pct > 0)
+        specs += channel_specs(self.channels)
+        return specs
+
+    # ------------------------------------------------------------- tanks
+    def _tank_litres(self, src: dict[str, Any]) -> tuple[float | None, float | None]:
+        key = "depth" if self.tank_src == "depth" else "distance"
+        lvl = level_mm(self.tank_cfg, self.tank_src, src.get(key))
+        return lvl, (volume_l(self.tank_cfg, lvl) if lvl is not None else None)
+
+    def _tank_reading(self, ts: float, decoded: dict[str, Any]) -> None:
+        _, litres = self._tank_litres(decoded)
+        if litres is None:
+            return
+        for ev in self.tank.update(self.tank_cfg, ts, litres):
+            self.hass.bus.async_fire(f"{DOMAIN}_tank", {"deveui": self.deveui, "device": self.entry.title,
+                                                         "area": self.entry.data.get("area"), **ev})
+
+    def tank_refilled(self) -> None:
+        """'Tank refilled' button: start the usage trend afresh and clear a sudden-drop alarm."""
+        if self.tank is None:
+            raise ValueError("no tank configured")
+        self.tank.mark_refilled(time.time(), self._tank_litres(self.raw)[1])
+        self._publish(time.time())
+
+    def tank_clear_alarm(self) -> None:
+        if self.tank is None:
+            raise ValueError("no tank configured")
+        self.tank.clear_alarm(time.time())
+        self._publish(time.time())
 
     def _meter_value(self, v: dict[str, Any]) -> float | None:
         if self._opt(CONF_METER_TYPE, "none") not in ("water", "gas", "energy"):
@@ -746,6 +800,21 @@ class DeviceRuntime:
             # distance = sensor to surface; full when the surface reaches the sensor
             v["fill_level"] = round(max(0.0, min(100.0, (height - v["distance"]) / height * 100)), 0)
 
+        for key, ch in self.channels.items():
+            if key in v:
+                v[key] = ch.apply(v[key])
+        if self.tank is not None:
+            lvl, litres = self._tank_litres(v)
+            v["tank_level"] = lvl
+            v.update(self.tank.values(self.tank_cfg, ts, litres))
+            self.attrs["tank_volume"] = {"milesight_role": "tank", "device": self.entry.title,
+                                         "area": self.entry.data.get("area"), "capacity_l": v["tank_capacity"],
+                                         "shape": self.tank_cfg.shape, "fill": v["tank_fill"],
+                                         "usage_per_day": v["tank_usage_per_day"], "days_left": v["tank_days_left"],
+                                         "low": v["tank_low"], "sudden_drop": v["tank_sudden_drop"]}
+            self.attrs["tank_last_refill"] = {"added_l": v.get("tank_last_refill_added")}
+            self.attrs["tank_sudden_drop"] = {"amount_l": v.get("tank_drop_amount"),
+                                              "window_min": self.tank_cfg.drop_minutes}
         if "ct" in self.model.features:
             self._ct_values(v)
         if self.distance is not None:
@@ -792,6 +861,10 @@ class DeviceRuntime:
                 v["occ_status"] = "Empty" if self.meta.get("last_seen") else "Waiting for data"
 
         self.values = v
+        sig = tuple(sorted(device_alerts(self.entry.title, self.deveui, v)))
+        if sig != self._alert_sig:
+            self._alert_sig = sig
+            async_dispatcher_send(self.hass, SIGNAL_ALERTS)
         async_dispatcher_send(self.hass, SIGNAL_UPDATE.format(self.deveui))
         self.store.async_delay_save(self._data_to_save, 30)
 
@@ -850,6 +923,8 @@ class DeviceRuntime:
             trackers["distance"] = self.distance.s
         if self.counters is not None:
             trackers["counters"] = self.counters.s
+        if self.tank is not None:
+            trackers["tank"] = self.tank.s
         return {"raw": self.raw, "meta": self.meta, "trackers": trackers, "commands": self.commands.to_dict(),
                 "link": self.link.to_dict(), "display": self.display}
 

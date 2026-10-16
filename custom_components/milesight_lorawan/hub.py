@@ -22,6 +22,13 @@ from .const import (
     CONF_DOWNLINK_TOPIC,
     CONF_EXTRA_TOPICS,
     CONF_GATEWAY_OFFLINE_MIN,
+    CONF_NS_APP_KEY,
+    CONF_NS_APPLICATION,
+    CONF_NS_FPORT,
+    CONF_NS_GATEWAY_EUI,
+    CONF_NS_PROFILE,
+    CONF_NS_REQUEST_TOPIC,
+    CONF_NS_RESPONSE_TOPIC,
     DEFAULT_GATEWAY_OFFLINE_MIN,
     SIGNAL_GATEWAY,
     SIGNAL_GATEWAY_NEW,
@@ -67,6 +74,18 @@ class Hub:
         self._last_push = 0.0
         self.areas = None       # fleet.AreaTracker, set by the sensor platform
         self.building = None    # building.BuildingTracker
+        self.ns = None          # provisioning.NsApiClient when the ns-api topics are set
+        if cfg.get(CONF_NS_REQUEST_TOPIC) and cfg.get(CONF_NS_RESPONSE_TOPIC):
+            from .provisioning import NsApiClient
+            self.ns = NsApiClient(hass, cfg[CONF_NS_REQUEST_TOPIC], cfg[CONF_NS_RESPONSE_TOPIC],
+                                  cfg.get(CONF_NS_GATEWAY_EUI) or "")
+        self.ns_application: str = str(cfg.get(CONF_NS_APPLICATION) or "")
+        self.ns_profile: str = str(cfg.get(CONF_NS_PROFILE) or "")
+        self.ns_app_key: str | None = cfg.get(CONF_NS_APP_KEY) or None
+        self.ns_fport: int = int(cfg.get(CONF_NS_FPORT) or DOWNLINK_FPORT)
+        self.gateway_devices: dict[str, Any] = {}   # last sync: {devices, applications, profiles, at, error}
+        from .escalation import AlertManager
+        self.alerts = AlertManager(hass, entry, self)
 
     async def async_start(self) -> None:
         self.stats = GatewayStats(await self.store.async_load())
@@ -75,11 +94,59 @@ class Hub:
             self._unsubs.append(await mqtt.async_subscribe(self.hass, topic, self._message_received, qos=0))
             _LOGGER.debug("Subscribed to %s", topic)
         self._unsubs.append(async_track_time_interval(self.hass, self._tick, timedelta(seconds=60)))
+        await self.alerts.async_start()
 
     async def async_stop(self) -> None:
         while self._unsubs:
             self._unsubs.pop()()
+        await self.alerts.async_stop()
+        if self.ns is not None:
+            await self.ns.async_stop()
         await self.store.async_save(self.stats.to_dict())
+
+    # ------------------------------------------------------- provisioning
+    @property
+    def can_provision(self) -> bool:
+        return self.ns is not None and bool(self.ns_application) and bool(self.ns_profile)
+
+    async def async_provision(self, deveui: str, name: str | None, app_key: str | None = None,
+                              profile: str | None = None) -> str:
+        """Register a device on the gateway: 'added' or 'exists'. Raises ns_api.NsApiError / ValueError."""
+        if not self.can_provision:
+            raise ValueError("gateway provisioning is not set up (gateway → Configure → Add devices to the gateway)")
+        result = await self.ns.async_add_device(deveui, name or deveui.upper(), self.ns_application,
+                                                profile or self.ns_profile, app_key or self.ns_app_key, self.ns_fport)
+        self.gateway_devices.setdefault("devices", [])
+        if not any(d["deveui"] == deveui.lower() for d in self.gateway_devices["devices"]):
+            self.gateway_devices["devices"].append({"deveui": deveui.lower(), "name": name, "active": None,
+                                                    "last_seen": None, "application_id": self.ns_application})
+        async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
+        return result
+
+    async def async_sync_devices(self, discover: bool = True) -> dict[str, Any]:
+        """Read the gateway's device list; devices that Home Assistant does not know yet are offered for adding."""
+        if self.ns is None:
+            raise ValueError("gateway provisioning is not set up")
+        try:
+            data = await self.ns.async_overview()
+        except Exception as err:
+            self.gateway_devices = {**self.gateway_devices, "error": str(err), "at": time.time()}
+            async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
+            raise
+        self.gateway_devices = {**data, "at": time.time(), "error": None}
+        if discover:
+            for d in data["devices"]:
+                eui = d["deveui"]
+                if self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, eui) or eui in self._announced:
+                    continue
+                self._announced.add(eui)
+                named = guess_from_name(d.get("name"))
+                self.hass.async_create_task(self.hass.config_entries.flow.async_init(
+                    DOMAIN, context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                    data={CONF_DEVEUI: eui, "guess": named, "candidates": [named] if named else [],
+                          "device_name": d.get("name")}))
+        async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
+        return data
 
     def _day(self, ts: float) -> str:
         return datetime.fromtimestamp(ts, dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.UTC

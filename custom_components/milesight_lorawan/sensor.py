@@ -13,7 +13,7 @@ from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE, ENTRY_TYPE_HUB
 from .entity import MilesightEntity, setup_platform_entities
 from .fleet import async_setup_areas, fleet_sensors
 from .building import building_sensors
-from .gateway import async_setup_gateway_entities
+from .gateway import async_setup_gateway_entities, hub_extra_sensors
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
@@ -26,6 +26,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         hub.areas = areas
         hub.building, ents = building_sensors(hass, entry, areas)
         async_add_entities(ents)
+        async_add_entities(hub_extra_sensors(hass, entry))
         return
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return

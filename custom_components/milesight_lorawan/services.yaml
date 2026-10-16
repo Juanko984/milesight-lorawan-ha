@@ -120,3 +120,43 @@ display_content:
       default: false
       selector:
         boolean:
+acknowledge_alert:
+  fields:
+    alert_id:
+      example: "3f2a9c01be"
+      selector:
+        text:
+add_to_gateway:
+  fields:
+    deveui:
+      required: true
+      example: "24e124136d123456"
+      selector:
+        text:
+    name:
+      example: "Diesel tank"
+      selector:
+        text:
+    app_key:
+      example: "5572404c696e6b4c6f52613230313823"
+      selector:
+        text:
+    profile_id:
+      selector:
+        text:
+remove_from_gateway:
+  fields:
+    deveui:
+      required: true
+      example: "24e124136d123456"
+      selector:
+        text:
+sync_gateway_devices:
+tank_refilled:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: milesight_lorawan
+          multiple: true

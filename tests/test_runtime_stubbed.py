@@ -49,10 +49,12 @@ async def _publish(hass, topic, payload, qos=0, retain=False): PUBLISHED.append(
 mod("homeassistant.components.mqtt", ReceiveMessage=object, async_subscribe=None, async_wait_for_mqtt_client=None,
     async_publish=_publish)
 mod("homeassistant.config_entries", ConfigEntry=object, SOURCE_INTEGRATION_DISCOVERY="integration_discovery")
-mod("homeassistant.core", HomeAssistant=object, callback=callback)
+mod("homeassistant.core", HomeAssistant=object, callback=callback, Event=object)
 mod("homeassistant.helpers"); mod("homeassistant.util", dt=dt_mod); mod("homeassistant.util.dt", **vars(dt_mod))
 mod("homeassistant.helpers.dispatcher", async_dispatcher_connect=dispatcher_connect, async_dispatcher_send=dispatcher_send)
-mod("homeassistant.helpers.event", async_track_time_interval=lambda h, f, i: (lambda: None))
+LATER = []
+mod("homeassistant.helpers.event", async_track_time_interval=lambda h, f, i: (lambda: None),
+    async_call_later=lambda h, d, f: (LATER.append(f), (lambda: None))[1])
 mod("homeassistant.helpers.storage", Store=Store)
 class _DevReg:
     def async_get_device(self, **kw): return None
@@ -662,3 +664,145 @@ assert dash.saved["views"][0]["sections"][0]["cards"][0]["content"].startswith('
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
 assert heads[-3:] == ["Meeting room 1", "Open office", "Occupancy today"], heads
 print("building ok")
+
+# ---------------- 0.20: channel map, tanks, alert escalation, gateway provisioning ----------------
+def make_with(deveui, model, options, title=None, area=None):
+    e = types.SimpleNamespace(data={"entry_type": "device", "deveui": deveui, "model": model, **({"area": area} if area else {})},
+                              options=options, title=title or f"{model} test", entry_id=deveui)
+    rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add(deveui); rt.async_start()
+    e.runtime_data = rt
+    return e, rt
+
+e_uc, rt = make_with("00000000000e0301", "UC300", {"channel_map": "1; Line pressure; bar; 0.01\n2.1; Flow; m³/h; 0.1"})
+specs = {s.key: s for s in rt.extra_specs()}
+assert specs["modbus_chn_1"].name == "Line pressure" and specs["modbus_chn_1"].device_class == "pressure"
+assert specs["modbus_chn_2_reg_1"].unit == "m³/h"
+send("00000000000e0301", bytes.fromhex("ff19000102d204"))
+assert rt.raw["modbus_chn_1"] == 1234 and rt.values["modbus_chn_1"] == 12.34
+s = sensor.MilesightSensor(rt, specs["modbus_chn_1"])
+assert s.native_value == 12.34 and s._attr_native_unit_of_measurement == "bar" and s._attr_unique_id.endswith("_modbus_chn_1")
+print("channel map ok")
+
+def em400(distance_mm):
+    return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")
+e_tank, rt = make_with("0000000000400001", "EM400-UDL",
+                       {"tank_shape": "vertical_cylinder", "tank_diameter_mm": 1000, "install_height_mm": 2100,
+                        "tank_height_mm": 2000, "tank_drop_pct": 10, "tank_low_pct": 20, "tank_density": 840},
+                       title="Diesel tank", area="Yard")
+keys = {s.key for s in rt.extra_specs()}
+assert {"tank_volume", "tank_days_left", "tank_sudden_drop", "tank_mass", "cmd_tank_refilled",
+        "cmd_tank_clear_alarm"} <= keys
+send("0000000000400001", em400(1100))                 # level 1000 mm = half
+v = rt.values
+assert v["tank_level"] == 1000 and abs(v["tank_volume"] - 785.4) < 0.1 and v["tank_fill"] == 50.0
+assert abs(v["tank_capacity"] - 1570.8) < 0.1 and v["tank_low"] is False and v["tank_sudden_drop"] is False
+n = len(fired)
+rt.tank.s["samples"][-1][0] -= 600                    # previous reading 10 minutes ago
+send("0000000000400001", em400(1500))                 # level 600: −314 L (20 %) quickly
+assert rt.values["tank_sudden_drop"] is False         # one reading could be a glitch …
+send("0000000000400001", em400(1502))
+assert rt.values["tank_sudden_drop"] is True          # … the next one confirms it
+ev = [d for e, d in fired[n:] if e == "milesight_lorawan_tank"]
+assert ev and ev[0]["type"] == "sudden_drop" and ev[0]["device"] == "Diesel tank" and ev[0]["area"] == "Yard"
+b = button.MilesightCommandButton(rt, next(s for s in rt.extra_specs() if s.key == "cmd_tank_clear_alarm"))
+asyncio.run(b.async_press())
+assert rt.values["tank_sudden_drop"] is False
+send("0000000000400001", em400(1950))                 # level 150 mm < 20 %
+send("0000000000400001", em400(1951))
+assert rt.values["tank_low"] is True and rt.values["tank_sudden_drop"] is True    # fell fast again
+asyncio.run(b.async_press())
+send("0000000000400001", em400(1952))
+assert rt.values["tank_sudden_drop"] is False         # cleared stays cleared
+assert rt._data_to_save()["trackers"]["tank"]["samples"]
+print("tank ok")
+
+# alert escalation through the hub
+CALLS = []
+class _Services:
+    async def async_call(self, domain, service, data, blocking=False): CALLS.append((domain, service, data))
+    def async_services(self): return {"notify": {"mobile_app_juan": None, "mobile_app_sam": None}}
+esc = sys.modules.get("milesight_lorawan.escalation") or load("escalation")
+alert_entry = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="h", title="Site gateway",
+                                    options={"alert_primary": ["notify.mobile_app_juan"],
+                                             "alert_backup": ["notify.mobile_app_sam"], "alert_escalate_min": 15,
+                                             "alert_categories": ["safety", "tank", "gateways"],
+                                             "alert_action_entity": "switch.transfer_pump"})
+hass3 = types.SimpleNamespace(config=hass.config, data=hass.data, bus=hass.bus, services=_Services(),
+                              config_entries=types.SimpleNamespace(async_entries=lambda d: [e_tank, e_uc]),
+                              auth=types.SimpleNamespace(async_get_user=None), async_create_task=hass.async_create_task)
+mgr = esc.AlertManager(hass3, alert_entry, hb)
+assert mgr.cfg.action_title == "Start pump"
+for gid in hb.stats.gateways:                         # keep the gateways out of this test
+    hb.stats.gateways[gid]["last_heard"] = time.time()
+asyncio.run(mgr._run())
+sent = [c for c in CALLS if c[1] == "mobile_app_juan"]
+assert len(sent) == 1 and sent[0][2]["title"] == "Tank low – Diesel tank", CALLS
+acts = sent[0][2]["data"]["actions"]
+assert acts[1]["title"] == "Start pump" and acts[0]["action"].startswith("MSL_ACK_")
+aid = acts[0]["action"].removeprefix("MSL_ACK_")
+key = next(k for k in mgr.engine.alerts)
+mgr.engine.alerts[key]["level_at"] -= 16 * 60         # nobody answered for 16 minutes
+CALLS.clear(); asyncio.run(mgr._run())
+assert {c[1] for c in CALLS} == {"mobile_app_juan", "mobile_app_sam"} and "Not acknowledged" in CALLS[0][2]["title"]
+CALLS.clear()
+asyncio.run(mgr._on_action(types.SimpleNamespace(data={"action": f"MSL_RUN_{aid}"}, context=None)))
+assert ("switch", "turn_on", {"entity_id": "switch.transfer_pump"}) in CALLS
+assert any(c[2].get("title", "").startswith("✔") for c in CALLS) and not mgr.engine.unacknowledged()
+asyncio.run(mgr._on_action(types.SimpleNamespace(data={"action": "MSL_ACK_unknown"}, context=None)))   # ignored
+alerts_sensor = gateway.OpenAlertsSensor(hass3, types.SimpleNamespace(**{**vars(alert_entry), "runtime_data": hb}))
+hb.alerts = mgr
+assert alerts_sensor.native_value == 0 and alerts_sensor.extra_state_attributes["alerts"][0]["status"] == "acknowledged"
+print("alerts ok")
+
+# gateway provisioning over ns-api
+prov = load("provisioning")
+SUBS = {}
+async def _subscribe(hass_, topic, cb, qos=0):
+    SUBS[topic] = cb; return lambda: SUBS.pop(topic, None)
+GW_DEVICES = {"24e124136d000001": "EM300-TH Office"}
+async def _publish_ns(hass_, topic, payload, qos=0, retain=False):
+    req = json.loads(payload)
+    if req.get("type") != "ns-api":
+        return
+    body = {"code": 200, "error": ""}
+    if req["method"] == "GET" and req["url"].startswith("/api/urdevices"):
+        body.update(deviceResult=[{"devEUI": k.upper(), "name": n, "applicationID": "1"} for k, n in GW_DEVICES.items()],
+                    appResult=[{"appName": "farm", "applicationID": "1"}],
+                    profileResult=[{"profileID": "p-a", "profileName": "ClassA-OTAA"}])
+    elif req["method"] == "POST":
+        eui = req["body"]["devEUI"]
+        if eui in GW_DEVICES:
+            body = {"code": 6, "error": "device already exist"}
+        else:
+            GW_DEVICES[eui] = req["body"]["name"]
+            assert req["body"]["appKey"] == "5572404c696e6b4c6f52613230313823" and req["body"]["profileID"] == "p-a"
+    asyncio.get_running_loop().call_soon(SUBS["ms/resp"], types.SimpleNamespace(
+        payload=json.dumps({"type": "ns-api", "id": req["id"], "method": req["method"], "url": req["url"], "body": body})))
+sys.modules["homeassistant.components.mqtt"].async_subscribe = _subscribe
+sys.modules["homeassistant.components.mqtt"].async_publish = _publish_ns
+async def _prov():
+    loop = asyncio.get_running_loop()
+    h = types.SimpleNamespace(loop=loop)
+    c = prov.NsApiClient(h, "ms/req", "ms/resp")
+    ov = await c.async_overview()
+    assert ov["applications"] == {"1": "farm"} and ov["profiles"] == {"p-a": "ClassA-OTAA"} and len(ov["devices"]) == 1
+    assert await c.async_add_device("24e124136d000002", "Pump", "1", "p-a") == "added"
+    assert await c.async_add_device("24e124136d000001", "Office", "1", "p-a") == "exists"
+    hb.ns, hb.ns_application, hb.ns_profile = c, "1", "p-a"
+    assert hb.can_provision and await hb.async_provision("24e124136d000003", "Tank 3") == "added"
+    flows = len(entries.flows)
+    entries.async_entry_for_domain_unique_id = lambda d, u: u == "24e124136d000003"
+    data = await hb.async_sync_devices()
+    assert len(data["devices"]) == 3 and len(entries.flows) == flows + 2      # 0001 and 0002 offered, 0003 known
+    assert {f["device_name"] for f in entries.flows[-2:]} == {"EM300-TH Office", "Pump"}
+    assert entries.flows[-2]["guess"] == "EM300-TH"
+    c2 = prov.NsApiClient(h, "ms/req", "ms/nobody")
+    try:
+        await c2.async_request("GET", "/api/urdevices", timeout=0.2)
+    except prov.NsApiError as err:
+        assert "no answer" in str(err)
+    else:
+        raise AssertionError("expected a timeout")
+    await c.async_stop()
+asyncio.run(_prov())
+print("provisioning ok")
