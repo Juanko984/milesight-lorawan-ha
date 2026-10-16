@@ -2,6 +2,10 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.23.1
+### Changed
+- Version bump (same features as 0.23.0) so HACS offers the update.
+
 ## 0.23.0
 ### Added
 - **Commissioning mode** for installers: sidebar page *LoRaWAN commissioning* (administrators).

@@ -777,6 +777,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.23.1** | Version bump of 0.23.0. |
 | **0.23.0** | Commissioning mode: scan a device's QR code to add it (and register it on the gateway), live walk test with fast reporting and saved results. |
 | **0.22.2** | Area occupancy history kept across restarts. |
 | **0.22.1** | Gateway device list read automatically (start + every 6 h). |
