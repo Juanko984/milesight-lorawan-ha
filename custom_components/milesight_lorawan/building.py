@@ -190,7 +190,7 @@ class SiteSensor(_BuildingBase):
     def extra_state_attributes(self) -> dict[str, Any]:
         info = site_info(self.hass, self.entry)
         d = self.tracker.data
-        info.update({"areas": d.get("areas", []), "alerts": len(d.get("alerts", [])),
+        info.update({"milesight_role": "site", "areas": d.get("areas", []), "alerts": len(d.get("alerts", [])),
                      "status": (f"{len(d['alerts'])} item{'s' if len(d['alerts']) != 1 else ''} need attention"
                                 if d.get("alerts") else "All systems normal")})
         return info
@@ -227,7 +227,11 @@ class BuildingSensor(_BuildingBase):
         return d.get(self.kind)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Every building sensor carries milesight_role / site, so dashboards can find it whatever its entity id."""
+        return {"milesight_role": f"building_{self.kind}", "site": self.entry.title, **(self._attrs() or {})}
+
+    def _attrs(self) -> dict[str, Any] | None:
         d = self.tracker.data
         if not d:
             return None

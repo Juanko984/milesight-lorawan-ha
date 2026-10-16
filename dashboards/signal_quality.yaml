@@ -1,7 +1,6 @@
 # Milesight LoRaWAN – signal quality & gateways (installer view)
 # Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
-# Replace sensor.milesight_gateway_devices with the entity id of YOUR gateway's "Devices" sensor
-# (Settings → Devices → Milesight gateway). The gateway tables find their sensors by themselves.
+# No entity ids to edit: the cards find the gateway's sensors themselves.
 title: LoRaWAN signal
 views:
   - title: Signal
@@ -10,9 +9,8 @@ views:
       - type: markdown
         title: Gateways
         content: |
-          {% set hubs = states.sensor | selectattr('attributes.gateways', 'defined')
-             | selectattr('attributes.gateways', 'iterable') | list %}
-          {% set gws = hubs | map(attribute='attributes.gateways') | sum(start=[]) | selectattr('packets_today', 'defined') | list %}
+          {% set gws = states.sensor | selectattr('attributes.milesight_role', 'eq', 'net_gateways_online')
+             | map(attribute='attributes.gateways') | sum(start=[]) | list %}
           {% if not gws %}No gateways seen yet – they appear with the first uplink that lists them (rxInfo).{% else %}
           | | Gateway | Packets today | Devices today |
           |---|---|---|---|
@@ -21,7 +19,7 @@ views:
       - type: markdown
         title: Weak or lossy devices
         content: |
-          {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
+          {% set devs = states.sensor | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
           {% set bad = devs | selectattr('signal', 'in', ['poor', 'fair']) | list
              + (devs | selectattr('packet_loss', 'defined') | rejectattr('packet_loss', 'none')
                 | selectattr('packet_loss', 'ge', 10) | list) %}
@@ -33,7 +31,7 @@ views:
       - type: markdown
         title: All devices
         content: |
-          {% set devs = state_attr('sensor.milesight_gateway_devices', 'devices') or [] %}
+          {% set devs = states.sensor | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
           {% set icon = {'excellent': '🟢', 'good': '🟢', 'fair': '🟡', 'poor': '🔴'} %}
           | | Device | Model | RSSI | SNR | SF | Gateways | Loss | Last command |
           |---|---|---|---|---|---|---|---|---|

@@ -387,6 +387,12 @@ configuration editor) into a dashboard of your own. If Home Assistant refuses th
 to `/config/milesight_building-<site>.yaml` with a notification on how to paste it.
 [`dashboards/building_overview.example.yaml`](dashboards/building_overview.example.yaml) shows what is generated.
 
+**Entity ids** of the gateway's sensors follow the gateway entry's name: with the default topic it is
+"Milesight gateway (milesight/uplink/#)", so e.g. `sensor.milesight_gateway_milesight_uplink_building_health`.
+The generated dashboard and the ready-made dashboards look the sensors up themselves; in your own templates
+you can do the same with the `milesight_role` attribute, e.g.
+`{{ states.sensor | selectattr('attributes.milesight_role', 'eq', 'building_health') | map(attribute='state') | first }}`.
+
 ### Building analytics
 
 Give devices an area (bulk onboarding, the onboarding form, or the device page) and the gateway device gets, per area:
@@ -618,6 +624,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.19.1** | Dashboards find the gateway's sensors by themselves (entity ids depend on the gateway's name); corrected example entity ids. |
 | **0.19.0** | Building dashboard: Site information (from Home Assistant + gateway settings), building health / comfort / air quality / people / alerts / averages sensors, one-click generated dashboard with built-in cards. |
 | **0.18.0** | Command confirmation with retries (pending / confirmed / failed, network ACKs), signal quality per device (gateways in range, SF, packet loss, advice) with installer dashboard, DS3604 display content (text entities, service, room-sign blueprint), gateway health (a device per gateway: online, packets, devices heard, status reports). |
 | **0.17.0** | Device settings as entities (alarm thresholds, child lock, LED, buzzer), stored-data backfill into long-term statistics, pulse counters as water / gas / energy meters for the Energy dashboard, building analytics (area comfort, occupancy heat map, utilisation) with dashboard. |

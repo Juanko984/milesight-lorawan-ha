@@ -98,7 +98,10 @@ class HubCounter(_Base, SensorEntity):
         return hub.stats.counts.get(self.kind, 0)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"milesight_role": f"net_{self.kind}", "site": self.entry.title, **(self._attrs() or {})}
+
+    def _attrs(self) -> dict[str, Any] | None:
         hub = _hub(self.entry)
         if hub is None:
             return None

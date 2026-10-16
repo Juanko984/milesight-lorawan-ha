@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.19.1
+### Fixed
+- Example and ready-made dashboards used wrong entity ids (`sensor.milesight_gateway_…`). A gateway added with
+  the default topic is called "Milesight gateway (milesight/uplink/#)", so its entities are
+  `sensor.milesight_gateway_milesight_uplink_…`. fleet_overview.yaml and signal_quality.yaml now find the gateway
+  sensors themselves (no entity ids to edit, works for any gateway name); building_overview.example.yaml uses the
+  correct defaults (tools/make_example_dashboard.py).
+- Gateway sensors (fleet, building, site, network counters) carry `milesight_role` and `site` attributes so
+  dashboards and templates can find them whatever their entity id.
+
 ## 0.19.0
 ### Added
 - **Building dashboard**: the gateway's new *Update building dashboard* button (or *Site information* → submit)

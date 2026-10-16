@@ -98,9 +98,10 @@ class FleetSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         sel = self._selected()
+        role = {"milesight_role": f"fleet_{self.kind}", "site": self.entry.title}
         if self.kind == "total":
-            return {"devices": sel}
-        return {"devices": [d["name"] for d in sel],
+            return {**role, "devices": sel}
+        return {**role, "devices": [d["name"] for d in sel],
                 "details": [{k: d[k] for k in ("name", "model", "area", "battery", "last_seen")} for d in sel]}
 
 

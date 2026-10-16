@@ -1,8 +1,11 @@
 # Milesight LoRaWAN – Building dashboard (example of what the gateway's 'Update building dashboard' button creates)
-# You normally don't need this file: the button builds the dashboard with your own entities and areas.
-# To use it by hand: Settings → Dashboards → Add dashboard → open it → ⋮ → Edit → ⋮ → Raw configuration editor,
-# paste, and replace the entity ids.
-title: Building – Milesight gateway
+# You normally don't need this file: the button builds the dashboard with YOUR entity ids and areas.
+# Entity ids below are the defaults for a gateway added with the topic milesight/uplink/#
+# (gateway entry "Milesight gateway (milesight/uplink/#)" -> sensor.milesight_gateway_milesight_uplink_...).
+# Another topic or a renamed gateway gives other ids: check Settings -> Devices -> your gateway.
+# To use it by hand: Settings -> Dashboards -> Add dashboard -> open it -> ⋮ -> Edit -> ⋮ -> Raw configuration
+# editor, paste, and adjust the entity ids.
+title: Building – Milesight gateway (milesight/uplink/#)
 views:
 - type: sections
   title: Overview
@@ -15,19 +18,19 @@ views:
     name: Outside
     show_name: true
   - type: entity
-    entity: sensor.milesight_gateway_building_health
+    entity: sensor.milesight_gateway_milesight_uplink_building_health
     name: Building health
     show_name: true
   - type: entity
-    entity: sensor.milesight_gateway_people_in_building
+    entity: sensor.milesight_gateway_milesight_uplink_people_in_building
     name: People in building
     show_name: true
   - type: entity
-    entity: sensor.milesight_gateway_devices_online
+    entity: sensor.milesight_gateway_milesight_uplink_devices_online
     name: Devices online
     show_name: true
   - type: entity
-    entity: sensor.milesight_gateway_alerts
+    entity: sensor.milesight_gateway_milesight_uplink_alerts
     name: Alerts
     show_name: true
   sections:
@@ -35,7 +38,7 @@ views:
     cards:
     - type: markdown
       content: |-
-        {% set s = "sensor.milesight_gateway_site" %}
+        {% set s = "sensor.milesight_gateway_milesight_uplink_site" %}
         <table width="100%"><tr>
         <td width="100">{% if state_attr(s, 'logo') %}<img src="{{ state_attr(s, 'logo') }}" width="84" alt="Logo">{% endif %}</td>
         <td>
@@ -56,7 +59,7 @@ views:
       heading: Overall health
       icon: mdi:heart-pulse
     - type: gauge
-      entity: sensor.milesight_gateway_building_health
+      entity: sensor.milesight_gateway_milesight_uplink_building_health
       name: Building health
       min: 0
       max: 100
@@ -67,25 +70,25 @@ views:
       grid_options:
         columns: full
     - type: tile
-      entity: sensor.milesight_gateway_building_comfort
+      entity: sensor.milesight_gateway_milesight_uplink_building_comfort
       name: Comfort
       grid_options:
         columns: 6
       icon: mdi:emoticon-happy-outline
     - type: tile
-      entity: sensor.milesight_gateway_air_quality
+      entity: sensor.milesight_gateway_milesight_uplink_air_quality
       name: Air quality
       grid_options:
         columns: 6
       icon: mdi:air-filter
     - type: tile
-      entity: sensor.milesight_gateway_systems_health
+      entity: sensor.milesight_gateway_milesight_uplink_systems_health
       name: Systems
       grid_options:
         columns: 6
       icon: mdi:router-network
     - type: tile
-      entity: sensor.milesight_gateway_people_in_building
+      entity: sensor.milesight_gateway_milesight_uplink_people_in_building
       name: Occupancy
       grid_options:
         columns: 6
@@ -96,7 +99,7 @@ views:
       heading: Air quality
       icon: mdi:air-filter
     - type: gauge
-      entity: sensor.milesight_gateway_average_co2
+      entity: sensor.milesight_gateway_milesight_uplink_average_co2
       name: CO₂
       min: 400
       max: 2000
@@ -111,7 +114,7 @@ views:
       grid_options:
         columns: 6
     - type: gauge
-      entity: sensor.milesight_gateway_average_pm2_5
+      entity: sensor.milesight_gateway_milesight_uplink_average_pm2_5
       name: PM2.5
       min: 0
       max: 75
@@ -126,7 +129,7 @@ views:
       grid_options:
         columns: 6
     - type: gauge
-      entity: sensor.milesight_gateway_average_tvoc
+      entity: sensor.milesight_gateway_milesight_uplink_average_tvoc
       name: TVOC
       min: 0
       max: 1000
@@ -141,7 +144,7 @@ views:
       grid_options:
         columns: 6
     - type: gauge
-      entity: sensor.milesight_gateway_average_humidity
+      entity: sensor.milesight_gateway_milesight_uplink_average_humidity
       name: Humidity
       min: 0
       max: 100
@@ -168,19 +171,19 @@ views:
       grid_options:
         columns: full
     - type: tile
-      entity: sensor.milesight_gateway_average_temperature
+      entity: sensor.milesight_gateway_milesight_uplink_average_temperature
       name: Temperature
       grid_options:
         columns: 6
       icon: mdi:thermometer
     - type: tile
-      entity: sensor.milesight_gateway_average_pm10
+      entity: sensor.milesight_gateway_milesight_uplink_average_pm10
       name: PM10
       grid_options:
         columns: 6
       icon: mdi:blur
     - type: tile
-      entity: sensor.milesight_gateway_average_pressure
+      entity: sensor.milesight_gateway_milesight_uplink_average_pressure
       name: Pressure
       grid_options:
         columns: 6
@@ -192,25 +195,25 @@ views:
       heading: System health
       icon: mdi:router-network
     - type: tile
-      entity: sensor.milesight_gateway_devices_online
+      entity: sensor.milesight_gateway_milesight_uplink_devices_online
       name: Devices online
       grid_options:
         columns: 6
       icon: mdi:check-network-outline
     - type: tile
-      entity: sensor.milesight_gateway_gateways_online
+      entity: sensor.milesight_gateway_milesight_uplink_gateways_online
       name: Gateways online
       grid_options:
         columns: 6
       icon: mdi:router-wireless
     - type: tile
-      entity: sensor.milesight_gateway_devices_with_low_battery
+      entity: sensor.milesight_gateway_milesight_uplink_devices_with_low_battery
       name: Battery low
       grid_options:
         columns: 6
       icon: mdi:battery-alert-variant-outline
     - type: tile
-      entity: sensor.milesight_gateway_uplinks_today
+      entity: sensor.milesight_gateway_milesight_uplink_uplinks_today
       name: Uplinks today
       grid_options:
         columns: 6
@@ -218,7 +221,7 @@ views:
     - type: markdown
       title: Needs attention
       content: |-
-        {% set al = state_attr("sensor.milesight_gateway_alerts", 'alerts') or [] %}
+        {% set al = state_attr("sensor.milesight_gateway_milesight_uplink_alerts", 'alerts') or [] %}
         {% if not al %}<ha-alert alert-type="success">Nothing needs attention</ha-alert>{% else %}
         {% for a in al %}<ha-alert alert-type="{{ 'error' if a.severity == 'serious' else 'warning' }}" title="{{ a.where }} · {{ a.what }}">{{ a.detail }} · since {{ a.since }}</ha-alert>
         {% endfor %}{% endif %}
@@ -230,7 +233,7 @@ views:
       heading: Reception
       icon: mdi:door
     - type: tile
-      entity: sensor.milesight_gateway_reception_comfort
+      entity: sensor.milesight_gateway_milesight_uplink_reception_comfort
       name: Comfort
       grid_options:
         columns: 12
@@ -241,7 +244,7 @@ views:
       - humidity
       - co2
     - type: tile
-      entity: sensor.milesight_gateway_reception_occupancy
+      entity: sensor.milesight_gateway_milesight_uplink_reception_occupancy
       name: Occupied today
       grid_options:
         columns: 6
@@ -258,7 +261,7 @@ views:
       heading: Open office
       icon: mdi:desk
     - type: tile
-      entity: sensor.milesight_gateway_open_office_comfort
+      entity: sensor.milesight_gateway_milesight_uplink_open_office_comfort
       name: Comfort
       grid_options:
         columns: 12
@@ -269,7 +272,7 @@ views:
       - humidity
       - co2
     - type: tile
-      entity: sensor.milesight_gateway_open_office_occupancy
+      entity: sensor.milesight_gateway_milesight_uplink_open_office_occupancy
       name: Occupied today
       grid_options:
         columns: 6
@@ -286,7 +289,7 @@ views:
       heading: Meeting room 1
       icon: mdi:account-group
     - type: tile
-      entity: sensor.milesight_gateway_meeting_room_1_comfort
+      entity: sensor.milesight_gateway_milesight_uplink_meeting_room_1_comfort
       name: Comfort
       grid_options:
         columns: 12
@@ -297,7 +300,7 @@ views:
       - humidity
       - co2
     - type: tile
-      entity: sensor.milesight_gateway_meeting_room_1_occupancy
+      entity: sensor.milesight_gateway_milesight_uplink_meeting_room_1_occupancy
       name: Occupied today
       grid_options:
         columns: 6
