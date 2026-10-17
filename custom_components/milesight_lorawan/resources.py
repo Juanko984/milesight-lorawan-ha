@@ -110,6 +110,7 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
     def _read() -> dict[str, Any]:
         return {f: yaml.safe_load((RES / "dashboards" / f).read_text(encoding="utf-8")) for f in DASHBOARDS}
     configs = await hass.async_add_executor_job(_read)
+    configs = {f: _live(hass, f, c) for f, c in configs.items()}
     done = state.setdefault("dashboards", {})
     dashboards = _lovelace_dashboards(hass)
     result: dict[str, list[str]] = {"written": [], "kept": [], "removed": []}
@@ -148,6 +149,22 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
     return result
 
 
+def _live(hass: HomeAssistant, file: str, config: dict) -> dict:
+    """Add the 'Live' view (gauges, sliders, pivot map) for the devices that are set up."""
+    try:
+        from homeassistant.helpers import entity_registry as er
+        from .dashboard_live import with_live_view
+        reg = er.async_get(hass)
+        runtimes = [rt for e in hass.config_entries.async_entries(DOMAIN)
+                    if hasattr(rt := getattr(e, "runtime_data", None), "deveui")]
+        hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+        return with_live_view(file, config, lambda plat, uid: reg.async_get_entity_id(plat, DOMAIN, uid),
+                              sorted(runtimes, key=lambda r: r.entry.title.lower()), hubs)
+    except Exception:  # noqa: BLE001 - the bundled dashboard still works without the live view
+        _LOGGER.debug("Could not build the live view for %s", file, exc_info=True)
+        return config
+
+
 def _hide(hass: HomeAssistant, url: str) -> None:
     """Take an integration-made dashboard out of the sidebar (its content stays stored for later)."""
     from .dashboard import _lovelace_dashboards
@@ -174,6 +191,7 @@ async def async_install(hass: HomeAssistant, version: str | None = None, force: 
         tags = site_tags(hass)
         out["dashboards"] = await async_install_dashboards(hass, state, tags)
         state["tags"] = sorted(tags)
+        state["live"] = _hash([_live(hass, f, {}) for f in DASHBOARDS])
     except Exception as err:  # noqa: BLE001 - dashboards (lovelace) not available
         _LOGGER.warning("Could not install the Milesight dashboards: %s", err)
         out["dashboards"] = {"written": [], "kept": [], "error": str(err)}
@@ -225,7 +243,8 @@ async def async_sync(hass: HomeAssistant) -> dict[str, Any]:
     store = _store(hass)
     state = await store.async_load() or {}
     tags = site_tags(hass)
-    if state.get("tags") == sorted(tags) and state.get("dashboards"):
+    live = _hash([_live(hass, f, {}) for f in DASHBOARDS])
+    if state.get("tags") == sorted(tags) and state.get("dashboards") and state.get("live") == live:
         await async_label_devices(hass)
         return {}
     try:
@@ -234,6 +253,7 @@ async def async_sync(hass: HomeAssistant) -> dict[str, Any]:
         _LOGGER.debug("Could not update the Milesight dashboards", exc_info=True)
         return {"dashboards": {"written": [], "kept": [], "error": str(err)}}
     state["tags"] = sorted(tags)
+    state["live"] = live
     await store.async_save(state)
     await async_label_devices(hass)
     return out

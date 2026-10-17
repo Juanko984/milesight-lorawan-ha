@@ -21,7 +21,7 @@ def _load(name):
     spec.loader.exec_module(mod); return mod
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
-mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
+spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1393,23 +1393,23 @@ def test_modbus_templates():
 
 def test_luxpower_template_uc100():
     t = mtp.TEMPLATES["luxpower_lxp"]
-    assert mtp.max_channels("UC100") == 32 and mtp.max_channels("UC300") == 16
-    assert mtp.plan("luxpower_lxp", None, 1, 1)[1]                                   # 32 values do not fit a UC300
+    assert mtp.max_channels("UC100") == 32 and mtp.max_channels("UC300") == 32 and mtp.max_channels("UC501") == 16
+    assert mtp.plan("luxpower_lxp", None, 1, 1)[1]                                   # 26 values do not fit a UC50x
     rows, errs = mtp.plan("luxpower_lxp", None, 1, 1, max_channels=mtp.max_channels("UC100"))
-    assert not errs and len(rows) == len(t.defaults()) == 32 and rows[-1]["channel"] == 32
+    assert not errs and len(rows) == len(t.defaults()) == 26 and rows[-1]["channel"] == 26
     by = {r["toolbox_name"]: r for r in rows}
     assert by["Epv1_all"]["quantity"] == 2 and by["Epv1_all"]["type"] == "Input Register(INT32)"
     assert by["Epv1_all"]["byte_order"] == "CDAB" and by["Vbat"]["type"] == "Input Register(INT16)"
     assert by["SOC"]["address"] == 5 and "SOH" not in by
     rows, errs = mtp.plan("luxpower_lxp", [k for k in t.defaults() if k != "fault"] + ["soh"], 1, 1, max_channels=32)
     m, problems = chm.parse_channel_map(mtp.merge_map("", rows, mtp.block_title(t, rows)))
-    assert not errs and not problems and len(m) == 32
+    assert not errs and not problems and len(m) == 26
     ch = {c.name: c for c in m.values()}
     assert ch["Battery SOC"].apply(0x6450) == 80 and ch["Battery SOH"].apply(0x6450) == 100
     assert ch["Battery voltage"].apply(532) == 53.2
     assert ch["Battery current"].apply(0xFF38) == -2.0 and ch["Cell voltage max"].apply(3345) == 3.345
     assert ch["PV1 energy total"].apply(123456) == 12345.6 and ch["PV1 energy total"].state_class == "total_increasing"
-    assert ch["Grid import today"].device_class == "energy" and ch["Battery SOC"].device_class == "battery"
+    assert ch["Grid import total"].device_class == "energy" and ch["Battery SOC"].device_class == "battery"
     assert mtp.plan("luxpower_lxp", [r.key for r in t.regs], 1, 1, max_channels=32)[1]   # 46 > 32 channels
 
 
@@ -1428,16 +1428,16 @@ def test_modbus_config_downlinks():
     assert len(mcf.name_cmd(3, "A very long channel name")) == 5 + 16
     # the LuxPower template on a UC100: 32 channels + names, packed into downlinks of at most 50 bytes
     rows, errs = mtp.plan("luxpower_lxp", None, 1, 1, max_channels=mtp.max_channels("UC100"))
-    assert not errs and len(rows) == 32 and mtp.max_channels("UC100") == 32
+    assert not errs and len(rows) == 26 and mtp.max_channels("UC100") == 32
     commands = mcf.template_commands(rows)
-    assert len(commands) == 64 and commands[0] == ("modbus_channel_1", bytes.fromhex("ffef01010100000201"))
+    assert len(commands) == 52 and commands[0] == ("modbus_channel_1", bytes.fromhex("ffef01010100000201"))
     by = {r["toolbox_name"]: r for r in rows}
     epv = dict(commands)[f"modbus_channel_{by['Epv1_all']['channel']}"]
     assert epv[7] == 6 and epv[8] == 0x02                       # INT32 CDAB, quantity 2
     ibat = dict(commands)[f"modbus_channel_{by['BatCurrent']['channel']}"]
     assert ibat[8] == 0x11                                       # signed, 1 register
     frames = mcf.pack(commands)
-    assert all(sum(len(c) for _, c in f) <= 50 for f in frames) and sum(len(f) for f in frames) == 64
+    assert all(sum(len(c) for _, c in f) <= 50 for f in frames) and sum(len(f) for f in frames) == 52
     assert [c for f in frames for c in f] == commands             # order kept
     assert mcf.remove_commands(3, 4) == [("modbus_remove_3", b"\xff\xef\x00\x03"), ("modbus_remove_4", b"\xff\xef\x00\x04")]
     # the UC100 echoes the commands: decoded, not mistaken for measurements
@@ -1446,6 +1446,14 @@ def test_modbus_config_downlinks():
                                             "signed": True}
     assert up["modbus_channels_named"][0]["name"] == "STATE1" and up["modbus_chn_2"] == 0x1234
     assert dec.decode_uc100_v2(bytes.fromhex("ffef0006"))["modbus_channels_removed"] == [6]
+
+
+def test_setpoints():
+    sp = spt.DEVICE["tank_low_pct"]
+    assert spt.clamp(sp, 33.4) == 33 and spt.clamp(sp, 120) == 90 and spt.clamp(sp, -5) == 0
+    t = spt.DEVICE["p_temp_high"]
+    assert spt.clamp(t, 5.2) == 5.0 and spt.clamp(t, 5.3) == 5.5 and spt.key("irr_target") == "sp_irr_target"
+    assert set(spt.hub_values(irr.irrigation_config({}))) == set(spt.HUB)
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

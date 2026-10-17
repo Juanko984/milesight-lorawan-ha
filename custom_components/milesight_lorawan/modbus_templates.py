@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 MAX_CHANNELS = 16          # Modbus channels on the UC300 / UC50x
-CONTROLLER_CHANNELS = {"UC100": 32, "UC100-V2": 32}   # Modbus channels per model (others: MAX_CHANNELS)
+CONTROLLER_CHANNELS = {"UC100": 32, "UC100-V2": 32, "UC300": 32}   # Modbus channels per model (others: 16)
 
 
 def max_channels(model_key: str | None) -> int:
@@ -187,17 +187,17 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
             (("t_rad", 65, "Radiator temperature", "°C", "1", 0, "temperature", 0),
              {"group": "Inverter", "toolbox": "Tradiator1", "signed": True, "optional": True}),
             (("epv1_day", 28, "PV1 energy today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
-             {"group": "Energy today", "toolbox": "Epv1_day"}),
+             {"group": "Energy today", "toolbox": "Epv1_day", "optional": True}),
             (("epv2_day", 29, "PV2 energy today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
-             {"group": "Energy today", "toolbox": "Epv2_day"}),
+             {"group": "Energy today", "toolbox": "Epv2_day", "optional": True}),
             (("echg_day", 33, "Battery charge today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
-             {"group": "Energy today", "toolbox": "Echg_day"}),
+             {"group": "Energy today", "toolbox": "Echg_day", "optional": True}),
             (("edis_day", 34, "Battery discharge today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
-             {"group": "Energy today", "toolbox": "Edischg_day"}),
+             {"group": "Energy today", "toolbox": "Edischg_day", "optional": True}),
             (("eexp_day", 36, "Grid export today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
-             {"group": "Energy today", "toolbox": "Etogrid_day"}),
+             {"group": "Energy today", "toolbox": "Etogrid_day", "optional": True}),
             (("eimp_day", 37, "Grid import today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
-             {"group": "Energy today", "toolbox": "Etouser_day"}),
+             {"group": "Energy today", "toolbox": "Etouser_day", "optional": True}),
             (("eeps_day", 35, "Backup energy today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
              {"group": "Energy today", "toolbox": "Eeps_day", "optional": True}),
             (("epv1_all", 40, "PV1 energy total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
@@ -226,7 +226,9 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
          "Slave address = holding register 15 (Com Addr); usually 1 – check it if nothing answers.",
          "32-bit totals and codes: quantity 2, low word first (byte order CDAB in ToolBox).",
          "SOC and SOH are packed in register 5 (low / high byte): two channels on the same register.",
-         "Battery current sign (charge / discharge) – compare with the LuxPower integration once."),
+         "Battery current sign (charge / discharge) – compare with the LuxPower integration once.",
+         "Energy today is unticked: the Energy dashboard (and utility meters) work out daily kWh from the lifetime "
+         "totals, which saves 6 channels."),
         "Input Register(INT16)",
     ),
 )}

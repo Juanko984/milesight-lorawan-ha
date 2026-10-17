@@ -71,6 +71,7 @@ from .pivot import PivotTracker, pivot_config
 from . import purposes as _purposes
 from .models import contact_specs, families, load_channels, load_specs, purpose_specs, temp_specs
 from .usage import LoadTracker, TempWatch, Trend, bin_fill, water_level_cm
+from . import setpoints as _setpoints
 from .pump import PumpTracker, pump_config
 from .tank import TankTracker, level_mm, tank_config, volume_l
 
@@ -505,6 +506,10 @@ class DeviceRuntime:
             specs.append(meter_spec(mtype, self._opt(CONF_METER_UNIT,
                                                      {"water": "m³", "gas": "m³", "energy": "kWh", "rain": "mm"}[mtype])))
         specs += self.purpose_extra_specs()
+        from .models import EntitySpec
+        for option in _setpoints.device_values(self):
+            sp = _setpoints.DEVICE[option]
+            specs.append(EntitySpec(_setpoints.key(option), sp.name, platform="number", unit=sp.unit, icon=sp.icon))
         if self.tank_cfg is not None:
             specs += tank_specs(self.tank_cfg.density > 0, self.tank_cfg.low_pct > 0, self.tank_cfg.drop_pct > 0)
         if self.pump is not None:
@@ -1286,6 +1291,9 @@ class DeviceRuntime:
                                             "finish_in_h": v["pivot_finish_in"], "direction": v["pivot_direction"],
                                             "sector": self.pivot_cfg.sector,
                                             "centre": [self.pivot_cfg.lat, self.pivot_cfg.lon]}
+            # the pivot centre on the map card (any entity with latitude / longitude attributes is drawn)
+            self.attrs["pivot_radius"] = {"latitude": self.pivot_cfg.lat, "longitude": self.pivot_cfg.lon,
+                                          "role": "pivot centre"}
         meter = self._meter_value(v)
         if meter is not None:
             v["meter_reading"] = meter
@@ -1328,6 +1336,8 @@ class DeviceRuntime:
                 v["occ_status"] = "Empty" if self.meta.get("last_seen") else "Waiting for data"
 
         self._purpose_values(v, ts)
+        for option, val in _setpoints.device_values(self).items():
+            v[_setpoints.key(option)] = val
         self.values = v
         sig = tuple(sorted(device_alerts(self.entry.title, self.deveui, v)))
         if sig != self._alert_sig:

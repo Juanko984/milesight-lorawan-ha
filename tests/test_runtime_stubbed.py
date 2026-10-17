@@ -93,7 +93,7 @@ mod("homeassistant.components.climate", ClimateEntity=_Climate, ClimateEntityFea
 mod("homeassistant.components.button", ButtonDeviceClass=StrE("BTDC", {"RESTART": "restart", "IDENTIFY": "identify", "UPDATE": "update"}), ButtonEntity=object)
 mod("homeassistant.components.select", SelectEntity=object)
 mod("homeassistant.components.text", TextEntity=object, TextMode=types.SimpleNamespace(TEXT="text"))
-mod("homeassistant.components.number", NumberEntity=object, NumberMode=types.SimpleNamespace(BOX="box"))
+mod("homeassistant.components.number", NumberEntity=object, NumberMode=types.SimpleNamespace(BOX="box", SLIDER="slider"))
 mod("homeassistant.components.switch", SwitchDeviceClass=StrE("SWDC", {"OUTLET": "outlet", "SWITCH": "switch"}), SwitchEntity=object)
 mod("homeassistant.components.event", EventDeviceClass=types.SimpleNamespace(BUTTON="button"), EventEntity=_Ev)
 mod("homeassistant.components.device_tracker", SourceType=types.SimpleNamespace(GPS="gps"), TrackerEntity=object)
@@ -1146,7 +1146,45 @@ frames = asyncio.run(rt.async_modbus_push(mc.template_commands(rows32), label="L
 sent = [m for m in PUBLISHED[n0:] if m[0].endswith("00000000001c0100")]
 assert frames == len(sent) and all(m[1]["fPort"] == 85 for m in sent)
 assert base64.b64decode(sent[0][1]["data"]).startswith(bytes.fromhex("ffef01010100000201"))
-assert "modbus_channel_1" in rt.commands.items and rt.meta["modbus_push"]["commands"] == 64
+assert "modbus_channel_1" in rt.commands.items and rt.meta["modbus_push"]["commands"] == 52
 send("00000000001c0100", bytes.fromhex("feef01010100000201"))       # the UC100 echoes channel 1
 assert "modbus_channel_1" not in rt.commands.items and rt.commands.last["status"] == "confirmed"
 print("templates ok")
+
+
+# ---------------- 0.29: live dashboard view (gauges, sliders, pivot map) and setpoints ----------------
+dl = load("dashboard_live")
+rts = [e.runtime_data for e in entries.items if getattr(e, "runtime_data", None) is not None]
+eid = lambda plat, uid: f"{plat}.{uid}"
+farm = dl.farm_cards(eid, rts, [])
+flat = json.dumps(farm)
+assert '"type": "map"' in flat and "device_tracker.0000000000a70101_location" in flat
+assert "sensor.0000000000a70101_pivot_radius" in flat and "number.0000000000a70101_sp_pivot_stall_min" in flat
+assert '"numeric-input"' in flat and "button.press" in flat
+pump_stack = next(c for c in farm if c["cards"][0]["heading"].startswith("Pump"))
+g = next(c for c in pump_stack["cards"] if c.get("type") == "gauge")
+assert g["segments"][1]["from"] == 6.0 and g["segments"][2]["from"] == 12.5          # dry 60 %, overload 125 % of 10 A
+piv = next(e for e in entries.items if e.data["deveui"] == "0000000000a70101").runtime_data
+assert piv.attrs["pivot_radius"]["latitude"] == piv.pivot_cfg.lat
+tanks = dl.tank_cards(eid, rts, [])
+assert tanks and "sensor.0000000000400001_tank_fill" in json.dumps(tanks) and "sp_tank_low_pct" in json.dumps(tanks)
+cold = json.dumps(dl.cold_chain_cards(eid, rts, []))
+assert "sensor.0000000000f00001_temperature" in cold and "sp_p_temp_high" in cold and '"from": 5' in cold
+energy = json.dumps(dl.energy_cards(eid, rts, []))
+assert "phase_imbalance" in energy and "load2_duty_24h" in energy
+cfg = dl.with_live_view("farm.yaml", {"title": "Farm", "views": [{"title": "Farm"}]}, eid, rts, [])
+assert cfg["views"][0]["path"] == "live" and cfg["views"][1]["title"] == "Farm"
+assert dl.with_live_view("fleet_overview.yaml", {"views": []}, eid, rts, []) == {"views": []}
+# setpoint sliders change the options
+num = load("number")
+tank_rt = next(e for e in entries.items if e.data["deveui"] == "0000000000400001").runtime_data
+assert tank_rt.values["sp_tank_low_pct"] == 20
+spec = next(s for s in tank_rt.extra_specs() if s.key == "sp_tank_low_pct")
+n = num.MilesightNumber(tank_rt, spec)
+UPDATED = []
+hass.config_entries.async_update_entry = lambda e, options: UPDATED.append(options)
+n.hass = hass
+assert n._attr_mode == num.NumberMode.SLIDER and n._attr_native_max_value == 90
+asyncio.run(n.async_set_native_value(33.4))
+assert UPDATED[-1]["tank_low_pct"] == 33
+print("live dashboards ok")

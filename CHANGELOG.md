@@ -2,6 +2,27 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.29.0
+### Added
+- **Live view** on the Farm, Tanks & alerts, Cold chain and Energy & HVAC dashboards, built from the devices that
+  are set up (rebuilt when devices change, unless you edited the dashboard):
+  - **Pivot map**: the AT101 on the end tower with its track of the last 12 hours and the pivot centre, plus a
+    *Round done* gauge, status, angle, speed, finish time and the *Pivot stopped* button.
+  - **Gauges** with coloured bands from the device's own limits: pump current (dry-run / normal / overload),
+    starts per hour, tank fill (low alarm), soil moisture (irrigation target), cold-chain temperature (allowed
+    band), compressor and load duty cycle, phase imbalance.
+  - **Sliders** to change limits from the dashboard.
+- **Setpoint sliders** (number entities): tank low alarm, pump normal current and max starts per hour, pivot
+  stall time, temperature alarm below / above and left-open time (purposes), and on the gateway the irrigation
+  target soil moisture, irrigation time and frost temperature. Moving one updates the device's options.
+- The pivot centre is drawn on map cards (*Distance from pivot centre* carries its coordinates).
+
+## 0.28.1
+### Changed
+- LuxPower template: *Energy today* values are unticked by default (the Energy dashboard and utility meters work
+  out daily kWh from the lifetime totals) – 26 values by default, leaving 6 of the UC100's 32 channels free.
+- The UC300 has 32 Modbus channels (Milesight's codec), not 16; the UC50x keeps 16.
+
 ## 0.28.0
 ### Added
 - **Send sensor templates to the UC100** (firmware v1 and v2) over LoRaWAN: Modbus channels (slave ID, register,
