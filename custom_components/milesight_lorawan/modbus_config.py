@@ -138,3 +138,9 @@ def parse_echo(b: bytes, i: int) -> tuple[dict, int] | None:
             return {"modbus_channel_named": {"channel": b[i + 1],
                                              "name": b[i + 3:i + 3 + ln].decode("ascii", "replace")}}, i + 3 + ln
     return None
+
+
+def changed_commands(new: list[tuple[str, bytes]], sent: dict[str, str] | None) -> list[tuple[str, bytes]]:
+    """Editing a template: only the commands that differ from what the controller already got."""
+    sent = sent or {}
+    return [(label, cmd) for label, cmd in new if sent.get(label) != cmd.hex()]

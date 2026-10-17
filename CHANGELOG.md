@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.29.1
+### Added
+- **Edit applied sensor templates** (device → Configure → Sensor templates → *Edit*): the form opens with the
+  template's values, first channel, address and name prefix; change them and submit. The old channels are replaced
+  in the channel map and, on a UC100, **only the channels that changed** are sent again (moved or dropped channels
+  are removed from the controller). No more remove-and-re-apply.
+
 ## 0.29.0
 ### Added
 - **Live view** on the Farm, Tanks & alerts, Cold chain and Energy & HVAC dashboards, built from the devices that

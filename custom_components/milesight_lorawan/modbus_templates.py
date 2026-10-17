@@ -269,7 +269,7 @@ def plan(key: str, regs: list[str] | None, first: int, slave_id: int | None = No
     rows = []
     for i, r in enumerate(chosen):
         ch = first + i
-        rows.append({"channel": ch, "slave_id": sid, "address": r.address, "name": r.name,
+        rows.append({"channel": ch, "slave_id": sid, "address": r.address, "name": r.name, "key": r.key,
                      "toolbox_name": (r.toolbox or r.name)[:16], "quantity": r.words,
                      "type": t.register_type.replace("INT16", "INT32") if r.words == 2 else t.register_type,
                      "byte_order": t.word_order if r.words == 2 else "AB", "signed": r.signed,
@@ -343,3 +343,18 @@ def describe_applied(applied: list[dict]) -> str:
         return "none yet"
     return "\n".join(f"- **{TEMPLATES[a['template']].name if a.get('template') in TEMPLATES else a.get('template')}**"
                       f" – channels {a['first']}–{a['last']}, slave ID {a.get('slave_id')}" for a in applied)
+
+
+def applied_defaults(t: Template, applied: dict) -> dict:
+    """Form values to edit an applied template: its values, first channel, address and name prefix."""
+    keys = applied.get("keys")
+    prefix = applied.get("prefix") or ""
+    if not keys:                                   # applied before 0.30: match the stored value names
+        names = set(applied.get("values") or [])
+        keys = [r.key for r in t.regs if r.name in names or any(n.endswith(f" {r.name}") for n in names)]
+        if not prefix and names:
+            first = next(iter(applied.get("values") or []), "")
+            reg = next((r for r in t.regs if first.endswith(r.name) and first != r.name), None)
+            prefix = first[: -len(reg.name)].strip() if reg else ""
+    return {"values": keys or t.defaults(), "first_channel": applied.get("first", 1),
+            "slave_id": applied.get("slave_id", t.slave_id), "prefix": prefix}

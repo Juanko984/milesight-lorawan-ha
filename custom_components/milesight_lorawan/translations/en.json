@@ -379,11 +379,12 @@
       },
       "channel_template": {
         "title": "Sensor templates",
-        "description": "**On this controller:**\n{applied}\n\nPick a sensor to apply (its values go on Modbus channels in the channel map – and on a UC100 straight to the device), or tick applied templates to remove them (their channels are taken out of the channel map, and out of the UC100 when *Also remove from the controller* is on).{error}",
+        "description": "**On this controller:**\n{applied}\n\nPick a sensor to apply, **edit** an applied template (change its values, channels, address or name prefix – on a UC100 only the channels that changed are sent again), or tick applied templates to remove them (their channels leave the channel map, and the UC100 when *Also remove from the controller* is on).{error}",
         "data": {
           "template": "Apply a sensor",
           "remove": "Remove",
-          "remove_from_device": "Also remove from the controller (UC100)"
+          "remove_from_device": "Also remove from the controller (UC100)",
+          "edit": "Edit"
         }
       },
       "channel_template_values": {

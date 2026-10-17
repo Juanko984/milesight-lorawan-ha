@@ -701,8 +701,8 @@ in Milesight ToolBox – the Milesight encoders have no downlink for it.)
 
 ### Sensor templates (RS485 / Modbus)
 
-Device → **Configure → Sensor templates** lists the templates applied to the controller, removes them, and
-applies new ones. Applying fills the channel map for common RS485 probes and tells you what
+Device → **Configure → Sensor templates** lists the templates applied to the controller, edits or removes them,
+and applies new ones (editing a UC100 template re-sends only the channels that changed). Applying fills the channel map for common RS485 probes and tells you what
 to enter in Milesight ToolBox. Pick the sensor, tick the values you want, choose the first free Modbus channel and
 the probe's address; the values take consecutive channels. Several templates can go on one controller (UC300 /
 UC50x: 16 Modbus channels, UC300 and UC100: 32), e.g. a soil / NPK probe (address 1) on channels 1–9 and a WS101LL level sensor (address 2) on 10–16.
@@ -994,6 +994,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.29.1** | Edit applied sensor templates; on the UC100 only changed channels are re-sent. |
 | **0.29.0** | Live dashboard views: pivot map, gauges with limit bands, setpoint sliders (tank, pump, pivot, temperature, irrigation). |
 | **0.28.1** | LuxPower template slimmed to 26 default values (daily kWh from the totals); UC300 has 32 Modbus channels. |
 | **0.28.0** | Sensor templates are sent to the UC100 over LoRaWAN (channels, names, RS485 port on v2) and confirmed; removing a template deletes its channels on the UC100. UC100 limited to its 32 channels. |

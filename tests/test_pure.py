@@ -1455,6 +1455,30 @@ def test_setpoints():
     assert spt.clamp(t, 5.2) == 5.0 and spt.clamp(t, 5.3) == 5.5 and spt.key("irr_target") == "sp_irr_target"
     assert set(spt.hub_values(irr.irrigation_config({}))) == set(spt.HUB)
 
+
+def test_edit_applied_template():
+    t = mtp.TEMPLATES["luxpower_lxp"]
+    rows, _ = mtp.plan("luxpower_lxp", None, 1, 1, max_channels=32)
+    sent = {label: cmd.hex() for label, cmd in mcf.template_commands(rows)}
+    applied = {"template": t.key, "first": 1, "last": len(rows), "slave_id": 1, "keys": [r["key"] for r in rows],
+               "prefix": "", "sent_to_device": True, "sent": sent}
+    d = mtp.applied_defaults(t, applied)
+    assert d["values"] == t.defaults() and d["first_channel"] == 1 and d["slave_id"] == 1
+    # add one value at the end: only that channel (and its name) is sent again
+    rows2, _ = mtp.plan("luxpower_lxp", t.defaults() + ["bms_warning"], 1, 1, max_channels=32)
+    changed = mcf.changed_commands(mcf.template_commands(rows2), sent)
+    assert {c[0] for c in changed} == {f"modbus_channel_{len(rows2)}", f"modbus_name_{len(rows2)}"}
+    # change the address: every channel changes, names do not
+    rows3, _ = mtp.plan("luxpower_lxp", None, 1, 2, max_channels=32)
+    changed = mcf.changed_commands(mcf.template_commands(rows3), sent)
+    assert len(changed) == len(rows3) and all(l.startswith("modbus_channel_") for l, _ in changed)
+    assert mcf.changed_commands(mcf.template_commands(rows), sent) == []
+    # records saved before 0.30 (names only, with a prefix)
+    old = {"template": "cwt_soil_thcph", "first": 11, "last": 16, "slave_id": 2,
+           "values": ["Field Soil moisture", "Field Soil temperature", "Field Soil pH"]}
+    d = mtp.applied_defaults(mtp.TEMPLATES["cwt_soil_thcph"], old)
+    assert d["values"] == ["moisture", "temperature", "ph"] and d["prefix"] == "Field" and d["first_channel"] == 11
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
