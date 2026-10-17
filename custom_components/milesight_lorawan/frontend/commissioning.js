@@ -280,20 +280,34 @@ class MilesightCommissioning extends HTMLElement {
       if (clear) {
         await this._ws({ type: "location", deveui: this._watch });
         this._info("Location cleared.");
-      } else {
-        if (!navigator.geolocation) { this._error("This browser cannot read the location – use the Home Assistant app, or set it in the device's options."); return; }
-        this._info("Reading the phone's location…");
-        const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, fail,
-          { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }));
-        const c = pos.coords;
-        await this._ws({ type: "location", deveui: this._watch, latitude: c.latitude, longitude: c.longitude,
-                         accuracy: c.accuracy });
-        this._info(`Location saved: ${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)} (±${Math.round(c.accuracy)} m).`);
+        await this._loadDevices();
+        return;
+      }
+      this._info("Reading the phone's location…");
+      let done = false;
+      // 1) the page itself (needs https:// – browsers and the app block GPS for pages served over http://)
+      if (navigator.geolocation && window.isSecureContext) {
+        try {
+          const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, fail,
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }));
+          const c = pos.coords;
+          await this._ws({ type: "location", deveui: this._watch, latitude: c.latitude, longitude: c.longitude,
+                           accuracy: c.accuracy });
+          this._info(`Location saved: ${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)} (±${Math.round(c.accuracy)} m).`);
+          done = true;
+        } catch (e) { /* fall back to the app's own location tracking */ }
+      }
+      // 2) the Home Assistant app's location tracking (asks the phone for a fresh fix)
+      if (!done) {
+        this._info("Asking the Home Assistant app for a fresh position (up to 20 s)…");
+        const r = await this._ws({ type: "phone_location", deveui: this._watch });
+        const acc = r.accuracy != null ? ` (±${Math.round(r.accuracy)} m)` : "";
+        const age = r.fresh ? "just now" : `${Math.round(r.age_s / 60)} min old – stand still and try again for a fresher fix`;
+        this._info(`Location saved from ${r.tracker}: ${r.latitude.toFixed(6)}, ${r.longitude.toFixed(6)}${acc}, ${age}.`);
       }
       await this._loadDevices();
     } catch (e) {
-      this._error(e && e.code === 1 ? "Location permission denied – allow location for the Home Assistant app (phone settings) and try again."
-                  : (e && e.message) || e);
+      this._error((e && e.message) || e);
     }
   }
 

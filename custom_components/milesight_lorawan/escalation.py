@@ -113,6 +113,8 @@ class AlertManager:
         shown = {u for u, d in (res.get("dashboards") or {}).items() if not d.get("hidden")}
         paths = {c: f"/{u}" for c, u in CATEGORY_DASHBOARD.items() if u.split("/")[0] in shown}
         paths["*"] = f"/{landing.get('url') or dashboard_url(self.entry)}"
+        if "milesight-maintenance" in shown:
+            paths["map"] = "/milesight-maintenance/map"
         self.cfg.dashboards = paths
 
     async def async_stop(self) -> None:
@@ -145,7 +147,11 @@ class AlertManager:
                 if e.data.get("deveui"):
                     keep.append(f"{e.data['deveui']}:")       # not loaded (yet): keep its alerts as they are
                 continue
-            out.update(device_alerts(e.title, rt.deveui, rt.values, e.data.get("area")))
+            dev = device_alerts(e.title, rt.deveui, rt.values, e.data.get("area"))
+            if hasattr(rt, "fixed_location") and rt.fixed_location() is not None:
+                for a in dev.values():
+                    a["located"] = True                    # 'View on map' button on the phone
+            out.update(dev)
         building = getattr(self.hub, "building", None)
         if building is None or not building.data:
             keep.append("building:")

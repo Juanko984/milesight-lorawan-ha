@@ -58,7 +58,7 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             hass.http.register_static_path(STATIC_URL, str(FRONTEND), True)
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
-        for handler in (ws_parse, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location):
+        for handler in (ws_parse, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
     if not data.get("commissioning_panel"):
@@ -261,13 +261,100 @@ def ws_location(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "Add the device to Home Assistant first")
         return
     lat, lon = msg.get("latitude"), msg.get("longitude")
+    if lat is not None and lon is not None and not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        connection.send_error(msg["id"], "invalid", "Coordinates out of range")
+        return
+    loc = _save_location(hass, entry, lat, lon, msg.get("accuracy"),
+                         connection.user.name if connection.user else None, "browser")
+    connection.send_result(msg["id"], {"location": loc})
+
+
+def _save_location(hass: HomeAssistant, entry, lat, lon, accuracy, by, source: str) -> dict | None:
     opts = {k: v for k, v in entry.options.items() if k != "location"}
     if lat is not None and lon is not None:
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            connection.send_error(msg["id"], "invalid", "Coordinates out of range")
-            return
         opts["location"] = {"latitude": round(float(lat), 6), "longitude": round(float(lon), 6),
-                            "accuracy": round(float(msg["accuracy"])) if msg.get("accuracy") is not None else None,
-                            "at": time.time(), "by": connection.user.name if connection.user else None}
+                            "accuracy": round(float(accuracy)) if accuracy is not None else None,
+                            "at": time.time(), "by": by, "source": source}
     hass.config_entries.async_update_entry(entry, options=opts)      # the device reloads with its Location entity
-    connection.send_result(msg["id"], {"location": opts.get("location")})
+    return opts.get("location")
+
+
+def phone_trackers(hass: HomeAssistant, user_id: str | None) -> list[str]:
+    """The Companion-app GPS trackers of this user: the person's device trackers from the mobile_app integration,
+    else (no person linked) every mobile_app tracker."""
+    from homeassistant.helpers import entity_registry as er
+    reg = er.async_get(hass)
+    mobile = {e.entity_id for e in reg.entities.values()
+              if e.domain == "device_tracker" and e.platform == "mobile_app"}
+    mine: list[str] = []
+    if user_id:
+        for st in hass.states.async_all("person"):
+            if st.attributes.get("user_id") == user_id:
+                mine = [t for t in st.attributes.get("device_trackers") or [] if t in mobile]
+    return mine or sorted(mobile)
+
+
+def _notify_service(hass: HomeAssistant, tracker: str) -> str | None:
+    """notify.mobile_app_<device> of the phone behind a tracker (to ask it for a fresh position)."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.util import slugify
+    ent = er.async_get(hass).async_get(tracker)
+    dev = dr.async_get(hass).async_get(ent.device_id) if ent and ent.device_id else None
+    if dev is None:
+        return None
+    name = f"mobile_app_{slugify(dev.name_by_user or dev.name or '')}"
+    return name if hass.services.has_service("notify", name) else None
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/phone_location",
+                                  vol.Required("deveui"): str, vol.Optional("save", default=True): bool})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_phone_location(hass: HomeAssistant, connection, msg: dict) -> None:
+    """The phone's position from the Home Assistant app's own location tracking (works where the page itself may
+    not read GPS, e.g. Home Assistant reached over http://). Asks the phone for a fresh fix first."""
+    import asyncio
+    deveui = _norm(msg["deveui"])
+    entry = next((e for e in hass.config_entries.async_entries(DOMAIN) if e.data.get(CONF_DEVEUI) == deveui), None)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Add the device to Home Assistant first")
+        return
+    user_id = connection.user.id if connection.user else None
+    trackers = phone_trackers(hass, user_id)
+    if not trackers:
+        connection.send_error(msg["id"], "no_phone", "No Home Assistant app with location found for your user – "
+                              "turn on location in the app (App settings → Location) or link your phone to your person.")
+        return
+    before = {t: (hass.states.get(t).last_updated if hass.states.get(t) else None) for t in trackers}
+    asked = []
+    for t in trackers:
+        svc = _notify_service(hass, t)
+        if svc:
+            try:
+                await hass.services.async_call("notify", svc, {"message": "request_location_update"}, blocking=True)
+                asked.append(t)
+            except Exception:  # noqa: BLE001 - use the last known position then
+                _LOGGER.debug("Could not ask %s for a location update", svc, exc_info=True)
+    if asked:                                         # wait up to 20 s for a fresh fix
+        for _ in range(40):
+            if any(hass.states.get(t) and hass.states.get(t).last_updated != before[t] for t in asked):
+                break
+            await asyncio.sleep(0.5)
+
+    def fix(t: str):
+        st = hass.states.get(t)
+        lat, lon = (st.attributes.get("latitude"), st.attributes.get("longitude")) if st else (None, None)
+        return (st, lat, lon) if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) else None
+    fixes = [f for f in (fix(t) for t in trackers) if f]
+    if not fixes:
+        connection.send_error(msg["id"], "no_fix", "The Home Assistant app has not reported a position yet.")
+        return
+    st, lat, lon = max(fixes, key=lambda f: f[0].last_updated)
+    acc = st.attributes.get("gps_accuracy")
+    age = round(time.time() - st.last_updated.timestamp())
+    loc = _save_location(hass, entry, lat, lon, acc, connection.user.name if connection.user else None,
+                         st.entity_id) if msg.get("save", True) else None
+    connection.send_result(msg["id"], {"latitude": lat, "longitude": lon, "accuracy": acc, "age_s": age,
+                                       "tracker": st.entity_id, "fresh": st.entity_id in asked and age < 60,
+                                       "location": loc})

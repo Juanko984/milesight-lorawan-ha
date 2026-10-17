@@ -294,7 +294,9 @@ class AlertEngine:
                                      "severity": a.get("severity", "warning"), "first": ts, "acked_at": None,
                                      "acked_by": None, "resolved_at": None, "flaps": 0, "level": 0, "snoozes": 0})
             cur.update(title=a["title"], message=a["message"], severity=a.get("severity", "warning"),
-                       category=a.get("category"), action=a.get("action"), url=cfg.dashboard(a.get("category")))
+                       category=a.get("category"), action=a.get("action"),
+                       url=(cfg.dashboards.get("map") if a.get("located") and cfg.dashboards.get("map")
+                            else cfg.dashboard(a.get("category"))))
             if not cfg.enabled or cur.get("acked"):
                 continue
             critical = cur["severity"] == "critical"
@@ -419,14 +421,12 @@ def summary_text(s: dict[str, Any]) -> str:
 
 def notify_data(msg: dict[str, Any]) -> dict[str, Any]:
     """Service data for notify.<target> (Home Assistant Companion app: actions, tag, critical / alarm stream).
-    Buttons (Android shows three): Acknowledge, Snooze, and the alert's own action or Open dashboard; tapping the
-    notification opens the dashboard too."""
+    Buttons (Android shows three): Acknowledge, Snooze, and the alert's own action, else *View on map* (device with
+    a location) or *Open dashboard*. Tapping the notification itself only opens it – no link jumps."""
     if msg["kind"] == "clear":
         return {"message": "clear_notification", "data": {"tag": f"milesight_{msg['id']}"}}
     data: dict[str, Any] = {"tag": f"milesight_{msg['id']}", "group": "milesight_alerts"}
     url = msg.get("url")
-    if url:
-        data.update({"url": url, "clickAction": url})
     if msg["kind"] not in ("resolved", "acknowledged", "summary"):
         actions = [{"action": f"{ACTION_ACK}{msg['id']}", "title": "Acknowledge"}]
         if msg["kind"] != "snoozed":
@@ -434,7 +434,8 @@ def notify_data(msg: dict[str, Any]) -> dict[str, Any]:
         if msg.get("action"):
             actions.append({"action": f"{ACTION_RUN}{msg['id']}", "title": msg["action"]})
         elif url:
-            actions.append({"action": "URI", "title": "Open dashboard", "uri": url})
+            actions.append({"action": "URI", "title": "View on map" if url.endswith("/map") else "Open dashboard",
+                            "uri": url})
         data["actions"] = actions
     if msg.get("critical"):
         data.update({"push": {"sound": {"name": "default", "critical": 1, "volume": 1.0},

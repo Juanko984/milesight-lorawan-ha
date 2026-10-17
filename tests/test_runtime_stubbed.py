@@ -1449,3 +1449,50 @@ assert fb["latitude"] == -33.91234 and "location" in __import__("milesight_loraw
 ho_mod = load("handover")
 assert "-33.912340, 18.412340" in ho_mod.report_csv([{"name": "x", **fb}])
 print("maintenance ok")
+
+# ---------------- 0.34.1: phone location from the Home Assistant app's tracker ----------------
+_ident = lambda *a, **k: (lambda f: f)
+if "voluptuous" not in sys.modules and "probatio" not in sys.modules:
+    mod("voluptuous", Required=lambda *a, **k: a[0], Optional=lambda *a, **k: a[0], Any=lambda *a: None,
+        All=lambda *a: None, Range=lambda *a, **k: None, Schema=lambda *a, **k: None)
+sys.modules["homeassistant.config_entries"].SOURCE_IMPORT = "import"
+mod("homeassistant.components.websocket_api", websocket_command=_ident, require_admin=lambda f: f,
+    async_response=lambda f: f, event_message=lambda i, m: m)
+from datetime import datetime as _dtx, timezone as _tzx
+class _St:
+    def __init__(self, eid, attrs, ts): self.entity_id, self.attributes, self.last_updated = eid, attrs, ts
+TRK = {"device_tracker.juans_iphone": _St("device_tracker.juans_iphone", {"latitude": -25.88, "longitude": 28.22,
+                                                                          "gps_accuracy": 8}, _dtx.now(_tzx.utc))}
+PERSON = _St("person.juan", {"user_id": "u1", "device_trackers": ["device_tracker.juans_iphone"]}, None)
+_ents = {"device_tracker.juans_iphone": types.SimpleNamespace(entity_id="device_tracker.juans_iphone", domain="device_tracker",
+                                                               platform="mobile_app", device_id="dev9")}
+mod("homeassistant.helpers.entity_registry", async_get=lambda h: types.SimpleNamespace(
+    entities=types.SimpleNamespace(values=lambda: _ents.values()), async_get=lambda e: _ents.get(e)))
+sys.modules["homeassistant.helpers.device_registry"].async_get = lambda h: types.SimpleNamespace(
+    async_get=lambda i: types.SimpleNamespace(name="Juan's iPhone", name_by_user=None))
+sys.modules.setdefault("homeassistant.util", mod("homeassistant.util"))
+sys.modules["homeassistant.util"].slugify = lambda t: "".join(c if c.isalnum() else "_" for c in t.lower()).replace("__", "_")
+NOTIFIED = []
+async def _notify_call(domain, service, data, blocking=False):
+    NOTIFIED.append(service)
+    TRK["device_tracker.juans_iphone"] = _St("device_tracker.juans_iphone", {"latitude": -25.881, "longitude": 28.221,
+                                                                             "gps_accuracy": 5}, _dtx.now(_tzx.utc))
+UPD = []
+e_loc, rt_loc = make_with("00000000000c0001", "EM300-TH", {}, title="Gate sensor")
+hass_l = types.SimpleNamespace(
+    states=types.SimpleNamespace(async_all=lambda d: [PERSON] if d == "person" else [], get=lambda e: TRK.get(e)),
+    services=types.SimpleNamespace(has_service=lambda d, n: n == "mobile_app_juan_s_iphone", async_call=_notify_call),
+    config_entries=types.SimpleNamespace(async_entries=lambda d: [e_loc],
+                                         async_update_entry=lambda e, options: (UPD.append(options), setattr(e, "options", options))))
+cws = load("commissioning_ws")
+assert cws.phone_trackers(hass_l, "u1") == ["device_tracker.juans_iphone"]
+RES = {}
+conn = types.SimpleNamespace(user=types.SimpleNamespace(id="u1", name="Juan"),
+                             send_result=lambda i, r: RES.update(r), send_error=lambda i, c, m: RES.update(error=m))
+asyncio.run(cws.ws_phone_location(hass_l, conn, {"id": 1, "deveui": "00000000000c0001"}))
+assert NOTIFIED == ["mobile_app_juan_s_iphone"] and RES["fresh"] and RES["accuracy"] == 5, RES
+assert e_loc.options["location"]["latitude"] == -25.881 and e_loc.options["location"]["source"] == "device_tracker.juans_iphone"
+RES.clear()
+asyncio.run(cws.ws_phone_location(types.SimpleNamespace(**{**vars(hass_l), "states": types.SimpleNamespace(
+    async_all=lambda d: [], get=lambda e: None)}), conn, {"id": 2, "deveui": "00000000000c0001"}))
+print("phone location ok")

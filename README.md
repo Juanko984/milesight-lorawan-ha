@@ -803,8 +803,9 @@ sure someone reacts:
   resolved for a few minutes.
 * **Buttons on the phone** – **Acknowledge**, **Snooze 1 h** (reminders and escalation pause; if it is still
   active it comes back as *Still active*; the time is a setting) and **Open dashboard** (the dashboard for the
-  alert: Tanks, Farm, Cold chain, Energy, Building analytics, Signal / Fleet, else the site landing page – tapping
-  the notification opens it too). Tank-low alerts can show an extra button instead (e.g. *Start pump*) that runs
+  alert: Tanks, Farm, Cold chain, Energy, Building analytics, Maintenance, else the site landing page; it is
+  **View on map** when the device has a location). Tapping the notification only opens it.
+  Tank-low alerts can show an extra button instead (e.g. *Start pump*) that runs
   a switch, script or button (Android shows three buttons).
 * **Weekly summary** – every Monday 08:00 (day and hour are settings) a message to *Notify first* and the rota:
   alerts of the last 7 days by category, the noisiest devices (with repeats) and the mean time to acknowledge.
@@ -839,7 +840,8 @@ belong to one device (pivot centre, applied Modbus templates, meter offset) are 
 `milesight_lorawan.apply_settings_profile`.
 
 **Device location** – a fixed point per device: on site open **LoRaWAN commissioning** in the Home Assistant app
-→ *Walk test* → pick the device → **Use my phone's location** (allow location for the app), or device →
+→ *Walk test* → pick the device → **Use my phone's location** (uses the page's GPS on https://, otherwise asks the
+Home Assistant app for a fresh position from its own location tracking – turn location on in the app), or device →
 **Configure → Location** with a map picker. It becomes the device's **Location** entity (Home Assistant's Map
 too), the Maintenance dashboard's **Map** tab and a column in the handover report.
 
@@ -1093,6 +1095,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.34.1** | Alert notifications: View on map / Open dashboard as a button (no jump on tap); phone location via the app's own tracking. |
 | **0.34.0** | Maintenance dashboard with tabs (Overview, Devices, Signal, Map) replaces Fleet and Signal; device location captured with the phone. |
 | **0.33.1** | Site landing page created reliably, named after the site, with a notification. |
 | **0.33.0** | Battery forecast, Maintenance dashboard with service history, settings profiles, installer handover report. |

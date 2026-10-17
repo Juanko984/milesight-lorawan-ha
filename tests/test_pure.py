@@ -1796,7 +1796,13 @@ def test_smart_alerts_rota_snooze_summary():
     d = alr.notify_data(out[0])["data"]
     assert [a["title"] for a in d["actions"]] == ["Acknowledge", "Snooze 1 h", "Open dashboard"]
     assert d["actions"][2] == {"action": "URI", "title": "Open dashboard", "uri": "/milesight-tanks"}
-    assert d["clickAction"] == d["url"] == "/milesight-tanks"
+    assert "url" not in d and "clickAction" not in d                # tapping only opens the notification
+    # a device with a location: 'View on map' instead
+    cfg_m = alr.AlertSettings(primary=["notify.a"], dashboards={"tank": "/milesight-tanks", "map": "/milesight-maintenance/map"})
+    loc_alert = {"t9:tank_low": {**low["t1:tank_low"], "located": True}}
+    m = alr.AlertEngine().update(loc_alert, t, fri_day, cfg_m)[0]
+    assert alr.notify_data(m)["data"]["actions"][2] == {"action": "URI", "title": "View on map",
+                                                         "uri": "/milesight-maintenance/map"}
     out = eng.update(low, t + 600, fri_day, cfg)
     assert out[0]["kind"] == "escalated" and out[0]["targets"] == ["notify.b1", "notify.mobile_app_juan"]
     out = eng.update(low, t + 1200, fri_day, cfg)

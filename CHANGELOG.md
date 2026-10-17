@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.34.1
+### Fixed
+- **Alert notifications**: tapping a notification no longer jumps to a dashboard (the app asked "Open URL?" and
+  the alert itself could not be read). The dashboard is a button instead – **View on map** for devices that have a
+  location, otherwise **Open dashboard** – next to Acknowledge and Snooze.
+- **"Use my phone's location" said permission denied** although the app had location access: pages served over
+  http:// are not allowed to read GPS. The button now falls back to the Home Assistant app's own location tracking:
+  it asks your phone for a fresh position (up to 20 s) and saves it with its accuracy and which phone it came from.
+
 ## 0.34.0
 ### Added
 - **Device location**: every device can have a fixed location – on site in **LoRaWAN commissioning → Walk test →
