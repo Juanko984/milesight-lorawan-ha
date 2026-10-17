@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.26.2
+### Changed
+- CWT 7-in-1 soil / NPK template follows the tested UC50x setup: address 1, 9600 baud, input registers 0–8, all
+  signed, nitrogen / phosphorus / potassium included by default, ToolBox names (Humidity, Temperature,
+  Conductivity, PH, Nitrogen, Phosphorus, Potassium, Salinity, TDS).
+- The ToolBox list shows each template's register type (Holding / Input Register) and the ToolBox channel name.
+
+### Added
+- Sensor template **WoMaster WS101LL liquid level sensor** (RS485): Measure Value as *Water level* (mm), Unit
+  Type, Decimal Points, Full Point; Zero Point, Offset and SlaveID optional.
+
 ## 0.26.1
 ### Changed
 - Sensor templates: the ToolBox list now has ToolBox's own columns (Channel ID, Name, Slave ID, Address, Quantity,

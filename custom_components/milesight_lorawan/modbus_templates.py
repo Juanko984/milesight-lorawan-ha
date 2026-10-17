@@ -26,6 +26,7 @@ class Reg:
     invalid: int | None = None
     optional: bool = False  # not ticked by default
     note: str = ""
+    toolbox: str | None = None  # the channel name in ToolBox, when it differs from the entity name
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class Template:
     function: str          # function code to set in ToolBox
     regs: tuple[Reg, ...]
     notes: tuple[str, ...] = field(default_factory=tuple)
+    register_type: str = "Holding Register(INT16)"   # ToolBox 'Type' column
 
     def defaults(self) -> list[str]:
         return [r.key for r in self.regs if not r.optional]
@@ -70,27 +72,54 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
          "Wind speed is in m/s; Home Assistant can show it in km/h (entity settings → unit)."),
     ),
     Template(
-        "cwt_soil_thcph", "CWT soil sensor THCPH-S / 7-in-1 NPK (RS485)", "ComWinTop (CWT)", 1, 4800, "8N1",
-        "03 (holding register)",
+        "cwt_soil_thcph", "CWT 7-in-1 soil / NPK sensor (THCPH-S, RS485)", "ComWinTop (CWT)", 1, 9600, "8N1",
+        "04 (input register)",
         (
-            Reg("moisture", 0x0000, "Soil moisture", "%", "0.1", 0, "moisture", 1),
+            Reg("moisture", 0x0000, "Soil moisture", "%", "0.1", 0, "moisture", 1, signed=True, toolbox="Humidity"),
             Reg("temperature", 0x0001, "Soil temperature", "°C", "0.1", 0, "temperature", 1, signed=True,
-                note="signed: FF9B = −10.1 °C"),
-            Reg("ec", 0x0002, "Soil conductivity", "μS/cm", "1", 0, "conductivity", 0),
-            Reg("ph", 0x0003, "Soil pH", None, "0.1", 0, "ph", 1),
-            Reg("nitrogen", 0x0004, "Nitrogen (N)", "mg/kg", "1", 0, None, 0, optional=True,
-                note="7-in-1 NPK version only"),
-            Reg("phosphorus", 0x0005, "Phosphorus (P)", "mg/kg", "1", 0, None, 0, optional=True,
-                note="7-in-1 NPK version only"),
-            Reg("potassium", 0x0006, "Potassium (K)", "mg/kg", "1", 0, None, 0, optional=True,
-                note="7-in-1 NPK version only"),
-            Reg("salinity", 0x0007, "Soil salinity", "mg/L", "1", 0, None, 0),
-            Reg("tds", 0x0008, "Soil TDS", "mg/L", "1", 0, None, 0),
+                toolbox="Temperature", note="0.1 °C, signed: 254 = 25.4 °C, FF9B = −10.1 °C"),
+            Reg("ec", 0x0002, "Soil conductivity", "μS/cm", "1", 0, "conductivity", 0, signed=True,
+                toolbox="Conductivity"),
+            Reg("ph", 0x0003, "Soil pH", None, "0.1", 0, "ph", 1, signed=True, toolbox="PH",
+                note="0.1 pH: 30 = 3.0 (the probe reads about 3 in air – its lowest value)"),
+            Reg("nitrogen", 0x0004, "Soil nitrogen (N)", "mg/kg", "1", 0, None, 0, signed=True, toolbox="Nitrogen"),
+            Reg("phosphorus", 0x0005, "Soil phosphorus (P)", "mg/kg", "1", 0, None, 0, signed=True,
+                toolbox="Phosphorus"),
+            Reg("potassium", 0x0006, "Soil potassium (K)", "mg/kg", "1", 0, None, 0, signed=True,
+                toolbox="Potassium"),
+            Reg("salinity", 0x0007, "Soil salinity", "mg/L", "1", 0, None, 0, signed=True, toolbox="Salinity"),
+            Reg("tds", 0x0008, "Soil TDS", "mg/L", "1", 0, None, 0, signed=True, toolbox="TDS"),
         ),
-        ("Default address 1, 4800 baud 8N1. On a bus with a 9600-baud probe (e.g. the WS90), set the soil sensor to "
-         "9600 first: write 2 to register 0x07D1 (function 06: 01 06 07 D1 00 02 59 46), then power-cycle it.",
-         "Two sensors of the same kind need different addresses: write the new address to register 0x07D0.",
-         "Tick *Signed* on the temperature channel in ToolBox (if it is left unticked the integration converts it)."),
+        ("Address 1, 9600 baud 8N1, input registers 0–8 (the THCPH-S manual's factory setting is 4800 baud: "
+         "write 2 to register 0x07D1 – 01 06 07 D1 00 02 59 46 – and power-cycle it to run it at 9600).",
+         "Two probes of the same kind need different addresses: write the new address to register 0x07D0 (2000).",
+         "Readings are 0 until the probe is in moist soil; N / P / K are estimates derived from conductivity."),
+        "Input Register(INT16)",
+    ),
+    Template(
+        "womaster_ws101ll", "WoMaster WS101LL liquid level sensor (RS485)", "WoMaster", 1, 9600, "8N1",
+        "04 (input register)",
+        (
+            Reg("unit", 0x0002, "Level unit code", None, "1", 0, None, 0, signed=True, toolbox="Unit Type",
+                note="unit code of the measured value (11 on a factory WS101LL-3M = mm)"),
+            Reg("decimals", 0x0003, "Level decimal points", None, "1", 0, None, 0, signed=True,
+                toolbox="Decimal Points"),
+            Reg("level", 0x0004, "Water level", "mm", "1", 0, "distance", 0, signed=True, toolbox="Measure Value",
+                note="in the unit set by Unit Type; divide by 10^Decimal Points (scale 0.1 for 1 decimal)"),
+            Reg("zero", 0x0005, "Level zero point", "mm", "1", 0, "distance", 0, signed=True, toolbox="Zero Point",
+                optional=True),
+            Reg("full", 0x0006, "Level full point", "mm", "1", 0, "distance", 0, signed=True, toolbox="Full Point",
+                note="measuring range (3000 = 3 m on the -3M)"),
+            Reg("offset", 0x000D, "Level offset", "mm", "1", 0, "distance", 0, signed=True, toolbox="Offset",
+                optional=True),
+            Reg("slave", 0x07D0, "Level sensor address", None, "1", 0, None, 0, signed=True, toolbox="SlaveID",
+                optional=True, note="register 2000 – read it to check the address"),
+        ),
+        ("Factory address 1, 9600 baud 8N1 (label on the cable) – give it its own address (e.g. 2) when another "
+         "probe on the bus already uses 1.",
+         "Power 10–30 V DC. Unit Type, Decimal Points and Full Point only need reading once – untick them to save "
+         "channels after commissioning."),
+        "Input Register(INT16)",
     ),
 )}
 
@@ -129,7 +158,7 @@ def plan(key: str, regs: list[str] | None, first: int, slave_id: int | None = No
     for i, r in enumerate(chosen):
         ch = first + i
         rows.append({"channel": ch, "slave_id": sid, "address": r.address, "name": r.name,
-                     "toolbox_name": r.name[:16], "quantity": 1, "type": "Holding Register(INT16)",
+                     "toolbox_name": (r.toolbox or r.name)[:16], "quantity": 1, "type": t.register_type,
                      "byte_order": "AB", "signed": r.signed, "data_type": "INT16" if r.signed else "UINT16",
                      "function": t.function, "line": channel_line(r, ch, prefix), "note": r.note})
     return rows, []
@@ -141,6 +170,8 @@ def merge_map(current: str, rows: list[dict], title: str) -> str:
     taken = {f"modbus_chn_{r['channel']}" for r in rows}
     kept = []
     for line in (current or "").splitlines():
+        if line.strip() == f"# {title}":
+            continue                                   # the same template again: one title line
         head = line.split("#", 1)[0].strip()
         first = head.replace("|", ";").replace("\t", ";").split(";", 1)[0].strip() if head else ""
         if first and channel_key(first) in taken:
@@ -159,7 +190,8 @@ def toolbox_table(t: Template, rows: list[dict]) -> str:
     body = "".join(f"| {r['channel']} | {r['toolbox_name']} | {r['slave_id']} | {r['address']} | {r['quantity']} | "
                    f"{r['type']} | {r['byte_order']} | {'☑' if r['signed'] else '☐'} |\n" for r in rows)
     notes = [f"{r['name']} (register 0x{r['address']:04X}): {r['note']}" for r in rows if r["note"]]
-    return (f"**{t.name}** – RS485 {t.baud} baud {t.serial}\n\n" + head + body + "\n"
+    return (f"**{t.name}** – RS485 {t.baud} baud {t.serial} (ToolBox: RS485 tab on the UC300, Serial tab on the "
+            f"UC50x)\n\n" + head + body + "\n"
             + "\n".join(f"- {n}" for n in list(t.notes) + notes))
 
 

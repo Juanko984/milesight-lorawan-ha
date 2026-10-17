@@ -1340,7 +1340,7 @@ def test_config_flow_selectors_have_no_none_options():
         assert len(args) < 3 or args[2] != "None", call
 
 def test_modbus_templates():
-    # Ecowitt WS90 on channels 1–9 (+ rain counter on 10): the raw values a UC300 reported
+    # Ecowitt WS90 on channels 1–10 (UC300): the raw values the UC300 reported
     rows, errs = mtp.plan("ecowitt_ws90", None, 1)
     assert not errs and [r["channel"] for r in rows] == list(range(1, 11)) and rows[0]["address"] == 357
     m, problems = chm.parse_channel_map(mtp.merge_map("1; Wind Speed; KM/h;1\nadc_1; Level; m", rows, "WS90"))
@@ -1348,37 +1348,45 @@ def test_modbus_templates():
     raw = {1: 4409, 2: 30, 3: 629, 4: 43, 5: 12, 6: 25, 7: 202, 8: 3, 9: 8576}
     got = {m[f"modbus_chn_{c}"].name: m[f"modbus_chn_{c}"].apply(v) for c, v in raw.items()}
     assert got["Light"] == 44090 and got["UV index"] == 3.0 and got["Temperature"] == 22.9 and got["Humidity"] == 43
-    assert got["Wind speed"] == 1.2 and got["Wind direction"] == 202
-    assert got["Rainfall"] == 0.3 and got["Pressure"] == 857.6 and got["Gust speed"] == 2.5
+    assert got["Wind speed"] == 1.2 and got["Wind direction"] == 202 and got["Gust speed"] == 2.5
+    assert got["Rainfall"] == 0.3 and got["Pressure"] == 857.6
     assert m["modbus_chn_3"].apply(65535) is None and m["modbus_chn_3"].device_class == "temperature"
-    # soil probe after it, with NPK, prefix; the THCPH-S manual's example frame
-    rows2, errs = mtp.plan("cwt_soil_thcph", [r.key for r in mtp.TEMPLATES["cwt_soil_thcph"].regs], 10, 2, "Field ")
-    assert errs and "16" in errs[0]                                   # 9 values from channel 10 do not fit
-    rows2, errs = mtp.plan("cwt_soil_thcph", None, 11, 2, "Field ")
-    assert not errs and [r["channel"] for r in rows2] == list(range(11, 17)) and rows2[1]["signed"] is True
-    both = mtp.merge_map(mtp.merge_map("", rows, "WS90"), rows2, "Soil")
-    m, problems = chm.parse_channel_map(both)
-    assert not problems and len(m) == 16 and m["modbus_chn_11"].name == "Field Soil moisture"
-    assert m["modbus_chn_11"].apply(0x0292) == 65.8 and m["modbus_chn_12"].apply(0xFF9B) == -10.1
-    assert m["modbus_chn_13"].apply(0x03E8) == 1000 and m["modbus_chn_14"].apply(0x38) == 5.6
-    assert m["modbus_chn_14"].device_class == "ph" and m["modbus_chn_13"].device_class == "conductivity"
-    again = mtp.merge_map(both, rows2, "Soil")                        # re-applying replaces, does not duplicate
-    assert chm.parse_channel_map(again)[1] == [] and len(chm.parse_channel_map(again)[0]) == 16
     tb = mtp.toolbox_table(mtp.TEMPLATES["ecowitt_ws90"], rows)
     assert "| 1 | Light | 144 | 357 | 1 | Holding Register(INT16) | AB | ☐ |" in tb
-    rows10, _ = mtp.plan("ecowitt_ws90", None, 1, 1)                 # the user's station answers on address 1
-    assert len(rows10) == 10 and rows10[-1]["address"] == 366 and rows10[5]["name"] == "Gust speed"
+
+    # UC50x: CWT 7-in-1 NPK on slave 1 (channels 1–9) + WoMaster WS101LL on slave 2 (channels 10–16), as in ToolBox
+    npk, errs = mtp.plan("cwt_soil_thcph", None, 1)
+    assert not errs and [r["address"] for r in npk] == list(range(9)) and npk[0]["slave_id"] == 1
+    assert [r["toolbox_name"] for r in npk] == ["Humidity", "Temperature", "Conductivity", "PH", "Nitrogen",
+                                                 "Phosphorus", "Potassium", "Salinity", "TDS"]
+    assert all(r["signed"] and r["type"] == "Input Register(INT16)" for r in npk)
+    lvl_t = mtp.TEMPLATES["womaster_ws101ll"]
+    lvl, errs = mtp.plan("womaster_ws101ll", [r.key for r in lvl_t.regs], 10, 2)
+    assert not errs and [(r["channel"], r["toolbox_name"], r["address"]) for r in lvl] == [
+        (10, "Unit Type", 2), (11, "Decimal Points", 3), (12, "Measure Value", 4), (13, "Zero Point", 5),
+        (14, "Full Point", 6), (15, "Offset", 13), (16, "SlaveID", 2000)]
+    assert [r["name"] for r in mtp.plan("womaster_ws101ll", None, 10, 2)[0]] == [
+        "Level unit code", "Level decimal points", "Water level", "Level full point"]          # defaults
+    t_npk = mtp.TEMPLATES["cwt_soil_thcph"]
+    text = mtp.merge_map(mtp.merge_map("", npk, mtp.block_title(t_npk, npk)), lvl, mtp.block_title(lvl_t, lvl))
+    m, problems = chm.parse_channel_map(text)
+    assert not problems and len(m) == 16 and m["modbus_chn_1"].name == "Soil moisture"
+    assert m["modbus_chn_2"].apply(254) == 25.4 and m["modbus_chn_2"].apply(0xFF9B) == -10.1
+    assert m["modbus_chn_4"].apply(30) == 3.0 and m["modbus_chn_4"].device_class == "ph"
+    assert m["modbus_chn_3"].device_class == "conductivity" and m["modbus_chn_5"].name == "Soil nitrogen (N)"
+    assert m["modbus_chn_12"].name == "Water level" and m["modbus_chn_12"].device_class == "distance"
+    assert m["modbus_chn_14"].apply(3000) == 3000 and m["modbus_chn_16"].apply(2) == 2
+    assert "Input Register(INT16) | AB | ☑ |" in mtp.toolbox_table(t_npk, npk)
+    assert mtp.plan("cwt_soil_thcph", None, 9)[1]                     # 9 values from channel 9 do not fit
+    again = mtp.merge_map(text, lvl, mtp.block_title(lvl_t, lvl))     # re-applying replaces, does not duplicate
+    assert len(chm.parse_channel_map(again)[0]) == 16 and again.count("WoMaster") == 1
+
     # remove a template again: its channels and title go, other lines stay
-    t = mtp.TEMPLATES["ecowitt_ws90"]
-    m1 = mtp.merge_map("adc_1; Level; m", rows10, mtp.block_title(t, rows10))
-    soil11, _ = mtp.plan("cwt_soil_thcph", None, 11, 2)
-    m2 = mtp.merge_map(m1, soil11, "Soil")
-    left = mtp.remove_from_map(m2, 1, 10, mtp.block_title(t, rows10))
-    parsed = chm.parse_channel_map(left)[0]
-    assert set(parsed) == {"adc_1"} | {f"modbus_chn_{c}" for c in range(11, 17)}
-    assert "WS90" not in left and "# Soil" in left
+    left = mtp.remove_from_map(text, 10, 16, mtp.block_title(lvl_t, lvl))
+    assert set(chm.parse_channel_map(left)[0]) == {f"modbus_chn_{c}" for c in range(1, 10)}
+    assert "WoMaster" not in left and "CWT" in left
     old = "# Ecowitt WS90 / WN90LP weather station (RS485) (slave 144)\n1; Light; lx; 10"   # 0.26.0 format
-    assert mtp.remove_from_map(old, 1, 10, None, t.name) == ""
+    assert mtp.remove_from_map(old, 1, 10, None, mtp.TEMPLATES["ecowitt_ws90"].name) == ""
     assert "Ecowitt" in mtp.describe_applied([{"template": "ecowitt_ws90", "first": 1, "last": 10, "slave_id": 1}])
     assert mtp.plan("nope", None, 1)[1] and mtp.plan("ecowitt_ws90", [], 1)[1]
 
