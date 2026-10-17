@@ -103,7 +103,7 @@
           "pump": "Pump (current clamp)",
           "pivot": "Centre pivot (GPS tracker)",
           "purpose": "Purpose (what it is fitted to)",
-          "channel_template": "Apply a sensor template (RS485 / Modbus)"
+          "channel_template": "Sensor templates (RS485 / Modbus)"
         }
       },
       "connection": {
@@ -378,10 +378,11 @@
         }
       },
       "channel_template": {
-        "title": "Apply a sensor template",
-        "description": "Pick the RS485 / Modbus probe wired to this controller. Its values are put on Modbus channels in the channel map with the right names, units and scaling, and you get the list of what to enter in Milesight ToolBox. Several templates can go on one controller – each on its own channels.",
+        "title": "Sensor templates",
+        "description": "**On this controller:**\n{applied}\n\nPick a sensor to apply (its values go on Modbus channels in the channel map, with the ToolBox settings to match), or tick applied templates to remove them (their channels are taken out of the channel map – remember to delete them in ToolBox too).",
         "data": {
-          "template": "Sensor"
+          "template": "Apply a sensor",
+          "remove": "Remove"
         }
       },
       "channel_template_values": {
@@ -400,7 +401,7 @@
       },
       "channel_template_confirm": {
         "title": "Set up in ToolBox, then submit",
-        "description": "**1. In Milesight ToolBox** (RS485 → Modbus channels) set up these channels:\n\n{toolbox}\n\n**2. Submit** to write these lines into the channel map (lines for the same channels are replaced):\n\n```\n{lines}\n```{problems}"
+        "description": "**1. In Milesight ToolBox → RS485** set up these channels (same columns as ToolBox):\n\n{toolbox}\n\n**2. Submit** to write these lines into the channel map (lines for the same channels are replaced):{replaces}\n\n```\n{lines}\n```{problems}"
       }
     },
     "error": {
@@ -410,7 +411,8 @@
       "ns_topics": "The response topic must be set and different from the request topic.",
       "invalid_app_key": "The AppKey must be 32 hex digits.",
       "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker.",
-      "template_invalid": "The channels do not fit – see below."
+      "template_invalid": "The channels do not fit – see below.",
+      "template_nothing": "Pick a sensor to apply or a template to remove."
     }
   },
   "selector": {

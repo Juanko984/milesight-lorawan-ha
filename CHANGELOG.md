@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.26.1
+### Changed
+- Sensor templates: the ToolBox list now has ToolBox's own columns (Channel ID, Name, Slave ID, Address, Quantity,
+  Type, Byte order, Signed), WS90 names match ToolBox (Gust speed, Pressure) and the rain counter is included by
+  default (10 channels, registers 357–366).
+- Device → Configure → *Sensor templates* shows the templates applied to the controller (sensor, channels, slave
+  ID) and can **remove** them (their channels leave the channel map). Applying a template on channels another one
+  uses replaces that one as a whole.
+
 ## 0.26.0
 ### Added
 - **Sensor templates for RS485 / Modbus probes** on UC controllers (device → Configure → *Apply a sensor

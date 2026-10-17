@@ -55,16 +55,17 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
                 note="raw value has 400 added: (raw − 400) × 0.1"),
             Reg("humidity", 0x0168, "Humidity", "%", "1", 0, "humidity", 0, invalid=0xFFFF),
             Reg("wind_speed", 0x0169, "Wind speed", "m/s", "0.1", 0, "wind_speed", 1, invalid=0xFFFF),
-            Reg("gust", 0x016A, "Wind gust", "m/s", "0.1", 0, "wind_speed", 1, invalid=0xFFFF),
+            Reg("gust", 0x016A, "Gust speed", "m/s", "0.1", 0, "wind_speed", 1, invalid=0xFFFF),
             Reg("wind_direction", 0x016B, "Wind direction", "°", "1", 0, None, 0, invalid=0xFFFF,
                 note="0–359°"),
             Reg("rain", 0x016C, "Rainfall", "mm", "0.1", 0, "precipitation", 1),
-            Reg("pressure", 0x016D, "Absolute pressure", "hPa", "0.1", 0, "atmospheric_pressure", 1,
+            Reg("pressure", 0x016D, "Pressure", "hPa", "0.1", 0, "atmospheric_pressure", 1,
                 invalid=0xFFFF),
             Reg("rain_counter", 0x016E, "Rain counter", "mm", "0.01", 0, "precipitation", 2, "total_increasing",
-                optional=True, note="running total"),
+                note="running total"),
         ),
-        ("Default address 0x90 (144), 9600 baud 8N1 – every probe on one RS485 bus must use the same baud rate.",
+        ("Factory address 0x90 (144) – many units are set to 1; use the address your station answers on. "
+         "9600 baud 8N1 – every probe on one RS485 bus must use the same baud rate.",
          "Registers 0x0165–0x016E (357–366) – read them as one block if your firmware supports it.",
          "Wind speed is in m/s; Home Assistant can show it in km/h (entity settings → unit)."),
     ),
@@ -89,7 +90,7 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
         ("Default address 1, 4800 baud 8N1. On a bus with a 9600-baud probe (e.g. the WS90), set the soil sensor to "
          "9600 first: write 2 to register 0x07D1 (function 06: 01 06 07 D1 00 02 59 46), then power-cycle it.",
          "Two sensors of the same kind need different addresses: write the new address to register 0x07D0.",
-         "Set the temperature channel to INT16 in ToolBox (if it is read as UINT16 the integration converts it)."),
+         "Tick *Signed* on the temperature channel in ToolBox (if it is left unticked the integration converts it)."),
     ),
 )}
 
@@ -128,8 +129,9 @@ def plan(key: str, regs: list[str] | None, first: int, slave_id: int | None = No
     for i, r in enumerate(chosen):
         ch = first + i
         rows.append({"channel": ch, "slave_id": sid, "address": r.address, "name": r.name,
-                     "data_type": "INT16" if r.signed else "UINT16", "function": t.function,
-                     "line": channel_line(r, ch, prefix), "note": r.note})
+                     "toolbox_name": r.name[:16], "quantity": 1, "type": "Holding Register(INT16)",
+                     "byte_order": "AB", "signed": r.signed, "data_type": "INT16" if r.signed else "UINT16",
+                     "function": t.function, "line": channel_line(r, ch, prefix), "note": r.note})
     return rows, []
 
 
@@ -151,9 +153,46 @@ def merge_map(current: str, rows: list[dict], title: str) -> str:
 
 
 def toolbox_table(t: Template, rows: list[dict]) -> str:
-    """Markdown: what to enter in Milesight ToolBox → RS485 → Modbus channels."""
-    head = ("| Channel | Slave ID | Register (dec / hex) | Data type | Value |\n|---|---|---|---|---|\n")
-    body = "".join(f"| {r['channel']} | {r['slave_id']} | {r['address']} / 0x{r['address']:04X} | {r['data_type']} | "
-                   f"{r['name']}{' – ' + r['note'] if r['note'] else ''} |\n" for r in rows)
-    return (f"**{t.name}** – RS485 {t.baud} baud {t.serial}, function {t.function}\n\n" + head + body + "\n"
-            + "\n".join(f"- {n}" for n in t.notes))
+    """Markdown laid out like Milesight ToolBox → RS485 (UC300): one row per channel, same columns."""
+    head = ("| Channel ID | Name | Slave ID | Address | Quantity | Type | Byte order | Signed |\n"
+            "|---|---|---|---|---|---|---|---|\n")
+    body = "".join(f"| {r['channel']} | {r['toolbox_name']} | {r['slave_id']} | {r['address']} | {r['quantity']} | "
+                   f"{r['type']} | {r['byte_order']} | {'☑' if r['signed'] else '☐'} |\n" for r in rows)
+    notes = [f"{r['name']} (register 0x{r['address']:04X}): {r['note']}" for r in rows if r["note"]]
+    return (f"**{t.name}** – RS485 {t.baud} baud {t.serial}\n\n" + head + body + "\n"
+            + "\n".join(f"- {n}" for n in list(t.notes) + notes))
+
+
+def block_title(t: Template, rows: list[dict]) -> str:
+    return f"{t.name} – channels {rows[0]['channel']}–{rows[-1]['channel']}, slave {rows[0]['slave_id']}"
+
+
+def remove_from_map(current: str, first: int, last: int, title: str | None = None, name: str | None = None) -> str:
+    """Take a template's channels (first…last) and its '# title' line out of the channel map."""
+    from .channel_map import channel_key
+    gone = {f"modbus_chn_{c}" for c in range(first, last + 1)}
+    out = []
+    for line in (current or "").splitlines():
+        stripped = line.strip()
+        if title and stripped == f"# {title}":
+            continue
+        if not title and name and stripped.startswith(f"# {name}"):      # applied before titles were stored
+            continue
+        head = line.split("#", 1)[0].strip()
+        col = head.replace("|", ";").replace("\t", ";").split(";", 1)[0].strip() if head else ""
+        key = channel_key(col) if col else None
+        if key and (key in gone or any(key.startswith(g + "_reg_") for g in gone)):
+            continue
+        out.append(line)
+    text = "\n".join(out)
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text.strip("\n")
+
+
+def describe_applied(applied: list[dict]) -> str:
+    """Markdown list of the templates on a controller."""
+    if not applied:
+        return "none yet"
+    return "\n".join(f"- **{TEMPLATES[a['template']].name if a.get('template') in TEMPLATES else a.get('template')}**"
+                      f" – channels {a['first']}–{a['last']}, slave ID {a.get('slave_id')}" for a in applied)

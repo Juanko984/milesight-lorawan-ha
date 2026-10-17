@@ -579,14 +579,35 @@ class MilesightOptionsFlow(OptionsFlow):
 
     # ------------------------------------------------- RS485 sensor templates
     async def async_step_channel_template(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Pick a ready-made RS485 / Modbus sensor (weather station, soil probe …)."""
+        """Sensor templates on this controller: see what is applied, remove one, or apply a new one."""
+        entry = self.config_entry
+        applied = list(entry.options.get("channel_templates", []))
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._tpl = {"key": user_input["template"]}
-            return await self.async_step_channel_template_values()
+            remove = [int(i) for i in user_input.get("remove") or []]
+            if remove:
+                text = entry.options.get(CONF_CHANNEL_MAP, "") or ""
+                for i in remove:
+                    a = applied[i]
+                    text = _mt.remove_from_map(text, a["first"], a["last"], a.get("title"),
+                                               getattr(_mt.TEMPLATES.get(a.get("template")), "name", None))
+                keep = [a for i, a in enumerate(applied) if i not in remove]
+                return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: text,
+                                                     "channel_templates": keep})
+            if user_input.get("template"):
+                self._tpl = {"key": user_input["template"]}
+                return await self.async_step_channel_template_values()
+            errors["base"] = "template_nothing"
         opts = [{"value": t.key, "label": t.name} for t in _mt.TEMPLATES.values()]
-        return self.async_show_form(step_id="channel_template", data_schema=vol.Schema({
-            vol.Required("template"): SelectSelector(SelectSelectorConfig(options=opts,
-                                                                          mode=SelectSelectorMode.LIST))}))
+        schema = {vol.Optional("template"): SelectSelector(SelectSelectorConfig(options=opts,
+                                                                               mode=SelectSelectorMode.LIST))}
+        if applied:
+            schema[vol.Optional("remove", default=[])] = SelectSelector(SelectSelectorConfig(
+                options=[{"value": str(i), "label": f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
+                                                   f" – channels {a['first']}–{a['last']}"}
+                         for i, a in enumerate(applied)], multiple=True, mode=SelectSelectorMode.LIST))
+        return self.async_show_form(step_id="channel_template", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"applied": _mt.describe_applied(applied)})
 
     def _next_free_channel(self) -> int:
         from .channel_map import channel_key
@@ -632,12 +653,17 @@ class MilesightOptionsFlow(OptionsFlow):
         t = _mt.TEMPLATES[self._tpl["key"]]
         rows = self._tpl["rows"]
         current = entry.options.get(CONF_CHANNEL_MAP, "") or ""
-        new_map = _mt.merge_map(current, rows, f"{t.name} (slave {rows[0]['slave_id']})")
+        title = _mt.block_title(t, rows)
+        lo, hi = rows[0]["channel"], rows[-1]["channel"]
+        overlap = [a for a in entry.options.get("channel_templates", []) if a["first"] <= hi and a["last"] >= lo]
+        for a in overlap:                                # a template on these channels is replaced as a whole
+            current = _mt.remove_from_map(current, a["first"], a["last"], a.get("title"))
+        new_map = _mt.merge_map(current, rows, title)
         if user_input is not None:
-            applied = [a for a in entry.options.get("channel_templates", [])
-                       if not ({a.get("first"), a.get("last")} & {rows[0]["channel"], rows[-1]["channel"]})]
-            applied.append({"template": t.key, "first": rows[0]["channel"], "last": rows[-1]["channel"],
-                            "slave_id": rows[0]["slave_id"]})
+            applied = [a for a in entry.options.get("channel_templates", []) if a not in overlap]
+            applied.append({"template": t.key, "first": lo, "last": hi, "slave_id": rows[0]["slave_id"],
+                            "title": title, "values": [r["name"] for r in rows]})
+            applied.sort(key=lambda a: a["first"])
             return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: new_map,
                                                  "channel_templates": applied})
         _, problems = parse_channel_map(new_map)
@@ -651,6 +677,9 @@ class MilesightOptionsFlow(OptionsFlow):
                                     description_placeholders={
                                         "toolbox": _mt.toolbox_table(t, rows) + warn,
                                         "lines": lines,
+                                        "replaces": ("\n\nThis replaces: " + "; ".join(
+                                            f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
+                                            f" (channels {a['first']}–{a['last']})" for a in overlap)) if overlap else "",
                                         "problems": ("\n\n" + "\n".join(problems)) if problems else ""})
 
     # ---------------------------------------------------------------- tank

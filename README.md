@@ -701,14 +701,15 @@ in Milesight ToolBox – the Milesight encoders have no downlink for it.)
 
 ### Sensor templates (RS485 / Modbus)
 
-Device → **Configure → Apply a sensor template** fills the channel map for common RS485 probes and tells you what
+Device → **Configure → Sensor templates** lists the templates applied to the controller, removes them, and
+applies new ones. Applying fills the channel map for common RS485 probes and tells you what
 to enter in Milesight ToolBox. Pick the sensor, tick the values you want, choose the first free Modbus channel and
 the probe's address; the values take consecutive channels. Several templates can go on one controller (UC300 /
 UC50x: 16 Modbus channels), e.g. a weather station on channels 1–9 and a soil probe on 10–15.
 
 | Template | Default address / bus | Values |
 |---|---|---|
-| Ecowitt WS90 / WN90LP weather station | 0x90 (144), 9600 8N1, registers 0x0165–0x016E | light, UV index, temperature, humidity, wind speed, gust, wind direction, rainfall, pressure, rain counter |
+| Ecowitt WS90 / WN90LP weather station | 0x90 (144) or 1, 9600 8N1, registers 357–366 (0x0165–0x016E) | light, UV index, temperature, humidity, wind speed, gust, wind direction, rainfall, pressure, rain counter |
 | CWT soil sensor THCPH-S / 7-in-1 NPK | 1, 4800 8N1, registers 0x0000–0x0008 | moisture, temperature, conductivity, pH, N / P / K (7-in-1 only), salinity, TDS |
 
 All probes on one RS485 bus need the same baud rate – the confirmation page warns when the defaults differ (the
@@ -971,6 +972,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.26.1** | Sensor templates: ToolBox-style channel list, applied templates shown and removable, WS90 rain counter by default. |
 | **0.26.0** | RS485 sensor templates for UC controllers (Ecowitt WS90 weather station, CWT soil / NPK probe); channel-map options s16 and invalid=…; soil channels feed the irrigation advice. |
 | **0.25.1** | Fix: the Pump options form (current clamps) opened with an empty "Error". |
 | **0.25.0** | Purposes: what a device is fitted to (≈50, from fridge to gate to panic button) – grouped labels, entity looks, default limits, cold-chain log, duty cycle, after-hours, bins, flood, rain gauge, toilets, panic; Cold chain and Energy & HVAC dashboards. |
