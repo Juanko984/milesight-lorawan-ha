@@ -275,6 +275,7 @@ class Hub:
     @callback
     def handle_uplink(self, up: Uplink) -> None:
         """An uplink from the gateway's MQTT feed or the built-in network server."""
+        up.extra.setdefault("network_server", "chirpstack" if self.downlink_format == DOWNLINK_CHIRPSTACK else "embedded")
         prev = self.last_uplink.get(up.deveui)
         duplicate = (prev is not None and up.fcnt is not None and prev.fcnt == up.fcnt
                      and prev.raw == up.raw and abs(time.time() - prev.extra.get("_rx", 0)) < 30)

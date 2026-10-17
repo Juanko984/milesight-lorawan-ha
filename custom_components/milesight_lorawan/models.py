@@ -936,6 +936,7 @@ def _common() -> list[EntitySpec]:
         EntitySpec("link_margin", "Link margin", unit="dB", state_class="measurement", icon="mdi:signal-distance-variant",
                    diagnostic=True, enabled_default=False),
         EntitySpec("gateway", "Gateway", kind="text", icon="mdi:router-wireless", diagnostic=True),
+        EntitySpec("network_server", "Network server", kind="label", icon="mdi:server-network", diagnostic=True),
         EntitySpec("gateways_heard", "Gateways in range", state_class="measurement", icon="mdi:router-network",
                    diagnostic=True),
         EntitySpec("packet_loss_today", "Packet loss today", unit="%", state_class="measurement",
@@ -2153,3 +2154,11 @@ def pivot_specs() -> list[EntitySpec]:
                    state_class="measurement", precision=0, diagnostic=True),
         EntitySpec("cmd_pivot_stop", "Pivot stopped (end round)", platform="button", icon="mdi:stop-circle-outline"),
     ]
+
+
+# How a device reaches Home Assistant (Uplink.extra["network_server"]) → entity text and device label
+NETWORK_SERVERS = {
+    "embedded": ("Gateway (Embedded NS)", "LoRaWAN · Gateway network server", "mdi:router-wireless"),
+    "chirpstack": ("ChirpStack", "LoRaWAN · ChirpStack", "mdi:server"),
+    "built-in": ("Home Assistant (packet forwarder)", "LoRaWAN · Home Assistant network server", "mdi:home-assistant"),
+}

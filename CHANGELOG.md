@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.31.0b2 (beta)
+### Added
+- **How each device is connected**: a *Network server* diagnostic sensor on every device (*Gateway (Embedded NS)*,
+  *ChirpStack* or *Home Assistant (packet forwarder)*) and a matching device label – **LoRaWAN · Gateway network
+  server** / **LoRaWAN · Home Assistant network server** – shown as a chip in Settings → Devices and usable as a
+  filter. The label swaps by itself when a device moves from one network server to the other; your own labels
+  are kept.
+
 ## 0.31.0b1 (beta)
 ### Added
 - **Built-in LoRaWAN network server.** Gateways send their packet forwarder traffic (Semtech UDP, port 1700)

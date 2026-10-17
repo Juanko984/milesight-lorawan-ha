@@ -642,6 +642,9 @@ gateway C ─┘   <── downlinks ──── └─ commands sent through t
 * A device must be on **one** network server only – the gateway's Embedded NS *or* Home Assistant.
 * Home Assistant must be reachable from the gateways on UDP 1700 (Home Assistant OS listens on the host;
   in Docker, publish `1700/udp`). Over the internet use a VPN or a port forward.
+* Every device shows how it is connected: the *Network server* diagnostic sensor and a label chip
+  (**LoRaWAN · Gateway network server** or **LoRaWAN · Home Assistant network server**) in Settings → Devices –
+  filter by it to see which devices are on which server.
 * The gateway entry gets **Network server devices** (joined devices; attributes: gateways connected, downlink
   airtime per gateway, counters, recent joins and refusals). Keys are never logged or shown in diagnostics.
 
@@ -1041,6 +1044,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.31.0b2** | Beta: network-server chip (label) and sensor on every device. |
 | **0.31.0b1** | Beta: built-in LoRaWAN network server – gateways' packet forwarders send to Home Assistant, devices join with their AppKey. |
 | **0.30.0** | Site landing page (auto-created, dashboard buttons, people, alerts, tanks, farm …); phone-friendly Building analytics, Farm and Tanks & alerts dashboards. |
 | **0.29.1** | Edit applied sensor templates; on the UC100 only changed channels are re-sent. |

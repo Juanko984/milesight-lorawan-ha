@@ -342,6 +342,10 @@ class DeviceRuntime:
             self.meta["frequency"] = round(up.frequency / 1e6, 3)
         if up.fcnt is not None:
             self.meta["frame_counter"] = up.fcnt
+        ns = up.extra.get("network_server")
+        if ns and ns != self.meta.get("network_server"):
+            self.meta["network_server"] = ns
+            self._network_changed()
         self._handle_display(decoded)
         prev_seen = self.meta.get("last_seen")
         if up.raw:
@@ -1346,8 +1350,20 @@ class DeviceRuntime:
         async_dispatcher_send(self.hass, SIGNAL_UPDATE.format(self.deveui))
         self.store.async_delay_save(self._data_to_save, 30)
 
+    def _network_changed(self) -> None:
+        """The device now reaches Home Assistant another way: refresh its connection label shortly."""
+        try:
+            from . import _schedule_sync
+            _schedule_sync(self.hass)
+        except Exception:  # noqa: BLE001 - labels are a convenience
+            pass
+
     def _link_values(self, v: dict[str, Any], ts: float) -> None:
         """Signal quality per device and the command-confirmation state."""
+        from .models import NETWORK_SERVERS
+        ns = self.meta.get("network_server")
+        v["network_server"] = NETWORK_SERVERS[ns][0] if ns in NETWORK_SERVERS else None
+        self.attrs["network_server"] = {"network_server": ns}
         rssi, snr, sf = v.get("rssi"), v.get("snr"), self.meta.get("spreading_factor")
         heard = self.link.heard_by(ts, 24 * 3600)
         loss = self.link.loss() if self.link.day == self._day(ts) else None

@@ -1293,6 +1293,30 @@ nonce2 = (78).to_bytes(2, "little")
 msg2 = b"\x00" + bytes(8) + bytes.fromhex(EUI)[::-1] + nonce2
 push(msg2 + lcrypto.aes_cmac(KEY, msg2)[:4])
 assert hbl.lns.last_events[0]["kind"] == "join_rejected" and "Port Down" in hbl.lns.last_events[0]["reason"]
+# connection shown per device: entity text + one label that swaps when the device moves
+rt_mqtt = dev_entries[0].runtime_data
+assert rt_mqtt.values["network_server"] == "Gateway (Embedded NS)"
+e_l, rt_l = make_with(EUI, "EM300-TH", {}, title="EM300 via LNS")
+up_l = decoders.Uplink(deveui=EUI, raw=bytes.fromhex("0367f40004687b"), fport=85, fcnt=5)
+up_l.extra["network_server"] = "built-in"
+rt_l.handle_uplink(up_l)
+assert rt_l.values["network_server"] == "Home Assistant (packet forwarder)" and rt_l.meta["network_server"] == "built-in"
+res_c = load("resources")
+class _Lab:
+    def __init__(self): self.by = {}
+    def async_get_label_by_name(self, n): return self.by.get(n)
+    def async_create(self, n, icon=None):
+        self.by[n] = types.SimpleNamespace(label_id=n.lower().replace(" ", "_"), icon=icon); return self.by[n]
+class _Dev:
+    def __init__(self): self.d = types.SimpleNamespace(id="d1", labels={"keep"})
+    def async_update_device(self, i, labels): self.d.labels = set(labels)
+labs, devs, st = _Lab(), _Dev(), {}
+assert res_c._connection_label(e_l, devs.d, labs, devs, st)
+assert devs.d.labels == {"keep", "lorawan_·_home_assistant_network_server"}
+assert not res_c._connection_label(e_l, devs.d, labs, devs, st)                 # unchanged → nothing to do
+rt_l.meta["network_server"] = "embedded"
+assert res_c._connection_label(e_l, devs.d, labs, devs, st)
+assert devs.d.labels == {"keep", "lorawan_·_gateway_network_server"}             # swapped, user's label kept
 loop_.run_until_complete(hbl.lns.async_stop())
 loop_.close()
 print("network server ok")

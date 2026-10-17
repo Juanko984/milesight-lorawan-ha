@@ -292,6 +292,9 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         device = dreg.async_get_device(identifiers={(DOMAIN, e.data.get(CONF_DEVEUI))})
         if device is None:
             continue
+        if _connection_label(e, device, lreg, dreg, state):
+            changed = True
+            device = dreg.async_get(device.id) or device
         tags = device_tags(e.options.get("model", e.data.get("model")), {**e.data, **e.options})
         new = [t for t in sorted(tags) if t not in labelled.get(device.id, [])]
         if not new:
@@ -308,3 +311,24 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         changed = True
     if changed:
         await store.async_save(state)
+
+
+def _connection_label(entry: Any, device: Any, lreg: Any, dreg: Any, state: dict[str, Any]) -> bool:
+    """One label per device for how it reaches Home Assistant (gateway's network server, ChirpStack or the
+    built-in one); swapped when that changes. Returns True when the device's labels changed."""
+    from .models import NETWORK_SERVERS
+    ns = (getattr(getattr(entry, "runtime_data", None), "meta", None) or {}).get("network_server")
+    if ns not in NETWORK_SERVERS:
+        return False
+    conn: dict[str, str] = state.setdefault("connection", {})
+    if conn.get(device.id) == ns:
+        return False
+    _text, name, icon = NETWORK_SERVERS[ns]
+    wanted = (lreg.async_get_label_by_name(name) or lreg.async_create(name, icon=icon)).label_id
+    others = set()
+    for key, (_t, other, _i) in NETWORK_SERVERS.items():
+        if key != ns and (lab := lreg.async_get_label_by_name(other)) is not None:
+            others.add(lab.label_id)
+    dreg.async_update_device(device.id, labels=(set(device.labels) - others) | {wanted})
+    conn[device.id] = ns
+    return True
