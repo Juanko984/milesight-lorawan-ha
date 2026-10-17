@@ -27,8 +27,40 @@ _LOGGER = logging.getLogger(__name__)
 SIGNAL_IRRIGATION = f"{DOMAIN}_irrigation_{{}}"   # .format(hub entry_id)
 
 
-def soil_values(hass: HomeAssistant, entity_ids: tuple[str, ...]) -> list[float]:
+def _purpose_runtimes(hass: HomeAssistant, keys: tuple[str, ...]) -> list:
     out = []
+    for e in hass.config_entries.async_entries(DOMAIN):
+        rt = getattr(e, "runtime_data", None)
+        if getattr(rt, "purpose", None) is not None and rt.purpose.key in keys:
+            out.append(rt)
+    return out
+
+
+def gauge_rain(hass: HomeAssistant) -> float | None:
+    """Rain measured by the site's rain gauges in the last 24 h (the highest one)."""
+    vals = [rt.values.get("rain_24h") for rt in _purpose_runtimes(hass, ("rain_gauge",))]
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    return max(vals) if vals else None
+
+
+def soil_values(hass: HomeAssistant, entity_ids: tuple[str, ...]) -> list[float]:
+    """The chosen soil moisture sensors plus every Milesight device fitted as field / greenhouse / garden soil."""
+    from .purposes import SOIL_PURPOSES
+    out = []
+    chosen = set()                                   # Milesight moisture entities already in the list
+    if entity_ids:
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(hass)
+            chosen = {getattr(reg.async_get(eid), "unique_id", None) for eid in entity_ids}
+        except Exception:  # noqa: BLE001
+            chosen = set()
+    for rt in _purpose_runtimes(hass, SOIL_PURPOSES):
+        v = rt.values.get("moisture")
+        if f"{rt.deveui}_moisture" in chosen:
+            continue                                 # counted below as a chosen sensor
+        if isinstance(v, (int, float)) and rt.values.get("online") is not False:
+            out.append(float(v))
     for eid in entity_ids:
         st = hass.states.get(eid)
         try:
@@ -99,7 +131,7 @@ class IrrigationManager:
         now = dt_util.now()
         rain = rain_ahead(self.forecast, now, self.cfg.rain_hours, self.daily)
         frost = frost_tonight(self.forecast, now, self.cfg.frost_c, self.cfg.warn_from, self.daily)
-        adv = advice(soil_values(self.hass, self.cfg.soil), rain, self.cfg)
+        adv = advice(soil_values(self.hass, self.cfg.soil), rain, self.cfg, gauge_rain(self.hass))
         if not self.forecast and self.cfg.weather:
             adv["reason"] += " – no forecast available"
         old_frost = (self.data.get("frost") or {}).get("active")

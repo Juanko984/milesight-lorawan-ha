@@ -26,6 +26,8 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
     "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),
+    "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),
+    "energy.yaml": ("milesight-energy", "mdi:lightning-bolt", {"energy", "hvac"}),
 }
 
 
@@ -36,7 +38,7 @@ def site_tags(hass: HomeAssistant) -> set[str]:
     tags: set[str] = set()
     for e in hass.config_entries.async_entries(DOMAIN):
         if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_DEVICE:
-            tags |= device_tags(e.options.get("model", e.data.get("model")), dict(e.options))
+            tags |= device_tags(e.options.get("model", e.data.get("model")), {**e.data, **e.options})
         elif e.options.get("irr_weather") or e.options.get("irr_soil"):
             tags.add("irrigation")                     # gateway with the forecast-aware irrigation set up
     return tags
@@ -259,7 +261,7 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         device = dreg.async_get_device(identifiers={(DOMAIN, e.data.get(CONF_DEVEUI))})
         if device is None:
             continue
-        tags = device_tags(e.options.get("model", e.data.get("model")), dict(e.options))
+        tags = device_tags(e.options.get("model", e.data.get("model")), {**e.data, **e.options})
         new = [t for t in sorted(tags) if t not in labelled.get(device.id, [])]
         if not new:
             continue

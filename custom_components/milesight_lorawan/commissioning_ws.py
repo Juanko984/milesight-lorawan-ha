@@ -23,7 +23,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .commissioning import parse_qr, sample, walk_summary
 from .const import CONF_DEVEUI, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_DEVICE, SIGNAL_HEARD
-from .models import MODELS, downlinks, guess_from_name, guess_model
+from .models import MODELS, downlinks, families, guess_from_name, guess_model
+from .purposes import GROUPS, PURPOSES
 
 _LOGGER = logging.getLogger(__name__)
 STATIC_URL = f"/{DOMAIN}_static"
@@ -101,6 +102,10 @@ def ws_parse(hass: HomeAssistant, connection, msg: dict) -> None:
         "existing_name": entry.title if entry else None,
         "can_register": any(getattr(h, "can_provision", False) for h in _hubs(hass)),
         "models": sorted(({"value": k, "label": m.label} for k, m in MODELS.items()), key=lambda x: x["label"]),
+        "families": {k: sorted(families(k)) for k in MODELS},
+        "purposes": [{"value": pp.key, "families": sorted(pp.families),
+                      "label": pp.label + (f" · {GROUPS[pp.group][0].split('· ')[1]}" if pp.group else "")}
+                     for pp in PURPOSES.values()],
     })
 
 
@@ -133,6 +138,7 @@ def ws_devices(hass: HomeAssistant, connection, msg: dict) -> None:
     vol.Required("type"): f"{DOMAIN}/commission/add",
     vol.Required("deveui"): str, vol.Required("model"): str, vol.Optional("name"): str,
     vol.Optional("area"): str, vol.Optional("app_key"): str, vol.Optional("register", default=True): bool,
+    vol.Optional("purpose"): str,
 })
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -162,7 +168,8 @@ async def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
             if (flow.get("context") or {}).get("unique_id") == deveui:
                 hass.config_entries.flow.async_abort(flow["flow_id"])
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_IMPORT}, data={
-            CONF_DEVEUI: deveui, "model": msg["model"], "name": name, "area": (msg.get("area") or "").strip() or None})
+            CONF_DEVEUI: deveui, "model": msg["model"], "name": name, "area": (msg.get("area") or "").strip() or None,
+            "purpose": msg.get("purpose") or None})
         rtype = result.get("type")
         if str(getattr(rtype, "value", rtype)) != "create_entry":
             connection.send_error(msg["id"], "not_added", f"Home Assistant did not add it: "

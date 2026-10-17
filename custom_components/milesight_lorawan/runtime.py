@@ -68,6 +68,9 @@ from .channel_map import parse_channel_map
 from .models import (MODELS, Model, channel_specs, downlinks, entity_specs, meter_spec, output_for_key, pivot_specs,
                      pump_capable, pump_specs, setting_spec, tank_source, tank_specs)
 from .pivot import PivotTracker, pivot_config
+from . import purposes as _purposes
+from .models import contact_specs, families, load_channels, load_specs, purpose_specs, temp_specs
+from .usage import LoadTracker, TempWatch, Trend, bin_fill, water_level_cm
 from .pump import PumpTracker, pump_config
 from .tank import TankTracker, level_mm, tank_config, volume_l
 
@@ -167,6 +170,12 @@ def _heat_index(t: float, h: float) -> float:
     return round(hi, 1)
 
 
+def _spec_after_hours():
+    from .models import EntitySpec
+    return EntitySpec("after_hours_activity", "After-hours activity", platform="binary_sensor",
+                      device_class="problem", icon="mdi:weather-night")
+
+
 class DeviceRuntime:
     """Holds all state for one LoRaWAN device."""
 
@@ -196,6 +205,14 @@ class DeviceRuntime:
         self.pump_cfg = None
         self.pivot: PivotTracker | None = None
         self.pivot_cfg = pivot_config(dict(entry.options)) if "at101" in self.model.features else None
+        opts = {**entry.data, **entry.options}
+        self.families = families(self.model.key)
+        p = _purposes.get(opts.get("purpose"))
+        self.purpose = p if p is not None and p.families & self.families else None
+        self.pcfg: dict[str, Any] = _purposes.settings(self.purpose.key if self.purpose else None, dict(entry.options))
+        self.loads: dict[str, tuple[LoadTracker, dict, str | None, Any]] = {}  # prefix -> (tracker, cfg, purpose, channel)
+        self.tempw: TempWatch | None = None
+        self.trend: Trend | None = None
         self.channels, self.channel_errors = (parse_channel_map(entry.options.get(CONF_CHANNEL_MAP, ""))
                                               if self.model.dynamic else ({}, []))
         self._alert_sig: Any = None
@@ -219,13 +236,15 @@ class DeviceRuntime:
         self.battery_low_pct = float(self._opt(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))
         self._fleet_state: tuple | None = None
 
+        left_open = self.pcfg.get("left_open_min") if "contact" in self._pfam else None
         for feature in BINARY_FEATURES:
-            if feature in f:
+            if feature in f or (feature == "door" and "ts_contact" in f and "contact" in self._pfam):
                 self.binary[feature] = BinaryEventTracker(
                     self.cal, trackers.get(feature), max_gap_s=max_gap_s,
-                    left_open_s=float(self._opt(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN)) * 60,
+                    left_open_s=float(left_open if left_open is not None
+                                      else self._opt(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN)) * 60,
                 )
-        self.limits = {"co2": float(self._opt(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT)),
+        self.limits = {"co2": float(self.pcfg.get("co2_limit") or self._opt(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT)),
                        "run_a": float(self._opt(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))}
         if self.model.minmax_fields:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
@@ -236,8 +255,12 @@ class DeviceRuntime:
             self.tank_cfg = None
         if "at101" in f:
             self.distance = DistanceTracker(self.cal, trackers.get("distance"))
+        self._load_purposes(trackers)
         if pump_capable(self.model.key):
             cfg = pump_config(dict(self.entry.options), self.limits["run_a"])
+            if self._pkey == "pump" and not cfg.enabled:
+                from dataclasses import replace
+                cfg = replace(cfg, enabled=True)
             if cfg.enabled:
                 self.pump_cfg, self.pump = cfg, PumpTracker(trackers.get("pump"))
         if self.pivot_cfg is not None and self.pivot_cfg.enabled:
@@ -341,6 +364,8 @@ class DeviceRuntime:
             self.counters.update(ts, decoded)
         if self.tank is not None:
             self._tank_reading(ts, decoded)
+        if self.loads or self.tempw is not None or self.purpose is not None:
+            self._purpose_reading(ts, decoded)
         if self.distance is not None and "latitude" in decoded:
             self.distance.update(ts, decoded.get("latitude"), decoded.get("longitude"))
         if self.pivot is not None and "latitude" in decoded:
@@ -474,10 +499,11 @@ class DeviceRuntime:
     def extra_specs(self) -> list:
         """Entities that depend on the device's options (utility meter, tank contents, named controller channels)."""
         specs = []
-        mtype = self._opt(CONF_METER_TYPE, "none")
-        if mtype in ("water", "gas", "energy"):
+        mtype = self._meter_type()
+        if mtype in ("water", "gas", "energy", "rain"):
             specs.append(meter_spec(mtype, self._opt(CONF_METER_UNIT,
-                                                     {"water": "m³", "gas": "m³", "energy": "kWh"}[mtype])))
+                                                     {"water": "m³", "gas": "m³", "energy": "kWh", "rain": "mm"}[mtype])))
+        specs += self.purpose_extra_specs()
         if self.tank_cfg is not None:
             specs += tank_specs(self.tank_cfg.density > 0, self.tank_cfg.low_pct > 0, self.tank_cfg.drop_pct > 0)
         if self.pump is not None:
@@ -486,6 +512,256 @@ class DeviceRuntime:
             specs += pivot_specs()
         specs += channel_specs(self.channels)
         return specs
+
+    # ------------------------------------------------------------- purposes
+    @property
+    def _pkey(self) -> str | None:
+        return self.purpose.key if self.purpose else None
+
+    @property
+    def _pfam(self) -> frozenset[str]:
+        """Families the purpose applies to on this device."""
+        return (self.purpose.families & self.families) if self.purpose else frozenset()
+
+    def _load_purposes(self, trackers: dict) -> None:
+        if "load" in self._pfam and self._pkey in _purposes.LOAD_ANALYTICS:
+            self.loads["load_"] = (LoadTracker(trackers.get("load_")), self.pcfg, self._pkey, None)
+        for n, key in _purposes.channel_purposes(dict(self.entry.options), load_channels(self.model.key)).items():
+            if key in _purposes.LOAD_ANALYTICS or key == "pump":
+                self.loads[f"load{n}_"] = (LoadTracker(trackers.get(f"load{n}_")), _purposes.settings(key, {}), key, n)
+        if "temperature" in self._pfam and (any(isinstance(self.pcfg.get(k), (int, float))
+                                                for k in ("temp_low", "temp_high")) or self.pcfg.get("temp_rise_day")):
+            self.tempw = TempWatch(trackers.get("tempwatch"))
+        if self._pkey in ("bin", "flood", "rain_gauge"):
+            self.trend = Trend(trackers.get("trend"))
+
+    def _meter_type(self) -> str:
+        mt = self._opt(CONF_METER_TYPE, "none")
+        if mt in (None, "", "none") and self.purpose is not None and self.purpose.meter and "pulse" in self._pfam:
+            return self.purpose.meter
+        return mt
+
+    def _work_hours(self, ts: float) -> bool:
+        days = self._opt(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)
+        return _purposes.in_hours(datetime.fromtimestamp(ts, self.cal.tz),
+                                  int(self._opt(CONF_OPEN_HOUR, DEFAULT_OPEN_HOUR)),
+                                  int(self._opt(CONF_CLOSE_HOUR, DEFAULT_CLOSE_HOUR)),
+                                  tuple(WEEKDAYS.index(d) for d in days if d in WEEKDAYS))
+
+    def _day_start(self, ts: float) -> float:
+        return datetime.fromtimestamp(ts, self.cal.tz).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+    def _temp_value(self, src: dict[str, Any]) -> float | None:
+        for k in ("temperature", "temperature_1"):
+            if isinstance(src.get(k), (int, float)):
+                return float(src[k])
+        return None
+
+    def _load_running_for(self, src: dict[str, Any], channel: int | None) -> bool | None:
+        if channel is not None:
+            a = src.get(f"current_{channel}")
+            return a >= self.limits["run_a"] if isinstance(a, (int, float)) else None
+        if "socket" in self.model.features and isinstance(src.get("power"), (int, float)):
+            return src["power"] >= float(self.pcfg.get("run_w") or 10)
+        return _load_running(src, self.limits)
+
+    def _present(self, decoded: dict[str, Any]) -> bool | None:
+        if self.model.occupancy_fn is not None:
+            n = self.model.occupancy_fn(decoded)
+            if n is not None:
+                return n > 0
+        if "pir" in decoded:
+            return _flag(decoded.get("pir"))
+        if "motion" in self.model.features:
+            return BINARY_FEATURES["motion"][0](decoded, self.limits)
+        if isinstance(decoded.get("people_in"), (int, float)):
+            return decoded["people_in"] > 0
+        return None
+
+    def _purpose_reading(self, ts: float, decoded: dict[str, Any]) -> None:
+        """Per-uplink purpose analytics (load trackers, temperature watch, trends, visits, after hours)."""
+        day, start, work = self._day(ts), self._day_start(ts), self._work_hours(ts)
+        base = {"deveui": self.deveui, "device": self.entry.title, "area": self.entry.data.get("area")}
+        for prefix, (tr, cfg, key, ch) in self.loads.items():
+            for ev in tr.update(ts, self._load_running_for(decoded, ch), day, start, work):
+                if ev["type"] == "after_hours":
+                    self.hass.bus.async_fire(f"{DOMAIN}_load", {**base, **ev, "purpose": key, "channel": ch})
+        t = self._temp_value(decoded)
+        if self.tempw is not None and t is not None:
+            door = self.binary.get("door")
+            for ev in self.tempw.update(ts, t, day, self.pcfg, door_open=bool(door and door.s.get("active"))):
+                self.hass.bus.async_fire(f"{DOMAIN}_temperature", {**base, **ev, "purpose": self._pkey})
+        if self.trend is not None:
+            if self._pkey == "bin":
+                self.trend.add(ts, bin_fill(decoded.get("distance"), float(self.pcfg.get("bin_depth_mm") or 0)))
+            elif self._pkey == "flood":
+                self.trend.add(ts, water_level_cm(decoded.get("distance"),
+                                                  float(self.pcfg.get("empty_distance_mm") or 0)))
+            else:
+                self.trend.add(ts, self._meter_value(self.raw))
+        if self._pkey == "mains":
+            amps = [decoded[k] for k in CT_CURRENT_KEYS if isinstance(decoded.get(k), (int, float))]
+            if amps:
+                n = self.meta.get("_zero_n", 0) + 1 if max(amps) < 0.1 else 0
+                self.meta["_zero_n"] = n
+        if self._pkey == "toilet":
+            if isinstance(decoded.get("people_in"), (int, float)):      # people counters: everyone who came in
+                self.meta["visits"] = self.meta.get("visits", 0) + int(decoded["people_in"])
+            else:
+                present = self._present(decoded)
+                if present and self.meta.get("_present") is False:
+                    self.meta["visits"] = self.meta.get("visits", 0) + 1
+                if present is not None:
+                    self.meta["_present"] = present
+        if self.purpose is not None and self.pcfg.get("after_hours") and self._pfam & {"contact", "motion"}:
+            active = (_flag(decoded.get("magnet_status")) if "contact" in self._pfam else self._present(decoded))
+            if work:
+                self.meta.pop("after_hours_at", None)
+            elif active and not self.meta.get("after_hours_at"):
+                self.meta["after_hours_at"] = ts
+                self.hass.bus.async_fire(f"{DOMAIN}_after_hours", {**base, "purpose": self._pkey})
+
+    def _purpose_values(self, v: dict[str, Any], ts: float) -> None:
+        p, label = self.purpose, (self.purpose.label if self.purpose else None)
+        v["purpose"] = label
+        v["temperature_now"] = self._temp_value(v) if self.tempw is not None else None
+        if p is None and not self.loads:
+            return
+        if p is not None:
+            v["purpose_group"], v["purpose_severity"] = p.group, p.severity
+        for prefix, (tr, cfg, key, ch) in self.loads.items():
+            v.update(tr.values(ts, cfg, prefix))
+            pl = _purposes.get(key)
+            v[f"{prefix}label"] = ((pl.noun or pl.label) if pl else "Load") + (f" {ch}" if ch is not None else "")
+            v[f"{prefix}group"] = pl.group if pl else None
+            self.attrs[f"{prefix}run_today_h"] = {
+                "milesight_role": "load", "device": self.entry.title, "area": self.entry.data.get("area"),
+                "purpose": key, "purpose_label": pl.label if pl else None, "channel": ch,
+                "group": pl.group if pl else None, "running": v.get(f"{prefix}running"),
+                "duty_today": v.get(f"{prefix}duty_today"), "duty_24h": v.get(f"{prefix}duty_24h"),
+                "starts_today": v.get(f"{prefix}starts_today"), "after_hours": v.get(f"{prefix}after_hours"),
+                "ran_too_long": v.get(f"{prefix}ran_too_long"), "not_running": v.get(f"{prefix}not_running"),
+                "service_due": v.get(f"{prefix}service_due")}
+        if self.tempw is not None:
+            v.update(self.tempw.values(ts, self.pcfg))
+            self.attrs["temp_out_today"] = {
+                "milesight_role": "cold_chain" if p and p.group == "cold_chain" else "temperature_watch",
+                "device": self.entry.title, "area": self.entry.data.get("area"), "purpose": p.key if p else None,
+                "purpose_label": label, "temperature": self._temp_value(v), "low": self.pcfg.get("temp_low"),
+                "high": self.pcfg.get("temp_high"), "delay_min": self.pcfg.get("temp_delay_min"),
+                "alarm": v.get("temp_alarm"), "excursions_today": v.get("temp_excursions_today"),
+                "min_today": self.tempw.s["min"], "max_today": self.tempw.s["max"],
+                "door_open": v.get("door_active"), "log": self.tempw.s["log"][-31:]}
+            self.attrs["temp_alarm"] = {"since": (self.tempw.s["alarm"] or {}).get("since"),
+                                        "peak": (self.tempw.s["alarm"] or {}).get("peak")}
+        if self._pkey == "mains":
+            v["mains_outage"] = self.meta.get("_zero_n", 0) >= 2
+            self.attrs["mains_outage"] = {"milesight_role": "mains", "device": self.entry.title,
+                                          "area": self.entry.data.get("area")}
+            if "ct3" in self.model.features:
+                ph = [v.get(f"current_{n}") for n in (1, 2, 3)]
+                if all(isinstance(x, (int, float)) for x in ph):
+                    mean = sum(ph) / 3
+                    imb = round((max(ph) - min(ph)) / mean * 100, 0) if mean >= 2 else None
+                    v["phase_imbalance"] = imb
+                    v["phase_imbalance_high"] = bool(imb is not None and imb > 25)
+                    self.attrs["mains_outage"].update(phase_imbalance=imb, currents=ph)
+        if self._pkey == "bin":
+            fill = bin_fill(v.get("distance"), float(self.pcfg.get("bin_depth_mm") or 0))
+            rate = self.trend.rate_per_h(ts, 24) if self.trend else None
+            v["bin_fill"] = fill
+            v["bin_full"] = bool(fill is not None and fill >= float(self.pcfg.get("full_pct") or 80))
+            v["bin_fill_per_day"] = round(rate * 24, 0) if rate is not None and rate > 0 else (0 if rate is not None else None)
+            v["bin_full_in"] = (round(max(0.0, float(self.pcfg.get("full_pct") or 80) - fill) / (rate * 24), 1)
+                                if fill is not None and rate and rate > 0 else None)
+        if self._pkey == "flood":
+            lvl = water_level_cm(v.get("distance"), float(self.pcfg.get("empty_distance_mm") or 0))
+            rate = self.trend.rate_per_h(ts, 1) if self.trend else None
+            v["water_level"] = lvl
+            v["water_rise_rate"] = round(rate, 1) if rate is not None else None
+            v["water_rising"] = bool(rate is not None and rate >= float(self.pcfg.get("rise_cm_h") or 10))
+        if self._pkey == "rain_gauge" and isinstance(v.get("meter_reading"), (int, float)):
+            mm = v["meter_reading"]
+            day = self._day(ts)
+            if self.meta.get("_rain_day") != day:
+                self.meta["_rain_day"], self.meta["_rain_start"] = day, mm
+            v["rain_today"] = round(max(0.0, mm - self.meta["_rain_start"]), 1)
+            ch = self.trend.change(ts, 24) if self.trend else None
+            v["rain_24h"] = round(max(0.0, ch), 1) if ch is not None else None
+            self.attrs["rain_today"] = {"milesight_role": "rain_gauge", "device": self.entry.title,
+                                        "rain_24h": v["rain_24h"]}
+        if self._pkey == "toilet":
+            n = self.meta.get("visits", 0)
+            v["visits_since_clean"] = n
+            v["clean_due"] = n >= int(self.pcfg.get("clean_visits") or 50)
+        if self._pkey in ("panic", "service"):
+            at = self.meta.get(f"{self._pkey}_at")
+            v[f"{self._pkey}_active"] = bool(at and ts - at < float(self.pcfg.get("latch_min") or 30) * 60)
+            self.attrs[f"{self._pkey}_active"] = {"pressed_at": datetime.fromtimestamp(at, self.cal.tz).isoformat(
+                timespec="seconds") if at else None}
+        if self.purpose is not None and self.pcfg.get("after_hours") and self._pfam & {"contact", "motion"}:
+            at = self.meta.get("after_hours_at")
+            if at and self._work_hours(ts):
+                self.meta.pop("after_hours_at", None)
+                at = None
+            v["after_hours_activity"] = bool(at)
+            self.attrs["after_hours_activity"] = {"at": datetime.fromtimestamp(at, self.cal.tz).isoformat(
+                timespec="minutes") if at else None}
+        if self._pkey in _purposes.SOIL_PURPOSES and isinstance(v.get("moisture"), (int, float)):
+            self.attrs.setdefault("moisture", {})["milesight_role"] = "soil"
+
+    def purpose_extra_specs(self) -> list:
+        specs: list = []
+        p = self.purpose
+        if self.families & {"contact"} and "ts_contact" in self.model.features and "contact" in self._pfam:
+            specs += contact_specs(p.door_noun, p.contact_class)
+        for prefix, (tr, cfg, key, ch) in self.loads.items():
+            pl = _purposes.get(key)
+            title = (pl.noun or pl.label) if pl else "Load"
+            if ch is not None:
+                title = f"{title} (channel {ch})"
+            specs += load_specs(prefix, title, cfg, mains=(key == "mains" and ch is None),
+                                running=ch is not None or "load" not in self.model.features)
+        if self.tempw is not None:
+            specs += temp_specs(self.pcfg)
+        if p is not None:
+            specs += purpose_specs(p.key, self.pcfg)
+            if self.pcfg.get("after_hours") and self._pfam & {"contact", "motion"}:
+                specs.append(_spec_after_hours())
+        return specs
+
+    def adjust_spec(self, spec):
+        """How an entity looks for the device's purpose (Window instead of Door, a fridge icon …)."""
+        p = self.purpose
+        if p is None:
+            return spec
+        from dataclasses import replace
+        k = spec.key
+        if k.startswith("door_") and "contact" in self._pfam:
+            name = spec.name.replace("Door", p.door_noun, 1)
+            dc = p.contact_class if k == "door_active" and p.contact_class else spec.device_class
+            return replace(spec, name=name, device_class=dc, icon=p.icon if k == "door_status" and p.icon else spec.icon)
+        if k == "magnet_status" and "contact" in self._pfam:
+            return replace(spec, name=p.door_noun, device_class=p.contact_class or spec.device_class)
+        if k.startswith("load_") and "load" in self._pfam and p.noun and spec.name.startswith("Load"):
+            return replace(spec, name=spec.name.replace("Load", p.noun, 1),
+                           icon=p.icon if k == "load_status" and p.icon else spec.icon)
+        if k in ("temperature", "temperature_1") and "temperature" in self._pfam and p.icon:
+            return replace(spec, icon=p.icon)
+        return spec
+
+    def load_serviced(self, prefix: str) -> None:
+        if prefix not in self.loads:
+            raise ValueError("no service interval set")
+        self.loads[prefix][0].serviced()
+        self._publish(time.time())
+
+    def purpose_clear(self, what: str) -> None:
+        if what == "cleaned":
+            self.meta["visits"] = 0
+        else:
+            self.meta.pop(f"{what}_at", None)
+        self._publish(time.time())
 
     # ------------------------------------------------------------- pumps & pivots
     @staticmethod
@@ -557,7 +833,7 @@ class DeviceRuntime:
         self._publish(time.time())
 
     def _meter_value(self, v: dict[str, Any]) -> float | None:
-        if self._opt(CONF_METER_TYPE, "none") not in ("water", "gas", "energy"):
+        if self._meter_type() not in ("water", "gas", "energy", "rain"):
             return None
         src = self._opt(CONF_METER_SOURCE, "") or next(
             (k for k in ("pulse_count", "gpio_counter_1", "gpio_counter") if isinstance(v.get(k), (int, float))), None)
@@ -702,6 +978,11 @@ class DeviceRuntime:
             return
 
     def _fire_button(self, key: str, event_type: str) -> None:
+        if self._pkey in ("panic", "service"):
+            self.meta[f"{self._pkey}_at"] = time.time()
+            self.hass.bus.async_fire(f"{DOMAIN}_{self._pkey}", {"deveui": self.deveui, "device": self.entry.title,
+                                                               "area": self.entry.data.get("area"),
+                                                               "button": key, "event_type": event_type})
         async_dispatcher_send(self.hass, SIGNAL_EVENT.format(self.deveui), key, event_type)
         self.hass.bus.async_fire(f"{DOMAIN}_button", {
             "deveui": self.deveui, "device": self.entry.title, "model": self.model.key,
@@ -1019,6 +1300,7 @@ class DeviceRuntime:
             else:
                 v["occ_status"] = "Empty" if self.meta.get("last_seen") else "Waiting for data"
 
+        self._purpose_values(v, ts)
         self.values = v
         sig = tuple(sorted(device_alerts(self.entry.title, self.deveui, v)))
         if sig != self._alert_sig:
@@ -1090,6 +1372,12 @@ class DeviceRuntime:
             trackers["tank"] = self.tank.s
         if self.pump is not None:
             trackers["pump"] = self.pump.s
+        for prefix, (tr, *_rest) in self.loads.items():
+            trackers[prefix] = tr.s
+        if self.tempw is not None:
+            trackers["tempwatch"] = self.tempw.s
+        if self.trend is not None:
+            trackers["trend"] = self.trend.to_dict()
         if self.pivot is not None:
             trackers["pivot"] = {**self.pivot.s, "centre": [self.pivot_cfg.lat, self.pivot_cfg.lon]}
         return {"raw": self.raw, "meta": self.meta, "trackers": trackers, "commands": self.commands.to_dict(),

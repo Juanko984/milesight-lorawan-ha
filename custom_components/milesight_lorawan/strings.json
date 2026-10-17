@@ -38,13 +38,15 @@
           "name": "Name",
           "area": "Area",
           "register_on_gateway": "Also add it to the gateway",
-          "app_key": "AppKey (optional)"
+          "app_key": "AppKey (optional)",
+          "purpose": "Fitted to (purpose, optional)"
         },
         "data_description": {
           "deveui": "16 hex characters, printed on the device label.",
           "area": "Room / area name – created if it doesn't exist.",
           "register_on_gateway": "Registers the DevEUI on the Milesight gateway's network server so the device can join – no need to open the gateway's web page.",
-          "app_key": "32 hex digits, filled in with the gateway's default AppKey (Milesight factory key unless changed). Change it if the device label shows its own key."
+          "app_key": "32 hex digits, filled in with the gateway's default AppKey (Milesight factory key unless changed). Change it if the device label shows its own key.",
+          "purpose": "What the device is fitted to (fridge, gate, pump, bin …). Sets its label, how its entities look, default alarm limits and the dashboards it appears on. Can be changed later (Configure → Purpose)."
         }
       },
       "confirm": {
@@ -53,12 +55,16 @@
         "data": {
           "model": "Model",
           "name": "Name",
-          "area": "Area"
+          "area": "Area",
+          "purpose": "Fitted to (purpose, optional)"
+        },
+        "data_description": {
+          "purpose": "What the device is fitted to (fridge, gate, pump, bin …). Sets its label, how its entities look, default alarm limits and the dashboards it appears on. Can be changed later (Configure → Purpose)."
         }
       },
       "bulk": {
         "title": "Add many devices",
-        "description": "One device per line: **DevEUI, model, name, area, AppKey** (name, area and AppKey optional; comma, semicolon or tab separated – paste straight from a spreadsheet). Example:\n\n`24E124136B322135, EM300-MCS, Back door, Warehouse`\n\n{problems}",
+        "description": "One device per line: **DevEUI, model, name, area, AppKey, purpose** (all but DevEUI and model optional; comma, semicolon or tab separated – paste straight from a spreadsheet). Purpose: e.g. fridge, freezer, door, window, gate, pump, ac, bin – see the README for the list. Example:\n\n`24E124136B322135, EM300-MCS, Cold room door, Kitchen, , fridge`\n\n{problems}",
         "data": {
           "devices": "Devices",
           "register_on_gateway": "Also add them to the gateway"
@@ -95,7 +101,8 @@
           "tank": "Tank or silo",
           "irrigation": "Irrigation and frost (weather forecast)",
           "pump": "Pump (current clamp)",
-          "pivot": "Centre pivot (GPS tracker)"
+          "pivot": "Centre pivot (GPS tracker)",
+          "purpose": "Purpose (what it is fitted to)"
         }
       },
       "connection": {
@@ -323,6 +330,51 @@
           "irr_soil": "Their average is used (e.g. EM500-SMTC, WTS506 soil moisture).",
           "irr_base_minutes": "The time is scaled by how far the soil is below the target and reduced when some rain is expected."
         }
+      },
+      "purpose": {
+        "title": "Purpose",
+        "description": "What is this {model} fitted to? The purpose sets the device's label (Milesight · Cold chain, · Security …), how its entities look (a contact as a window or gate, a fridge icon), default alarm limits, extra analytics (duty cycle, cold-chain log, bin fill …) and which dashboards it appears on.\n\nThe same purpose fits every sensor on one thing: the fridge's temperature probe, its door contact and the clamp on its compressor are all *Fridge / cold room*.",
+        "data": {
+          "purpose": "Fitted to",
+          "purpose_1": "Channel 1",
+          "purpose_2": "Channel 2",
+          "purpose_3": "Channel 3"
+        },
+        "data_description": {
+          "purpose_1": "3-channel clamps: give a channel its own purpose when the channels measure different loads (leave 'not set' for a single 3-phase motor)."
+        }
+      },
+      "purpose_settings": {
+        "title": "Alarm limits – {purpose}",
+        "description": "Defaults for this purpose; change them to match the unit. Leave a field empty to use the default.",
+        "data": {
+          "p_temp_low": "Alarm below",
+          "p_temp_high": "Alarm above",
+          "p_temp_delay_min": "… only after (minutes out of range)",
+          "p_temp_rise_day": "Hot-spot alarm when it rises by (per 24 h)",
+          "p_left_open_min": "Left open after",
+          "p_after_hours": "Alert on activity outside working hours",
+          "p_max_run_h": "Running too long after",
+          "p_no_run_h": "Not running alarm after",
+          "p_service_h": "Service every (run hours)",
+          "p_run_w": "Running above (power)",
+          "p_bin_depth_mm": "Distance when the bin is empty",
+          "p_full_pct": "Full at",
+          "p_empty_distance_mm": "Distance at the lowest water level",
+          "p_rise_cm_h": "Rising-fast alarm at",
+          "p_co2_limit": "CO₂ limit",
+          "p_clean_visits": "Cleaning due after",
+          "p_latch_min": "Alarm stays on for",
+          "open_hour": "Working hours from",
+          "close_hour": "Working hours until",
+          "open_days": "Working days"
+        },
+        "data_description": {
+          "p_temp_delay_min": "Door openings and defrost cycles push the temperature out of range for a short while; only longer excursions raise the alarm (they are all counted in 'Time out of range today').",
+          "p_max_run_h": "0 = off. A fridge compressor that never stops cannot keep up (door, seals, gas, condenser).",
+          "p_no_run_h": "0 = off. A compressor that should cycle but has not run for this long has tripped or failed.",
+          "p_service_h": "0 = off. Press '… serviced' after the service to start counting again."
+        }
       }
     },
     "error": {
@@ -373,7 +425,11 @@
         "gateways": "Gateways offline",
         "commands": "Commands not confirmed",
         "pumps": "Pumps (dry-run, overload, short-cycling)",
-        "irrigation": "Irrigation (pivot stalled, frost)"
+        "irrigation": "Irrigation (pivot stalled, frost)",
+        "cold_chain": "Cold chain (fridges, freezers)",
+        "security": "Security (after hours, left open, panic)",
+        "energy": "Energy (after-hours loads, outages, phase imbalance)",
+        "facilities": "Facilities (bins, cleaning, service requests)"
       }
     }
   },

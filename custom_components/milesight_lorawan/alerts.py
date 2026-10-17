@@ -9,9 +9,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-CATEGORIES = ("safety", "tank", "pumps", "irrigation", "building", "devices", "gateways", "commands")
-DEFAULT_CATEGORIES = ["safety", "tank", "pumps", "irrigation", "devices", "gateways"]
+CATEGORIES = ("safety", "cold_chain", "security", "tank", "pumps", "irrigation", "energy", "facilities", "building",
+              "devices", "gateways", "commands")
+DEFAULT_CATEGORIES = ["safety", "cold_chain", "security", "tank", "pumps", "irrigation", "energy", "facilities",
+                      "devices", "gateways"]
+# purpose group -> alert category
+GROUP_CATEGORY = {"cold_chain": "cold_chain", "security": "security", "energy": "energy", "hvac": "energy",
+                  "pump": "pumps", "water": "safety", "tank": "tank", "irrigation": "irrigation",
+                  "facilities": "facilities", "assets": "devices", "comfort": "building", "people": "building"}
 _CATEGORIES_V1 = ("safety", "tank", "building", "devices", "gateways", "commands")   # before 0.24
+_CATEGORIES_V2 = ("safety", "tank", "pumps", "irrigation", "building", "devices", "gateways", "commands")   # 0.24
 
 
 def effective_categories(opts: dict[str, Any]) -> tuple[str, ...]:
@@ -239,6 +246,7 @@ def device_alerts(name: str, deveui: str, values: dict[str, Any], area: str | No
             "title": f"Pivot stalled – {name}", "severity": "critical", "category": "irrigation",
             "message": f"{where} has stopped moving" + (f" at {ang:.0f}°" if isinstance(ang, (int, float)) else "")
                        + " during a round."}
+    out.update(_purpose_alerts(name, deveui, values, where))
     if values.get("online") is False:
         out[f"{deveui}:offline"] = {"title": f"Offline – {name}", "severity": "warning", "category": "devices",
                                     "message": f"{where} has not reported for a while."}
@@ -248,4 +256,72 @@ def device_alerts(name: str, deveui: str, values: dict[str, Any], area: str | No
     if values.get("command_status") == "failed":
         out[f"{deveui}:command"] = {"title": f"Command failed – {name}", "severity": "warning",
                                     "category": "commands", "message": f"{where} did not confirm the last command."}
+    return out
+
+
+def _num(v: Any, fmt: str = "{:g}") -> str:
+    return fmt.format(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else "–"
+
+
+def _purpose_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> dict[str, dict]:
+    """Alerts that come from a device's purpose (cold chain, openings, loads, bins, flood, buttons …)."""
+    out: dict[str, dict] = {}
+    what = v.get("purpose")
+    cat = GROUP_CATEGORY.get(v.get("purpose_group") or "", "devices")
+    sev = v.get("purpose_severity") or "warning"
+
+    def add(key: str, title: str, message: str, category: str = cat, severity: str = "warning") -> None:
+        out[f"{deveui}:{key}"] = {"title": f"{title} – {name}", "message": message, "category": category,
+                                  "severity": severity}
+    if v.get("temp_alarm") is True:
+        add("temp_range", "Temperature out of range",
+            f"{where}{' (' + what + ')' if what else ''}: {_num(v.get('temperature_now'))} °C – "
+            f"out of range for {_num(v.get('temp_out_today'))} min today.", severity=sev)
+    if v.get("temp_hot_spot") is True:
+        add("hot_spot", "Hot spot", f"{where}: temperature up {_num(v.get('temp_rise_24h'))} °C in 24 h – "
+            f"check for spoilage / heating.", "tank")
+    if what and v.get("door_left_open") is True:
+        add("left_open", f"{what} left open", f"{where} has been open for "
+            f"{_num((v.get('door_current_s') or 0) / 60, '{:.0f}')} min.")
+    if v.get("after_hours_activity") is True:
+        add("after_hours", "After-hours activity", f"{where}{' (' + what + ')' if what else ''}: activity outside "
+            f"working hours.", "security", "critical" if sev == "critical" or cat == "security" else "warning")
+    for k, val in v.items():
+        if val is not True or not k.startswith("load"):
+            continue
+        prefix, _, flag = k.partition("_")
+        prefix += "_"
+        label = v.get(f"{prefix}label") or "Load"
+        lcat = GROUP_CATEGORY.get(v.get(f"{prefix}group") or "", cat)
+        if flag == "ran_too_long":
+            add(f"{prefix}long", f"{label} running too long",
+                f"{where}: {label.lower()} has run for {_num(v.get(f'{prefix}running_for_h'), '{:.1f}')} h without "
+                f"stopping – failing compressor, low gas, door open or a leak?", lcat,
+                "critical" if lcat == "cold_chain" else "warning")
+        elif flag == "not_running":
+            add(f"{prefix}idle", f"{label} not running", f"{where}: {label.lower()} has not run for hours – "
+                f"tripped, broken or switched off?", lcat, "critical" if lcat == "cold_chain" else "warning")
+        elif flag == "after_hours":
+            add(f"{prefix}after", f"{label} on after hours", f"{where}: {label.lower()} is running outside working "
+                f"hours.", "energy")
+        elif flag == "service_due":
+            add(f"{prefix}service", f"{label} service due", f"{where}: service interval reached – press "
+                f"'{label} serviced' afterwards.", "pumps")
+    if v.get("mains_outage") is True:
+        add("outage", "Power outage", f"{where}: no current on any phase.", "energy", "critical")
+    if v.get("phase_imbalance_high") is True:
+        add("imbalance", "Phase imbalance", f"{where}: phases differ by {_num(v.get('phase_imbalance'))} %.",
+            "energy")
+    if v.get("bin_full") is True:
+        add("bin_full", "Bin full", f"{where} is {_num(v.get('bin_fill'))} % full – time to collect.", "facilities")
+    if v.get("water_rising") is True:
+        add("flood", "Water rising fast", f"{where}: level {_num(v.get('water_level'))} cm, rising "
+            f"{_num(v.get('water_rise_rate'))} cm/h.", "safety", "critical")
+    if v.get("clean_due") is True:
+        add("clean", "Cleaning due", f"{where}: {_num(v.get('visits_since_clean'))} visits since the last clean.",
+            "facilities")
+    if v.get("panic_active") is True:
+        add("panic", "PANIC button", f"Panic / SOS button pressed at {where}.", "security", "critical")
+    if v.get("service_active") is True:
+        add("service", "Service requested", f"Service requested at {where}.", "facilities")
     return out

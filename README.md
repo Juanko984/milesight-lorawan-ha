@@ -306,11 +306,14 @@ Add the gateway first, then **Add device → Add many devices (paste a list)** a
 straight from a spreadsheet (comma, semicolon or tab separated):
 
 ```
-DevEUI, Model, Name, Area, AppKey
-24E124136B322135, EM300-MCS, Back door, Warehouse
-24E124538C220481, AM307, Meeting room 1, 1st floor
+DevEUI, Model, Name, Area, AppKey, Purpose
+24E124136B322135, EM300-MCS, Back door, Warehouse, , door
+24E124538C220481, AM307, Meeting room 1, 1st floor, , meeting_room
 24E124600B251990, VS121, Reception, Ground floor, 00112233445566778899aabbccddeeff
+24E124136B322199, TS301, Cold room 2, Kitchen, , fridge
 ```
+
+The *Purpose* column takes a key or label from [the purpose list](#purposes--what-a-device-is-fitted-to).
 
 With [gateway provisioning](#add-devices-to-the-gateway-from-home-assistant) set up, tick *Also add them to the
 gateway* and every DevEUI is registered on the gateway's network server too (AppKey column optional – empty uses the
@@ -345,7 +348,8 @@ integration and it puts them in place itself:
   counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). LoRaWAN fleet and LoRaWAN
   signal are always there; **Tanks & alerts** appears when the first tank / silo sensor is added and
   **Building analytics** with the first comfort or occupancy sensor, **Farm** with the first pump, pivot, valve
-  controller or the gateway's irrigation forecast. *Pump / motor* and *Irrigation* also follow a device's options
+  controller or the gateway's irrigation forecast, **Cold chain** with the first fridge / freezer and **Energy &
+  HVAC** with the first air conditioner, lighting circuit, geyser or mains clamp (see [Purposes](#purposes--what-a-device-is-fitted-to)). *Pump / motor* and *Irrigation* also follow a device's options
   (a clamp set up as a pump, a tracker set up on a pivot). Remove the last one and the dashboard leaves
   the sidebar again (its content is kept for later).
 * The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
@@ -715,6 +719,119 @@ sure someone reacts:
 The gateway gets **Open alerts** (with the list and who acknowledged) and **Acknowledge all alerts**; service
 `milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
 
+## Purposes – what a device is fitted to
+
+The model says what a device *measures*; the **purpose** says what it is *fitted to*. A WS301 can be on a door, a
+window, a gate or a fridge; a CT101 on a pump, an air conditioner or a compressor; an EM300-TH in an office or a
+freezer. Pick it when you add the device (commissioning page, *Add a device*, the discovery card, the bulk list) or
+later under device → **Configure → Purpose**. The purpose:
+
+* **labels** the device by group – *Milesight · Cold chain*, *· Pumps & motors*, *· HVAC*, *· Energy*,
+  *· Security*, *· Water*, *· Tank / silo*, *· Irrigation*, *· Facilities*, *· Assets & vehicles*, *· Air & comfort*,
+  *· People & occupancy*;
+* changes **how entities look** – a contact becomes *Window*, *Gate*, *Garage door* (with the matching device
+  class), a clamp's *Load* becomes *Compressor* / *Air conditioner*, a probe gets a fridge / boiler / pool icon;
+* sets **default limits** – a fridge door is *left open* after 2 min, a gate after 30; a fridge alarms outside
+  0–5 °C after 15 min, a freezer outside −25…−15 °C after 20 min. Change them on the *Alarm limits* page that
+  follows (empty a box to switch that alarm off);
+* adds **analytics and alerts** (below) and puts the device on the right **dashboard** (*Cold chain*,
+  *Energy & HVAC*, *Farm*, *Tanks & alerts*).
+
+One purpose per device – the same one for every sensor on one thing: the fridge's probe, its door contact and the
+clamp on its compressor are all *Fridge / cold room*. 3-channel clamps (CT303 / CT305 / CT310) can give each
+channel its own purpose (*Channel 1–3*) when the channels measure different loads.
+
+**What the purposes add**
+
+* **Cold chain** (fridge, freezer): *Temperature out of range* only after the delay, so door openings and defrost
+  do not alarm (with a door contact on the same device the delay restarts once the door closes); *Time out of range
+  today*, *Temperature excursions today* and a **31-day cold-chain log** (min / max / minutes out of range /
+  excursions per day, for HACCP records); door left open; compressor **duty cycle** today and over 24 h,
+  *running too long* (it cannot keep up) and *not running* (tripped or failed).
+* **Loads** (air conditioner, lighting, geyser, air compressor, motor, washer, appliance – CT clamps and smart
+  sockets): duty cycle, run time and starts today, run hours; *on after hours* (running 30 min outside working hours
+  – energy waste, or an air leak for compressors); *service due* every N run hours with a *serviced* button.
+* **Mains** (CT303 / CT310 on the distribution board): *Power outage* (no current on any phase) and *Phase
+  imbalance* (> 25 % between phases).
+* **Openings** (door, gate, garage, cabinet / safe, tank lid) and **Security (intrusion)** motion: *After-hours
+  activity* when opened / triggered outside working hours (cleared when the next working day starts).
+* **Temperature watch** for geysers (below 55 °C = legionella risk), pipes (frost below 3 °C), server rooms (above
+  27 °C) and **silo hot spots** (+3 °C in 24 h).
+* **Waste bin** (EM400-TLD / -UDL in the lid): *Bin fill*, *Bin full* (80 %), fill rate per day and *full in* days.
+  **River / flood level**: water level above the lowest point and *Water rising fast* (10 cm/h).
+* **Rain gauge** (pulse counter, *pulses per mm* in Device settings): rain today and in the last 24 h – the
+  irrigation advice skips watering after rain that has already fallen.
+* **Soil** (field, greenhouse, garden): added to the irrigation advice by itself.
+* **Toilet / washroom**: visits since cleaned, *Cleaning due* after 50, *Cleaned* button.
+* **Panic / SOS** button: a critical alert for 30 min (*Clear panic alarm* button); **Service request**: a
+  facilities alert.
+* **Air** (classroom, warehouse …): the CO₂ limit for the room type.
+
+Working hours (for *after hours*) are set on the *Alarm limits* page: default 08:00–17:00, Monday to Friday.
+Events: `milesight_lorawan_temperature` (`out_of_range`, `back_in_range`), `milesight_lorawan_load`
+(`after_hours`), `milesight_lorawan_after_hours`, `milesight_lorawan_panic`, `milesight_lorawan_service`.
+New alert categories *cold chain*, *security*, *energy* and *facilities* (on by default).
+
+<details><summary>All purposes</summary>
+
+| Purpose (bulk key) | Label group | Fits | Defaults |
+|---|---|---|---|
+| Fridge / cold room (`fridge`) | Cold chain | clamp / socket, contact, temperature | temp low 0, temp high 5, temp delay min 15, left open min 2, max run h 3, no run h 3 |
+| Freezer (`freezer`) | Cold chain | clamp / socket, contact, temperature | temp low -25, temp high -15, temp delay min 20, left open min 2, max run h 4, no run h 4 |
+| Pump (`pump`) | Pumps & motors | clamp / socket | – |
+| Air compressor (`air_compressor`) | Pumps & motors | clamp / socket | after hours True, max run h 1 |
+| Motor / conveyor / machine (`motor`) | Pumps & motors | clamp / socket | service h 500 |
+| Air conditioner / heat pump (`ac`) | HVAC | clamp / socket | after hours True |
+| Geyser / water heater (`geyser`) | Energy | clamp / socket, leak, temperature | temp low 55, temp delay min 60 |
+| Lighting circuit (`lighting`) | Energy | clamp / socket | after hours True |
+| Mains / distribution board (`mains`) | Energy | clamp / socket | – |
+| Other machine / appliance (`appliance`) | Energy | clamp / socket | – |
+| Door (`door`) | Security | contact | left open min 10, after hours True |
+| Window (`window`) | Security | contact | left open min 60 |
+| Gate (`gate`) | Security | contact | left open min 30, after hours True |
+| Garage / roller door (`garage`) | Security | contact | left open min 15, after hours True |
+| Cabinet / safe / server rack (`cabinet`) | Security | contact | left open min 5, after hours True |
+| Tank lid / hatch (`lid`) | Security | contact | left open min 10, after hours True |
+| Room / office (`room`) | Air & comfort | air, motion / people, temperature | – |
+| Meeting room (`meeting_room`) | People & occupancy | air, motion / people | – |
+| Classroom (`classroom`) | Air & comfort | air, motion / people | co2 limit 1000 |
+| Warehouse / factory (`warehouse`) | Air & comfort | air, motion / people, temperature | co2 limit 1500 |
+| Server room (`server_room`) | Security | air, contact, leak, temperature | temp high 27, temp delay min 10, left open min 15 |
+| Pool / water (`pool`) | Water | temperature | – |
+| Pipe (frost watch) (`pipe`) | Water | temperature | temp low 3, temp delay min 30 |
+| Outdoor (`outdoor`) | Air & comfort | temperature | – |
+| Washing machine / dishwasher (`washer`) | Water | clamp / socket, leak | – |
+| Basement / sump (`basement`) | Water | leak | – |
+| Roof / ceiling (`roof`) | Water | leak | – |
+| Water tank (`water_tank`) | Tank / silo | level | – |
+| Fuel tank (`fuel_tank`) | Tank / silo | level | – |
+| Silo / grain / feed (`silo`) | Tank / silo | level, temperature | temp rise day 3 |
+| Waste bin (`bin`) | Facilities | level | bin depth mm 1000, full pct 80 |
+| River / flood level (`flood`) | Water | level | empty distance mm 3000, rise cm h 10 |
+| Water meter (`water_meter`) | Water | pulse | – |
+| Electricity meter (`electricity_meter`) | Energy | pulse | – |
+| Gas meter (`gas_meter`) | Energy | pulse | – |
+| Rain gauge (`rain_gauge`) | Irrigation | pulse | – |
+| Production / footfall counter (`counter`) | – | pulse | – |
+| Desk (`desk`) | People & occupancy | motion / people | – |
+| Toilet / washroom (`toilet`) | Facilities | air, motion / people | clean visits 50 |
+| Security (intrusion) (`intrusion`) | Security | motion / people | after hours True |
+| Panic / SOS button (`panic`) | Security | button | latch min 30 |
+| Service request (cleaning, help) (`service`) | Facilities | button | latch min 60 |
+| Doorbell (`doorbell`) | – | button | – |
+| Scene / light control (`scene`) | – | button | – |
+| Asset (`asset`) | Assets & vehicles | tracker | – |
+| Vehicle (`vehicle`) | Assets & vehicles | tracker | – |
+| Livestock (`livestock`) | Assets & vehicles | tracker | – |
+| Centre pivot (`pivot`) | Irrigation | tracker | – |
+| Field soil (`field`) | Irrigation | soil | – |
+| Greenhouse (`greenhouse`) | Irrigation | soil, temperature | – |
+| Garden / turf (`garden`) | Irrigation | soil | – |
+| Irrigation valve (`irrigation_valve`) | Irrigation | valve | – |
+| Water main valve (`water_valve`) | Water | valve | – |
+
+</details>
+
 ## Pumps (current clamps)
 
 A CT101 / CT103 / CT303 / CT310 (any clamp with *Load running*) on a pump or motor → device **Configure → Pump**,
@@ -836,6 +953,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.25.0** | Purposes: what a device is fitted to (≈50, from fridge to gate to panic button) – grouped labels, entity looks, default limits, cold-chain log, duty cycle, after-hours, bins, flood, rain gauge, toilets, panic; Cold chain and Energy & HVAC dashboards. |
 | **0.24.0** | Pump analytics (run hours, short-cycling, dry-run, overload, m³ per kWh), centre-pivot analytics from an AT101 (angle, % done, speed, time to finish, stall alarm), forecast-aware irrigation advice and frost warnings, Farm dashboard. |
 | **0.23.1** | Version bump of 0.23.0. |
 | **0.23.0** | Commissioning mode: scan a device's QR code to add it (and register it on the gateway), live walk test with fast reporting and saved results. |

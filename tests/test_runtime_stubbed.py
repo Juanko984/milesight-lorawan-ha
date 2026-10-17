@@ -113,7 +113,8 @@ for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", 
     globals()[n] = load(n)
 
 class FakeEntries:
-    def __init__(self): self.known = set(); self.flows = []
+    def __init__(self): self.known = set(); self.flows = []; self.items = []
+    def async_entries(self, d=None): return list(self.items)
     def async_entry_for_domain_unique_id(self, d, u): return u in self.known
 class FakeFlow:
     def __init__(self, entries): self.entries = entries
@@ -673,6 +674,7 @@ def make_with(deveui, model, options, title=None, area=None):
                               options=options, title=title or f"{model} test", entry_id=deveui)
     rt = runtime.DeviceRuntime(hass, e); asyncio.run(rt.async_load()); entries.known.add(deveui); rt.async_start()
     e.runtime_data = rt
+    entries.items.append(e)
     return e, rt
 
 e_uc, rt = make_with("00000000000e0301", "UC300", {"channel_map": "1; Line pressure; bar; 0.01\n2.1; Flow; m³/h; 0.1"})
@@ -1010,3 +1012,106 @@ assert irr_ha.irrigation_entities(hass, types.SimpleNamespace(runtime_data=types
 res2 = load("resources")
 assert res2.wanted_dashboards({"pump"})["milesight-farm"] and not res2.wanted_dashboards({"tank"})["milesight-farm"]
 print("irrigation ok")
+
+
+# ---------------- 0.25: purposes ----------------
+import dataclasses
+def th(t):
+    return bytes([0x03, 0x67]) + int(round(t * 10)).to_bytes(2, "little", signed=True) + bytes([0x04, 0x68, 0x60])
+e_f, rt = make_with("0000000000f00001", "EM300-TH", {"purpose": "fridge"}, title="Fridge 3", area="Kitchen")
+keys = {s.key for s in rt.extra_specs()}
+assert {"temp_alarm", "temp_out_today", "temp_excursions_today"} <= keys
+send("0000000000f00001", th(3.0))
+assert rt.values["temp_alarm"] is False and rt.values["purpose"] == "Fridge / cold room"
+n = len(fired)
+send("0000000000f00001", th(8.0))
+assert rt.values["temp_alarm"] is False                        # within the 15-minute delay
+rt.tempw.s["out_since"] -= 1200
+send("0000000000f00001", th(8.4))
+assert rt.values["temp_alarm"] is True
+assert any(e == "milesight_lorawan_temperature" and d["type"] == "out_of_range" for e, d in fired[n:])
+al = sys.modules["milesight_lorawan.alerts"].device_alerts(e_f.title, rt.deveui, rt.values, "Kitchen")
+assert al["0000000000f00001:temp_range"]["category"] == "cold_chain" and al["0000000000f00001:temp_range"]["severity"] == "critical"
+assert rt.attrs["temp_out_today"]["milesight_role"] == "cold_chain" and rt.attrs["temp_out_today"]["high"] == 5
+spec = next(s for s in models.entity_specs("EM300-TH") if s.key == "temperature")
+assert rt.adjust_spec(spec).icon == "mdi:fridge-outline"
+assert models.device_tags("EM300-TH", {**e_f.data, **e_f.options}) >= {"cold_chain"}
+
+e_g, rt = make_with("0000000000a30101", "WS301", {"purpose": "gate", "open_hour": 0, "close_hour": 24,
+                                                   "open_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
+                    title="Yard gate")
+assert rt.binary["door"].left_open_s == 30 * 60
+specs = {s.key: rt.adjust_spec(s) for s in models.entity_specs("WS301")}
+assert specs["door_active"].name == "Gate" and specs["door_active"].device_class == "opening"
+assert specs["door_left_open"].name == "Gate left open"
+send("0000000000a30101", bytes.fromhex("030001"))
+assert rt.values["door_active"] is True and rt.values["after_hours_activity"] is False   # inside working hours
+e_g2, rt = make_with("0000000000a30102", "WS301", {"purpose": "garage"}, title="Roller door")
+rt._work_hours = lambda ts: False                                                       # night
+send("0000000000a30102", bytes.fromhex("030001"))
+assert rt.values["after_hours_activity"] is True                                        # never working hours
+assert "0000000000a30102:after_hours" in sys.modules["milesight_lorawan.alerts"].device_alerts("R", rt.deveui, rt.values)
+
+e_c, rt = make_with("0000000000c70201", "CT101", {"purpose": "fridge"}, title="Cold room compressor")
+keys = {s.key for s in rt.extra_specs()}
+assert {"load_duty_today", "load_ran_too_long", "load_not_running"} <= keys and "load_running" not in keys
+send("0000000000c70201", ct101(5)); send("0000000000c70201", ct101(5))
+rt.loads["load_"][0].s["since"] -= 4 * 3600
+rt._tick(None)
+assert rt.values["load_ran_too_long"] is True and rt.attrs["load_run_today_h"]["group"] == "cold_chain"
+lspec = next(s for s in models.entity_specs("CT101") if s.key == "load_active")
+assert rt.adjust_spec(lspec).name == "Compressor"
+
+def ct303(a, b, c):
+    return (bytes([0x04, 0x99]) + int(a * 10).to_bytes(2, "little") + bytes([0x06, 0x99]) + int(b * 10).to_bytes(2, "little")
+            + bytes([0x08, 0x99]) + int(c * 10).to_bytes(2, "little"))
+e_m, rt = make_with("0000000000c70303", "CT303", {"purpose": "mains", "purpose_2": "ac"}, title="DB board")
+keys = {s.key for s in rt.extra_specs()}
+assert {"mains_outage", "phase_imbalance", "load2_running", "load2_duty_today"} <= keys
+send("0000000000c70303", ct303(10, 20, 10))
+assert rt.values["phase_imbalance"] == 75 and rt.values["phase_imbalance_high"] is True
+assert rt.values["load2_running"] is True and rt.values["mains_outage"] is False
+send("0000000000c70303", ct303(0, 0, 0)); send("0000000000c70303", ct303(0, 0, 0))
+assert rt.values["mains_outage"] is True and models.device_tags("CT303", e_m.options) >= {"energy", "hvac"}
+assert "load2_" in rt._data_to_save()["trackers"]
+
+def em400tld(d):
+    return bytes([0x04, 0x82]) + d.to_bytes(2, "little")
+e_b, rt = make_with("0000000000b10001", "EM400-TLD", {"purpose": "bin", "p_bin_depth_mm": 1000}, title="Bin 4")
+send("0000000000b10001", em400tld(700))
+assert rt.values["bin_fill"] == 30 and rt.values["bin_full"] is False
+rt.trend.samples = [[time.time() - 86400, 10.0]]
+send("0000000000b10001", em400tld(150))
+assert rt.values["bin_full"] is True and rt.values["bin_fill_per_day"] and rt.values["bin_fill_per_day"] > 70
+
+e_p, rt = make_with("0000000000b20001", "WS101", {"purpose": "panic"}, title="Reception panic")
+assert {"panic_active", "cmd_panic_clear"} <= {s.key for s in rt.extra_specs()}
+n = len(fired)
+send("0000000000b20001", bytes.fromhex("ff2e01"))
+assert rt.values["panic_active"] is True and any(e == "milesight_lorawan_panic" for e, d in fired[n:])
+assert sys.modules["milesight_lorawan.alerts"].device_alerts("P", rt.deveui, rt.values)["0000000000b20001:panic"]["severity"] == "critical"
+b = button.MilesightCommandButton(rt, next(s for s in rt.extra_specs() if s.key == "cmd_panic_clear"))
+asyncio.run(b.async_press())
+assert rt.values["panic_active"] is False
+
+e_r, rt = make_with("0000000000d10001", "EM300-DI", {"purpose": "rain_gauge", "meter_pulses_per_unit": 5}, title="Rain gauge")
+assert "meter_reading" in {s.key for s in rt.extra_specs()} and "rain_today" in {s.key for s in rt.extra_specs()}
+send("0000000000d10001", bytes([0x05, 0xC8, 10, 0, 0, 0]))
+send("0000000000d10001", bytes([0x05, 0xC8, 60, 0, 0, 0]))
+assert rt.values["meter_reading"] == 12.0 and rt.values["rain_today"] == 10.0
+rt.trend.samples.insert(0, [time.time() - 86400, 0.0])
+rt._publish(time.time())
+assert rt.values["rain_24h"] == 12.0
+assert irr_ha.gauge_rain(hass) == 12.0
+adv = sys.modules["milesight_lorawan.irrigation"].advice([10.0], {"mm": 0, "probability": None}, mgr.cfg, irr_ha.gauge_rain(hass))
+assert adv["advice"] == "skip" and "fell" in adv["reason"]
+
+e_s, rt = make_with("0000000000e50001", "EM500-SMTC", {"purpose": "field"}, title="Field 3 soil")
+send("0000000000e50001", bytes.fromhex("01756403671901046873057FF000"))
+assert isinstance(rt.values.get("moisture"), (int, float)) and rt.values["moisture"] in irr_ha.soil_values(hass, ())
+assert models.device_tags("EM500-SMTC", e_s.options) >= {"irrigation"}
+e_w, rt = make_with("0000000000a30103", "WS301", {"purpose": "fridge"}, title="Fridge door")
+specs = {s.key: rt.adjust_spec(s) for s in models.entity_specs("WS301")}
+assert specs["door_active"].name == "Door" and specs["door_left_open"].name == "Door left open"
+assert rt.binary["door"].left_open_s == 120
+print("purposes ok")

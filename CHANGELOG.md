@@ -2,6 +2,31 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.25.0
+### Added
+- **Purpose** per device – what it is fitted to (≈50 purposes: fridge, freezer, pump, air conditioner, compressor,
+  motor, geyser, lighting, mains, door, window, gate, garage door, cabinet, tank lid, server room, pipe, silo, bin,
+  flood level, rain gauge, toilet, panic button, vehicle, field soil …). Chosen on the commissioning page, *Add a
+  device*, the discovery card, the bulk list (6th column) or device → Configure → Purpose; 3-channel clamps per
+  channel.
+- The purpose sets grouped labels (*Milesight · Cold chain*, *· HVAC*, *· Energy*, *· Security*, *· Water*,
+  *· Facilities*, *· Assets & vehicles* …), entity names / device classes / icons (Window, Gate, Compressor …) and
+  default limits, editable on an *Alarm limits* page.
+- Cold chain: delayed out-of-range alarm, time out of range and excursions per day, 31-day log; compressor duty
+  cycle, running too long, not running.
+- Loads on clamps and smart sockets: duty cycle, run time, starts, on after hours, service interval; mains outage
+  and phase imbalance.
+- After-hours activity for doors, gates, cabinets, lids and intrusion motion; geyser / pipe / server-room
+  temperature watch; silo hot spots; waste-bin fill and full-in; flood level rising fast; rain gauge (rain today /
+  24 h, used by the irrigation advice); soil sensors join the irrigation advice by themselves; toilet visits and
+  cleaning due; panic and service-request buttons.
+- **Cold chain** and **Energy & HVAC** dashboards, installed when the site has such a device.
+- Alert categories *cold chain*, *security*, *energy*, *facilities* (switched on, also for older saved settings).
+- Binary sensors now show their attributes (alarm since / peak, button pressed at …).
+
+### Changed
+- The *Pump / motor* label is now *Milesight · Pumps & motors*.
+
 ## 0.24.0
 ### Added
 - **Pump analytics** for current clamps (device → Configure → Pump): run hours, starts in the last hour / 24 h,

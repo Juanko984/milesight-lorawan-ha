@@ -136,7 +136,9 @@ from .const import (
 )
 from .alerts import CATEGORIES, effective_categories
 from .channel_map import parse_channel_map
-from .models import MODELS, downlinks, entity_specs, parse_bulk, pulse_capable, pump_capable, tank_source
+from .models import (MODELS, downlinks, entity_specs, families, load_channels, parse_bulk, pulse_capable,
+                     pump_capable, purposes_for, tank_source)
+from . import purposes as _purposes
 from .ns_api import DEFAULT_APP_KEY, DEFAULT_FPORT, valid_key
 from .tank import SHAPES, capacity_l, tank_config
 
@@ -228,6 +230,17 @@ def _float_box(lo: float, hi: float, unit: str | None = None, step: Any = "any")
                                                unit_of_measurement=unit))
 
 
+def _purpose_selector(model: str | None = None, load_only: bool = False) -> SelectSelector:
+    """Purposes for the model (all when the model is not known yet), grouped by label group."""
+    items = purposes_for(model) if model else list(_purposes.PURPOSES.values())
+    if load_only:
+        items = [p for p in items if "load" in p.families and (p.key in _purposes.LOAD_ANALYTICS or p.key == "pump")]
+    opts = [{"value": "none", "label": "– not set –"}] + [
+        {"value": p.key, "label": f"{p.label}" + (f"  ·  {_purposes.GROUPS[p.group][0].split('· ')[1]}"
+                                                   if p.group else "")} for p in items]
+    return SelectSelector(SelectSelectorConfig(options=opts, mode=SelectSelectorMode.DROPDOWN))
+
+
 def _device_title(name: str | None, model: str | None, deveui: str) -> str:
     return name or f"{model or 'Milesight'} {deveui[-4:].upper()}"
 
@@ -308,12 +321,14 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                         placeholders["error"] = str(err)
                 if not errors:
                     return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"),
-                                               user_input.get(CONF_AREA))
+                                               user_input.get(CONF_AREA), user_input.get("purpose"))
         schema = {
             vol.Required(CONF_DEVEUI, default=(user_input or {}).get(CONF_DEVEUI, "")): TextSelector(),
             vol.Required(CONF_MODEL, default=(user_input or {}).get(CONF_MODEL, vol.UNDEFINED)): _model_selector(),
             vol.Optional("name", description={"suggested_value": (user_input or {}).get("name")}): TextSelector(),
             vol.Optional(CONF_AREA, description={"suggested_value": (user_input or {}).get(CONF_AREA)}): TextSelector(),
+            vol.Optional("purpose", description={"suggested_value": (user_input or {}).get("purpose")}):
+                _purpose_selector(),
         }
         hub = _provisioning_hub(self.hass)
         if hub is not None:
@@ -358,7 +373,8 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         """One device from the bulk list."""
         await self.async_set_unique_id(data[CONF_DEVEUI])
         self._abort_if_unique_id_configured()
-        return self._create_device(data[CONF_DEVEUI], data[CONF_MODEL], data.get("name"), data.get(CONF_AREA))
+        return self._create_device(data[CONF_DEVEUI], data[CONF_MODEL], data.get("name"), data.get(CONF_AREA),
+                                   data.get("purpose"))
 
     # ------------------------------------------------------- auto-discovery
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
@@ -377,13 +393,15 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         deveui = self._disc[CONF_DEVEUI]
         guess = self._disc.get("guess")
         if user_input is not None:
-            return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"), user_input.get(CONF_AREA))
+            return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"), user_input.get(CONF_AREA),
+                                       user_input.get("purpose"))
 
         candidates = self._disc.get("candidates") or []
         schema = vol.Schema({
             vol.Required(CONF_MODEL, default=guess or next(iter(MODELS))): _model_selector(candidates),
             vol.Optional("name", default=_device_title(self._disc.get("device_name"), guess, deveui)): TextSelector(),
             vol.Optional(CONF_AREA): TextSelector(),
+            vol.Optional("purpose"): _purpose_selector(),
         })
         return self.async_show_form(step_id="confirm", data_schema=schema, description_placeholders={
             "deveui": deveui.upper(),
@@ -391,10 +409,13 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
             "candidates": ", ".join(candidates) if candidates else "-",
         })
 
-    def _create_device(self, deveui: str, model: str, name: str | None, area: str | None = None) -> ConfigFlowResult:
+    def _create_device(self, deveui: str, model: str, name: str | None, area: str | None = None,
+                       purpose: str | None = None) -> ConfigFlowResult:
         data = {CONF_ENTRY_TYPE: ENTRY_TYPE_DEVICE, CONF_DEVEUI: deveui, CONF_MODEL: model}
         if area:
             data[CONF_AREA] = area.strip()
+        if purpose in _purposes.PURPOSES and _purposes.PURPOSES[purpose].families & families(model):
+            data["purpose"] = purpose
         return self.async_create_entry(title=_device_title(name, model, deveui), data=data)
 
     # ---------------------------------------------------------------- options
@@ -458,7 +479,8 @@ class MilesightOptionsFlow(OptionsFlow):
             return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "irrigation", "provisioning",
                                                                       "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
-        sections = ((["channels"] if MODELS[model].dynamic else []) + (["tank"] if tank_source(model) else [])
+        sections = ((["purpose"] if purposes_for(model) else [])
+                    + (["channels"] if MODELS[model].dynamic else []) + (["tank"] if tank_source(model) else [])
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if sections:
             return self.async_show_menu(step_id="init", menu_options=["general", *sections])
@@ -498,7 +520,7 @@ class MilesightOptionsFlow(OptionsFlow):
             schema[vol.Required(CONF_AUTO_BACKFILL, default=opts.get(CONF_AUTO_BACKFILL, True))] = BooleanSelector()
         if "battery" in {sp.key for sp in entity_specs(model)}:
             schema[vol.Required(CONF_BATTERY_LOW, default=opts.get(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))] = _int_box(1, 99)
-        if "door" in features:
+        if "door" in features and opts.get("purpose") in (None, "", "none"):
             schema[vol.Required(CONF_LEFT_OPEN_MIN, default=opts.get(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN))] = \
                 _int_box(1, 1440)
         if "em400" in features and not tank_source(model):
@@ -595,6 +617,82 @@ class MilesightOptionsFlow(OptionsFlow):
         num(CONF_TANK_DROP_MIN, 60, 5, 1440, "min")
         return self.async_show_form(step_id="tank", errors=errors, description_placeholders=placeholders,
                                     data_schema=vol.Schema(schema))
+
+    # ------------------------------------------------------------- purpose
+    async def async_step_purpose(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """What the device is fitted to (fridge, gate, pump, bin …) – sets labels, looks, defaults and alerts."""
+        entry = self.config_entry
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        chans = load_channels(model)
+        keys = ["purpose"] + [f"purpose_{n}" for n in range(1, chans + 1)]
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in keys}
+            changed = (user_input.get("purpose") or "none") != \
+                (entry.options.get("purpose", entry.data.get("purpose")) or "none")
+            for k in keys:
+                data[k] = user_input.get(k) or "none"
+            if changed:                                    # a new purpose starts from its own defaults
+                data = {k: v for k, v in data.items() if not k.startswith("p_")}
+            self._pending = data
+            if _purposes.setting_fields(data.get("purpose"), families(model)):
+                return await self.async_step_purpose_settings()
+            return self.async_create_entry(data=data)
+        cur = entry.options.get("purpose", entry.data.get("purpose")) or "none"
+        schema = {vol.Required("purpose", default=cur): _purpose_selector(model)}
+        for n in range(1, chans + 1):
+            schema[vol.Required(f"purpose_{n}", default=entry.options.get(f"purpose_{n}") or "none")] = \
+                _purpose_selector(model, load_only=True)
+        return self.async_show_form(step_id="purpose", data_schema=vol.Schema(schema),
+                                    description_placeholders={"model": model})
+
+    async def async_step_purpose_settings(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        entry = self.config_entry
+        data = getattr(self, "_pending", None) or dict(entry.options)
+        model = data.get(CONF_MODEL, entry.data[CONF_MODEL])
+        purpose = data.get("purpose")
+        fields = _purposes.setting_fields(purpose, families(model))
+        if "run_w" in fields and "socket" not in MODELS[model].features:
+            fields.remove("run_w")
+        hours = "after_hours" in fields
+        if user_input is not None:
+            out = {k: v for k, v in data.items() if not k.startswith("p_")}
+            defaults = (_purposes.get(purpose).defaults if _purposes.get(purpose) else {})
+            for f in fields:
+                v = user_input.get(f"p_{f}")
+                if v not in (None, ""):
+                    out[f"p_{f}"] = v
+                elif f in defaults and f != "after_hours":
+                    out[f"p_{f}"] = "off"                  # cleared on purpose: no alarm for this
+            if hours:
+                for k in (CONF_OPEN_HOUR, CONF_CLOSE_HOUR, CONF_OPEN_DAYS):
+                    if k in user_input:
+                        out[k] = user_input[k]
+            return self.async_create_entry(data=out)
+        cfg = _purposes.settings(purpose, data)
+        units = {"temp_low": ("°C", -60, 150), "temp_high": ("°C", -60, 150), "temp_delay_min": ("min", 0, 1440),
+                 "temp_rise_day": ("°C", 0.5, 50), "left_open_min": ("min", 1, 1440), "max_run_h": ("h", 0, 168),
+                 "no_run_h": ("h", 0, 168), "service_h": ("h", 0, 100000), "run_w": ("W", 0, 10000),
+                 "bin_depth_mm": ("mm", 100, 5000), "full_pct": ("%", 10, 100),
+                 "empty_distance_mm": ("mm", 100, 20000), "rise_cm_h": ("cm/h", 0.5, 500),
+                 "co2_limit": ("ppm", 400, 5000), "clean_visits": ("visits", 1, 10000), "latch_min": ("min", 1, 1440)}
+        schema: dict = {}
+        for f in fields:
+            if f == "after_hours":
+                schema[vol.Required("p_after_hours", default=bool(cfg.get("after_hours", False)))] = BooleanSelector()
+                continue
+            unit, lo, hi = units[f]
+            schema[vol.Optional(f"p_{f}", description={"suggested_value": cfg.get(f)})] = _float_box(lo, hi, unit)
+        # (an emptied box is saved as 'off', so a default limit can be switched off)
+        if hours:
+            schema.update({
+                vol.Required(CONF_OPEN_HOUR, default=data.get(CONF_OPEN_HOUR, DEFAULT_OPEN_HOUR)): _int_box(0, 23),
+                vol.Required(CONF_CLOSE_HOUR, default=data.get(CONF_CLOSE_HOUR, DEFAULT_CLOSE_HOUR)): _int_box(1, 24),
+                vol.Required(CONF_OPEN_DAYS, default=data.get(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)): SelectSelector(
+                    SelectSelectorConfig(options=WEEKDAYS, multiple=True, translation_key="weekday")),
+            })
+        p = _purposes.get(purpose)
+        return self.async_show_form(step_id="purpose_settings", data_schema=vol.Schema(schema),
+                                    description_placeholders={"purpose": p.label if p else "–"})
 
     # ---------------------------------------------------------------- pump
     async def async_step_pump(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

@@ -211,6 +211,7 @@ class MilesightCommissioning extends HTMLElement {
     const $ = (id) => this.shadowRoot.getElementById(id);
     const data = { type: "add", deveui: $("f-deveui").value, model: $("f-model").value, name: $("f-name").value,
                    area: $("f-area").value, register: !!$("f-register")?.checked };
+    if ($("f-purpose")?.value) data.purpose = $("f-purpose").value;
     if ($("f-key").value.trim()) data.app_key = $("f-key").value.trim();
     if (!data.model) { this._error("Pick the model."); return; }
     this._busy = true; this._render();
@@ -385,6 +386,9 @@ class MilesightCommissioning extends HTMLElement {
     const f = this._form || {};
     const chosen = f.model ?? p.model;
     const models = p.models.map((m) => `<option value="${m.value}" ${m.value === chosen ? "selected" : ""}>${esc(m.label)}</option>`).join("");
+    const fam = new Set(((p.families || {})[chosen]) || []);
+    const purposes = (p.purposes || []).filter((x) => x.families.some((y) => fam.has(y)))
+      .map((x) => `<option value="${x.value}" ${x.value === f.purpose ? "selected" : ""}>${esc(x.label)}</option>`).join("");
     return `
       <div class="card">
         <h2>${p.exists ? "Already set up" : "New device"}</h2>
@@ -393,6 +397,7 @@ class MilesightCommissioning extends HTMLElement {
         <p class="hint">Read from the code${p.format ? ` (${esc(p.format)})` : ""}${p.heard ? " · the gateway already hears this device" : ""}${p.model ? "" : " · pick the model"}.</p>
         <label>DevEUI<input id="f-deveui" value="${esc(f.deveui ?? (p.deveui || "").toUpperCase())}"></label>
         <label>Model<select id="f-model"><option value="">– pick –</option>${models}</select></label>
+        ${purposes ? `<label>Fitted to (purpose)<select id="f-purpose"><option value="">– not set –</option>${purposes}</select></label>` : ""}
         <div class="row">
           <label>Name<input id="f-name" value="${esc(f.name || "")}" placeholder="${esc((p.model || "Device") + " " + (p.deveui || "").slice(-4).toUpperCase())}"></label>
           <label>Area<input id="f-area" value="${esc(f.area || "")}" placeholder="e.g. Cold room"></label>
@@ -476,8 +481,12 @@ class MilesightCommissioning extends HTMLElement {
     on("b-add", "click", () => this._add());
     on("manual", "input", (e) => { this._manual = e.target.value; });
     for (const [id, key, prop] of [["f-deveui", "deveui", "value"], ["f-model", "model", "value"], ["f-name", "name", "value"],
-                                   ["f-area", "area", "value"], ["f-key", "key", "value"], ["f-register", "register", "checked"]]) {
-      on(id, id === "f-model" || id === "f-register" ? "change" : "input", (e) => { this._form = { ...(this._form || {}), [key]: e.target[prop] }; });
+                                   ["f-area", "area", "value"], ["f-key", "key", "value"], ["f-register", "register", "checked"],
+                                   ["f-purpose", "purpose", "value"]]) {
+      on(id, ["f-model", "f-register", "f-purpose"].includes(id) ? "change" : "input", (e) => {
+        this._form = { ...(this._form || {}), [key]: e.target[prop] };
+        if (id === "f-model") this._render();            // the purposes depend on the model
+      });
     }
     on("b-again", "click", () => { this._parsed = null; this._form = {}; this._msg = null; this._render(); });
     on("b-walk-existing", "click", () => { const d = this._parsed.deveui; this._parsed = null; this._msg = null; this._startWatch(d); });

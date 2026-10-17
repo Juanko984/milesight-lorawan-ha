@@ -44,6 +44,10 @@ class MilesightCommandButton(MilesightEntity, ButtonEntity):
                 self.runtime.tank_clear_alarm()
             elif command == "pivot_stop":
                 self.runtime.pivot_stopped()
+            elif command.startswith("load") and command.endswith("_serviced"):
+                self.runtime.load_serviced(command.removesuffix("serviced"))
+            elif command in ("cleaned", "panic_clear", "service_clear"):
+                self.runtime.purpose_clear(command.removesuffix("_clear"))
             elif command == "fetch_history":
                 await self.runtime.async_fetch_history()
             elif command.startswith("display_"):

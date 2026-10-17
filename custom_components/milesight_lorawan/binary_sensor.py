@@ -30,6 +30,10 @@ class MilesightBinarySensor(MilesightEntity, BinarySensorEntity):
             self._attr_device_class = BinarySensorDeviceClass(spec.device_class)
 
     @property
+    def extra_state_attributes(self):
+        return self.runtime.attrs.get(self.spec.key)
+
+    @property
     def is_on(self) -> bool | None:
         v = self.raw_value
         return None if v is None else bool(v)

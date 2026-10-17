@@ -856,6 +856,9 @@ def pulse_capable(model_key: str) -> bool:
 
 
 def meter_spec(meter_type: str, unit: str) -> EntitySpec:
+    if meter_type == "rain":
+        return EntitySpec("meter_reading", "Rain total", unit="mm", device_class="precipitation",
+                          state_class="total_increasing", icon="mdi:weather-pouring", precision=1)
     dc = {"water": "water", "gas": "gas", "energy": "energy"}[meter_type]
     icon = {"water": "mdi:water", "gas": "mdi:meter-gas", "energy": "mdi:meter-electric"}[meter_type]
     return EntitySpec("meter_reading", f"{meter_type.capitalize()} meter", unit=unit, device_class=dc,
@@ -1811,8 +1814,8 @@ def _resolve_model(text: str) -> str | None:
 
 
 def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
-    """Lines 'DevEUI, model, name, area, AppKey' (name / area / AppKey optional; ';' or tab also accepted).
-    Returns (devices, errors)."""
+    """Lines 'DevEUI, model, name, area, AppKey, purpose' (all but DevEUI and model optional; ';' or tab also
+    accepted). Returns (devices, errors)."""
     devices, errors, seen = [], [], set()
     for n, line in enumerate(text.splitlines(), 1):
         line = line.strip()
@@ -1836,11 +1839,20 @@ def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
         if key and not re.fullmatch(r"[0-9a-f]{32}", key):
             errors.append(f"line {n}: AppKey must be 32 hex digits")
             continue
+        purpose = None
+        if len(cols) > 5 and cols[5]:
+            from .purposes import resolve
+            purpose = resolve(cols[5])
+            if purpose is None or not (_PURPOSES[purpose].families & families(model)):
+                errors.append(f"line {n}: purpose '{cols[5]}' does not fit a {model}")
+                continue
         seen.add(deveui)
         dev = {"deveui": deveui, "model": model, "name": cols[2] if len(cols) > 2 and cols[2] else None,
                "area": cols[3] if len(cols) > 3 and cols[3] else None}
         if key:
             dev["app_key"] = key
+        if purpose:
+            dev["purpose"] = purpose
         devices.append(dev)
     return devices, errors
 
@@ -1901,13 +1913,8 @@ def channel_specs(channels: dict) -> list[EntitySpec]:
 
 
 # ------------------------------------------------------------------ solution tags
-TAGS = {  # tag -> (Home Assistant label name, icon)
-    "tank": ("Milesight · Tank / silo", "mdi:storage-tank"),
-    "people": ("Milesight · People & occupancy", "mdi:account-group"),
-    "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
-    "pump": ("Milesight · Pump / motor", "mdi:pump"),
-    "irrigation": ("Milesight · Irrigation", "mdi:sprinkler-variant"),
-}
+from .purposes import GROUPS as _GROUPS, PURPOSES as _PURPOSES, for_families as _for_families
+TAGS = dict(_GROUPS)  # tag -> (Home Assistant label name, icon)
 
 
 def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
@@ -1929,7 +1936,167 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
         tags.add("pump")
     if model_key.startswith(("UC51", "UC52")) or ("at101" in model.features and options.get("pivot_centre")):
         tags.add("irrigation")
+    purposes = [options.get("purpose")] + [options.get(f"purpose_{n}") for n in (1, 2, 3)]
+    for key in purposes:
+        p = _PURPOSES.get(key or "")
+        if p is not None and p.group:
+            tags.add(p.group)
     return frozenset(tags)
+
+
+# ------------------------------------------------------------------ purposes
+_NOT_TEMP = ("CT", "WT", "WS", "AT", "GS", "VS", "EM400", "EM410", "EM411", "CTH", "DS")
+
+
+def families(model_key: str) -> frozenset[str]:
+    """Sensor families of a model (decides which purposes can be chosen)."""
+    model = MODELS.get(model_key)
+    if model is None:
+        return frozenset()
+    f, keys = model.features, {s.key for s in entity_specs(model_key)}
+    out = set()
+    if "load" in f or "socket" in f:
+        out.add("load")
+    if "door" in f or "ts_contact" in f:
+        out.add("contact")
+    if ({"temperature", "temperature_1"} & keys) and not model_key.startswith(_NOT_TEMP):
+        out.add("temperature")
+    if "leak" in f:
+        out.add("leak")
+    if tank_source(model_key) or "em400" in f:
+        out.add("level")
+    if pulse_capable(model_key):
+        out.add("pulse")
+    if f & {"occupancy", "pir", "motion", "peoplecount"}:
+        out.add("motion")
+    if model.buttons and model_key.startswith("WS1"):
+        out.add("button")
+    if "at101" in f:
+        out.add("tracker")
+    if "soil" in f:
+        out.add("soil")
+    if "co2" in f or model_key.startswith(("AM", "GS")):
+        out.add("air")
+    if model_key.startswith(("UC51", "UC52")):
+        out.add("valve")
+    return frozenset(out)
+
+
+def purposes_for(model_key: str) -> list:
+    return _for_families(families(model_key))
+
+
+def load_channels(model_key: str) -> int:
+    """Clamp channels that can each have their own purpose (3 on the CT30x)."""
+    model = MODELS.get(model_key)
+    return 3 if model is not None and "ct3" in model.features else 0
+
+
+def load_specs(prefix: str, title: str, cfg: dict, mains: bool = False, running: bool = False) -> list[EntitySpec]:
+    """Compressor / motor / AC / circuit analytics (LoadTracker) – prefix 'load_' or 'load1_' …"""
+    t = title
+    specs = [
+        EntitySpec(f"{prefix}duty_today", f"{t} duty cycle today", unit="%", state_class="measurement",
+                   icon="mdi:chart-donut", precision=0),
+        EntitySpec(f"{prefix}duty_24h", f"{t} duty cycle 24 h", unit="%", state_class="measurement",
+                   icon="mdi:chart-donut", precision=0),
+        EntitySpec(f"{prefix}run_today_h", f"{t} run time today", unit="h", device_class="duration",
+                   state_class="total_increasing", icon="mdi:timer-outline", precision=2),
+        EntitySpec(f"{prefix}starts_today", f"{t} starts today", unit="starts", state_class="total_increasing",
+                   icon="mdi:restart"),
+        EntitySpec(f"{prefix}run_total_h", f"{t} run hours", unit="h", device_class="duration",
+                   state_class="total_increasing", icon="mdi:timer-cog-outline", precision=1, diagnostic=True),
+    ]
+    if running:
+        specs.insert(0, EntitySpec(f"{prefix}running", f"{t} running", platform="binary_sensor",
+                                   device_class="running"))
+    if cfg.get("max_run_h"):
+        specs.append(EntitySpec(f"{prefix}ran_too_long", f"{t} running too long", platform="binary_sensor",
+                                device_class="problem", icon="mdi:timer-alert-outline"))
+    if cfg.get("no_run_h"):
+        specs.append(EntitySpec(f"{prefix}not_running", f"{t} not running", platform="binary_sensor",
+                                device_class="problem", icon="mdi:sleep"))
+    if cfg.get("after_hours"):
+        specs.append(EntitySpec(f"{prefix}after_hours", f"{t} on after hours", platform="binary_sensor",
+                                device_class="problem", icon="mdi:weather-night"))
+    if cfg.get("service_h"):
+        specs += [EntitySpec(f"{prefix}service_in_h", f"{t} service in", unit="h", device_class="duration",
+                             state_class="measurement", icon="mdi:wrench-clock", precision=0),
+                  EntitySpec(f"{prefix}service_due", f"{t} service due", platform="binary_sensor",
+                             device_class="problem", icon="mdi:wrench-clock"),
+                  EntitySpec(f"cmd_{prefix}serviced", f"{t} serviced", platform="button", icon="mdi:wrench-check")]
+    if mains:
+        specs += [EntitySpec("mains_outage", "Power outage", platform="binary_sensor", device_class="problem",
+                             icon="mdi:power-plug-off"),
+                  EntitySpec("phase_imbalance", "Phase imbalance", unit="%", state_class="measurement",
+                             icon="mdi:sine-wave", precision=0),
+                  EntitySpec("phase_imbalance_high", "Phase imbalance high", platform="binary_sensor",
+                             device_class="problem", icon="mdi:sine-wave")]
+    return specs
+
+
+def temp_specs(cfg: dict) -> list[EntitySpec]:
+    specs = []
+    if any(isinstance(cfg.get(k), (int, float)) for k in ("temp_low", "temp_high")):
+        specs += [EntitySpec("temp_alarm", "Temperature out of range", platform="binary_sensor",
+                             device_class="problem", icon="mdi:thermometer-alert"),
+                  EntitySpec("temp_out_today", "Time out of range today", unit="min", device_class="duration",
+                             state_class="total_increasing", icon="mdi:thermometer-off", precision=0),
+                  EntitySpec("temp_excursions_today", "Temperature excursions today", unit="excursions",
+                             state_class="total_increasing", icon="mdi:chart-bell-curve")]
+    if cfg.get("temp_rise_day"):
+        specs += [EntitySpec("temp_rise_24h", "Temperature rise 24 h", unit="°C", state_class="measurement",
+                             icon="mdi:thermometer-chevron-up", precision=1),
+                  EntitySpec("temp_hot_spot", "Hot spot (spoilage)", platform="binary_sensor",
+                             device_class="problem", icon="mdi:fire-alert")]
+    return specs
+
+
+def contact_specs(noun: str, device_class: str | None) -> list[EntitySpec]:
+    """TS301 / TS302 contact probe used as a door: the open / closed statistics the WS301 has."""
+    return [s for s in _binary_event("door_", noun, "open", device_class or "door", "mdi:door-open",
+                                     with_left_open=True)
+            if s.key in ("door_active", "door_status", "door_since", "door_current_s", "door_count_today",
+                         "door_today_s", "door_longest_today_s", "door_left_open", "door_last_on_at")]
+
+
+def purpose_specs(key: str, cfg: dict) -> list[EntitySpec]:
+    """Entities for the purpose-only features (bins, flood level, rain, toilets, panic / service buttons)."""
+    if key == "bin":
+        return [EntitySpec("bin_fill", "Bin fill", unit="%", state_class="measurement", icon="mdi:trash-can",
+                           precision=0),
+                EntitySpec("bin_full", "Bin full", platform="binary_sensor", device_class="problem",
+                           icon="mdi:trash-can-outline"),
+                EntitySpec("bin_fill_per_day", "Bin fills per day", unit="%/d", state_class="measurement",
+                           icon="mdi:trending-up", precision=0),
+                EntitySpec("bin_full_in", "Bin full in", unit="d", device_class="duration",
+                           state_class="measurement", icon="mdi:calendar-clock", precision=1)]
+    if key == "flood":
+        return [EntitySpec("water_level", "Water level", unit="cm", device_class="distance",
+                           state_class="measurement", icon="mdi:waves-arrow-up", precision=1),
+                EntitySpec("water_rise_rate", "Water level change", unit="cm/h", state_class="measurement",
+                           icon="mdi:trending-up", precision=1),
+                EntitySpec("water_rising", "Water rising fast", platform="binary_sensor", device_class="problem",
+                           icon="mdi:home-flood")]
+    if key == "rain_gauge":
+        return [EntitySpec("rain_today", "Rain today", unit="mm", device_class="precipitation",
+                           state_class="total_increasing", icon="mdi:weather-pouring", precision=1),
+                EntitySpec("rain_24h", "Rain last 24 h", unit="mm", device_class="precipitation",
+                           state_class="measurement", icon="mdi:weather-rainy", precision=1)]
+    if key == "toilet":
+        return [EntitySpec("visits_since_clean", "Visits since cleaned", unit="visits", state_class="measurement",
+                           icon="mdi:toilet"),
+                EntitySpec("clean_due", "Cleaning due", platform="binary_sensor", device_class="problem",
+                           icon="mdi:broom"),
+                EntitySpec("cmd_cleaned", "Cleaned", platform="button", icon="mdi:broom")]
+    if key in ("panic", "service"):
+        what = "Panic alarm" if key == "panic" else "Service requested"
+        return [EntitySpec(f"{key}_active", what, platform="binary_sensor",
+                           device_class="safety" if key == "panic" else "problem",
+                           icon="mdi:alarm-light" if key == "panic" else "mdi:room-service"),
+                EntitySpec(f"cmd_{key}_clear", f"Clear {what.lower()}", platform="button", icon="mdi:bell-off")]
+    return []
+
 
 
 # ------------------------------------------------------------------ pumps & pivots

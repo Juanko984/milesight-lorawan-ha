@@ -102,9 +102,16 @@ def frost_tonight(forecast: list[dict[str, Any]], now: datetime, threshold: floa
             "at": at.isoformat() if at else None}
 
 
-def advice(moisture: list[float], rain: dict[str, Any], cfg: IrrigationConfig) -> dict[str, Any]:
-    """'irrigate' / 'skip' with the reason and suggested minutes."""
+def advice(moisture: list[float], rain: dict[str, Any], cfg: IrrigationConfig,
+           fallen: float | None = None) -> dict[str, Any]:
+    """'irrigate' / 'skip' with the reason and suggested minutes. fallen: rain measured in the last 24 h (rain
+    gauge), mm."""
     soil = round(sum(moisture) / len(moisture), 1) if moisture else None
+    if fallen is not None and cfg.rain_mm and fallen >= cfg.rain_mm:
+        return {"advice": "skip", "reason": f"{fallen:g} mm rain fell in the last 24 h", "minutes": 0,
+                "soil_moisture": soil, "rain_expected": False, "rain_fallen": fallen}
+    if fallen:                                            # some measured rain counts like forecast rain
+        rain = {**rain, "mm": round(rain["mm"] + fallen, 1)}
     rain_expected = rain["mm"] >= cfg.rain_mm and (rain["probability"] is None or rain["probability"] >= cfg.rain_prob)
     if rain_expected:
         return {"advice": "skip", "reason": f"{rain['mm']:g} mm rain forecast in {cfg.rain_hours} h",

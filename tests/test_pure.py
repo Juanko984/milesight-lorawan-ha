@@ -21,7 +21,7 @@ def _load(name):
     spec.loader.exec_module(mod); return mod
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
-pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation")
+pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1187,7 +1187,7 @@ def test_pump_pivot_alerts_and_categories():
     assert al["abc:pivot_stalled"]["category"] == "irrigation"
     assert "pumps" in alr.effective_categories({}) and "irrigation" in alr.effective_categories({})
     old = {"alert_categories": ["safety", "devices"]}                          # saved before 0.24
-    assert set(alr.effective_categories(old)) == {"safety", "devices", "pumps", "irrigation"}
+    assert set(alr.effective_categories(old)) == {"safety", "devices"} | (set(alr.DEFAULT_CATEGORIES) - set(alr._CATEGORIES_V1))
     new = {"alert_categories": ["safety"], "alert_categories_known": list(alr.CATEGORIES)}
     assert alr.effective_categories(new) == ("safety",)
     assert "pump" not in mdl.device_tags("CT101") and {"pump"} <= mdl.device_tags("CT101", {"pump_enabled": True})
@@ -1197,6 +1197,136 @@ def test_pump_pivot_alerts_and_categories():
     assert mdl.pump_capable("CT103") and not mdl.pump_capable("AM307")
     assert {s.key for s in mdl.pump_specs(True)} >= {"pump_m3_per_kwh", "pump_dry_run"}
     assert "cmd_pivot_stop" in {s.key for s in mdl.pivot_specs()}
+
+
+def test_purposes_catalogue():
+    assert mdl.families("CT101") == {"load"} and "load" in mdl.families("WS523")
+    assert {"contact", "temperature"} <= mdl.families("EM300-MCS") and "contact" in mdl.families("TS301")
+    assert mdl.families("EM300-TH") == {"temperature"} and "temperature" not in mdl.families("CT101")
+    assert {"leak", "temperature"} <= mdl.families("EM300-SLD") and "level" in mdl.families("EM400-TLD")
+    assert "button" in mdl.families("WS101") and "pulse" in mdl.families("EM300-DI") and "soil" in mdl.families("EM500-SMTC")
+    keys = [p.key for p in mdl.purposes_for("WS301")]
+    assert {"door", "window", "gate", "fridge", "cabinet"} <= set(keys) and "pump" not in keys
+    assert {"fridge", "ac", "pump", "mains"} <= {p.key for p in mdl.purposes_for("CT303")} and mdl.load_channels("CT303") == 3
+    for k, p in prp.PURPOSES.items():
+        assert p.group is None or p.group in prp.GROUPS, k
+        assert set(p.defaults) <= set(prp.SETTINGS), k
+        assert any(mdl.families(m) & p.families for m in mdl.MODELS), f"no model fits {k}"
+    cfg = prp.settings("fridge", {"p_temp_high": 8})
+    assert cfg["temp_low"] == 0 and cfg["temp_high"] == 8 and cfg["left_open_min"] == 2
+    assert prp.settings(None, {}) == {} and prp.settings("door", {})["after_hours"] is True
+    assert "temp_low" not in prp.settings("geyser", {"p_temp_low": "off"})           # a default limit switched off
+    assert prp.PURPOSES["fridge"].door_noun == "Door" and prp.PURPOSES["gate"].door_noun == "Gate"
+    assert prp.resolve("Fridge / cold room") == "fridge" and prp.resolve("fridge") == "fridge"
+    assert prp.resolve("gate") == "gate" and prp.resolve("AC") == "ac" and prp.resolve("nonsense") is None
+    assert "temp_low" in prp.setting_fields("fridge", mdl.families("EM300-MCS"))
+    assert "left_open_min" in prp.setting_fields("fridge", mdl.families("EM300-MCS"))
+    assert "max_run_h" in prp.setting_fields("fridge", {"load"}) and prp.setting_fields("doorbell", {"button"}) == []
+    tz = TZ
+    assert prp.in_hours(datetime(2026, 10, 14, 9, 0, tzinfo=tz), 8, 17, (0, 1, 2, 3, 4))           # Wednesday
+    assert not prp.in_hours(datetime(2026, 10, 14, 19, 0, tzinfo=tz), 8, 17, (0, 1, 2, 3, 4))
+    assert not prp.in_hours(datetime(2026, 10, 17, 9, 0, tzinfo=tz), 8, 17, (0, 1, 2, 3, 4))          # Saturday
+    assert prp.in_hours(datetime(2026, 10, 14, 23, 0, tzinfo=tz), 22, 6, ())                          # night shift
+    assert mdl.device_tags("EM300-TH", {"purpose": "fridge"}) >= {"cold_chain", "comfort"}
+    assert mdl.device_tags("CT303", {"purpose_1": "ac", "purpose_2": "lighting"}) >= {"hvac", "energy"}
+    assert mdl.TAGS["cold_chain"][0] == "Milesight · Cold chain"
+    devs, errs = mdl.parse_bulk("24E124136B322135, EM300-MCS, Cold room door, Kitchen, , fridge\n"
+                                "24E124136B322136, WS301, Gate, Yard, , pump")
+    assert devs[0]["purpose"] == "fridge" and "does not fit" in errs[0]
+
+
+def test_load_tracker():
+    t0 = T("2026-10-14 00:00"); day = "2026-10-14"
+    tr = usg.LoadTracker()
+    cfg = prp.settings("fridge", {})
+    # compressor cycles 20 min on / 40 min off for 6 hours, readings every 10 min
+    for i in range(37):
+        ts = t0 + i * 600
+        tr.update(ts, (i % 6) < 2, day, t0, False)
+    v = tr.values(t0 + 36 * 600, cfg)
+    assert 30 <= v["load_duty_today"] <= 37 and v["load_starts_today"] == 6 and not v["load_ran_too_long"]
+    assert v["load_duty_24h"] is not None and 30 <= v["load_duty_24h"] <= 37
+    # stuck on for 3 hours → ran too long
+    ts = t0 + 37 * 600
+    for i in range(20):
+        tr.update(ts + i * 600, True, day, t0, False)
+    v = tr.values(ts + 19 * 600, cfg)
+    assert v["load_ran_too_long"] and v["load_running_for_h"] >= 3
+    # stops and stays off for 3 h → not running
+    ts2 = ts + 20 * 600
+    tr.update(ts2, False, day, t0, False)
+    tr.update(ts2 + 3 * 3600, False, day, t0, False)
+    assert tr.values(ts2 + 3 * 3600, cfg)["load_not_running"] is True
+    # after hours: an AC running 40 min outside working hours, reset when work starts
+    ac = usg.LoadTracker(); acfg = prp.settings("ac", {})
+    evs = []
+    for i in range(5):
+        evs += ac.update(t0 + 20 * 3600 + i * 600, True, day, t0, False)
+    assert ac.values(t0 + 20 * 3600 + 2400, acfg)["load_after_hours"] and [e["type"] for e in evs].count("after_hours") == 1
+    ac.update(t0 + 32 * 3600, True, "2026-10-15", t0 + 86400, True)
+    assert ac.values(t0 + 32 * 3600, acfg)["load_after_hours"] is False
+    # service interval
+    m = usg.LoadTracker(); mcfg = {"service_h": 2}
+    for i in range(14):
+        m.update(t0 + i * 600, True, day, t0, True)
+    assert m.values(t0 + 13 * 600, mcfg)["load_service_due"] is True
+    m.serviced()
+    assert m.values(t0 + 13 * 600, mcfg)["load_service_due"] is False
+    assert usg.LoadTracker(json.loads(json.dumps(tr.s))).s == tr.s
+
+
+def test_temp_watch_and_trend():
+    t0 = T("2026-10-14 08:00"); day = "2026-10-14"
+    w, cfg = usg.TempWatch(), prp.settings("fridge", {})
+    evs = []
+    seq = [3, 3, 7, 4, 3]                     # door opening: 10 min out of range – no alarm
+    for i, t in enumerate(seq):
+        evs += w.update(t0 + i * 600, t, day, cfg)
+    assert not evs and w.values(t0 + 2400, cfg)["temp_alarm"] is False and w.values(t0 + 2400, cfg)["temp_out_today"] == 10
+    for i in range(4):                       # 7 °C for 30 min → alarm after 15 min
+        evs += w.update(t0 + 3000 + i * 600, 7.5, day, cfg)
+    assert [e["type"] for e in evs] == ["out_of_range"] and w.values(t0 + 4800, cfg)["temp_alarm"]
+    evs = w.update(t0 + 5400, 4, day, cfg)
+    assert evs[0]["type"] == "back_in_range" and w.values(t0 + 5400, cfg)["temp_excursions_today"] == 1
+    # door open: the delay only starts once it closes
+    dw = usg.TempWatch()
+    for i in range(4):
+        dw.update(t0 + i * 600, 9, day, cfg, door_open=True)
+    assert dw.values(t0 + 1800, cfg)["temp_alarm"] is False
+    dw.update(t0 + 2400, 9, day, cfg); dw.update(t0 + 2400 + 900, 9, day, cfg)
+    assert dw.values(t0 + 3300, cfg)["temp_alarm"] is True
+    w.update(t0 + 86400, 3, "2026-10-15", cfg)
+    assert w.s["log"][-1]["day"] == day and w.s["log"][-1]["max"] == 7.5 and w.s["log"][-1]["excursions"] == 1
+    # silo hot spot: +4 °C in a day
+    sw, scfg = usg.TempWatch(), prp.settings("silo", {})
+    for h in range(26):
+        sw.update(t0 + h * 3600, 20 + h * 0.17, day if h < 16 else "2026-10-15", scfg)
+    v = sw.values(t0 + 25 * 3600, scfg)
+    assert v["temp_rise_24h"] >= 3.9 and v["temp_hot_spot"] is True and "temp_alarm" not in v
+    tr = usg.Trend()
+    for i in range(13):
+        tr.add(t0 + i * 600, 50 + i)          # +6 per hour
+    assert abs(tr.rate_per_h(t0 + 7200, 1) - 6) < 0.01 and tr.change(t0 + 7200, 24) is None
+    assert usg.bin_fill(300, 1000) == 70 and usg.water_level_cm(2500, 3000) == 50.0
+
+
+def test_purpose_alerts():
+    v = {"purpose": "Fridge / cold room", "purpose_group": "cold_chain", "purpose_severity": "critical",
+         "temp_alarm": True, "temperature_now": 8.2, "temp_out_today": 25, "door_left_open": True, "door_current_s": 300,
+         "load_ran_too_long": True, "load_label": "Compressor", "load_group": "cold_chain", "load_running_for_h": 3.5}
+    al = alr.device_alerts("Fridge 3", "f3", v, "Kitchen")
+    assert al["f3:temp_range"]["category"] == "cold_chain" and al["f3:temp_range"]["severity"] == "critical"
+    assert "8.2 °C" in al["f3:temp_range"]["message"] and "5 min" in al["f3:left_open"]["message"]
+    assert al["f3:load_long"]["severity"] == "critical" and "3.5 h" in al["f3:load_long"]["message"]
+    al2 = alr.device_alerts("AC", "a1", {"purpose": "Air conditioner / heat pump", "purpose_group": "hvac",
+                                         "load_after_hours": True, "load_label": "Air conditioner", "load_group": "hvac"})
+    assert al2["a1:load_after"]["category"] == "energy"
+    al3 = alr.device_alerts("B", "b", {"panic_active": True, "bin_full": True, "bin_fill": 85, "water_rising": True,
+                                       "mains_outage": True, "load1_service_due": True, "load1_label": "Motor 1"})
+    assert al3["b:panic"]["severity"] == "critical" and al3["b:bin_full"]["category"] == "facilities"
+    assert al3["b:flood"]["severity"] == "critical" and "b:outage" in al3 and "b:load1_service" in al3
+    assert {"cold_chain", "security", "energy", "facilities"} <= set(alr.effective_categories(
+        {"alert_categories": ["safety"], "alert_categories_known": list(alr._CATEGORIES_V2)}))
 
 
 if __name__ == "__main__":
