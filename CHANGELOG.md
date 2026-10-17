@@ -2,6 +2,11 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.25.1
+### Fixed
+- Device → Configure → *Pump (current clamp)* showed an empty "Error" dialog: the power-factor box was built with
+  an empty unit, which Home Assistant rejects.
+
 ## 0.25.0
 ### Added
 - **Purpose** per device – what it is fitted to (≈50 purposes: fridge, freezer, pump, air conditioner, compressor,

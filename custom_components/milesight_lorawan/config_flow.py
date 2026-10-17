@@ -226,8 +226,12 @@ def _provisioning_hub(hass):
 
 
 def _float_box(lo: float, hi: float, unit: str | None = None, step: Any = "any") -> NumberSelector:
-    return NumberSelector(NumberSelectorConfig(min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX,
-                                               unit_of_measurement=unit))
+    """A number box. The unit is only passed when there is one: Home Assistant rejects unit_of_measurement=None,
+    and the whole form then fails with an empty 'Error' dialog."""
+    cfg = NumberSelectorConfig(min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX)
+    if unit:
+        cfg["unit_of_measurement"] = unit
+    return NumberSelector(cfg)
 
 
 def _purpose_selector(model: str | None = None, load_only: bool = False) -> SelectSelector:

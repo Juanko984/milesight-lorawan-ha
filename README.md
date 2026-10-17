@@ -953,6 +953,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.25.1** | Fix: the Pump options form (current clamps) opened with an empty "Error". |
 | **0.25.0** | Purposes: what a device is fitted to (≈50, from fridge to gate to panic button) – grouped labels, entity looks, default limits, cold-chain log, duty cycle, after-hours, bins, flood, rain gauge, toilets, panic; Cold chain and Energy & HVAC dashboards. |
 | **0.24.0** | Pump analytics (run hours, short-cycling, dry-run, overload, m³ per kWh), centre-pivot analytics from an AT101 (angle, % done, speed, time to finish, stall alarm), forecast-aware irrigation advice and frost warnings, Farm dashboard. |
 | **0.23.1** | Version bump of 0.23.0. |

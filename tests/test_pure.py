@@ -1329,6 +1329,16 @@ def test_purpose_alerts():
         {"alert_categories": ["safety"], "alert_categories_known": list(alr._CATEGORIES_V2)}))
 
 
+
+def test_config_flow_selectors_have_no_none_options():
+    """HA's selector schemas reject None values (e.g. unit_of_measurement=None) – the form then shows an empty Error."""
+    src = (PKG / "config_flow.py").read_text()
+    import re as _re
+    assert "unit_of_measurement=unit" not in src
+    for call in _re.findall(r"_float_box\(([^()]*)\)", src):
+        args = [a.strip() for a in call.split(",")]
+        assert len(args) < 3 or args[2] != "None", call
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
