@@ -9,6 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 MAX_CHANNELS = 16          # Modbus channels on the UC300 / UC50x
+CONTROLLER_CHANNELS = {"UC100": 64, "UC100-V2": 64}   # Modbus channels per model (others: MAX_CHANNELS)
+
+
+def max_channels(model_key: str | None) -> int:
+    return CONTROLLER_CHANNELS.get(model_key or "", MAX_CHANNELS)
 
 
 @dataclass(frozen=True)
@@ -27,6 +32,9 @@ class Reg:
     optional: bool = False  # not ticked by default
     note: str = ""
     toolbox: str | None = None  # the channel name in ToolBox, when it differs from the entity name
+    words: int = 1         # 2 = a 32-bit value over two registers (quantity 2)
+    byte: str | None = None  # "lo" / "hi": the value is one byte of the register (e.g. SOC / SOH packed)
+    group: str = ""        # shown in the value list (PV, Battery, Grid …)
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,7 @@ class Template:
     regs: tuple[Reg, ...]
     notes: tuple[str, ...] = field(default_factory=tuple)
     register_type: str = "Holding Register(INT16)"   # ToolBox 'Type' column
+    word_order: str = "CDAB"   # ToolBox byte order for 32-bit values (CDAB = low word first)
 
     def defaults(self) -> list[str]:
         return [r.key for r in self.regs if not r.optional]
@@ -121,6 +130,104 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
          "channels after commissioning."),
         "Input Register(INT16)",
     ),
+    Template(
+        "luxpower_lxp", "LuxPower LXP / EG4 hybrid inverter (RS485)", "LuxPower", 1, 19200, "8N1",
+        "04 (input register)",
+        tuple(Reg(*a, **k) for a, k in (
+            # (key, address, name, unit, scale, offset, device class, decimals, state class), extras
+            (("state", 0, "Inverter state", None, "1", 0, None, 0), {"group": "Inverter", "toolbox": "State",
+                                                                    "note": "operating mode code"}),
+            (("vpv1", 1, "PV1 voltage", "V", "0.1", 0, "voltage", 1), {"group": "PV", "toolbox": "Vpv1"}),
+            (("vpv2", 2, "PV2 voltage", "V", "0.1", 0, "voltage", 1), {"group": "PV", "toolbox": "Vpv2"}),
+            (("vpv3", 3, "PV3 voltage", "V", "0.1", 0, "voltage", 1), {"group": "PV", "toolbox": "Vpv3",
+                                                                       "optional": True}),
+            (("ppv1", 7, "PV1 power", "W", "1", 0, "power", 0), {"group": "PV", "toolbox": "Ppv1"}),
+            (("ppv2", 8, "PV2 power", "W", "1", 0, "power", 0), {"group": "PV", "toolbox": "Ppv2"}),
+            (("ppv3", 9, "PV3 power", "W", "1", 0, "power", 0), {"group": "PV", "toolbox": "Ppv3", "optional": True}),
+            (("vbat", 4, "Battery voltage", "V", "0.1", 0, "voltage", 1), {"group": "Battery", "toolbox": "Vbat"}),
+            (("soc", 5, "Battery SOC", "%", "1", 0, "battery", 0), {"group": "Battery", "toolbox": "SOC", "byte": "lo",
+                                                                  "note": "SOC = low byte of register 5"}),
+            (("soh", 5, "Battery SOH", "%", "1", 0, None, 0), {"group": "Battery", "toolbox": "SOH", "byte": "hi",
+                                                             "note": "SOH = high byte of register 5 (same register "
+                                                                     "on a second channel)"}),
+            (("pchg", 10, "Battery charge power", "W", "1", 0, "power", 0), {"group": "Battery",
+                                                                            "toolbox": "Pcharge"}),
+            (("pdis", 11, "Battery discharge power", "W", "1", 0, "power", 0), {"group": "Battery",
+                                                                               "toolbox": "Pdischarge"}),
+            (("ibat", 98, "Battery current", "A", "0.01", 0, "current", 2), {"group": "Battery",
+                                                                            "toolbox": "BatCurrent", "signed": True,
+                                                                            "note": "from the BMS, signed"}),
+            (("cell_max", 101, "Cell voltage max", "V", "0.001", 0, "voltage", 3), {"group": "Battery",
+                                                                                   "toolbox": "MaxCellVolt"}),
+            (("cell_min", 102, "Cell voltage min", "V", "0.001", 0, "voltage", 3), {"group": "Battery",
+                                                                                   "toolbox": "MinCellVolt"}),
+            (("tcell_max", 103, "Cell temperature max", "°C", "0.1", 0, "temperature", 1),
+             {"group": "Battery", "toolbox": "MaxCellTemp", "signed": True}),
+            (("tcell_min", 104, "Cell temperature min", "°C", "0.1", 0, "temperature", 1),
+             {"group": "Battery", "toolbox": "MinCellTemp", "signed": True, "optional": True}),
+            (("cycles", 106, "Battery cycles", "cycles", "1", 0, None, 0), {"group": "Battery", "toolbox": "Cycles",
+                                                                           "state_class": "total_increasing",
+                                                                           "optional": True}),
+            (("capacity", 97, "Battery capacity", "Ah", "1", 0, None, 0), {"group": "Battery", "toolbox": "BatCap",
+                                                                          "optional": True}),
+            (("vgrid", 12, "Grid voltage", "V", "0.1", 0, "voltage", 1), {"group": "Grid", "toolbox": "VacR"}),
+            (("fgrid", 15, "Grid frequency", "Hz", "0.01", 0, "frequency", 2), {"group": "Grid", "toolbox": "Fac"}),
+            (("p_export", 26, "Grid export power", "W", "1", 0, "power", 0), {"group": "Grid", "toolbox": "Ptogrid"}),
+            (("p_import", 27, "Grid import power", "W", "1", 0, "power", 0), {"group": "Grid", "toolbox": "Ptouser"}),
+            (("p_rec", 17, "AC charge power", "W", "1", 0, "power", 0), {"group": "Grid", "toolbox": "Prec",
+                                                                        "optional": True}),
+            (("pinv", 16, "Inverter power", "W", "1", 0, "power", 0), {"group": "Inverter", "toolbox": "Pinv"}),
+            (("peps", 24, "Backup (EPS) power", "W", "1", 0, "power", 0), {"group": "Inverter", "toolbox": "Peps"}),
+            (("veps", 20, "Backup (EPS) voltage", "V", "0.1", 0, "voltage", 1), {"group": "Inverter",
+                                                                                "toolbox": "VepsR",
+                                                                                "optional": True}),
+            (("t_inner", 64, "Inverter temperature", "°C", "1", 0, "temperature", 0),
+             {"group": "Inverter", "toolbox": "Tinner", "signed": True}),
+            (("t_rad", 65, "Radiator temperature", "°C", "1", 0, "temperature", 0),
+             {"group": "Inverter", "toolbox": "Tradiator1", "signed": True, "optional": True}),
+            (("epv1_day", 28, "PV1 energy today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Epv1_day"}),
+            (("epv2_day", 29, "PV2 energy today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Epv2_day"}),
+            (("echg_day", 33, "Battery charge today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Echg_day"}),
+            (("edis_day", 34, "Battery discharge today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Edischg_day"}),
+            (("eexp_day", 36, "Grid export today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Etogrid_day"}),
+            (("eimp_day", 37, "Grid import today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Etouser_day"}),
+            (("eeps_day", 35, "Backup energy today", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy today", "toolbox": "Eeps_day", "optional": True}),
+            (("epv1_all", 40, "PV1 energy total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy totals", "toolbox": "Epv1_all", "words": 2}),
+            (("epv2_all", 42, "PV2 energy total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy totals", "toolbox": "Epv2_all", "words": 2}),
+            (("echg_all", 50, "Battery charge total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy totals", "toolbox": "Echg_all", "words": 2}),
+            (("edis_all", 52, "Battery discharge total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy totals", "toolbox": "Edischg_all", "words": 2}),
+            (("eexp_all", 56, "Grid export total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy totals", "toolbox": "Etogrid_all", "words": 2}),
+            (("eimp_all", 58, "Grid import total", "kWh", "0.1", 0, "energy", 1, "total_increasing"),
+             {"group": "Energy totals", "toolbox": "Etouser_all", "words": 2}),
+            (("fault", 60, "Inverter fault code", None, "1", 0, None, 0), {"group": "Faults", "toolbox": "FaultCode",
+                                                                          "words": 2, "note": "bit field, 0 = OK"}),
+            (("warning", 62, "Inverter warning code", None, "1", 0, None, 0),
+             {"group": "Faults", "toolbox": "WarningCode", "words": 2, "note": "bit field, 0 = OK"}),
+            (("bms_fault", 99, "BMS fault code", None, "1", 0, None, 0), {"group": "Faults", "toolbox": "BMS_Fault",
+                                                                         "optional": True}),
+            (("bms_warning", 100, "BMS warning code", None, "1", 0, None, 0),
+             {"group": "Faults", "toolbox": "BMS_Warning", "optional": True}),
+        )),
+        ("RS485 port of the inverter (not the BMS port): 19200 baud 8N1, Modbus RTU, input registers (function 04). "
+         "The port is shared with the WiFi dongle on many units – only one master at a time.",
+         "Slave address = holding register 15 (Com Addr); usually 1 – check it if nothing answers.",
+         "32-bit totals and codes: quantity 2, low word first (byte order CDAB in ToolBox).",
+         "SOC and SOH are packed in register 5 (low / high byte): two channels on the same register.",
+         "Battery current sign (charge / discharge) – compare with the LuxPower integration once."),
+        "Input Register(INT16)",
+    ),
 )}
 
 
@@ -128,7 +235,9 @@ def channel_line(reg: Reg, channel: int, prefix: str = "") -> str:
     """One channel-map line for a register on a Modbus channel."""
     opts = []
     if reg.signed:
-        opts.append("s16")
+        opts.append("s32" if reg.words == 2 else "s16")
+    if reg.byte:
+        opts.append(f"{reg.byte}8")
     if reg.invalid is not None:
         opts.append(f"invalid={reg.invalid}")
     cols = [str(channel), f"{prefix}{reg.name}", reg.unit or "-", reg.scale,
@@ -158,8 +267,11 @@ def plan(key: str, regs: list[str] | None, first: int, slave_id: int | None = No
     for i, r in enumerate(chosen):
         ch = first + i
         rows.append({"channel": ch, "slave_id": sid, "address": r.address, "name": r.name,
-                     "toolbox_name": (r.toolbox or r.name)[:16], "quantity": 1, "type": t.register_type,
-                     "byte_order": "AB", "signed": r.signed, "data_type": "INT16" if r.signed else "UINT16",
+                     "toolbox_name": (r.toolbox or r.name)[:16], "quantity": r.words,
+                     "type": t.register_type.replace("INT16", "INT32") if r.words == 2 else t.register_type,
+                     "byte_order": t.word_order if r.words == 2 else "AB", "signed": r.signed,
+                     "data_type": ("INT32" if r.signed else "UINT32") if r.words == 2
+                     else ("INT16" if r.signed else "UINT16"),
                      "function": t.function, "line": channel_line(r, ch, prefix), "note": r.note})
     return rows, []
 

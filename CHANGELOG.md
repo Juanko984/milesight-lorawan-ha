@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.27.0
+### Added
+- Sensor template **LuxPower LXP / EG4 hybrid inverter** for the **UC100** (Modbus RTU converter): 46 values in
+  groups – PV, Battery (SOC, SOH, charge / discharge power, BMS current, cell voltages and temperatures), Grid
+  (voltage, frequency, import / export power), Inverter (output, backup, temperature), Energy today and lifetime
+  totals (Energy dashboard ready), fault and warning codes. 35 ticked by default.
+- Sensor templates know each controller's channel count: 64 on the UC100, 16 on the UC300 / UC50x.
+- 32-bit values in templates (quantity 2, INT32, byte order CDAB in ToolBox) and channel-map options `lo8` / `hi8`
+  for values packed into one byte of a register (LuxPower SOC / SOH).
+- Channel map device class `battery`.
+
 ## 0.26.2
 ### Changed
 - CWT 7-in-1 soil / NPK template follows the tested UC50x setup: address 1, 9600 baud, input registers 0–8, all

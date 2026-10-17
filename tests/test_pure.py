@@ -1391,6 +1391,28 @@ def test_modbus_templates():
     assert mtp.plan("nope", None, 1)[1] and mtp.plan("ecowitt_ws90", [], 1)[1]
 
 
+def test_luxpower_template_uc100():
+    t = mtp.TEMPLATES["luxpower_lxp"]
+    assert mtp.max_channels("UC100") == 64 and mtp.max_channels("UC300") == 16
+    assert mtp.plan("luxpower_lxp", None, 1, 1)[1]                                   # 35 values do not fit a UC300
+    rows, errs = mtp.plan("luxpower_lxp", None, 1, 1, max_channels=mtp.max_channels("UC100"))
+    assert not errs and len(rows) == len(t.defaults()) == 35 and rows[-1]["channel"] == 35
+    by = {r["toolbox_name"]: r for r in rows}
+    assert by["Epv1_all"]["quantity"] == 2 and by["Epv1_all"]["type"] == "Input Register(INT32)"
+    assert by["Epv1_all"]["byte_order"] == "CDAB" and by["Vbat"]["type"] == "Input Register(INT16)"
+    assert by["SOC"]["address"] == by["SOH"]["address"] == 5
+    m, problems = chm.parse_channel_map(mtp.merge_map("", rows, mtp.block_title(t, rows)))
+    assert not problems and len(m) == 35
+    ch = {c.name: c for c in m.values()}
+    assert ch["Battery SOC"].apply(0x6450) == 80 and ch["Battery SOH"].apply(0x6450) == 100
+    assert ch["Battery voltage"].apply(532) == 53.2 and ch["Grid frequency"].apply(5002) == 50.02
+    assert ch["Battery current"].apply(0xFF38) == -2.0 and ch["Cell voltage max"].apply(3345) == 3.345
+    assert ch["PV1 energy total"].apply(123456) == 12345.6 and ch["PV1 energy total"].state_class == "total_increasing"
+    assert ch["Grid import today"].device_class == "energy" and ch["Battery SOC"].device_class == "battery"
+    all_rows, errs = mtp.plan("luxpower_lxp", [r.key for r in t.regs], 1, 1, max_channels=64)
+    assert not errs and len(all_rows) == 46
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

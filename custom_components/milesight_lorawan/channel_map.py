@@ -13,7 +13,8 @@ One line per channel, columns separated by ';' (or '|' / tab):
 * channel – a Modbus channel number ("3" = modbus_chn_3, "3.2" = channel 3 register 2) or the decoded key
   (adc_1, adv_1, analog_input_1, pt100_1, gpio_counter_1, modbus_chn_3_reg_2 …)
 * scale – a multiplier, or a range 'a-b>c-d' that maps the raw span a…b onto c…d (4-20>0-10)
-* options – 's16' (the register is a signed 16-bit number: 65535 = -1), 's32', 'invalid=65535' (the sensor sends
+* options – 's16' (the register is a signed 16-bit number: 65535 = -1), 's32', 'lo8' / 'hi8' (one byte of a
+  packed register, e.g. SOC / SOH), 'invalid=65535' (the sensor sends
   this when it has no reading: the entity shows unknown); several separated by spaces or commas
 * empty columns (or '-') keep the default. Lines starting with '#' are ignored.
 """
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 
 # sensor device classes accepted in the map (subset of Home Assistant's SensorDeviceClass that fit raw channels)
 DEVICE_CLASSES = (
-    "apparent_power", "atmospheric_pressure", "carbon_dioxide", "carbon_monoxide", "conductivity", "current",
+    "apparent_power", "atmospheric_pressure", "battery", "carbon_dioxide", "carbon_monoxide", "conductivity", "current",
     "distance", "energy", "energy_storage", "frequency", "gas", "humidity", "illuminance", "irradiance",
     "moisture", "ph", "power", "power_factor", "precipitation", "precipitation_intensity", "pressure",
     "reactive_power", "signal_strength", "sound_pressure", "speed", "temperature", "voltage", "volume",
@@ -59,6 +60,7 @@ class Channel:
     state_class: str = "measurement"
     signed: int = 0                        # 16 / 32: the raw register is a signed number
     invalid: tuple = ()                    # raw values that mean 'no reading'
+    byte: str | None = None                # "lo" / "hi": use one byte of the register (packed values)
 
     def apply(self, raw: object) -> object:
         """Scaled value (non-numbers pass through)."""
@@ -66,6 +68,8 @@ class Channel:
             return raw
         if raw in self.invalid:
             return None
+        if self.byte and isinstance(raw, int):
+            raw = (raw & 0xFF) if self.byte == "lo" else ((raw >> 8) & 0xFF)
         if self.signed and raw >= 2 ** (self.signed - 1) and raw < 2 ** self.signed:
             raw = raw - 2 ** self.signed
         v = raw * self.scale + self.offset
@@ -144,7 +148,7 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
         if dc in ("volume_storage", "energy_storage") and sc != "measurement":
             errors.append(f"line {n}: {dc} needs the state class measurement")
             continue
-        signed, invalid, bad = 0, [], None
+        signed, invalid, bad, byte = 0, [], None, None
         for tok in re.split(r"[\s,]+", cols[8].lower()):
             if not tok:
                 continue
@@ -152,6 +156,8 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
                 signed = 16
             elif tok in ("s32", "int32"):
                 signed = 32
+            elif tok in ("lo8", "hi8"):
+                byte = tok[:2]
             elif tok.startswith("invalid="):
                 try:
                     invalid += [int(x, 0) for x in tok.split("=", 1)[1].split("/") if x]
@@ -160,10 +166,10 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
             else:
                 bad = tok
         if bad:
-            errors.append(f"line {n}: unknown option '{bad}' (use s16, s32, invalid=65535)")
+            errors.append(f"line {n}: unknown option '{bad}' (use s16, s32, lo8, hi8, invalid=65535)")
             continue
         out[key] = Channel(key, name or _default_name(key), unit, scale, offset, dc, decimals, sc, signed,
-                           tuple(invalid))
+                           tuple(invalid), byte)
     return out, errors
 
 

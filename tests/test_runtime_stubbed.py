@@ -1124,4 +1124,17 @@ send("00000000000e0390", bytes.fromhex("ff19000102d204"))
 assert rt.values["modbus_chn_1"] == 12340
 send("00000000000e0390", bytes.fromhex("ff19000102ffff"))
 assert rt.values["modbus_chn_1"] is None                       # 0xFFFF = no reading
+t = mt.TEMPLATES["luxpower_lxp"]
+rows, _ = mt.plan("luxpower_lxp", None, 1, 1, max_channels=mt.max_channels("UC100"))
+e_lx, rt = make_with("00000000001c0100", "UC100", {"channel_map": mt.merge_map("", rows, mt.block_title(t, rows))},
+                     title="LuxPower")
+def ff19(ch, dtype, payload):
+    return bytes([0xFF, 0x19, ch - 1, len(payload), dtype]) + payload
+send("00000000001c0100", ff19(6, 2, (532).to_bytes(2, "little")) + ff19(7, 2, (0x6450).to_bytes(2, "little"))
+     + ff19(8, 2, (0x6450).to_bytes(2, "little")) + ff19(28, 4, (123456).to_bytes(4, "little")))
+v = rt.values
+assert v["modbus_chn_6"] == 53.2 and v["modbus_chn_7"] == 80 and v["modbus_chn_8"] == 100
+assert v["modbus_chn_28"] == 12345.6
+specs = {s.key: s for s in rt.extra_specs()}
+assert specs["modbus_chn_7"].device_class == "battery" and specs["modbus_chn_28"].state_class == "total_increasing"
 print("templates ok")

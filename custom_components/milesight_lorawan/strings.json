@@ -387,7 +387,7 @@
       },
       "channel_template_values": {
         "title": "{template}",
-        "description": "Choose the values to read, the first Modbus channel to use (they take consecutive channels) and the probe's RS485 address.\n\n{notes}{problems}",
+        "description": "Choose the values to read ({defaults} ticked by default), the first Modbus channel to use (they take consecutive channels) and the probe's RS485 address. This controller has {channels} Modbus channels.\n\n{notes}{problems}",
         "data": {
           "values": "Values",
           "first_channel": "First Modbus channel",
@@ -395,7 +395,7 @@
           "prefix": "Name prefix (optional)"
         },
         "data_description": {
-          "first_channel": "Suggested: the first channel not used in the channel map yet. The UC300 / UC50x have 16 Modbus channels.",
+          "first_channel": "Suggested: the first channel not used in the channel map yet. UC300 / UC50x: 16 channels, UC100: 64.",
           "prefix": "E.g. 'Field 3' → 'Field 3 Soil moisture' – useful with two probes of the same kind."
         }
       },

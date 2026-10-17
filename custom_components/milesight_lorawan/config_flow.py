@@ -622,12 +622,14 @@ class MilesightOptionsFlow(OptionsFlow):
 
     async def async_step_channel_template_values(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         t = _mt.TEMPLATES[self._tpl["key"]]
+        limit = _mt.max_channels(self.config_entry.options.get(CONF_MODEL, self.config_entry.data[CONF_MODEL]))
         errors: dict[str, str] = {}
-        placeholders = {"template": t.name, "notes": "\n".join(f"- {n}" for n in t.notes), "problems": ""}
+        placeholders = {"template": t.name, "notes": "\n".join(f"- {n}" for n in t.notes), "problems": "",
+                        "channels": str(limit), "defaults": str(len(t.defaults()))}
         if user_input is not None:
             rows, problems = _mt.plan(t.key, user_input.get("values") or [], int(user_input["first_channel"]),
                                       int(user_input["slave_id"]), (user_input.get("prefix") or "").strip()
-                                      and f"{user_input['prefix'].strip()} ")
+                                      and f"{user_input['prefix'].strip()} ", max_channels=limit)
             if problems:
                 errors["base"] = "template_invalid"
                 placeholders["problems"] = "\n\n" + "\n".join(f"- {p}" for p in problems)
@@ -637,11 +639,12 @@ class MilesightOptionsFlow(OptionsFlow):
         u = user_input or {}
         schema = {
             vol.Required("values", default=u.get("values", t.defaults())): SelectSelector(SelectSelectorConfig(
-                options=[{"value": r.key, "label": f"{r.name}" + (f" ({r.unit})" if r.unit else "")
+                options=[{"value": r.key, "label": (f"{r.group}: " if r.group else "") + f"{r.name}"
+                          + (f" ({r.unit})" if r.unit else "")
                           + (f" – {r.note}" if r.note else "")} for r in t.regs],
                 multiple=True, mode=SelectSelectorMode.LIST)),
             vol.Required("first_channel", default=u.get("first_channel", self._next_free_channel())):
-                _int_box(1, _mt.MAX_CHANNELS),
+                _int_box(1, limit),
             vol.Required("slave_id", default=u.get("slave_id", t.slave_id)): _int_box(1, 247),
             vol.Optional("prefix", description={"suggested_value": u.get("prefix")}): TextSelector(),
         }
