@@ -814,6 +814,34 @@ The gateway gets **Open alerts** (with the list and who acknowledged), **Alerts 
 is on call now), **Acknowledge all alerts** and **Send alert summary**; service
 `milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
 
+## Battery and maintenance
+
+**Battery forecast** – every battery device gets **Battery replacement due** (a date) and **Battery days left**.
+The forecast fits a line through one reading per day over the last months (Milesight reports whole percent, so
+it needs about two weeks of history; until the level first drops it says *no drop yet*). When the reporting
+rate changed it scales the drain to the current rate. It counts down to the device's *battery low* level. New
+batteries are detected by themselves (level jumps up to 80 % or more), or use the action **Battery replaced**.
+Devices that only report a voltage use a rough lithium curve (3.6 V full, 3.0 V empty).
+
+**Maintenance dashboard** (installed for every site): batteries due (red ≤ 30 days, orange ≤ 90), devices
+offline more than 24 h, weak signal with advice, firmware per model (mixed versions flagged, older devices
+listed) and the **service history**. Battery replacements, firmware changes and applied settings profiles are
+logged by themselves; add your own with the action **Log service** (`milesight_lorawan.log_service`: device,
+kind, note). Device alerts (offline, battery) open this dashboard from the phone.
+
+**Settings profiles** – device → **Configure → Settings profile**: copy this device's set-up to other devices of
+the same model in one go, save it under a name, or load a saved one. It copies the options (limits, purpose,
+opening hours, meters, channel map – optional) and, optionally, the settings sent to the device (reporting
+interval, alarm thresholds …) – only what differs is sent, queued and confirmed like any command. Options that
+belong to one device (pivot centre, applied Modbus templates, meter offset) are not copied. Also as the action
+`milesight_lorawan.apply_settings_profile`.
+
+**Installer handover report** – the gateway's **Create handover report** button (or the action
+`milesight_lorawan.handover_report`) writes a printable page and a CSV to `/config/www/milesight/` and shows
+links: site and contact, gateways, open points (offline, weak signal, single gateway with little margin, low
+battery, no area) and every device with area, purpose, network server, signal, battery and due date, firmware,
+last seen and the walk-test result, with signature lines. *Print / save as PDF* from the browser.
+
 ## Live dashboard views (gauges, sliders, maps)
 
 The Farm, Tanks & alerts, Cold chain and Energy & HVAC dashboards get a first **Live** view built from your
@@ -1058,6 +1086,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.31.0b5** | Beta: battery forecast, Maintenance dashboard with service history, settings profiles, installer handover report. |
 | **0.31.0b4** | Beta: smart alerts – Snooze and Open dashboard buttons, on-call rota, one-by-one escalation, quiet hours per category, weekly summary. |
 | **0.31.0b3** | Beta fix: network-server label on every device from start-up. |
 | **0.31.0b2** | Beta: network-server chip (label) and sensor on every device. |

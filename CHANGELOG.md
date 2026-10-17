@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.31.0b5 (beta)
+### Added – battery and maintenance
+- **Battery forecast**: *Battery replacement due* (date) and *Battery days left* on every battery device, from the
+  daily battery trend, corrected for changes in the reporting rate; new batteries detected by themselves or via
+  the **Battery replaced** action.
+- **Maintenance dashboard** (every site): batteries due, offline more than 24 h, weak signal, firmware per model
+  (mixed versions flagged) and the **service history** – battery replacements, firmware changes and applied
+  profiles are logged automatically; **Log service** action for your own entries. Device alerts open it.
+- **Settings profiles**: device → Configure → *Settings profile* – copy a device's options and over-the-air
+  settings to other devices of the same model, save / load / delete named profiles; action
+  `apply_settings_profile`. Only differing settings are sent and confirmed like any command.
+- **Installer handover report**: gateway button *Create handover report* / action `handover_report` – printable
+  page (print or save as PDF) and CSV in /config/www/milesight/ with open points, gateways and every device's
+  area, purpose, network server, signal, battery and due date, firmware, last seen and walk-test result.
+
 ## 0.31.0b4 (beta)
 ### Added – smart alerts
 - **Phone buttons**: *Acknowledge*, *Snooze 1 h* and *Open dashboard* on every alert (tapping the notification

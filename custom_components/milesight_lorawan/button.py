@@ -16,7 +16,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
         hub = entry.runtime_data
         buttons: list = [UpdateDashboardButton(hass, entry), _HubButton(hass, entry, "acknowledge_alerts"),
-                         _HubButton(hass, entry, "install_resources"), _HubButton(hass, entry, "alert_summary")]
+                         _HubButton(hass, entry, "install_resources"), _HubButton(hass, entry, "alert_summary"),
+                         _HubButton(hass, entry, "handover_report")]
         if getattr(hub, "ns", None) is not None:
             buttons.append(_HubButton(hass, entry, "sync_gateway"))
         async_add_entities(buttons)
@@ -86,7 +87,8 @@ class _HubButton(ButtonEntity):
     KINDS = {"acknowledge_alerts": ("Acknowledge all alerts", "mdi:bell-check-outline"),
              "sync_gateway": ("Sync devices with gateway", "mdi:sync"),
              "install_resources": ("Install dashboards and blueprints", "mdi:package-down"),
-             "alert_summary": ("Send alert summary", "mdi:email-newsletter")}
+             "alert_summary": ("Send alert summary", "mdi:email-newsletter"),
+             "handover_report": ("Create handover report", "mdi:clipboard-check-outline")}
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str) -> None:
         from .building import hub_device
@@ -102,6 +104,15 @@ class _HubButton(ButtonEntity):
                 await hub.alerts.async_acknowledge(None, None)
             elif self.kind == "alert_summary":
                 await hub.alerts.async_send_summary()
+            elif self.kind == "handover_report":
+                from homeassistant.components import persistent_notification
+                from .const import DOMAIN
+                from .maintenance_ha import async_handover_report
+                out = await async_handover_report(self.hass, self.entry)
+                persistent_notification.async_create(
+                    self.hass, f"{out['devices']} devices. [Open the printable report]({out['html']}) · "
+                               f"[Download CSV]({out['csv']})\n\nThe files are in /config/www/milesight/.",
+                    title="Milesight LoRaWAN: handover report", notification_id=f"{DOMAIN}_handover")
             elif self.kind == "install_resources":
                 from homeassistant.components import persistent_notification
                 from homeassistant.loader import async_get_integration

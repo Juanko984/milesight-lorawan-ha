@@ -1792,6 +1792,10 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     if "battery" in keys or model.dynamic and model_key.startswith(("UC5", "UC11-N1", "UC11-T1")):
         specs.append(EntitySpec("battery_low", "Battery low", platform="binary_sensor", device_class="battery",
                                 diagnostic=True))
+        specs.append(EntitySpec("battery_replace_by", "Battery replacement due", kind="timestamp",
+                                device_class="timestamp", icon="mdi:battery-clock", diagnostic=True))
+        specs.append(EntitySpec("battery_days_left", "Battery days left", unit="d", icon="mdi:battery-clock-outline",
+                                state_class="measurement", diagnostic=True))
     if downlinks(model_key):
         specs.append(EntitySpec("last_command", "Last command", kind="text", icon="mdi:message-arrow-right-outline",
                                 diagnostic=True))

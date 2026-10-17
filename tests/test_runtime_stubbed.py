@@ -221,7 +221,7 @@ for i, (model, raw) in enumerate(samples.items()):
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
         empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status")]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -231,7 +231,7 @@ for i, (model, raw) in enumerate(samples.items()):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
                  and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status")]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -467,10 +467,11 @@ dev_entry = types.SimpleNamespace(data={"entry_type": "device", "deveui": rt.dev
 hub_entry = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="h1", title="GW", runtime_data=hb)
 fake = types.SimpleNamespace(config_entries=types.SimpleNamespace(async_entries=lambda d: [hub_entry, dev_entry]))
 devs = fleet.fleet_devices(fake, hub_entry)
-assert devs == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
+assert [{k: d[k] for k in list(d)[:16]} for d in devs] == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
                  "battery": 90, "battery_low": False, "rssi": -95, "snr": 7.0, "sf": 9, "gateway": "Local Gateway",
                  "gateways_heard": 1, "signal": "excellent", "packet_loss": 0.0, "command": "confirmed",
                  "last_seen": devs[0]["last_seen"]}], devs
+assert devs[0]["network_server"] == "Gateway (Embedded NS)" and "battery_forecast" in devs[0]
 print("fleet ok")
 
 # Settings (alarm thresholds, LED / child lock), stored history, pulse meter
@@ -859,7 +860,7 @@ assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") 
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 11 and (bp / "leak.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-fleet", "milesight-signal", "milesight-tanks", "milesight-analytics"}
+assert set(dashes) == {"milesight-fleet", "milesight-signal", "milesight-maintenance", "milesight-tanks", "milesight-analytics"}
 assert dashes["milesight-tanks"].saved["title"] == "Tanks & alerts" and "milesight-tanks" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -1344,3 +1345,67 @@ assert res_c._connection_label(quiet, dq, labs, devs2, st) and dq.labels == {"lo
 loop_.run_until_complete(hbl.lns.async_stop())
 loop_.close()
 print("network server ok")
+
+# ---------------- 0.31b5: battery forecast, service history, settings profiles, handover report ----------------
+from datetime import datetime as _dt2
+mh = load("maintenance_ha")
+class _MemStore:
+    data = None
+    async def async_load(self): return _MemStore.data
+    async def async_save(self, d): _MemStore.data = json.loads(json.dumps(d))
+mh._store = lambda h: _MemStore()
+e_a, rt_a = make_with("00000000000b0001", "EM300-TH", {"battery_low_pct": 20, "max_gap_min": 120}, title="Fridge A")
+e_b, rt_b = make_with("00000000000b0002", "EM300-TH", {"battery_low_pct": 10, "meter_offset": 3}, title="Fridge B")
+# 40 days of battery readings dropping 1 % every 4 days → a replacement date ~ (pct-20)*4 days away
+day0 = _dt2.now(rt_a.cal.tz).date().toordinal() - 40
+for i in range(41):
+    rt_a.battery_fc.add(day0 + i, 90 - i // 4, time.time() - (40 - i) * 86400)
+rt_a._publish(time.time())
+assert 220 <= rt_a.values["battery_days_left"] <= 260, rt_a.values["battery_days_left"]
+assert rt_a.values["battery_replace_by"] > time.time() + 200 * 86400
+assert rt_a.attrs["battery_replace_by"]["method"] == "trend"
+rt_a.battery_replaced("Juan")
+assert rt_a.values.get("battery_days_left") is None and rt_a.meta["_service_log"][-1]["kind"] == "battery_replaced"
+# firmware change is logged
+rt_a.raw["firmware_version"] = "1.1"; rt_a._update_registry()
+rt_a.raw["firmware_version"] = "1.2"; rt_a._update_registry()
+assert rt_a.meta["_service_log"][-1]["text"] == "Firmware 1.1 → 1.2"
+fields = fleet.maintenance_fields(rt_a, e_a, time.time())
+assert fields["firmware"] == "1.2" and fields["service"][0]["text"] == "Firmware 1.1 → 1.2"
+# settings profile: A's options + over-the-air settings onto B
+rt_a.meta.setdefault("config", {})["report_interval"] = 5
+sentdl = []
+async def _cmd(name, value=None): sentdl.append((name, value)); rt_b.meta.setdefault("config", {})[name] = value
+rt_b.async_command = _cmd
+updated = []
+hass.config_entries.async_update_entry = lambda e, options: (updated.append((e.title, options)), setattr(e, "options", options))
+prof = asyncio.run(mh.async_save_profile(hass, e_a, "Fridge"))
+assert asyncio.run(mh.async_profiles(hass))["Fridge"]["model"] == "EM300-TH"
+res = asyncio.run(mh.async_apply_profile(hass, prof, e_b, True, True, "Juan"))
+assert sentdl == [("report_interval", 5)] and res["sent"] == 1 and res["options"] >= 2
+assert e_b.options["battery_low_pct"] == 20 and e_b.options["max_gap_min"] == 120 and e_b.options["meter_offset"] == 3
+assert rt_b.meta["_service_log"][-1]["kind"] == "profile" and "'Fridge' applied" in rt_b.meta["_service_log"][-1]["text"]
+_titles = [e.title for e in mh.same_model_entries(hass, "EM300-TH", e_a.entry_id)]
+assert "Fridge B" in _titles and "Fridge A" not in _titles and "Button" not in _titles
+_, rt_c = make_with("00000000000b0003", "WS101", {}, title="Button")
+try:
+    asyncio.run(mh.async_apply_profile(hass, prof, rt_c.entry))
+    raise AssertionError("other model")
+except ValueError:
+    pass
+# handover report files
+import tempfile, os
+tmpd = tempfile.mkdtemp()
+hass.config.path = lambda *p: os.path.join(tmpd, *p)
+async def _exec(fn, *a): return fn(*a)
+hass.async_add_executor_job = _exec
+hub_ho = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="hho", title="Farm gate", options={}, runtime_data=hb)
+hass.states = types.SimpleNamespace(get=lambda e: None)
+hass.config.location_name, hass.config.country, hass.config.latitude, hass.config.longitude = "Acme", "ZA", 0, 0
+entries.async_entry_for_domain_unique_id = lambda d, u: next((e for e in entries.items if e.data.get("deveui") == u), None)
+out_ho = asyncio.run(mh.async_handover_report(hass, hub_ho))
+assert out_ho["html"].startswith("/local/milesight/handover-farm-gate-") and int(out_ho["devices"]) >= 3
+page = open(os.path.join(tmpd, "www", "milesight", out_ho["html"].rsplit("/", 1)[1]), encoding="utf-8").read()
+assert "Fridge A" in page and "LoRaWAN installation handover" in page
+entries.async_entry_for_domain_unique_id = lambda d, u: u in entries.known
+print("maintenance ok")

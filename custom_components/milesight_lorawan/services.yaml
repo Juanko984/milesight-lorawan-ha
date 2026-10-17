@@ -160,3 +160,55 @@ tank_refilled:
         device:
           integration: milesight_lorawan
           multiple: true
+log_service:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: milesight_lorawan
+          multiple: true
+    kind:
+      default: maintenance
+      selector:
+        select:
+          options:
+            - maintenance
+            - battery_replaced
+            - firmware
+            - note
+    note:
+      required: true
+      example: "Cleaned the sensor, re-mounted at 1.5 m"
+      selector:
+        text:
+battery_replaced:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: milesight_lorawan
+          multiple: true
+apply_settings_profile:
+  fields:
+    profile:
+      required: true
+      example: "Cold room probe"
+      selector:
+        text:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: milesight_lorawan
+          multiple: true
+    include_channels:
+      default: true
+      selector:
+        boolean:
+    send_to_devices:
+      default: true
+      selector:
+        boolean:
+handover_report:

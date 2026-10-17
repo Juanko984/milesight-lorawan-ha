@@ -530,9 +530,69 @@ class MilesightOptionsFlow(OptionsFlow):
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if _lns_hub(self.hass) is not None or entry.data.get(CONF_LNS_APP_KEY):
             sections.append("network_keys")
+        sections.append("settings_profile")
         if sections:
             return self.async_show_menu(step_id="init", menu_options=["general", *sections])
         return await self.async_step_general()
+
+    async def async_step_settings_profile(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: copy this device's set-up to others of the same model, save it as a profile, or load one."""
+        from . import maintenance_ha as _mh
+        from .profiles import describe
+        entry = self.config_entry
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        saved = {n: p for n, p in (await _mh.async_profiles(self.hass)).items() if p["model"] == model}
+        others = _mh.same_model_entries(self.hass, model, entry.entry_id)
+        errors: dict[str, str] = {}
+        placeholders = {"model": model, "result": "", "profiles": ", ".join(describe(p) for p in saved.values()) or "none"}
+        if user_input is not None:
+            channels, send = bool(user_input.get("include_channels", True)), bool(user_input.get("send_to_devices", True))
+            name = (user_input.get("save_as") or "").strip()
+            targets = [e for e in others if e.entry_id in (user_input.get("copy_to") or [])]
+            load = user_input.get("load_profile")
+            if not (name or targets or load or user_input.get("delete_profile")):
+                errors["base"] = "profile_nothing"
+            else:
+                done = []
+                if user_input.get("delete_profile"):
+                    await _mh.async_delete_profile(self.hass, user_input["delete_profile"])
+                    done.append(f"deleted '{user_input['delete_profile']}'")
+                prof = None
+                if name or targets:
+                    prof = await _mh.async_save_profile(self.hass, entry, name or f"{entry.title} ({model})")
+                    if name:
+                        done.append(f"saved as '{prof['name']}'")
+                    if not name:                      # a one-off copy: don't keep it in the list
+                        await _mh.async_delete_profile(self.hass, prof["name"])
+                for t in targets:
+                    r = await _mh.async_apply_profile(self.hass, prof, t, channels, send)
+                    done.append(f"{t.title}: {r['options']} options, {r['sent']} settings sent"
+                                + (f", {len(r['failed'])} failed" if r["failed"] else ""))
+                if load and load in saved:
+                    r = await _mh.async_apply_profile(self.hass, saved[load], entry, channels, send)
+                    done.append(f"this device ← '{load}': {r['options']} options, {r['sent']} settings sent")
+                    return self.async_abort(reason="profile_done", description_placeholders={"result": "; ".join(done)})
+                return self.async_create_entry(data=dict(entry.options)) if not done else self.async_abort(
+                    reason="profile_done", description_placeholders={"result": "; ".join(done)})
+        schema = {
+            vol.Optional("copy_to"): SelectSelector(SelectSelectorConfig(
+                options=[{"value": e.entry_id, "label": e.title} for e in others], multiple=True,
+                mode=SelectSelectorMode.LIST)) if others else TextSelector(),
+            vol.Optional("save_as"): TextSelector(),
+            vol.Optional("load_profile"): SelectSelector(SelectSelectorConfig(options=list(saved),
+                                                                                 mode=SelectSelectorMode.DROPDOWN)),
+            vol.Optional("delete_profile"): SelectSelector(SelectSelectorConfig(options=list(saved),
+                                                                                   mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required("include_channels", default=True): BooleanSelector(),
+            vol.Required("send_to_devices", default=True): BooleanSelector(),
+        }
+        if not others:
+            schema.pop(next(k for k in schema if k.schema == "copy_to"))
+        if not saved:
+            for key in ("load_profile", "delete_profile"):
+                schema.pop(next(k for k in schema if k.schema == key))
+        return self.async_show_form(step_id="settings_profile", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders=placeholders)
 
     async def async_step_network_keys(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Device: AppKey (and optional JoinEUI) for the gateway's built-in network server."""

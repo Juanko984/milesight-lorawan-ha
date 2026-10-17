@@ -232,6 +232,8 @@ class DeviceRuntime:
         self.link = LinkStats(data.get("link"))
         self.display = data.get("display", {})
         trackers = data.get("trackers", {})
+        from .battery import BatteryForecast
+        self.battery_fc = BatteryForecast(trackers.get("battery_fc"))
         f = self.model.features
         max_gap_s = float(self._opt(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)) * 60
         self.max_gap_s = max_gap_s
@@ -360,6 +362,7 @@ class DeviceRuntime:
         if "vs373" in self.model.features:
             self._handle_vs373(decoded, ts)
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
+        self._battery_reading(ts, decoded)
         self._check_commands(up.raw.hex() if up.raw else "", decoded, ts)
         self._update_registry()
 
@@ -972,9 +975,59 @@ class DeviceRuntime:
             self.meta["last_network_error"] = note.get("error")
         self._publish(ts)
 
+    # ------------------------------------------------------------ maintenance
+    def log_service(self, kind: str, text: str, by: str | None = None, ts: float | None = None) -> None:
+        """Service history of this device (battery replaced, firmware, settings profile, notes)."""
+        log = self.meta.setdefault("_service_log", [])
+        log.append({"at": ts or time.time(), "kind": kind, "text": text, "by": by})
+        del log[:-50]
+        self.store.async_delay_save(self._data_to_save, 5)
+
+    def battery_replaced(self, by: str | None = None) -> None:
+        """Batteries replaced by hand: restart the forecast and note it."""
+        from .battery import BatteryForecast
+        self.battery_fc = BatteryForecast({"replaced": self.battery_fc.replaced + [time.time()]})
+        self.log_service("battery_replaced", "Battery replaced", by)
+        self._publish(time.time())
+
+    def _battery_reading(self, ts: float, decoded: dict[str, Any]) -> None:
+        from .battery import pct_from_voltage
+        pct = decoded.get("battery")
+        if not isinstance(pct, (int, float)) and isinstance(decoded.get("battery_voltage"), (int, float)):
+            pct = pct_from_voltage(decoded["battery_voltage"])
+        if not isinstance(pct, (int, float)) or isinstance(pct, bool) or getattr(self, "battery_fc", None) is None:
+            return
+        day = datetime.fromtimestamp(ts, self.cal.tz).date().toordinal()
+        if self.battery_fc.add(day, float(pct), ts):
+            self.log_service("battery_replaced", f"Battery replaced (level jumped to {pct:g} %)", ts=ts)
+
+    def _battery_values(self, v: dict[str, Any], ts: float) -> None:
+        if getattr(self, "battery_fc", None) is None or not self.battery_fc.days:
+            return
+        from datetime import date as _date
+        today = datetime.fromtimestamp(ts, self.cal.tz).date()
+        per_day = self.battery_fc.days[-2][2] if len(self.battery_fc.days) > 1 else None
+        fc = self.battery_fc.forecast(today.toordinal(), self.battery_low_pct, per_day)
+        v["battery_days_left"] = fc["days_left"]
+        when = None
+        if fc["replace_on"] is not None:
+            d = _date.fromordinal(fc["replace_on"])
+            when = datetime(d.year, d.month, d.day, 12, tzinfo=self.cal.tz).timestamp()
+        v["battery_replace_by"] = when
+        last = fc.get("last_replaced")
+        info = {"method": fc["method"], "reason": fc["reason"], "percent_per_month": fc["pct_per_month"],
+                "days_of_history": fc["samples"], "low_at_percent": self.battery_low_pct,
+                "last_replaced": datetime.fromtimestamp(last, self.cal.tz).date().isoformat() if last else None}
+        self.attrs["battery_replace_by"] = info
+        self.attrs["battery_days_left"] = info
+
     def _update_registry(self) -> None:
         """Keep firmware / hardware version on the device page up to date."""
         fw, hw = self.raw.get("firmware_version"), self.raw.get("hardware_version")
+        if fw and self.meta.get("_fw_seen") and fw != self.meta["_fw_seen"]:
+            self.log_service("firmware", f"Firmware {self.meta['_fw_seen']} → {fw}")
+        if fw:
+            self.meta["_fw_seen"] = fw
         if [fw, hw] == self.meta.get("_registry_versions") or not (fw or hw):
             return
         try:
@@ -1233,6 +1286,7 @@ class DeviceRuntime:
         v["online"] = (ts - last <= self.max_gap_s) if last else None       # unknown until the first uplink
         if isinstance(v.get("battery"), (int, float)):
             v["battery_low"] = v["battery"] < self.battery_low_pct
+        self._battery_values(v, ts)
         fleet = (v["online"], v.get("battery_low"))
         if fleet != self._fleet_state:
             if self._fleet_state is not None and None not in (fleet[0], self._fleet_state[0]) \
@@ -1434,6 +1488,8 @@ class DeviceRuntime:
             trackers["tempwatch"] = self.tempw.s
         if self.trend is not None:
             trackers["trend"] = self.trend.to_dict()
+        if getattr(self, "battery_fc", None) is not None and (self.battery_fc.days or self.battery_fc.replaced):
+            trackers["battery_fc"] = self.battery_fc.to_dict()
         if self.pivot is not None:
             trackers["pivot"] = {**self.pivot.s, "centre": [self.pivot_cfg.lat, self.pivot_cfg.lon]}
         return {"raw": self.raw, "meta": self.meta, "trackers": trackers, "commands": self.commands.to_dict(),

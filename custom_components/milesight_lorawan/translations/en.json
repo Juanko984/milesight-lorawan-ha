@@ -116,7 +116,8 @@
           "purpose": "Purpose (what it is fitted to)",
           "channel_template": "Sensor templates (RS485 / Modbus)",
           "network_server": "Built-in network server (packet forwarder)",
-          "network_keys": "Network server keys"
+          "network_keys": "Network server keys",
+          "settings_profile": "Settings profile (copy to other devices)"
         }
       },
       "connection": {
@@ -462,6 +463,21 @@
           "lns_join_eui": "JoinEUI / AppEUI (optional, 16 hex characters)",
           "forget_session": "Forget the current session (the device must join again)"
         }
+      },
+      "settings_profile": {
+        "title": "Settings profile",
+        "description": "Copy this {model}'s set-up – options (limits, purpose, opening hours, meters, channel map …) and the settings sent to the device (reporting interval, alarms …) – to other {model} devices, save it as a named profile, or load a saved one onto this device. Options that belong to one device only (pivot centre, applied Modbus templates, meter offset) are not copied.\n\nSaved {model} profiles: {profiles}",
+        "data": {
+          "copy_to": "Copy to these devices",
+          "save_as": "Save as profile (name)",
+          "load_profile": "Load a saved profile onto this device",
+          "delete_profile": "Delete a saved profile",
+          "include_channels": "Include the channel map",
+          "send_to_devices": "Send device settings over the air (only what differs)"
+        },
+        "data_description": {
+          "send_to_devices": "Queued like any command and confirmed by each device's next uplink. Untick to copy only the Home Assistant options."
+        }
       }
     },
     "error": {
@@ -475,7 +491,11 @@
       "template_nothing": "Pick a sensor to apply or a template to remove.",
       "send_failed": "Could not send to the controller – see the message below.",
       "invalid_join_eui": "The JoinEUI must be 16 hexadecimal characters.",
-      "rota_invalid": "Could not read this: {error}"
+      "rota_invalid": "Could not read this: {error}",
+      "profile_nothing": "Choose devices to copy to, a name to save, or a profile to load or delete."
+    },
+    "abort": {
+      "profile_done": "Done: {result}"
     }
   },
   "selector": {
@@ -699,6 +719,60 @@
           "description": "One or more level sensors with a tank set up."
         }
       }
+    },
+    "log_service": {
+      "name": "Log service",
+      "description": "Adds an entry to a device's service history (shown on the Maintenance dashboard).",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "Milesight devices."
+        },
+        "kind": {
+          "name": "Kind",
+          "description": "maintenance, battery_replaced (also restarts the battery forecast), firmware or note."
+        },
+        "note": {
+          "name": "Note",
+          "description": "What was done."
+        }
+      }
+    },
+    "battery_replaced": {
+      "name": "Battery replaced",
+      "description": "Notes new batteries in the service history and restarts the battery forecast.",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "Milesight devices."
+        }
+      }
+    },
+    "apply_settings_profile": {
+      "name": "Apply settings profile",
+      "description": "Applies a saved settings profile to devices of the same model.",
+      "fields": {
+        "profile": {
+          "name": "Profile",
+          "description": "Name of a saved profile (device → Configure → Settings profile)."
+        },
+        "device_id": {
+          "name": "Devices",
+          "description": "Devices of the profile's model."
+        },
+        "include_channels": {
+          "name": "Include channel map",
+          "description": "Also copy the channel map."
+        },
+        "send_to_devices": {
+          "name": "Send to devices",
+          "description": "Send the device settings over the air (only what differs)."
+        }
+      }
+    },
+    "handover_report": {
+      "name": "Handover report",
+      "description": "Writes the installer handover report (printable page and CSV) to /config/www/milesight/ and returns their links."
     }
   },
   "entity": {

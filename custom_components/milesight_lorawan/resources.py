@@ -23,6 +23,7 @@ RES = pathlib.Path(__file__).parent / "resources"
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
     "fleet_overview.yaml": ("milesight-fleet", "mdi:access-point-network", None),
     "signal_quality.yaml": ("milesight-signal", "mdi:signal", None),
+    "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
     "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),

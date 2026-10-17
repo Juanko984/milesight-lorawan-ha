@@ -75,7 +75,7 @@ def alert_settings(opts: dict[str, Any]) -> AlertSettings:
 # alert category -> ready-made dashboard (resources.DASHBOARDS url); others open the site landing page
 CATEGORY_DASHBOARD = {"tank": "milesight-tanks", "pumps": "milesight-farm", "irrigation": "milesight-farm",
                       "cold_chain": "milesight-cold-chain", "energy": "milesight-energy",
-                      "building": "milesight-analytics", "gateways": "milesight-signal", "devices": "milesight-fleet",
+                      "building": "milesight-analytics", "gateways": "milesight-signal", "devices": "milesight-maintenance",
                       "commands": "milesight-fleet"}
 
 

@@ -1841,6 +1841,115 @@ def test_smart_alerts_rota_snooze_summary():
     assert alr.AlertEngine(st).summary(t + 3000)["alerts"] == 2           # survives a restart
     assert eng3.summary(t + 9 * 86400)["alerts"] == 0                      # only the last 7 days
 
+
+def test_battery_forecast():
+    bat = _load("battery")
+    fc = bat.BatteryForecast()
+    day0, t0 = 740000, T("2026-01-01 12:00")
+    assert fc.forecast(day0, 20)["reason"] == "no battery readings yet"
+    for i in range(10):
+        fc.add(day0 + i, 100, t0 + i * 86400)
+    assert fc.forecast(day0 + 9, 20)["reason"].startswith("collecting")
+    for i in range(10, 40):
+        fc.add(day0 + i, 100, t0 + i * 86400)
+    f = fc.forecast(day0 + 39, 20)
+    assert f["days_left"] is None and f["method"] == "flat" and "no drop yet" in f["reason"]
+    # 1 % every 6 days from day 40: ~5 % per month
+    fc2 = bat.BatteryForecast()
+    for i in range(0, 120):
+        fc2.add(day0 + i, 100 - i // 6, t0 + i * 86400)
+        fc2.add(day0 + i, 100 - i // 6, t0 + i * 86400 + 600)      # two readings a day: lowest kept, count 2
+    f = fc2.forecast(day0 + 119, 20)
+    assert f["method"] == "trend" and -5.5 < f["pct_per_month"] < -4.5 and fc2.days[-1][2] == 2
+    now_pct = 100 - 119 // 6
+    assert abs(f["days_left"] - (now_pct - 20) * 6) <= 6 and f["replace_on"] == day0 + 119 + f["days_left"]
+    # reporting twice as often now → drains twice as fast
+    f2 = fc2.forecast(day0 + 119, 20, uplinks_per_day_now=4)
+    assert abs(f2["days_left"] - f["days_left"] / 2) <= 3 and "adjusted" in f2["method"]
+    # new batteries: history restarts, replacement noted; a jump to a low value is not a replacement
+    fc2.add(day0 + 120, 55, t0 + 120 * 86400)
+    assert fc2.add(day0 + 121, 100, t0 + 121 * 86400) is True and len(fc2.days) == 1 and fc2.replaced
+    fc3 = bat.BatteryForecast()
+    fc3.add(day0, 30, t0)
+    assert fc3.add(day0 + 1, 60, t0 + 86400) is False
+    assert fc3.forecast(day0 + 1, 40)["method"] is None
+    low = bat.BatteryForecast({"days": [[day0, 15, 1]]})
+    assert low.forecast(day0, 20)["days_left"] == 0
+    assert bat.pct_from_voltage(3.6) == 100 and bat.pct_from_voltage(3.3) == 50 and bat.pct_from_voltage(2.5) == 0
+    assert bat.BatteryForecast(json.loads(json.dumps(fc2.to_dict()))).replaced == fc2.replaced
+
+
+def test_settings_profiles():
+    prf = _load("profiles")
+    opts = {"model": "EM300-TH", "battery_low_pct": 25, "max_gap_min": 60, "purpose": "fridge", "p_temp_high": 8,
+            "channel_map": "1; x", "pivot_centre": {"lat": 1}, "meter_offset": 5, "channel_templates": [{"t": 1}]}
+    meta = {"config": {"report_interval": 5}, "settings": {"temperature_alarm": {"condition": "above", "max": 8}}}
+    p = prf.capture("EM300-TH", opts, meta, "Fridge", "Fridge 1", 1.0)
+    assert "pivot_centre" not in p["options"] and "meter_offset" not in p["options"] and "model" not in p["options"]
+    assert p["options"]["p_temp_high"] == 8 and p["config"] == {"report_interval": 5}
+    target = {"model": "EM300-TH", "battery_low_pct": 10, "meter_offset": 2, "channel_map": "2; y", "old": 1}
+    new = prf.merged_options(target, p, channels=False)
+    assert new["battery_low_pct"] == 25 and new["meter_offset"] == 2 and new["channel_map"] == "2; y"
+    assert new["model"] == "EM300-TH" and "old" not in new and new["purpose"] == "fridge"
+    assert prf.merged_options(target, p)["channel_map"] == "1; x"
+    steps = prf.over_the_air(p, {"config": {"report_interval": 5}, "settings": {}})
+    assert steps == [("setting", ("temperature_alarm", {"condition": "above", "max": 8}))]
+    assert prf.over_the_air(p, meta) == []
+    assert "Fridge (EM300-TH, 5 options, 2 device settings, from Fridge 1)" == prf.describe(p)
+
+
+def test_handover_report():
+    ho = _load("handover")
+    devs = [{"name": "Cold room", "model": "EM300-TH", "deveui": "24E1", "area": "Kitchen", "purpose": "Freezer",
+             "network_server": "Gateway (Embedded NS)", "online": True, "signal": "good", "rssi": -98, "snr": 6.5,
+             "sf": 9, "gateway": "UG65", "gateways_heard": 2, "packet_loss": 0, "battery": 93,
+             "battery_replace_by": "2029-03-01", "firmware": "1.3", "last_seen": "2026-10-17T09:00:00+00:00",
+             "battery_low": False, "walk_test": {"verdict": "good", "spot": "door", "count": 12}},
+            {"name": "Gate <b>", "model": "WS101", "deveui": "24E2", "area": None, "online": False, "signal": "poor",
+             "gateways_heard": 1, "battery": 15, "battery_low": True, "last_seen": None}]
+    csv_text = ho.report_csv(devs)
+    rows = csv_text.strip().splitlines()
+    assert rows[0].startswith("Device,Model,DevEUI,Area") and rows[1].startswith("Cold room,EM300-TH")
+    assert "good at door (12 readings)" in rows[1] and "2026-10-17 09:00" in rows[1] and ",no," in rows[2]
+    todo = ho.checks(devs)
+    assert any(t.startswith("Offline: Gate") for t in todo) and any("No area set" in t for t in todo)
+    page = ho.report_html({"site": "Farm", "company": "Acme", "address": "R1", "contact": "Juan"}, devs,
+                          [{"id": "24e124fffefa2994", "name": "UG65", "packets_today": 120}], "17 October 2026 10:00")
+    assert "Gate &lt;b&gt;" in page and "<b>2</b> devices" in page and "window.print()" in page
+    assert "UG65" in page and "due 2029-03-01" in page and "Installer – name" in page
+
+
+def test_maintenance_dashboard_renders():
+    import jinja2
+    import yaml
+    env = jinja2.Environment(extensions=["jinja2.ext.loopcontrols", "jinja2.ext.do"])
+    env.filters["timestamp_custom"] = lambda v, f: "17 Oct"
+    S = types.SimpleNamespace
+    devs = [{"name": "Cold room", "model": "EM300-TH", "area": "Kitchen", "online": True, "battery": 40,
+             "battery_low": False, "battery_days_left": 45, "battery_replace_by": "2026-12-01",
+             "battery_forecast": "trend", "signal": "fair", "rssi": -112, "snr": -6, "sf": 10, "gateways_heard": 1,
+             "packet_loss": 2, "firmware": "1.2", "offline_hours": None, "last_seen": "x",
+             "service": [{"at": "2026-10-10T09:00:00", "kind": "battery_replaced", "text": "Battery replaced", "by": "Juan"}]},
+            {"name": "Freezer", "model": "EM300-TH", "area": None, "online": False, "battery": 90, "battery_low": False,
+             "battery_days_left": None, "battery_replace_by": None, "battery_forecast": "collecting", "signal": "good",
+             "rssi": -90, "snr": 8, "sf": 7, "gateways_heard": 2, "packet_loss": 0, "firmware": "1.3",
+             "offline_hours": 30.5, "last_seen": "x", "service": []}]
+    states = S(sensor=[S(state="2", attributes={"milesight_role": "fleet_total", "devices": devs})])
+    cfg = yaml.safe_load((PKG.parents[1] / "dashboards" / "maintenance.yaml").read_text(encoding="utf-8"))
+    out = {}
+    for sec in cfg["views"][0]["sections"]:
+        for card in sec["cards"]:
+            if card["type"] == "markdown":
+                head = next((c.get("heading") for c in sec["cards"] if c["type"] == "heading"), "summary")
+                out[head] = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0, dict=dict)
+    assert "**2 devices** · 🔋 1 batteries due in 90 days · 📴 1 offline > 24 h · 📶 0 weak signal" in out["summary"]
+    assert "🟠 **Cold room** · Kitchen · 40 %" in out["Batteries"] and "replace by **2026-12-01** (45 days)" in out["Batteries"]
+    assert "No forecast yet: Freezer" in out["Batteries"]
+    assert "📴 **Freezer**" in out["Offline more than 24 h"] and "1.3 days" in out["Offline more than 24 h"]
+    assert "🟠 **Cold room**" in out["Weak signal"]
+    assert "⚠ mixed: 1.2 (1), 1.3 (1)" in out["Firmware"] and "Older than 1.3: Cold room" in out["Firmware"]
+    assert "🔋 **Cold room**" in out["Service history"] and "Battery replaced · Juan" in out["Service history"]
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
