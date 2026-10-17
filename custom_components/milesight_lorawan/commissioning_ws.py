@@ -58,7 +58,7 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             hass.http.register_static_path(STATIC_URL, str(FRONTEND), True)
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
-        for handler in (ws_parse, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save):
+        for handler in (ws_parse, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
     if not data.get("commissioning_panel"):
@@ -123,7 +123,8 @@ def ws_devices(hass: HomeAssistant, connection, msg: dict) -> None:
             "deveui": e.data[CONF_DEVEUI], "name": e.title, "model": e.options.get("model", e.data.get("model")),
             "area": e.data.get("area"), "last_seen": rt.meta.get("last_seen") if rt else None,
             "can_fast": bool(rt is not None and "prefix" in (downlinks(rt.model.key).get("report_interval") or {})),
-            "walk_test": rt.meta.get("walk_test") if rt else None, "configured": True}
+            "walk_test": rt.meta.get("walk_test") if rt else None, "configured": True,
+            "location": e.options.get("location")}
     heard = []
     for hub in _hubs(hass):
         for eui, up in hub.last_uplink.items():
@@ -244,3 +245,29 @@ def ws_save(hass: HomeAssistant, connection, msg: dict) -> None:
     if rt is not None:
         rt.save_commissioning(result)
     connection.send_result(msg["id"], {"saved": rt is not None, "result": result})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/location", vol.Required("deveui"): str,
+                                  vol.Optional("latitude"): vol.Any(None, float, int),
+                                  vol.Optional("longitude"): vol.Any(None, float, int),
+                                  vol.Optional("accuracy"): vol.Any(None, float, int)})
+@websocket_api.require_admin
+@callback
+def ws_location(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Fixed location of a device (the phone's GPS where the installer stands), or clear it (no latitude)."""
+    deveui = _norm(msg["deveui"])
+    entry = next((e for e in hass.config_entries.async_entries(DOMAIN) if e.data.get(CONF_DEVEUI) == deveui), None)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Add the device to Home Assistant first")
+        return
+    lat, lon = msg.get("latitude"), msg.get("longitude")
+    opts = {k: v for k, v in entry.options.items() if k != "location"}
+    if lat is not None and lon is not None:
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            connection.send_error(msg["id"], "invalid", "Coordinates out of range")
+            return
+        opts["location"] = {"latitude": round(float(lat), 6), "longitude": round(float(lon), 6),
+                            "accuracy": round(float(msg["accuracy"])) if msg.get("accuracy") is not None else None,
+                            "at": time.time(), "by": connection.user.name if connection.user else None}
+    hass.config_entries.async_update_entry(entry, options=opts)      # the device reloads with its Location entity
+    connection.send_result(msg["id"], {"location": opts.get("location")})

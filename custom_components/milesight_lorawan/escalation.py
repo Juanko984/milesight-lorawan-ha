@@ -14,7 +14,8 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .alerts import ACTION_ACK, ACTION_RUN, AlertEngine, AlertSettings, device_alerts, effective_categories, notify_data
+from .alerts import (ACTION_ACK, ACTION_RUN, ACTION_SNOOZE, DAYS, AlertEngine, AlertSettings, RotaError,
+                     device_alerts, effective_categories, notify_data, parse_category_quiet, parse_rota, summary_text)
 from .const import (
     CONF_ALERT_ACTION_ENTITY,
     CONF_ALERT_ACTION_TITLE,
@@ -27,6 +28,12 @@ from .const import (
     CONF_ALERT_QUIET_START,
     CONF_ALERT_REPEAT_MIN,
     CONF_ALERT_RESOLVED,
+    CONF_ALERT_CATEGORY_QUIET,
+    CONF_ALERT_ROTA,
+    CONF_ALERT_SNOOZE_MIN,
+    CONF_ALERT_SUMMARY,
+    CONF_ALERT_SUMMARY_DAY,
+    CONF_ALERT_SUMMARY_HOUR,
     DOMAIN,
     SIGNAL_ALERTS,
     SIGNAL_ALERTS_CHANGED,
@@ -41,7 +48,18 @@ def alert_settings(opts: dict[str, Any]) -> AlertSettings:
         v = opts.get(key)
         return None if v in (None, "") else int(v) % 24
     qs, qe = hour(CONF_ALERT_QUIET_START), hour(CONF_ALERT_QUIET_END)
+    try:
+        rota = parse_rota(opts.get(CONF_ALERT_ROTA))
+    except RotaError as err:                       # the form checks this; never stop alerts over it
+        _LOGGER.warning("On-call rota ignored: %s", err)
+        rota = []
+    try:
+        cat_quiet = parse_category_quiet(opts.get(CONF_ALERT_CATEGORY_QUIET))
+    except RotaError as err:
+        _LOGGER.warning("Quiet hours per category ignored: %s", err)
+        cat_quiet = {}
     return AlertSettings(
+        rota=rota, category_quiet=cat_quiet, snooze_min=float(opts.get(CONF_ALERT_SNOOZE_MIN, 60) or 60),
         primary=[t for t in opts.get(CONF_ALERT_PRIMARY) or [] if t],
         backup=[t for t in opts.get(CONF_ALERT_BACKUP) or [] if t],
         escalate_min=float(opts.get(CONF_ALERT_ESCALATE_MIN, 15) or 15),
@@ -52,6 +70,13 @@ def alert_settings(opts: dict[str, Any]) -> AlertSettings:
         categories=effective_categories(opts),
         action_title=(opts.get(CONF_ALERT_ACTION_TITLE) or "Start pump") if opts.get(CONF_ALERT_ACTION_ENTITY) else "",
     )
+
+
+# alert category -> ready-made dashboard (resources.DASHBOARDS url); others open the site landing page
+CATEGORY_DASHBOARD = {"tank": "milesight-tanks", "pumps": "milesight-farm", "irrigation": "milesight-farm",
+                      "cold_chain": "milesight-cold-chain", "energy": "milesight-energy",
+                      "building": "milesight-analytics", "gateways": "milesight-maintenance/signal",
+                      "devices": "milesight-maintenance", "commands": "milesight-maintenance/devices"}
 
 
 class AlertManager:
@@ -73,6 +98,22 @@ class AlertManager:
         self._unsubs.append(async_track_time_interval(self.hass, self._run, timedelta(seconds=60)))
         self._unsubs.append(self.hass.bus.async_listen("mobile_app_notification_action", self._on_action))
         self._soon(30)                                     # let the devices load first
+        await self._load_dashboards()
+
+    async def _load_dashboards(self) -> None:
+        """'Open dashboard' on a notification: the dashboard for the alert's category if it is installed,
+        else the site landing page."""
+        try:
+            from .dashboard import _store as landing_store, dashboard_url
+            from .resources import _store as res_store
+            res = await res_store(self.hass).async_load() or {}
+            landing = await landing_store(self.hass, self.entry).async_load() or {}
+        except Exception:  # noqa: BLE001 - links are a convenience
+            return
+        shown = {u for u, d in (res.get("dashboards") or {}).items() if not d.get("hidden")}
+        paths = {c: f"/{u}" for c, u in CATEGORY_DASHBOARD.items() if u.split("/")[0] in shown}
+        paths["*"] = f"/{landing.get('url') or dashboard_url(self.entry)}"
+        self.cfg.dashboards = paths
 
     async def async_stop(self) -> None:
         self._stopped = True
@@ -149,6 +190,7 @@ class AlertManager:
         active = self.active()
         msgs = self.engine.update(active, ts, local, self.cfg, self._keep)
         await self._send(msgs)
+        await self._weekly(ts, local)
         self.store.async_delay_save(self.engine.to_dict, 30)
         async_dispatcher_send(self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id))
 
@@ -164,10 +206,40 @@ class AlertManager:
                 except Exception:  # noqa: BLE001 - one broken phone must not stop the others
                     _LOGGER.warning("Could not notify %s", target, exc_info=True)
             self.last_sent = {"kind": m["kind"], "title": m["title"], "targets": m["targets"], "at": time.time()}
-            if m["kind"] != "clear":
+            if m["kind"] not in ("clear", "summary"):
                 self.hass.bus.async_fire(f"{DOMAIN}_alert", {"alert_id": m["id"], "key": m["key"], "kind": m["kind"],
                                                              "title": m["title"], "message": m["message"],
                                                              "targets": m["targets"], "hub": self.entry.title})
+
+    # ------------------------------------------------------------- weekly summary
+    def _names(self) -> dict[str, str]:
+        return {e.data["deveui"]: e.title for e in self.hass.config_entries.async_entries(DOMAIN)
+                if e.data.get("deveui")}
+
+    def summary(self) -> dict[str, Any]:
+        return self.engine.summary(time.time(), 7, self._names())
+
+    async def _weekly(self, ts: float, local: datetime) -> None:
+        opts = self.entry.options
+        if not opts.get(CONF_ALERT_SUMMARY, True) or not self.cfg.enabled:
+            return
+        day = str(opts.get(CONF_ALERT_SUMMARY_DAY) or "mon")[:3].lower()
+        hour = int(opts.get(CONF_ALERT_SUMMARY_HOUR, 8) or 0) % 24
+        week = f"{local.isocalendar()[0]}-W{local.isocalendar()[1]:02d}"
+        if DAYS[local.weekday()] != day or local.hour != hour or self.engine.summary_sent == week:
+            return
+        self.engine.summary_sent = week
+        await self.async_send_summary()
+
+    async def async_send_summary(self, targets: list[str] | None = None) -> str:
+        """Send the last 7 days' alert summary to the primary people (and on-call rota); returns the text."""
+        text = summary_text(self.summary())
+        who = targets or sorted(set(self.cfg.primary) | {t for sh in self.cfg.rota for t in sh.targets})
+        await self._send([{"targets": who, "kind": "summary", "id": "summary", "key": "summary",
+                           "title": f"Weekly alert summary – {self.entry.title}", "message": text,
+                           "critical": False, "action": None, "url": self.cfg.dashboards.get("*")}])
+        self.store.async_delay_save(self.engine.to_dict, 5)
+        return text
 
     # ------------------------------------------------------------- actions
     async def async_acknowledge(self, alert_id: str | None = None, by: str | None = None) -> int:
@@ -176,6 +248,13 @@ class AlertManager:
         self.store.async_delay_save(self.engine.to_dict, 5)
         async_dispatcher_send(self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id))
         return before - len(self.engine.unacknowledged())
+
+    async def async_snooze(self, alert_id: str, by: str | None = None, minutes: float | None = None) -> bool:
+        msgs = self.engine.snooze(alert_id, time.time(), minutes or self.cfg.snooze_min, by)
+        await self._send(msgs)
+        self.store.async_delay_save(self.engine.to_dict, 5)
+        async_dispatcher_send(self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id))
+        return bool(msgs)
 
     async def _run_action(self) -> None:
         ent = self.action_entity
@@ -187,15 +266,18 @@ class AlertManager:
 
     async def _on_action(self, event: Event) -> None:
         action = str(event.data.get("action") or "")
-        if not action.startswith((ACTION_ACK, ACTION_RUN)):
+        if not action.startswith((ACTION_ACK, ACTION_RUN, ACTION_SNOOZE)):
             return
-        aid = action.removeprefix(ACTION_ACK).removeprefix(ACTION_RUN)
+        aid = action.removeprefix(ACTION_ACK).removeprefix(ACTION_RUN).removeprefix(ACTION_SNOOZE)
         if self.engine.by_id(aid) is None:
             return                                        # another hub's alert
         user = None
         if event.context and event.context.user_id:
             u = await self.hass.auth.async_get_user(event.context.user_id)
             user = u.name if u else None
+        if action.startswith(ACTION_SNOOZE):
+            await self.async_snooze(aid, user)
+            return
         if action.startswith(ACTION_RUN):
             await self._run_action()
         await self.async_acknowledge(aid, user)

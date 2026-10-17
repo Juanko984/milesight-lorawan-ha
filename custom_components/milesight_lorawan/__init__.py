@@ -41,7 +41,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     domain_data = hass.data.setdefault(DOMAIN, {"hubs": {}})
 
     if _is_hub(entry):
-        if not await mqtt.async_wait_for_mqtt_client(hass):
+        from .const import CONF_LNS_ENABLED
+        lns_only = bool({**entry.data, **entry.options}.get(CONF_LNS_ENABLED))
+        try:
+            mqtt_ok = await mqtt.async_wait_for_mqtt_client(hass)
+        except Exception:  # noqa: BLE001 - MQTT not set up at all
+            mqtt_ok = False
+        if not mqtt_ok and not lns_only:
             raise ConfigEntryNotReady("MQTT integration is not available")
         # the gateway devices are linked to the hub device (via_device), so it must exist first
         from homeassistant.helpers import device_registry as dr
@@ -129,6 +135,16 @@ async def _async_install_resources(hass: HomeAssistant) -> None:
     except Exception:  # noqa: BLE001 - never block the gateway
         _LOGGER.warning("Could not install the Milesight blueprints / dashboards", exc_info=True)
         return
+    # devices set up alongside the gateway were skipped by their own sync: label them all once they exist
+    from homeassistant.helpers.event import async_call_later
+
+    async def _late(_now) -> None:
+        from .resources import async_label_devices
+        try:
+            await async_label_devices(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not label the Milesight devices", exc_info=True)
+    async_call_later(hass, 60, _late)
     if out:
         from homeassistant.components import persistent_notification
         persistent_notification.async_create(

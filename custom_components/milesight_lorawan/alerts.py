@@ -30,6 +30,119 @@ def effective_categories(opts: dict[str, Any]) -> tuple[str, ...]:
     return tuple(c for c in CATEGORIES if c in chosen or (c in DEFAULT_CATEGORIES and c not in known))
 ACTION_ACK = "MSL_ACK_"
 ACTION_RUN = "MSL_RUN_"
+ACTION_SNOOZE = "MSL_SNZ_"
+DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+HISTORY_DAYS = 35
+
+
+@dataclass
+class Shift:
+    """One line of the on-call rota: who is first in line on these days between these times."""
+    days: frozenset[int]                  # 0 = Monday
+    start: int                            # minutes after midnight
+    end: int                              # minutes; end <= start runs past midnight; start == end = all day
+    targets: tuple[str, ...]
+
+    def covers(self, local: datetime) -> bool:
+        m = local.hour * 60 + local.minute
+        day = local.weekday()
+        if self.start == self.end:
+            return day in self.days
+        if self.start < self.end:
+            return day in self.days and self.start <= m < self.end
+        # overnight: the evening part belongs to the listed day, the morning part to the day after
+        return (day in self.days and m >= self.start) or ((day - 1) % 7 in self.days and m < self.end)
+
+
+class RotaError(ValueError):
+    """A rota / quiet-hours line could not be read."""
+
+
+def _minutes(text: str) -> int:
+    t = text.strip()
+    if ":" in t:
+        h, m = t.split(":", 1)
+    else:
+        h, m = t, "0"
+    h_, m_ = int(h), int(m)
+    if not (0 <= h_ <= 24 and 0 <= m_ < 60) or (h_ == 24 and m_):
+        raise ValueError(t)
+    return (h_ * 60 + m_) % 1440
+
+
+def _days(text: str) -> frozenset[int]:
+    t = text.strip().lower()
+    if t in ("*", "daily", "every day", "all", ""):
+        return frozenset(range(7))
+    if t in ("weekdays", "workdays"):
+        return frozenset(range(5))
+    if t in ("weekend", "weekends"):
+        return frozenset({5, 6})
+    out: set[int] = set()
+    for part in t.split(","):
+        part = part.strip()
+        if "-" in part:
+            a, b = (DAYS.index(x.strip()[:3]) for x in part.split("-", 1))
+            i = a
+            while True:
+                out.add(i)
+                if i == b:
+                    break
+                i = (i + 1) % 7
+        elif part:
+            out.add(DAYS.index(part[:3]))
+    return frozenset(out)
+
+
+def parse_rota(text: str | None) -> list[Shift]:
+    """Lines like  'Mon-Fri 07:00-17:00: notify.mobile_app_juan'  ·  'Weekend: notify.mobile_app_sam, notify.x'
+    · '* 17-07: notify.mobile_app_piet'. The first line that covers the moment is on call."""
+    shifts: list[Shift] = []
+    for n, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        # the colon right before the first notify target separates 'when' from 'who'
+        idx = line.find("notify.")
+        head = line[:idx].rstrip() if idx >= 0 else line
+        if idx < 0 or not head.endswith(":"):
+            raise RotaError(f"line {n}: write it as 'days hours: notify.target, …'")
+        when, who = head[:-1].strip(), line[idx:]
+        targets = tuple(t.strip() for t in who.split(",") if t.strip())
+        parts = when.split()
+        hours = next((p for p in parts if "-" in p and any(ch.isdigit() for ch in p)), None)
+        days_txt = " ".join(p for p in parts if p != hours)
+        try:
+            days = _days(days_txt)
+            start, end = (_minutes(x) for x in hours.split("-", 1)) if hours else (0, 0)
+        except (ValueError, IndexError) as err:
+            raise RotaError(f"line {n}: cannot read '{when}' ({err})") from err
+        if not days or not targets:
+            raise RotaError(f"line {n}: needs days and at least one notify target")
+        shifts.append(Shift(days, start, end, targets))
+    return shifts
+
+
+def parse_category_quiet(text: str | None) -> dict[str, tuple[int, int] | None]:
+    """Lines like 'building: 18-07' · 'devices: 20:00-06:30' · 'safety: none' (never held). Hours as minutes."""
+    out: dict[str, tuple[int, int] | None] = {}
+    for n, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        cat, sep, rest = line.partition(":")
+        cat, rest = cat.strip().lower().replace(" ", "_"), rest.strip().lower()
+        if not sep or cat not in CATEGORIES:
+            raise RotaError(f"line {n}: start with a category ({', '.join(CATEGORIES)})")
+        if rest in ("none", "never", "off", "-"):
+            out[cat] = None
+            continue
+        try:
+            a, b = (_minutes(x) for x in rest.replace(" ", "").split("-", 1))
+        except (ValueError, IndexError) as err:
+            raise RotaError(f"line {n}: hours like 18-07 or 18:00-06:30") from err
+        out[cat] = (a, b)
+    return out
 
 
 @dataclass
@@ -44,13 +157,34 @@ class AlertSettings:
     notify_resolved: bool = True
     categories: tuple[str, ...] = tuple(DEFAULT_CATEGORIES)
     action_title: str = ""                                  # e.g. "Start pump" (shown on tank alerts)
+    rota: list[Shift] = field(default_factory=list)          # on call first; primary when nobody is on call
+    category_quiet: dict[str, tuple[int, int] | None] = field(default_factory=dict)   # minutes; None = never quiet
+    snooze_min: float = 60
+    dashboards: dict[str, str] = field(default_factory=dict)  # category -> dashboard path for "Open dashboard"
 
     @property
     def enabled(self) -> bool:
-        return bool(self.primary)
+        return bool(self.primary or self.rota)
+
+    def first_line(self, local: datetime) -> list[str]:
+        """Who is notified first right now: the on-call people of the rota, else the primary people."""
+        for sh in self.rota:
+            if sh.covers(local):
+                return list(sh.targets)
+        return list(self.primary)
+
+    def quiet(self, category: str | None, local: datetime) -> bool:
+        hm = local.hour + local.minute / 60
+        if category in self.category_quiet:
+            q = self.category_quiet[category]
+            return q is not None and in_quiet(hm, q[0] / 60, q[1] / 60)
+        return in_quiet(hm, self.quiet_start, self.quiet_end)
+
+    def dashboard(self, category: str | None) -> str | None:
+        return self.dashboards.get(category or "") or self.dashboards.get("*")
 
 
-def in_quiet(hour_min: float, start: int | None, end: int | None) -> bool:
+def in_quiet(hour_min: float, start: float | None, end: float | None) -> bool:
     """hour_min: local time as fractional hours."""
     if start is None or end is None or start == end:
         return False
@@ -62,14 +196,18 @@ def alert_id(key: str, first: float) -> str:
 
 
 class AlertEngine:
-    """state per alert key: id, title, message, severity, category, first, sent_at, level (0 held, 1 primary,
-    2 backup), acked (by / at), resolved_at, notified (targets)."""
+    """state per alert key: id, title, message, severity, category, first, sent_at, level (0 held, 1 first line,
+    2… escalated one person further along the backup list each time), acked (by / at), snoozed_until, resolved_at,
+    notified (targets). history: one record per alert of the last 5 weeks, for the weekly summary."""
 
     def __init__(self, state: dict | None = None) -> None:
-        self.alerts: dict[str, dict[str, Any]] = {k: dict(v) for k, v in (state or {}).get("alerts", {}).items()}
+        st = state or {}
+        self.alerts: dict[str, dict[str, Any]] = {k: dict(v) for k, v in st.get("alerts", {}).items()}
+        self.history: list[dict[str, Any]] = [dict(h) for h in st.get("history", [])]
+        self.summary_sent: str | None = st.get("summary_sent")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"alerts": self.alerts}
+        return {"alerts": self.alerts, "history": self.history, "summary_sent": self.summary_sent}
 
     # ------------------------------------------------------------- queries
     def open_alerts(self) -> list[dict[str, Any]]:
@@ -81,6 +219,9 @@ class AlertEngine:
     def by_id(self, aid: str) -> tuple[str, dict[str, Any]] | None:
         return next(((k, a) for k, a in self.alerts.items() if a["id"] == aid), None)
 
+    def _hist(self, aid: str) -> dict[str, Any] | None:
+        return next((h for h in reversed(self.history) if h["id"] == aid), None)
+
     # ------------------------------------------------------------- actions
     def acknowledge(self, aid: str | None, ts: float, by: str | None = None) -> list[dict[str, Any]]:
         """Acknowledge one alert (or all open ones). Returns the 'acknowledged' messages for the phones."""
@@ -89,6 +230,10 @@ class AlertEngine:
             if a.get("resolved_at") is not None or a.get("acked") or (aid is not None and a["id"] != aid):
                 continue
             a["acked"] = {"by": by, "at": ts}
+            a["snoozed_until"] = None
+            h = self._hist(a["id"])
+            if h is not None and h.get("acked_at") is None:
+                h.update(acked_at=ts, acked_by=by)
             if a.get("notified"):
                 # same tag: replaces the alert on every phone (and removes its buttons)
                 out.append({"targets": list(a["notified"]), "kind": "acknowledged", "id": a["id"], "key": k,
@@ -96,15 +241,32 @@ class AlertEngine:
                             "message": f"Acknowledged{(' by ' + by) if by else ''}: {a['message']}"})
         return out
 
+    def snooze(self, aid: str, ts: float, minutes: float, by: str | None = None) -> list[dict[str, Any]]:
+        """Hold reminders and escalation of one alert for a while; it comes back if it is still active."""
+        found = self.by_id(aid)
+        if found is None:
+            return []
+        k, a = found
+        if a.get("resolved_at") is not None or a.get("acked"):
+            return []
+        a["snoozed_until"] = ts + minutes * 60
+        a["snoozed_by"] = by
+        h = self._hist(aid)
+        if h is not None:
+            h["snoozes"] = h.get("snoozes", 0) + 1
+        label = _duration(minutes)
+        return [{"targets": list(a.get("notified") or []), "kind": "snoozed", "id": a["id"], "key": k,
+                 "title": f"⏸ {a['title']}", "critical": False, "action": None, "url": a.get("url"),
+                 "message": f"Snoozed for {label}{(' by ' + by) if by else ''}: {a['message']}"}]
+
     # ----------------------------------------------------------- main loop
     def update(self, active: dict[str, dict[str, Any]], ts: float, local: datetime,
                cfg: AlertSettings, keep: tuple[str, ...] = ()) -> list[dict[str, Any]]:
         """active: {key: {title, message, severity ('critical' | 'warning'), category, action?}}.
         keep: key prefixes whose source is not loaded yet (their alerts are neither resolved nor dropped).
-        Returns notifications [{targets, kind (new | reminder | escalated | again | resolved), id, key, title,
-        message, critical, action}]."""
+        Returns notifications [{targets, kind (new | reminder | escalated | again | snooze_over | resolved), id,
+        key, title, message, critical, action, url}]."""
         out: list[dict[str, Any]] = []
-        quiet = in_quiet(local.hour + local.minute / 60, cfg.quiet_start, cfg.quiet_end)
         active = {k: a for k, a in active.items() if a.get("category") in cfg.categories}
         resolve_after = min(cfg.dedupe_min, 5) * 60        # 'resolved' only once it stays resolved this long
 
@@ -114,6 +276,10 @@ class AlertEngine:
             if cur is not None and cur.get("resolved_at") is not None:
                 if ts - cur["resolved_at"] <= cfg.dedupe_min * 60:
                     cur["flaps"] = cur.get("flaps", 0) + 1      # flapping: the same alert continues …
+                    h = self._hist(cur["id"])
+                    if h is not None:
+                        h["flaps"] = h.get("flaps", 0) + 1
+                        h["resolved_at"] = None
                     again = bool(cur.get("resolved_sent"))      # … people were told it was resolved: tell them again
                     cur.update(resolved_at=None, resolved_sent=False)
                     if again:
@@ -122,13 +288,17 @@ class AlertEngine:
                     cur = None
             if cur is None:
                 cur = {"id": alert_id(k, ts), "first": ts, "level": 0, "sent_at": None, "level_at": None,
-                       "acked": None, "resolved_at": None, "notified": []}
+                       "acked": None, "resolved_at": None, "notified": [], "snoozed_until": None}
                 self.alerts[k] = cur
+                self.history.append({"id": cur["id"], "key": k, "title": a["title"], "category": a.get("category"),
+                                     "severity": a.get("severity", "warning"), "first": ts, "acked_at": None,
+                                     "acked_by": None, "resolved_at": None, "flaps": 0, "level": 0, "snoozes": 0})
             cur.update(title=a["title"], message=a["message"], severity=a.get("severity", "warning"),
-                       category=a.get("category"), action=a.get("action"))
+                       category=a.get("category"), action=a.get("action"), url=cfg.dashboard(a.get("category")))
             if not cfg.enabled or cur.get("acked"):
                 continue
             critical = cur["severity"] == "critical"
+            quiet = cfg.quiet(cur.get("category"), local)
             if again and cur["level"] >= 1 and cur.get("notified"):
                 out.append(self._msg(k, cur, cur["notified"], "again", cfg))
                 cur["sent_at"] = ts
@@ -137,21 +307,34 @@ class AlertEngine:
                 if quiet and not critical:
                     cur["held"] = True
                     continue
-                out.append(self._msg(k, cur, cfg.primary, "new", cfg))
+                first = cfg.first_line(local)
+                if not first:
+                    continue
+                out.append(self._msg(k, cur, first, "new", cfg))
                 cur.update(level=1, sent_at=ts, level_at=ts, held=False)
-                cur["notified"] = sorted(set(cur["notified"]) | set(cfg.primary))
+                cur["notified"] = sorted(set(cur["notified"]) | set(first))
+                self._set_level(cur)
+                continue
+            if cur.get("snoozed_until"):
+                if ts < cur["snoozed_until"]:
+                    continue
+                cur["snoozed_until"] = None                   # snooze over and still active: tell them again
+                out.append(self._msg(k, cur, cur["notified"], "snooze_over", cfg))
+                cur.update(sent_at=ts, level_at=ts)
                 continue
             if quiet and not critical:
                 continue
-            if cur["level"] == 1 and cfg.backup and ts - (cur.get("level_at") or cur["sent_at"]) >= cfg.escalate_min * 60:
-                targets = sorted(set(cfg.backup) | set(cfg.primary))
+            nxt = cur["level"] - 1                             # index of the next person on the backup list
+            if nxt < len(cfg.backup) and ts - (cur.get("level_at") or cur["sent_at"]) >= cfg.escalate_min * 60:
+                person = cfg.backup[nxt]
+                targets = sorted(set(cur["notified"]) | {person})
                 out.append(self._msg(k, cur, targets, "escalated", cfg))
-                cur.update(level=2, sent_at=ts, level_at=ts)
-                cur["notified"] = sorted(set(cur["notified"]) | set(targets))
+                cur.update(level=cur["level"] + 1, sent_at=ts, level_at=ts)
+                cur["notified"] = targets
+                self._set_level(cur)
                 continue
             if cfg.repeat_min > 0 and ts - cur["sent_at"] >= cfg.repeat_min * 60:
-                targets = cfg.primary if cur["level"] == 1 else sorted(set(cfg.backup) | set(cfg.primary))
-                out.append(self._msg(k, cur, targets, "reminder", cfg))
+                out.append(self._msg(k, cur, cur["notified"], "reminder", cfg))
                 cur["sent_at"] = ts
 
         for k, cur in list(self.alerts.items()):
@@ -159,34 +342,99 @@ class AlertEngine:
                 continue
             if cur.get("resolved_at") is None:
                 cur["resolved_at"] = ts
+                h = self._hist(cur["id"])
+                if h is not None:
+                    h["resolved_at"] = ts
             if not cur.get("resolved_sent") and ts - cur["resolved_at"] >= resolve_after:
                 cur["resolved_sent"] = True
                 if cfg.enabled and cfg.notify_resolved and cur.get("notified"):
                     out.append({"targets": list(cur["notified"]), "kind": "resolved", "id": cur["id"], "key": k,
                                 "title": f"✅ Resolved: {cur['title']}", "message": cur["message"],
-                                "critical": False, "action": None})
+                                "critical": False, "action": None, "url": cur.get("url")})
             if cur.get("resolved_sent") and ts - cur["resolved_at"] > max(cfg.dedupe_min * 60, 3600):
                 del self.alerts[k]
+        cutoff = ts - HISTORY_DAYS * 86400
+        self.history = [h for h in self.history if h["first"] >= cutoff]
         return out
+
+    def _set_level(self, cur: dict[str, Any]) -> None:
+        h = self._hist(cur["id"])
+        if h is not None:
+            h["level"] = max(h.get("level", 0), cur["level"])
 
     @staticmethod
     def _msg(key: str, cur: dict[str, Any], targets: list[str], kind: str, cfg: AlertSettings) -> dict[str, Any]:
-        prefix = {"new": "", "reminder": "Reminder: ", "escalated": "⚠ Not acknowledged: ", "again": "Again: "}[kind]
+        prefix = {"new": "", "reminder": "Reminder: ", "escalated": "⚠ Not acknowledged: ", "again": "Again: ",
+                  "snooze_over": "Still active: "}[kind]
         return {"targets": list(targets), "kind": kind, "id": cur["id"], "key": key,
                 "title": f"{prefix}{cur['title']}", "message": cur["message"],
-                "critical": cur["severity"] == "critical",
+                "critical": cur["severity"] == "critical", "url": cur.get("url"), "snooze": _duration(cfg.snooze_min),
                 "action": cfg.action_title if cur.get("action") and cfg.action_title else None}
+
+    # ------------------------------------------------------------- weekly summary
+    def summary(self, ts: float, days: int = 7, names: dict[str, str] | None = None) -> dict[str, Any]:
+        """Alerts of the last `days`: count, per category, noisiest sources, mean time to acknowledge."""
+        names = names or {}
+        since = ts - days * 86400
+        recs = [h for h in self.history if h["first"] >= since]
+        acked = [h["acked_at"] - h["first"] for h in recs if h.get("acked_at")]
+        by_cat: dict[str, int] = {}
+        by_source: dict[str, dict[str, Any]] = {}
+        for h in recs:
+            by_cat[h.get("category") or "other"] = by_cat.get(h.get("category") or "other", 0) + 1
+            src = h["key"].split(":", 1)[0]
+            label = names.get(src) or h["title"].split(" – ")[-1]
+            b = by_source.setdefault(src, {"source": label, "alerts": 0, "flaps": 0})
+            b["alerts"] += 1
+            b["flaps"] += h.get("flaps", 0)
+        noisy = sorted(by_source.values(), key=lambda b: (-(b["alerts"] + b["flaps"]), b["source"]))[:5]
+        return {"days": days, "alerts": len(recs), "critical": sum(1 for h in recs if h.get("severity") == "critical"),
+                "acknowledged": len(acked), "not_acknowledged": sum(1 for h in recs if not h.get("acked_at")),
+                "escalated": sum(1 for h in recs if h.get("level", 0) >= 2),
+                "snoozed": sum(1 for h in recs if h.get("snoozes")),
+                "mtta_min": round(sum(acked) / len(acked) / 60, 1) if acked else None,
+                "by_category": dict(sorted(by_cat.items(), key=lambda x: -x[1])), "noisiest": noisy}
+
+
+def _duration(minutes: float) -> str:
+    m = int(minutes)
+    return f"{m // 60} h" if m % 60 == 0 else f"{m} min"
+
+
+def summary_text(s: dict[str, Any]) -> str:
+    if not s["alerts"]:
+        return f"No alerts in the last {s['days']} days. 👍"
+    lines = [f"{s['alerts']} alerts ({s['critical']} critical) in the last {s['days']} days."]
+    if s["mtta_min"] is not None:
+        lines.append(f"Mean time to acknowledge: {s['mtta_min']:g} min; {s['not_acknowledged']} never acknowledged"
+                     + (f", {s['escalated']} escalated." if s["escalated"] else "."))
+    else:
+        lines.append("None were acknowledged.")
+    lines.append("By category: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in s["by_category"].items()) + ".")
+    if s["noisiest"]:
+        lines.append("Noisiest: " + "; ".join(f"{n['source']} {n['alerts']}" + (f" (+{n['flaps']} repeats)" if n["flaps"]
+                                                                               else "") for n in s["noisiest"]) + ".")
+    return "\n".join(lines)
 
 
 def notify_data(msg: dict[str, Any]) -> dict[str, Any]:
-    """Service data for notify.<target> (Home Assistant Companion app: actions, tag, critical / alarm stream)."""
+    """Service data for notify.<target> (Home Assistant Companion app: actions, tag, critical / alarm stream).
+    Buttons (Android shows three): Acknowledge, Snooze, and the alert's own action or Open dashboard; tapping the
+    notification opens the dashboard too."""
     if msg["kind"] == "clear":
         return {"message": "clear_notification", "data": {"tag": f"milesight_{msg['id']}"}}
     data: dict[str, Any] = {"tag": f"milesight_{msg['id']}", "group": "milesight_alerts"}
-    if msg["kind"] not in ("resolved", "acknowledged"):
+    url = msg.get("url")
+    if url:
+        data.update({"url": url, "clickAction": url})
+    if msg["kind"] not in ("resolved", "acknowledged", "summary"):
         actions = [{"action": f"{ACTION_ACK}{msg['id']}", "title": "Acknowledge"}]
+        if msg["kind"] != "snoozed":
+            actions.append({"action": f"{ACTION_SNOOZE}{msg['id']}", "title": f"Snooze {msg.get('snooze') or '1 h'}"})
         if msg.get("action"):
             actions.append({"action": f"{ACTION_RUN}{msg['id']}", "title": msg["action"]})
+        elif url:
+            actions.append({"action": "URI", "title": "Open dashboard", "uri": url})
         data["actions"] = actions
     if msg.get("critical"):
         data.update({"push": {"sound": {"name": "default", "critical": 1, "volume": 1.0},

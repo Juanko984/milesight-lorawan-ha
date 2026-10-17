@@ -1,7 +1,9 @@
 """Gateway-level fleet overview sensors (online / offline / low battery, device list)."""
 from __future__ import annotations
 
-from datetime import timedelta
+import time
+
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
@@ -22,11 +24,36 @@ KINDS = {   # key -> (name, icon)
 }
 
 
+def maintenance_fields(rt, entry, ts: float) -> dict[str, Any]:
+    """For the maintenance dashboard and the handover report."""
+    v, meta = rt.values, rt.meta
+    last = meta.get("last_seen")
+    rb = v.get("battery_replace_by")
+    log = list(meta.get("_service_log") or [])
+    fw = rt.raw.get("firmware_version")
+    return {
+        "battery_days_left": v.get("battery_days_left"),
+        "battery_replace_by": datetime.fromtimestamp(rb, rt.cal.tz).date().isoformat() if rb else None,
+        "battery_forecast": (rt.attrs.get("battery_replace_by") or {}).get("reason") or
+                            (rt.attrs.get("battery_replace_by") or {}).get("method"),
+        "firmware": str(fw) if fw is not None else None,
+        "hardware": str(rt.raw.get("hardware_version")) if rt.raw.get("hardware_version") is not None else None,
+        "purpose": getattr(getattr(rt, "purpose", None), "label", None),
+        "network_server": v.get("network_server"),
+        "latitude": (rt.fixed_location() or (None, None))[0] if hasattr(rt, "fixed_location") else None,
+        "longitude": (rt.fixed_location() or (None, None))[1] if hasattr(rt, "fixed_location") else None,
+        "offline_hours": round((ts - last) / 3600, 1) if last and v.get("online") is False else None,
+        "service": [{"at": datetime.fromtimestamp(e["at"], timezone.utc).isoformat(timespec="seconds"), "kind": e["kind"], "text": e["text"],
+                     "by": e.get("by")} for e in log[-3:]][::-1],
+    }
+
+
 def fleet_devices(hass: HomeAssistant, hub_entry: ConfigEntry) -> list[dict[str, Any]]:
     """All device entries this gateway serves (every device when there is only one gateway)."""
     hubs = [e for e in hass.config_entries.async_entries(DOMAIN) if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB]
     hub = getattr(hub_entry, "runtime_data", None)
     heard = set(hub.last_uplink) if hub is not None else set()
+    ts_now = time.time()
     out = []
     for entry in hass.config_entries.async_entries(DOMAIN):
         rt = getattr(entry, "runtime_data", None)
@@ -44,7 +71,8 @@ def fleet_devices(hass: HomeAssistant, hub_entry: ConfigEntry) -> list[dict[str,
             "sf": rt.meta.get("spreading_factor"), "gateway": v.get("gateway"),
             "gateways_heard": v.get("gateways_heard"), "signal": v.get("signal_quality"),
             "packet_loss": v.get("packet_loss_today"), "command": v.get("command_status"),
-            "last_seen": dt_util.utc_from_timestamp(last).isoformat() if last else None,
+            "last_seen": datetime.fromtimestamp(last, timezone.utc).isoformat() if last else None,
+            **maintenance_fields(rt, entry, ts_now),
         })
     return sorted(out, key=lambda d: (d["online"], d["name"].lower()))
 

@@ -72,6 +72,17 @@
         "data_description": {
           "register_on_gateway": "Registers every DevEUI on the Milesight gateway (with its AppKey, or the gateway setting) so the devices can join."
         }
+      },
+      "confirm_join": {
+        "title": "New LoRaWAN device wants to join",
+        "description": "DevEUI **{deveui}** (JoinEUI {join_eui}) is trying to join the built-in network server.\n\nChoose the model, give it a name and enter its **AppKey** (from the device label or Milesight ToolBox; Milesight devices ship with the key filled in below – change it on the device for a shared network). Leave the AppKey empty if this device is registered on your gateway's own network server instead.\n\nThe device joins on its next attempt (usually within a few minutes; power-cycle it to speed this up).",
+        "data": {
+          "model": "Model",
+          "name": "Name",
+          "area": "Area",
+          "purpose": "Fitted to (purpose, optional)",
+          "app_key": "AppKey (32 hex characters)"
+        }
       }
     },
     "error": {
@@ -103,7 +114,11 @@
           "pump": "Pump (current clamp)",
           "pivot": "Centre pivot (GPS tracker)",
           "purpose": "Purpose (what it is fitted to)",
-          "channel_template": "Sensor templates (RS485 / Modbus)"
+          "channel_template": "Sensor templates (RS485 / Modbus)",
+          "network_server": "Built-in network server (packet forwarder)",
+          "network_keys": "Network server keys",
+          "settings_profile": "Settings profile (copy to other devices)",
+          "location": "Location (map)"
         }
       },
       "connection": {
@@ -232,10 +247,10 @@
       },
       "alerts": {
         "title": "Alert escalation",
-        "description": "Sends alerts to phones (Home Assistant Companion app) with an Acknowledge button. Nobody acknowledges within the escalation time → the backup people are notified too. Non-critical alerts wait until quiet hours end; leaks, smoke, gas, falls, sudden tank drops and gateway outages always go through.",
+        "description": "Sends alerts to phones (Home Assistant Companion app) with **Acknowledge**, **Snooze** and **Open dashboard** buttons (tapping the notification opens the dashboard for that alert too). Who is told first: the person **on call** in the rota, else *Notify first*. Nobody acknowledges within the escalation time → the **next person** on the *Escalate to* list is added, one at a time. Non-critical alerts wait until quiet hours end; leaks, smoke, gas, falls, sudden tank drops and gateway outages always go through.",
         "data": {
           "alert_primary": "Notify first",
-          "alert_backup": "Escalate to",
+          "alert_backup": "Escalate to (in this order, one at a time)",
           "alert_escalate_min": "Escalate after (minutes)",
           "alert_repeat_min": "Remind every (minutes)",
           "alert_quiet_start": "Quiet hours from (hour)",
@@ -244,14 +259,24 @@
           "alert_notify_resolved": "Tell people when it is resolved",
           "alert_categories": "Alerts to send",
           "alert_action_entity": "Extra button on tank-low alerts runs",
-          "alert_action_title": "Extra button label"
+          "alert_action_title": "Extra button label",
+          "alert_rota": "On-call rota (optional)",
+          "alert_category_quiet": "Quiet hours per category (optional)",
+          "alert_snooze_min": "Snooze for (minutes)",
+          "alert_weekly_summary": "Send a weekly alert summary",
+          "alert_summary_day": "Summary day",
+          "alert_summary_hour": "Summary hour"
         },
         "data_description": {
           "alert_primary": "notify services, e.g. notify.mobile_app_juans_phone. Leave empty to switch escalation off.",
           "alert_repeat_min": "Until someone acknowledges. 0 = no reminders.",
           "alert_quiet_start": "e.g. 22 to 6. Leave both empty for none.",
           "alert_dedupe_min": "Stops a flapping sensor from sending the same alert again and again.",
-          "alert_action_entity": "Optional: a switch, script or button, e.g. the borehole pump. Pressing it on the phone also acknowledges the alert."
+          "alert_action_entity": "Optional: a switch, script or button, e.g. the borehole pump. Pressing it on the phone also acknowledges the alert.",
+          "alert_rota": "One line per shift, first match wins: `Mon-Fri 07:00-17:00: notify.mobile_app_juan` · `Weekdays 17-07: notify.mobile_app_piet` (overnight) · `Weekend: notify.mobile_app_sam, notify.mobile_app_ann`. Outside the rota, *Notify first* is used.",
+          "alert_category_quiet": "Overrides the quiet hours above for a category: `building: 18-07` · `devices: 20:00-06:30` · `tank: none` (never held). Categories: safety, cold_chain, security, tank, pumps, irrigation, energy, facilities, building, devices, gateways, commands.",
+          "alert_snooze_min": "The Snooze button holds reminders and escalation this long; if the alert is still active it comes back as 'Still active'.",
+          "alert_weekly_summary": "Alerts of the last 7 days, the noisiest devices and the mean time to acknowledge – sent to *Notify first* and the rota. Also on the gateway's 'Alerts last 7 days' sensor and 'Send alert summary' button."
         }
       },
       "provisioning": {
@@ -414,6 +439,54 @@
           "send_to_device": "The UC100 gets one downlink after each of its uplinks; Command status shows each channel as confirmed when the UC100 echoes it.",
           "fast": "The normal reporting interval comes back by itself afterwards."
         }
+      },
+      "network_server": {
+        "title": "Built-in network server",
+        "description": "Lets gateways send their **packet forwarder** traffic straight to Home Assistant, so devices join Home Assistant itself – no device list on the gateway, and any gateway that forwards here can carry any of your devices.\n\nOn the gateway: Packet Forwarder → General → Multi-Destination → **+** → Type **Semtech**, Server Address = this Home Assistant's IP address, Port Up and Port Down = the port below. Keep the gateway's Embedded NS row for devices registered there; a device must be on one network server only.\n\nBeta: EU868, class A devices, OTAA.",
+        "data": {
+          "lns_enabled": "Enable the built-in network server",
+          "lns_port": "UDP port",
+          "lns_region": "Frequency plan",
+          "lns_rx1_delay": "Receive delay (seconds)",
+          "lns_farm_id": "Site number (device address block)"
+        },
+        "data_description": {
+          "lns_rx1_delay": "Sent to devices when they join: how long they wait for an answer after sending. 3 s leaves room for slow links; 1 s is the LoRaWAN default.",
+          "lns_farm_id": "0–511. Give every site of a community network its own number so device addresses never clash.",
+          "lns_port": "1700 is the packet forwarder default. Allow it in a firewall between the gateway and Home Assistant."
+        }
+      },
+      "network_keys": {
+        "title": "Network server keys",
+        "description": "Keys for the built-in network server. Status: **{status}**.\n\nChanging the AppKey takes effect at the device's next join (power-cycle it). Leave empty when the device is on the gateway's own network server.",
+        "data": {
+          "app_key": "AppKey (32 hex characters)",
+          "lns_join_eui": "JoinEUI / AppEUI (optional, 16 hex characters)",
+          "forget_session": "Forget the current session (the device must join again)"
+        }
+      },
+      "settings_profile": {
+        "title": "Settings profile",
+        "description": "Copy this {model}'s set-up – options (limits, purpose, opening hours, meters, channel map …) and the settings sent to the device (reporting interval, alarms …) – to other {model} devices, save it as a named profile, or load a saved one onto this device. Options that belong to one device only (pivot centre, applied Modbus templates, meter offset) are not copied.\n\nSaved {model} profiles: {profiles}",
+        "data": {
+          "copy_to": "Copy to these devices",
+          "save_as": "Save as profile (name)",
+          "load_profile": "Load a saved profile onto this device",
+          "delete_profile": "Delete a saved profile",
+          "include_channels": "Include the channel map",
+          "send_to_devices": "Send device settings over the air (only what differs)"
+        },
+        "data_description": {
+          "send_to_devices": "Queued like any command and confirmed by each device's next uplink. Untick to copy only the Home Assistant options."
+        }
+      },
+      "location": {
+        "title": "Device location",
+        "description": "Where the device is mounted – a fixed point shown on the Maintenance dashboard's map, in the handover report and as the device's *Location* entity. Current: **{status}**.\n\nEasiest on site: open **LoRaWAN commissioning** in the Home Assistant app → *Walk test* → pick the device → **Use my phone's location** while standing next to it.",
+        "data": {
+          "location": "Location",
+          "clear": "Clear the location"
+        }
       }
     },
     "error": {
@@ -425,7 +498,13 @@
       "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker.",
       "template_invalid": "The channels do not fit – see below.",
       "template_nothing": "Pick a sensor to apply or a template to remove.",
-      "send_failed": "Could not send to the controller – see the message below."
+      "send_failed": "Could not send to the controller – see the message below.",
+      "invalid_join_eui": "The JoinEUI must be 16 hexadecimal characters.",
+      "rota_invalid": "Could not read this: {error}",
+      "profile_nothing": "Choose devices to copy to, a name to save, or a profile to load or delete."
+    },
+    "abort": {
+      "profile_done": "Done: {result}"
     }
   },
   "selector": {
@@ -649,6 +728,60 @@
           "description": "One or more level sensors with a tank set up."
         }
       }
+    },
+    "log_service": {
+      "name": "Log service",
+      "description": "Adds an entry to a device's service history (shown on the Maintenance dashboard).",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "Milesight devices."
+        },
+        "kind": {
+          "name": "Kind",
+          "description": "maintenance, battery_replaced (also restarts the battery forecast), firmware or note."
+        },
+        "note": {
+          "name": "Note",
+          "description": "What was done."
+        }
+      }
+    },
+    "battery_replaced": {
+      "name": "Battery replaced",
+      "description": "Notes new batteries in the service history and restarts the battery forecast.",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "Milesight devices."
+        }
+      }
+    },
+    "apply_settings_profile": {
+      "name": "Apply settings profile",
+      "description": "Applies a saved settings profile to devices of the same model.",
+      "fields": {
+        "profile": {
+          "name": "Profile",
+          "description": "Name of a saved profile (device → Configure → Settings profile)."
+        },
+        "device_id": {
+          "name": "Devices",
+          "description": "Devices of the profile's model."
+        },
+        "include_channels": {
+          "name": "Include channel map",
+          "description": "Also copy the channel map."
+        },
+        "send_to_devices": {
+          "name": "Send to devices",
+          "description": "Send the device settings over the air (only what differs)."
+        }
+      }
+    },
+    "handover_report": {
+      "name": "Handover report",
+      "description": "Writes the installer handover report (printable page and CSV) to /config/www/milesight/ and returns their links."
     }
   },
   "entity": {

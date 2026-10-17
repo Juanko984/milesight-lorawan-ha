@@ -28,6 +28,19 @@ def dashboard_url(entry: ConfigEntry) -> str:
     return f"building-{_slug(entry.title)}"
 
 
+def site_title(hass: HomeAssistant, entry: ConfigEntry) -> str:
+    """Sidebar name of the landing page: the company / site name, not the gateway entry's technical name."""
+    from .const import CONF_SITE_COMPANY
+    name = (entry.options.get(CONF_SITE_COMPANY) or "").strip()
+    if not name:
+        loc = (getattr(hass.config, "location_name", "") or "").strip()
+        name = loc if loc and loc.lower() not in ("home", "") else ""
+    if not name:
+        t = entry.title or "Site"
+        name = "Site" if t.lower().startswith("milesight gateway") else t
+    return name
+
+
 def build_context(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     reg = er.async_get(hass)
     eid = entry.entry_id
@@ -37,7 +50,7 @@ def build_context(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
 
     site = site_info(hass, entry)
     ctx: dict[str, Any] = {
-        "title": entry.title or "Site",
+        "title": site_title(hass, entry),
         "site": find("sensor", f"{eid}_site"),
         **{k: find("sensor", f"{eid}_building_{k}") for k in
            ("health", "comfort", "air_quality", "systems", "people", "alerts")},
@@ -159,7 +172,7 @@ def schedule_auto_update(hass: HomeAssistant, entry: ConfigEntry, delay: float =
         try:
             await async_update_dashboard(hass, entry, auto=True)
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("Could not refresh the site dashboard", exc_info=True)
+            _LOGGER.warning("Could not create / refresh the site dashboard", exc_info=True)
     try:
         entry.async_on_unload(async_call_later(hass, delay, _run))
     except Exception:  # noqa: BLE001
@@ -180,12 +193,17 @@ async def async_update_dashboard(hass: HomeAssistant, entry: ConfigEntry, auto: 
     edited by hand since it was generated, or when nothing changed (None)."""
     ctx = build_context(hass, entry)
     if not ctx.get("site"):
-        if auto:
+        if auto:                                   # gateway sensors not registered yet: try again a few times
+            tries = hass.data.setdefault(DOMAIN, {}).setdefault("_dash_tries", {})
+            tries[entry.entry_id] = tries.get(entry.entry_id, 0) + 1
+            if tries[entry.entry_id] <= 5:
+                schedule_auto_update(hass, entry, 120)
             return None
         raise RuntimeError("the gateway's Site sensor is not set up yet – try again in a minute")
     ctx["nav"] = await _nav(hass)
     config = build_config(ctx)
     url = dashboard_url(entry)
+    backup = None
     try:
         dashboards = _lovelace_dashboards(hass)
         prev = await _store(hass, entry).async_load() or {}
@@ -199,19 +217,38 @@ async def async_update_dashboard(hass: HomeAssistant, entry: ConfigEntry, auto: 
                     current = await dashboards[url].async_load(False)
                 except Exception:  # noqa: BLE001 - not saved yet
                     current = None
-                if current is not None and _hash(current) != prev.get("hash"):
-                    return None                    # edited by hand (or made before 0.30): the button regenerates it
-                if current is not None and prev["hash"] == _hash(config) and prev.get("title") == ctx["title"]:
+                if current is not None and prev.get("hash") and _hash(current) != prev["hash"]:
+                    _LOGGER.info("Site dashboard /%s was edited by hand – not updated (press 'Update site "
+                                 "dashboard' on the gateway to regenerate it)", url)
+                    return None                    # edited by hand: the button regenerates it
+                if current is not None and not prev.get("hash"):
+                    backup = current               # made before 0.30 (no fingerprint): replace once, keep a copy
+                if current is not None and prev.get("hash") == _hash(config) and prev.get("title") == ctx["title"]:
                     return None                    # up to date
         dash = _register(hass, url, ctx["title"], f"milesight_{entry.entry_id}") if own else dashboards[url]
         await dash.async_save(config)
-        await _store(hass, entry).async_save({"url": url, "title": ctx["title"], "id": f"milesight_{entry.entry_id}",
-                                              "own": own, "hash": _hash(config)})
-        _LOGGER.info("Building dashboard saved to /%s", url)
+        first = not prev.get("hash")
+        saved = {"url": url, "title": ctx["title"], "id": f"milesight_{entry.entry_id}", "own": own,
+                 "hash": _hash(config)}
+        if backup is not None or prev.get("backup"):
+            saved["backup"] = backup if backup is not None else prev.get("backup")
+        await _store(hass, entry).async_save(saved)
+        _LOGGER.info("Site dashboard saved to /%s", url)
+        if first:
+            try:
+                from homeassistant.components import persistent_notification
+                persistent_notification.async_create(
+                    hass, f"The site landing page **{ctx['title']}** is in the sidebar: [open it](/{url}). It shows the "
+                          "site banner, buttons to every Milesight dashboard, people, alerts, areas, tanks, farm, cold chain "
+                          "and energy, and refreshes by itself unless you edit it."
+                          + (" Your previous version was kept in Home Assistant's storage." if backup is not None else ""),
+                    title="Milesight LoRaWAN: site dashboard", notification_id=f"{DOMAIN}_dashboard_{entry.entry_id}")
+            except Exception:  # noqa: BLE001 - the notification is a convenience
+                pass
         return f"/{url}"
     except Exception as err:  # noqa: BLE001 - fall back to a YAML file the user can paste
         if auto:
-            _LOGGER.debug("Could not save the site dashboard: %s", err)
+            _LOGGER.warning("Could not save the site dashboard: %s", err)
             return None
         _LOGGER.warning("Could not save the building dashboard directly (%s) – writing YAML instead", err)
         import yaml

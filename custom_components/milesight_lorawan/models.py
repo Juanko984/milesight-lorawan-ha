@@ -936,6 +936,7 @@ def _common() -> list[EntitySpec]:
         EntitySpec("link_margin", "Link margin", unit="dB", state_class="measurement", icon="mdi:signal-distance-variant",
                    diagnostic=True, enabled_default=False),
         EntitySpec("gateway", "Gateway", kind="text", icon="mdi:router-wireless", diagnostic=True),
+        EntitySpec("network_server", "Network server", kind="label", icon="mdi:server-network", diagnostic=True),
         EntitySpec("gateways_heard", "Gateways in range", state_class="measurement", icon="mdi:router-network",
                    diagnostic=True),
         EntitySpec("packet_loss_today", "Packet loss today", unit="%", state_class="measurement",
@@ -1791,6 +1792,10 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     if "battery" in keys or model.dynamic and model_key.startswith(("UC5", "UC11-N1", "UC11-T1")):
         specs.append(EntitySpec("battery_low", "Battery low", platform="binary_sensor", device_class="battery",
                                 diagnostic=True))
+        specs.append(EntitySpec("battery_replace_by", "Battery replacement due", kind="timestamp",
+                                device_class="timestamp", icon="mdi:battery-clock", diagnostic=True))
+        specs.append(EntitySpec("battery_days_left", "Battery days left", unit="d", icon="mdi:battery-clock-outline",
+                                state_class="measurement", diagnostic=True))
     if downlinks(model_key):
         specs.append(EntitySpec("last_command", "Last command", kind="text", icon="mdi:message-arrow-right-outline",
                                 diagnostic=True))
@@ -2153,3 +2158,21 @@ def pivot_specs() -> list[EntitySpec]:
                    state_class="measurement", precision=0, diagnostic=True),
         EntitySpec("cmd_pivot_stop", "Pivot stopped (end round)", platform="button", icon="mdi:stop-circle-outline"),
     ]
+
+
+# How a device reaches Home Assistant (Uplink.extra["network_server"]) → entity text and device label
+NETWORK_SERVERS = {
+    "embedded": ("Gateway (Embedded NS)", "LoRaWAN · Gateway network server", "mdi:router-wireless"),
+    "chirpstack": ("ChirpStack", "LoRaWAN · ChirpStack", "mdi:server"),
+    "built-in": ("Home Assistant (packet forwarder)", "LoRaWAN · Home Assistant network server", "mdi:home-assistant"),
+}
+
+
+def network_of(meta_ns: str | None, entry_data: dict, chirpstack_hub: bool = False) -> str:
+    """How a device reaches Home Assistant: what its last uplink said, else what its set-up implies
+    (an AppKey for the built-in network server, otherwise the gateway's network server)."""
+    if meta_ns in NETWORK_SERVERS:
+        return meta_ns
+    if entry_data.get("lns_app_key"):
+        return "built-in"
+    return "chirpstack" if chirpstack_hub else "embedded"

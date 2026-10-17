@@ -20,9 +20,10 @@ from .const import DOMAIN, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 RES = pathlib.Path(__file__).parent / "resources"
+RETIRED = {"milesight-fleet": "milesight-maintenance/devices",      # merged into Maintenance (tabs) in 0.34
+           "milesight-signal": "milesight-maintenance/signal"}
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
-    "fleet_overview.yaml": ("milesight-fleet", "mdi:access-point-network", None),
-    "signal_quality.yaml": ("milesight-signal", "mdi:signal", None),
+    "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
     "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),
@@ -115,6 +116,10 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
     dashboards = _lovelace_dashboards(hass)
     result: dict[str, list[str]] = {"written": [], "kept": [], "removed": []}
     wanted = wanted_dashboards(site_tags(hass) if tags is None else tags)
+    for url in [u for u in done if u in RETIRED]:      # dashboards merged into another one: out of the sidebar
+        mine = done.pop(url)
+        _hide(hass, url)
+        result.setdefault("merged", []).append(mine.get("title") or url)
     for f, (url, icon, _needs) in DASHBOARDS.items():
         config = configs[f]
         title = config.get("title") or url
@@ -194,6 +199,10 @@ async def async_install(hass: HomeAssistant, version: str | None = None, force: 
     state = await store.async_load() or {}
     if not force and version and state.get("version") == version:
         await async_restore(hass, state)
+        try:                                   # labels for devices set up before the gateway (at every start)
+            await async_label_devices(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not label the Milesight devices", exc_info=True)
         return {}
     out = {"blueprints": await async_install_blueprints(hass, state)}
     try:
@@ -238,6 +247,8 @@ def summary(out: dict[str, Any]) -> str:
         lines.append(f"Blueprints you changed were kept: {', '.join(n.removesuffix('.yaml') for n in bp['kept'])}.")
     if db.get("written"):
         lines.append(f"Dashboards in the sidebar: {', '.join(db['written'])}.")
+    if db.get("merged"):
+        lines.append(f"{' and '.join(db['merged'])} are now tabs of the Maintenance dashboard.")
     if db.get("removed"):
         lines.append(f"Dashboards removed from the sidebar (no devices need them yet): {', '.join(db['removed'])}.")
     if db.get("kept"):
@@ -284,6 +295,9 @@ async def async_label_devices(hass: HomeAssistant) -> None:
     state = await store.async_load() or {}
     labelled: dict[str, list[str]] = state.setdefault("labelled", {})
     lreg, dreg = lr.async_get(hass), dr.async_get(hass)
+    from .const import DOWNLINK_CHIRPSTACK
+    hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+    state["_chirpstack"] = bool(hubs) and all(getattr(h, "downlink_format", None) == DOWNLINK_CHIRPSTACK for h in hubs)
     ids: dict[str, str] = {}
     changed = False
     for e in hass.config_entries.async_entries(DOMAIN):
@@ -292,6 +306,9 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         device = dreg.async_get_device(identifiers={(DOMAIN, e.data.get(CONF_DEVEUI))})
         if device is None:
             continue
+        if _connection_label(e, device, lreg, dreg, state):
+            changed = True
+            device = dreg.async_get(device.id) or device
         tags = device_tags(e.options.get("model", e.data.get("model")), {**e.data, **e.options})
         new = [t for t in sorted(tags) if t not in labelled.get(device.id, [])]
         if not new:
@@ -306,5 +323,30 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         dreg.async_update_device(device.id, labels=set(device.labels) | add)
         labelled[device.id] = sorted(set(labelled.get(device.id, [])) | set(new))
         changed = True
+    state.pop("_chirpstack", None)
     if changed:
         await store.async_save(state)
+
+
+def _chirpstack_hub(state: dict[str, Any]) -> bool:
+    return bool(state.get("_chirpstack"))
+
+
+def _connection_label(entry: Any, device: Any, lreg: Any, dreg: Any, state: dict[str, Any]) -> bool:
+    """One label per device for how it reaches Home Assistant (gateway's network server, ChirpStack or the
+    built-in one); swapped when that changes. Returns True when the device's labels changed."""
+    from .models import NETWORK_SERVERS, network_of
+    ns = network_of((getattr(getattr(entry, "runtime_data", None), "meta", None) or {}).get("network_server"),
+                    dict(entry.data), _chirpstack_hub(state))
+    conn: dict[str, str] = state.setdefault("connection", {})
+    if conn.get(device.id) == ns:
+        return False
+    _text, name, icon = NETWORK_SERVERS[ns]
+    wanted = (lreg.async_get_label_by_name(name) or lreg.async_create(name, icon=icon)).label_id
+    others = set()
+    for key, (_t, other, _i) in NETWORK_SERVERS.items():
+        if key != ns and (lab := lreg.async_get_label_by_name(other)) is not None:
+            others.add(lab.label_id)
+    dreg.async_update_device(device.id, labels=(set(device.labels) - others) | {wanted})
+    conn[device.id] = ns
+    return True

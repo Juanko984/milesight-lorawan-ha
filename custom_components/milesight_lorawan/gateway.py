@@ -317,9 +317,51 @@ class OpenAlertsSensor(SensorEntity):
                 "last_notification": {**last, "at": fmt(last["at"])} if last else None}
 
 
+class AlertSummarySensor(SensorEntity):
+    """Alerts in the last 7 days; categories, noisiest devices and mean time to acknowledge as attributes."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_name = "Alerts last 7 days"
+    _attr_icon = "mdi:chart-timeline-variant"
+    _attr_native_unit_of_measurement = "alerts"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass, self.entry = hass, entry
+        self._attr_unique_id = f"{entry.entry_id}_alerts_week"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"hub_{entry.entry_id}")})
+
+    async def async_added_to_hass(self) -> None:
+        from .const import SIGNAL_ALERTS_CHANGED
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id), self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> int | None:
+        hub = _hub(self.entry)
+        return hub.alerts.summary()["alerts"] if hub else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        hub = _hub(self.entry)
+        if hub is None:
+            return {}
+        from .alerts import summary_text
+        s = hub.alerts.summary()
+        cfg = hub.alerts.cfg
+        from datetime import datetime
+        now = datetime.now(dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.UTC)
+        return {"milesight_role": "alerts_summary", **{k: v for k, v in s.items() if k != "alerts"},
+                "summary": summary_text(s), "on_call_now": cfg.first_line(now),
+                "escalation_chain": list(cfg.backup)}
+
+
 def hub_extra_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:
     hub = _hub(entry)
-    out: list = [OpenAlertsSensor(hass, entry)]
+    out: list = [OpenAlertsSensor(hass, entry), AlertSummarySensor(hass, entry)]
     if hub is not None and hub.ns is not None:
         out.append(GatewayDevicesSensor(hass, entry))
+    if hub is not None and getattr(hub, "lns", None) is not None:
+        from .lns_ha import NetworkServerSensor
+        out.append(NetworkServerSensor(hass, entry))
     return out

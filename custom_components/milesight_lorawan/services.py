@@ -23,6 +23,10 @@ SERVICE_PROVISION = "add_to_gateway"
 SERVICE_DEPROVISION = "remove_from_gateway"
 SERVICE_SYNC = "sync_gateway_devices"
 SERVICE_TANK_REFILLED = "tank_refilled"
+SERVICE_LOG = "log_service"
+SERVICE_BATTERY = "battery_replaced"
+SERVICE_PROFILE = "apply_settings_profile"
+SERVICE_HANDOVER = "handover_report"
 DISPLAY_BLOCKS = [f"text_{n}" for n in range(1, 11)] + ["qrcode"]
 ACTIONS = ["on", "off", "on_for", "off_for", "open_for", "open_until_pulses", "set"]
 
@@ -59,6 +63,14 @@ PROVISION_SCHEMA = vol.Schema({
 })
 DEPROVISION_SCHEMA = vol.Schema({vol.Required("deveui"): cv.string})
 TANK_SCHEMA = vol.Schema({vol.Required("device_id"): vol.Any(cv.string, [cv.string])})
+LOG_SCHEMA = vol.Schema({vol.Required("device_id"): vol.Any(cv.string, [cv.string]),
+                         vol.Required("note"): cv.string,
+                         vol.Optional("kind", default="maintenance"): vol.In(["maintenance", "battery_replaced",
+                                                                             "firmware", "note"])})
+PROFILE_SCHEMA = vol.Schema({vol.Required("profile"): cv.string,
+                             vol.Required("device_id"): vol.Any(cv.string, [cv.string]),
+                             vol.Optional("include_channels", default=True): cv.boolean,
+                             vol.Optional("send_to_devices", default=True): cv.boolean})
 
 
 def _hubs(hass: HomeAssistant, provisioning: bool = False) -> list:
@@ -183,7 +195,61 @@ def async_register_services(hass: HomeAssistant) -> None:
             except ValueError as err:
                 raise ServiceValidationError(str(err)) from err
 
+    async def _user(call: ServiceCall) -> str | None:
+        if call.context and call.context.user_id:
+            u = await hass.auth.async_get_user(call.context.user_id)
+            return u.name if u else None
+        return None
+
+    async def _log(call: ServiceCall) -> None:
+        by = await _user(call)
+        ids = call.data["device_id"]
+        for device_id in ids if isinstance(ids, list) else [ids]:
+            rt = _runtime(hass, device_id)
+            if call.data["kind"] == "battery_replaced":
+                rt.battery_replaced(by)
+                if call.data["note"]:
+                    rt.log_service("note", call.data["note"], by)
+            else:
+                rt.log_service(call.data["kind"], call.data["note"], by)
+
+    async def _battery(call: ServiceCall) -> None:
+        by = await _user(call)
+        ids = call.data["device_id"]
+        for device_id in ids if isinstance(ids, list) else [ids]:
+            _runtime(hass, device_id).battery_replaced(by)
+
+    async def _profile(call: ServiceCall) -> dict:
+        from .maintenance_ha import async_apply_profile, async_profiles
+        prof = (await async_profiles(hass)).get(call.data["profile"])
+        if prof is None:
+            raise ServiceValidationError(f"No settings profile '{call.data['profile']}'")
+        by = await _user(call)
+        out = {}
+        ids = call.data["device_id"]
+        for device_id in ids if isinstance(ids, list) else [ids]:
+            rt = _runtime(hass, device_id)
+            try:
+                out[rt.entry.title] = await async_apply_profile(hass, prof, rt.entry, call.data["include_channels"],
+                                                                call.data["send_to_devices"], by)
+            except ValueError as err:
+                raise ServiceValidationError(str(err)) from err
+        return {"applied": out}
+
+    async def _handover(call: ServiceCall) -> dict:
+        from .maintenance_ha import async_handover_report, first_hub_entry
+        hub = first_hub_entry(hass)
+        if hub is None:
+            raise ServiceValidationError("No Milesight gateway set up")
+        return await async_handover_report(hass, hub)
+
     from homeassistant.core import SupportsResponse
+    hass.services.async_register(DOMAIN, SERVICE_LOG, _log, schema=LOG_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_BATTERY, _battery, schema=TANK_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_PROFILE, _profile, schema=PROFILE_SCHEMA,
+                                 supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, SERVICE_HANDOVER, _handover, schema=vol.Schema({}),
+                                 supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_ACK, _ack, schema=ACK_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_PROVISION, _provision, schema=PROVISION_SCHEMA,
                                  supports_response=SupportsResponse.OPTIONAL)

@@ -23,6 +23,9 @@ class MilesightTracker(MilesightEntity, TrackerEntity):
     _attr_source_type = SourceType.GPS
 
     def _coord(self, key: str) -> float | None:
+        if self.spec.key == "fixed_location":
+            fixed = self.runtime.fixed_location()
+            return None if fixed is None else fixed[0 if key == "latitude" else 1]
         lat, lon = self.runtime.values.get("latitude"), self.runtime.values.get("longitude")
         if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)) or (lat == 0 and lon == 0):
             return None
@@ -37,6 +40,16 @@ class MilesightTracker(MilesightEntity, TrackerEntity):
         return self._coord("longitude")
 
     @property
+    def location_accuracy(self) -> int:
+        if self.spec.key == "fixed_location":
+            return int((self.runtime.entry.options.get("location") or {}).get("accuracy") or 0)
+        return 0
+
+    @property
     def extra_state_attributes(self) -> dict:
+        if self.spec.key == "fixed_location":
+            loc = self.runtime.entry.options.get("location") or {}
+            return {"milesight_role": "device_location", "fixed": True, "captured_by": loc.get("by"),
+                    "captured_at": loc.get("at"), "area": self.runtime.entry.data.get("area")}
         v = self.runtime.values
         return {k: v[k] for k in ("motion_status", "geofence_status") if v.get(k) is not None}

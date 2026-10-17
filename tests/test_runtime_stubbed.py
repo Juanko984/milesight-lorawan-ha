@@ -221,7 +221,7 @@ for i, (model, raw) in enumerate(samples.items()):
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
         empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status")]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -231,7 +231,7 @@ for i, (model, raw) in enumerate(samples.items()):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
                  and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status")]
+                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -467,10 +467,11 @@ dev_entry = types.SimpleNamespace(data={"entry_type": "device", "deveui": rt.dev
 hub_entry = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="h1", title="GW", runtime_data=hb)
 fake = types.SimpleNamespace(config_entries=types.SimpleNamespace(async_entries=lambda d: [hub_entry, dev_entry]))
 devs = fleet.fleet_devices(fake, hub_entry)
-assert devs == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
+assert [{k: d[k] for k in list(d)[:16]} for d in devs] == [{"name": "TH lab", "model": "EM300-TH", "deveui": rt.deveui.upper(), "area": "Lab", "online": True,
                  "battery": 90, "battery_low": False, "rssi": -95, "snr": 7.0, "sf": 9, "gateway": "Local Gateway",
                  "gateways_heard": 1, "signal": "excellent", "packet_loss": 0.0, "command": "confirmed",
                  "last_seen": devs[0]["last_seen"]}], devs
+assert devs[0]["network_server"] == "Gateway (Embedded NS)" and "battery_forecast" in devs[0]
 print("fleet ok")
 
 # Settings (alarm thresholds, LED / child lock), stored history, pulse meter
@@ -660,14 +661,27 @@ assert by["building_alerts"].extra_state_attributes["alerts"][0]["where"] == "Me
 assert by["building_health"].native_value is not None and "building_avg_pm2_5" not in by   # AM307 has no PM
 site_entry.options["site_company"] = "Acme Ltd"
 assert by["site"].native_value == "Acme Ltd"                                # override
+class _DashStore:
+    data = None
+    async def async_load(self): return _DashStore.data
+    async def async_save(self, d): _DashStore.data = json.loads(json.dumps(d))
+dmod._store = lambda h, e: _DashStore()
+# a landing page made before 0.30 (no fingerprint) is replaced once by the automatic update, old copy kept
+_old = dmod._register(hass2, "building-head-office", "Building – Head office", "milesight_site1")
+_old.saved = {"title": "old", "views": []}
+_DashStore.data = {"url": "building-head-office", "title": "Building – Head office", "id": "milesight_site1", "own": True}
+assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) == "/building-head-office"
+assert _DashStore.data["backup"] == {"title": "old", "views": []} and _DashStore.data["hash"]
+hass2.data["lovelace"].dashboards.pop("building-head-office"); _DashStore.data = None
 where = asyncio.run(dmod.async_update_dashboard(hass2, site_entry))
 dash = hass2.data["lovelace"].dashboards["building-head-office"]
-assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Head office"
+assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Acme Ltd"
 assert dash.saved["views"][0]["sections"][0]["cards"][0]["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
 assert heads[-3:] == ["People", "Meeting room 1", "Open office"], heads
 saved_hash = dmod._hash(dash.saved)
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None      # up to date
+assert _DashStore.data["own"] is True and _DashStore.data["title"] == "Acme Ltd"
 dash.saved = {"title": "Mine", "views": []}                                                  # edited by hand
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None and dash.saved["title"] == "Mine"
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry)) == "/building-head-office"  # the button rewrites
@@ -748,7 +762,8 @@ asyncio.run(mgr._run())
 sent = [c for c in CALLS if c[1] == "mobile_app_juan"]
 assert len(sent) == 1 and sent[0][2]["title"] == "Tank low – Diesel tank", CALLS
 acts = sent[0][2]["data"]["actions"]
-assert acts[1]["title"] == "Start pump" and acts[0]["action"].startswith("MSL_ACK_")
+assert acts[2]["title"] == "Start pump" and acts[0]["action"].startswith("MSL_ACK_")
+assert acts[1]["title"] == "Snooze 1 h" and acts[1]["action"].startswith("MSL_SNZ_")
 aid = acts[0]["action"].removeprefix("MSL_ACK_")
 key = next(k for k in mgr.engine.alerts)
 mgr.engine.alerts[key]["level_at"] -= 16 * 60         # nobody answered for 16 minutes
@@ -762,6 +777,21 @@ asyncio.run(mgr._on_action(types.SimpleNamespace(data={"action": "MSL_ACK_unknow
 alerts_sensor = gateway.OpenAlertsSensor(hass3, types.SimpleNamespace(**{**vars(alert_entry), "runtime_data": hb}))
 hb.alerts = mgr
 assert alerts_sensor.native_value == 0 and alerts_sensor.extra_state_attributes["alerts"][0]["status"] == "acknowledged"
+# snooze from the phone, weekly summary on its day and hour (once), summary sensor
+mgr.engine.alerts.clear()
+CALLS.clear(); asyncio.run(mgr._run())
+aid2 = next(iter(mgr.engine.alerts.values()))["id"]
+CALLS.clear()
+asyncio.run(mgr._on_action(types.SimpleNamespace(data={"action": f"MSL_SNZ_{aid2}"}, context=None)))
+assert any(c[2]["title"].startswith("⏸") for c in CALLS) and next(iter(mgr.engine.alerts.values()))["snoozed_until"]
+from datetime import datetime as _dt
+mon8 = _dt(2026, 10, 19, 8, 3, tzinfo=ZoneInfo("Africa/Johannesburg"))
+CALLS.clear(); asyncio.run(mgr._weekly(time.time(), mon8)); asyncio.run(mgr._weekly(time.time(), mon8))
+summ = [c for c in CALLS if c[2].get("title", "").startswith("Weekly alert summary")]
+assert len(summ) == 1 and "alerts" in summ[0][2]["message"] and "actions" not in summ[0][2]["data"]
+week_sensor = gateway.AlertSummarySensor(hass3, types.SimpleNamespace(**{**vars(alert_entry), "runtime_data": hb}))
+assert week_sensor.native_value >= 1 and "summary" in week_sensor.extra_state_attributes
+assert week_sensor.extra_state_attributes["on_call_now"] == ["notify.mobile_app_juan"]
 print("alerts ok")
 
 # gateway provisioning over ns-api
@@ -843,7 +873,7 @@ assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") 
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 11 and (bp / "leak.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-fleet", "milesight-signal", "milesight-tanks", "milesight-analytics"}
+assert set(dashes) == {"milesight-maintenance", "milesight-tanks", "milesight-analytics"}
 assert dashes["milesight-tanks"].saved["title"] == "Tanks & alerts" and "milesight-tanks" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -852,12 +882,19 @@ assert out["dashboards"]["removed"] == ["Tanks & alerts"] and "milesight-tanks" 
 SITE.append(types.SimpleNamespace(data={"entry_type": "device", "deveui": "a2", "model": "EM410-RDL"}, options={}))
 assert asyncio.run(res.async_sync(hass4))["dashboards"]["written"] == ["Tanks & alerts"] and "milesight-tanks" in dashes
 (bp / "leak.yaml").write_text("# my own version\n")                         # user edits a blueprint …
-dashes["milesight-fleet"].saved = {"title": "Mine", "views": []}             # … and a dashboard
+dashes["milesight-maintenance"].saved = {"title": "Mine", "views": []}       # … and a dashboard
 (bp / "alarm.yaml").unlink()
 out = asyncio.run(res.async_install(hass4, "0.22.0"))
 assert out["blueprints"]["written"] == ["alarm.yaml"] and out["blueprints"]["kept"] == ["leak.yaml"]
-assert out["dashboards"]["kept"] == ["LoRaWAN fleet"] and dashes["milesight-fleet"].saved["title"] == "Mine"
+assert out["dashboards"]["kept"] == ["Maintenance"] and dashes["milesight-maintenance"].saved["title"] == "Mine"
 assert "kept" in res.summary(out)
+# the old Fleet / Signal dashboards (before 0.34) are taken out of the sidebar: they are Maintenance tabs now
+st_r = {"dashboards": {"milesight-fleet": {"title": "LoRaWAN fleet", "hash": "x"},
+                       "milesight-signal": {"title": "LoRaWAN signal", "hash": "y"}}}
+dashes["milesight-fleet"] = object()
+out_r = asyncio.run(res.async_install_dashboards(hass4, st_r))
+assert out_r["merged"] == ["LoRaWAN fleet", "LoRaWAN signal"] and "milesight-fleet" not in dashes
+assert "milesight-fleet" not in st_r["dashboards"] and "tabs of the Maintenance dashboard" in res.summary({"dashboards": out_r})
 print("resources ok")
 
 
@@ -1206,3 +1243,209 @@ assert any(c.get("entity") == "sensor.h1_area_board_room_comfort" for c in ana[2
 nav = dl.nav_section([("Farm", "milesight-farm", "mdi:tractor-variant")])
 assert nav["cards"][1]["tap_action"]["navigation_path"] == "/milesight-farm"
 print("live dashboards ok")
+
+# ---------------- 0.31: built-in network server (Semtech packet forwarder → hub) ----------------
+import importlib
+lns_ha = load("lns_ha")
+lcrypto = importlib.import_module("milesight_lorawan.lns.crypto")
+lphy = importlib.import_module("milesight_lorawan.lns.phy")
+KEY = bytes.fromhex("5572404c696e6b4c6f52613230313823")
+EUI, GW = "24e1241122334455", bytes.fromhex("24e124fffefa2994")
+hub_lns_entry = types.SimpleNamespace(data={"entry_type": "hub", "topic": "x/#", "payload_encoding": "base64"},
+                                      options={"lns_enabled": True, "lns_port": 1700, "lns_farm_id": 9},
+                                      entry_id="hl", title="Farm gateway")
+later = []
+hass.loop = types.SimpleNamespace(call_later=lambda d, fn, *a: later.append((fn, a)))
+hbl = hub.Hub(hass, hub_lns_entry)
+assert hbl.lns is not None and hbl.lns.port == 1700
+class _UDP:
+    def __init__(self): self.sent = []
+    def sendto(self, data, addr): self.sent.append((data, addr))
+    def close(self): pass
+udp = _UDP()
+async def _start():
+    await hbl.lns.async_start()
+loop_ = asyncio.new_event_loop()
+async def _fake_endpoint(factory, local_addr):
+    return udp, factory()
+loop_.create_datagram_endpoint = _fake_endpoint
+loop_.run_until_complete(_start())
+hbl.lns.server.keys = lambda eui: lns_ha.DeviceKeys(EUI, KEY) if eui == EUI else None
+assert hbl.lns.server.cfg.farm_id == 9 and hbl.lns.error is None
+ADDR = ("192.168.1.20", 41000)
+hbl.lns.datagram_received(b"\x02\x00\x01\x02" + GW, ADDR)                                # PULL_DATA
+assert udp.sent[-1] == (b"\x02\x00\x01\x04", ADDR)
+def push(phy, tmst=5_000_000):
+    rx = {"tmst": tmst, "freq": 868.3, "stat": 1, "modu": "LORA", "datr": "SF9BW125", "codr": "4/5", "rssi": -88,
+          "lsnr": 6.5, "size": len(phy), "data": base64.b64encode(phy).decode()}
+    hbl.lns.datagram_received(b"\x02\x00\x02\x00" + GW + json.dumps({"rxpk": [rx]}).encode(), ADDR)
+    while later:
+        fn, a = later.pop(0); fn(*a)
+# join
+nonce = (77).to_bytes(2, "little")
+msg = b"\x00" + bytes(8) + bytes.fromhex(EUI)[::-1] + nonce
+push(msg + lcrypto.aes_cmac(KEY, msg)[:4])
+resp = json.loads(udp.sent[-1][0][4:])["txpk"]
+assert udp.sent[-1][0][3] == 3 and resp["tmst"] == 10_000_000 and resp["freq"] == 868.3 and resp["datr"] == "SF9BW125"
+acc = base64.b64decode(resp["data"])
+clear = lcrypto.join_accept_decrypt(KEY, acc)
+addr = int.from_bytes(clear[6:10], "little")
+nwk, app = lcrypto.session_keys(KEY, clear[0:3], clear[3:6], nonce)
+assert addr >> 16 == 9 and hbl.stats.counts.get("joins") == 1
+# uplink from an EM300-TH: delivered to the device through the normal hub path
+entries.known.add(EUI)
+got = []
+signals.setdefault(const.SIGNAL_UPLINK.format(EUI), []).append(lambda up: got.append(up))
+def uplink(fcnt, port, payload, confirmed=False):
+    enc = lcrypto.crypt_payload(app, payload, addr, fcnt, True)
+    fr = lphy.build_data(lphy.CONF_UP if confirmed else lphy.UNCONF_UP, addr, fcnt, fport=port, enc_payload=enc)
+    return fr + lcrypto.data_mic(nwk, fr, addr, fcnt, True)
+push(uplink(0, 85, bytes.fromhex("0367f40004687b")), tmst=20_000_000)
+assert got and got[0].raw == bytes.fromhex("0367f40004687b") and got[0].fport == 85 and got[0].sf == 9
+assert got[0].gateways[0]["id"] == "24e124fffefa2994" and got[0].extra["network_server"] == "built-in"
+assert EUI in hbl.last_uplink and "24e124fffefa2994" in hbl.stats.gateways
+# a command for this device goes into the network server queue, then out after the next uplink
+asyncio.run(hbl.async_send_downlink(EUI, bytes.fromhex("ff100001"), 85))
+n_sent = len(udp.sent)
+push(uplink(1, 85, bytes.fromhex("0367f40004687b")), tmst=30_000_000)
+assert [d[0][3] for d in udp.sent[n_sent:]] == [1, 3]           # PUSH_ACK, then PULL_RESP
+pk = json.loads(udp.sent[-1][0][4:])["txpk"]
+dl = lphy.parse_data(base64.b64decode(pk["data"]))
+assert pk["tmst"] == 33_000_000 and lcrypto.crypt_payload(app, dl.frm_payload, addr, dl.fcnt16, False) == bytes.fromhex("ff100001")
+assert hbl.stats.counts.get("downlinks") == 1
+# devices not joined here still use the gateway's MQTT downlink
+assert not hbl.lns.handles("24e1240000000001")
+# unknown device joining → offered in Discovered with the network-server form
+before = len(entries.flows)
+other = b"\x00" + bytes(8) + bytes.fromhex("24e12400000000aa")[::-1] + b"\x01\x00"
+push(other + bytes(4))
+assert len(entries.flows) == before + 1 and entries.flows[-1]["lns"] is True
+# summary for the sensor / diagnostics has no keys
+summ = hbl.lns.summary()
+assert summ["devices"][EUI]["dev_addr"] == f"{addr:08x}" and "app_s_key" not in json.dumps(summ)
+assert summ["gateways"]["24e124fffefa2994"]["connected"] is True
+# gateway that never sent PULL_DATA can't be used → join refused with a hint
+hbl.lns.server.gateways["24e124fffefa2994"]["pull"] = 0
+nonce2 = (78).to_bytes(2, "little")
+msg2 = b"\x00" + bytes(8) + bytes.fromhex(EUI)[::-1] + nonce2
+push(msg2 + lcrypto.aes_cmac(KEY, msg2)[:4])
+assert hbl.lns.last_events[0]["kind"] == "join_rejected" and "Port Down" in hbl.lns.last_events[0]["reason"]
+# connection shown per device: entity text + one label that swaps when the device moves
+rt_mqtt = dev_entries[0].runtime_data
+assert rt_mqtt.values["network_server"] == "Gateway (Embedded NS)"
+e_l, rt_l = make_with(EUI, "EM300-TH", {}, title="EM300 via LNS")
+up_l = decoders.Uplink(deveui=EUI, raw=bytes.fromhex("0367f40004687b"), fport=85, fcnt=5)
+up_l.extra["network_server"] = "built-in"
+rt_l.handle_uplink(up_l)
+assert rt_l.values["network_server"] == "Home Assistant (packet forwarder)" and rt_l.meta["network_server"] == "built-in"
+# devices that have not reported since the update: worked out from their set-up
+mdl_ = sys.modules["milesight_lorawan.models"]
+assert mdl_.network_of(None, {}) == "embedded" and mdl_.network_of(None, {"lns_app_key": "00" * 16}) == "built-in"
+assert mdl_.network_of(None, {}, chirpstack_hub=True) == "chirpstack" and mdl_.network_of("built-in", {}) == "built-in"
+quiet = types.SimpleNamespace(data={"deveui": "x"}, runtime_data=types.SimpleNamespace(meta={}))
+res_c = load("resources")
+class _Lab:
+    def __init__(self): self.by = {}
+    def async_get_label_by_name(self, n): return self.by.get(n)
+    def async_create(self, n, icon=None):
+        self.by[n] = types.SimpleNamespace(label_id=n.lower().replace(" ", "_"), icon=icon); return self.by[n]
+class _Dev:
+    def __init__(self): self.d = types.SimpleNamespace(id="d1", labels={"keep"})
+    def async_update_device(self, i, labels): self.d.labels = set(labels)
+labs, devs, st = _Lab(), _Dev(), {}
+assert res_c._connection_label(e_l, devs.d, labs, devs, st)
+assert devs.d.labels == {"keep", "lorawan_·_home_assistant_network_server"}
+assert not res_c._connection_label(e_l, devs.d, labs, devs, st)                 # unchanged → nothing to do
+rt_l.meta["network_server"] = "embedded"
+assert res_c._connection_label(e_l, devs.d, labs, devs, st)
+assert devs.d.labels == {"keep", "lorawan_·_gateway_network_server"}             # swapped, user's label kept
+dq = types.SimpleNamespace(id="d2", labels=set())
+devs2 = _Dev(); devs2.d = dq
+assert res_c._connection_label(quiet, dq, labs, devs2, st) and dq.labels == {"lorawan_·_gateway_network_server"}
+loop_.run_until_complete(hbl.lns.async_stop())
+loop_.close()
+print("network server ok")
+
+# ---------------- 0.31b5: battery forecast, service history, settings profiles, handover report ----------------
+from datetime import datetime as _dt2
+mh = load("maintenance_ha")
+class _MemStore:
+    data = None
+    async def async_load(self): return _MemStore.data
+    async def async_save(self, d): _MemStore.data = json.loads(json.dumps(d))
+mh._store = lambda h: _MemStore()
+e_a, rt_a = make_with("00000000000b0001", "EM300-TH", {"battery_low_pct": 20, "max_gap_min": 120}, title="Fridge A")
+e_b, rt_b = make_with("00000000000b0002", "EM300-TH", {"battery_low_pct": 10, "meter_offset": 3}, title="Fridge B")
+# 40 days of battery readings dropping 1 % every 4 days → a replacement date ~ (pct-20)*4 days away
+day0 = _dt2.now(rt_a.cal.tz).date().toordinal() - 40
+for i in range(41):
+    rt_a.battery_fc.add(day0 + i, 90 - i // 4, time.time() - (40 - i) * 86400)
+rt_a._publish(time.time())
+assert 220 <= rt_a.values["battery_days_left"] <= 260, rt_a.values["battery_days_left"]
+assert rt_a.values["battery_replace_by"] > time.time() + 200 * 86400
+assert rt_a.attrs["battery_replace_by"]["method"] == "trend"
+rt_a.battery_replaced("Juan")
+assert rt_a.values.get("battery_days_left") is None and rt_a.meta["_service_log"][-1]["kind"] == "battery_replaced"
+# firmware change is logged
+rt_a.raw["firmware_version"] = "1.1"; rt_a._update_registry()
+rt_a.raw["firmware_version"] = "1.2"; rt_a._update_registry()
+assert rt_a.meta["_service_log"][-1]["text"] == "Firmware 1.1 → 1.2"
+fields = fleet.maintenance_fields(rt_a, e_a, time.time())
+assert fields["firmware"] == "1.2" and fields["service"][0]["text"] == "Firmware 1.1 → 1.2"
+# settings profile: A's options + over-the-air settings onto B
+rt_a.meta.setdefault("config", {})["report_interval"] = 5
+sentdl = []
+async def _cmd(name, value=None): sentdl.append((name, value)); rt_b.meta.setdefault("config", {})[name] = value
+rt_b.async_command = _cmd
+updated = []
+hass.config_entries.async_update_entry = lambda e, options: (updated.append((e.title, options)), setattr(e, "options", options))
+prof = asyncio.run(mh.async_save_profile(hass, e_a, "Fridge"))
+assert asyncio.run(mh.async_profiles(hass))["Fridge"]["model"] == "EM300-TH"
+res = asyncio.run(mh.async_apply_profile(hass, prof, e_b, True, True, "Juan"))
+assert sentdl == [("report_interval", 5)] and res["sent"] == 1 and res["options"] >= 2
+assert e_b.options["battery_low_pct"] == 20 and e_b.options["max_gap_min"] == 120 and e_b.options["meter_offset"] == 3
+assert rt_b.meta["_service_log"][-1]["kind"] == "profile" and "'Fridge' applied" in rt_b.meta["_service_log"][-1]["text"]
+_titles = [e.title for e in mh.same_model_entries(hass, "EM300-TH", e_a.entry_id)]
+assert "Fridge B" in _titles and "Fridge A" not in _titles and "Button" not in _titles
+_, rt_c = make_with("00000000000b0003", "WS101", {}, title="Button")
+try:
+    asyncio.run(mh.async_apply_profile(hass, prof, rt_c.entry))
+    raise AssertionError("other model")
+except ValueError:
+    pass
+# handover report files
+import tempfile, os
+tmpd = tempfile.mkdtemp()
+hass.config.path = lambda *p: os.path.join(tmpd, *p)
+async def _exec(fn, *a): return fn(*a)
+hass.async_add_executor_job = _exec
+hub_ho = types.SimpleNamespace(data={"entry_type": "hub"}, entry_id="hho", title="Farm gate", options={}, runtime_data=hb)
+hass.states = types.SimpleNamespace(get=lambda e: None)
+hass.config.location_name, hass.config.country, hass.config.latitude, hass.config.longitude = "Acme", "ZA", 0, 0
+entries.async_entry_for_domain_unique_id = lambda d, u: next((e for e in entries.items if e.data.get("deveui") == u), None)
+out_ho = asyncio.run(mh.async_handover_report(hass, hub_ho))
+assert out_ho["html"].startswith("/local/milesight/handover-farm-gate-") and int(out_ho["devices"]) >= 3
+page = open(os.path.join(tmpd, "www", "milesight", out_ho["html"].rsplit("/", 1)[1]), encoding="utf-8").read()
+assert "Fridge A" in page and "LoRaWAN installation handover" in page
+entries.async_entry_for_domain_unique_id = lambda d, u: u in entries.known
+# fixed device location: Location tracker entity, map tab, fleet / handover fields
+assert rt_b.fixed_location() is None and not any(sp.key == "fixed_location" for sp in rt_b.extra_specs())
+e_b.options = {**e_b.options, "location": {"latitude": -33.91234, "longitude": 18.41234, "accuracy": 6, "by": "Juan"}}
+assert rt_b.fixed_location() == (-33.91234, 18.41234)
+spec_loc = next(sp for sp in rt_b.extra_specs() if sp.key == "fixed_location")
+dtrk = load("device_tracker")
+trk = dtrk.MilesightTracker(rt_b, spec_loc)
+rt_b._publish(time.time())
+assert trk.latitude == -33.91234 and trk.longitude == 18.41234 and trk.location_accuracy == 6
+assert trk.extra_state_attributes["milesight_role"] == "device_location" and rt_b.values["fixed_location"] == "fixed"
+dlive = sys.modules["milesight_lorawan.dashboard_live"]
+mv = dlive.map_view(lambda plat, uid: f"{plat}.{uid}", [rt_a, rt_b])
+assert mv["type"] == "panel" and mv["cards"][0]["entities"] == [{"entity": "device_tracker.00000000000b0002_fixed_location",
+                                                                 "name": "Fridge B"}]
+assert dlive.with_live_view("maintenance.yaml", {"views": [{"path": "maintenance"}]}, lambda p_, u: f"{p_}.{u}",
+                         [rt_b], [])["views"][-1]["path"] == "map"
+fb = fleet.maintenance_fields(rt_b, e_b, time.time())
+assert fb["latitude"] == -33.91234 and "location" in __import__("milesight_lorawan.profiles", fromlist=["x"]).DEVICE_ONLY
+ho_mod = load("handover")
+assert "-33.912340, 18.412340" in ho_mod.report_csv([{"name": "x", **fb}])
+print("maintenance ok")

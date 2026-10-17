@@ -2,6 +2,94 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.34.0
+### Added
+- **Device location**: every device can have a fixed location – on site in **LoRaWAN commissioning → Walk test →
+  Use my phone's location** (the phone's GPS, with its accuracy), or device → Configure → *Location* with a map
+  picker. It becomes the device's **Location** entity (shown on Home Assistant's map), a **Map** tab on the
+  Maintenance dashboard, and a column / map link in the handover report ("No location captured" is listed as an
+  open point). Settings profiles never copy it.
+### Changed
+- **One Maintenance dashboard with tabs**: *Overview* (batteries, offline, firmware, service history), *Devices*
+  (every device once: status, battery and due date, signal, network server, firmware, last command, last seen),
+  *Signal* (gateways, weak or lossy devices) and *Map*. The separate *LoRaWAN fleet* and *LoRaWAN signal*
+  dashboards are removed from the sidebar – their content is in the tabs, without the duplicated lists (the old
+  "needs attention" and two "all devices" tables). Phone links for gateway and command alerts open the matching tab.
+- The built-in network server, network-server label, smart alerts and maintenance features are out of beta.
+
+## 0.33.1
+### Fixed
+- **Site landing page did not appear**: a landing page made before 0.30 (no fingerprint) was treated as "edited by
+  hand" and never updated, and problems were only logged at debug level. It is now replaced once (your old copy
+  is kept in storage), retried while the gateway's sensors are still starting, and failures are logged as warnings.
+- The landing page is named after the **site / company** (Site information → Company, else Home Assistant's
+  location name) instead of the gateway entry ("Milesight gateway (milesight/uplink/#)"), and a notification with
+  a link appears when it is created.
+
+## 0.33.0
+### Added – battery and maintenance
+- **Battery forecast**: *Battery replacement due* (date) and *Battery days left* on every battery device, from the
+  daily battery trend, corrected for changes in the reporting rate; new batteries detected by themselves or via
+  the **Battery replaced** action.
+- **Maintenance dashboard** (every site): batteries due, offline more than 24 h, weak signal, firmware per model
+  (mixed versions flagged) and the **service history** – battery replacements, firmware changes and applied
+  profiles are logged automatically; **Log service** action for your own entries. Device alerts open it.
+- **Settings profiles**: device → Configure → *Settings profile* – copy a device's options and over-the-air
+  settings to other devices of the same model, save / load / delete named profiles; action
+  `apply_settings_profile`. Only differing settings are sent and confirmed like any command.
+- **Installer handover report**: gateway button *Create handover report* / action `handover_report` – printable
+  page (print or save as PDF) and CSV in /config/www/milesight/ with open points, gateways and every device's
+  area, purpose, network server, signal, battery and due date, firmware, last seen and walk-test result.
+
+## 0.32.0
+### Added – smart alerts
+- **Phone buttons**: *Acknowledge*, *Snooze 1 h* and *Open dashboard* on every alert (tapping the notification
+  opens the dashboard too). The dashboard matches the alert: Tanks & alerts, Farm, Cold chain, Energy & HVAC,
+  Building analytics, Signal / Fleet, otherwise the site landing page. A snoozed alert pauses reminders and
+  escalation and comes back as *Still active* if it has not cleared; snooze time is a setting.
+- **On-call rota**: lines like `Mon-Fri 07:00-17:00: notify.mobile_app_juan`, overnight shifts and weekends;
+  the person on call is told first, outside the rota *Notify first*.
+- **Escalation to the next person**: *Escalate to* is now an ordered list – each escalation adds the next person,
+  one at a time (with one backup it behaves as before).
+- **Quiet hours per category**: e.g. `building: 18-07`, `tank: none`; other categories keep the general quiet hours.
+- **Weekly alert summary** (default Monday 08:00): alerts by category, the noisiest devices and the mean time to
+  acknowledge, to *Notify first* and the rota. Gateway sensor **Alerts last 7 days** (with who is on call now)
+  and button **Send alert summary**. Alert history is kept 5 weeks.
+
+## 0.31.2
+### Fixed
+- Network-server label missing on most devices: it was only added after a device's next uplink, and devices set
+  up together with the gateway at start-up were skipped. All devices are now labelled about a minute after
+  start-up (and at every start); a device that has not reported yet is labelled from its set-up (AppKey for the
+  built-in network server → Home Assistant, otherwise the gateway's network server).
+
+## 0.31.1
+### Added
+- **How each device is connected**: a *Network server* diagnostic sensor on every device (*Gateway (Embedded NS)*,
+  *ChirpStack* or *Home Assistant (packet forwarder)*) and a matching device label – **LoRaWAN · Gateway network
+  server** / **LoRaWAN · Home Assistant network server** – shown as a chip in Settings → Devices and usable as a
+  filter. The label swaps by itself when a device moves from one network server to the other; your own labels
+  are kept.
+
+## 0.31.0
+### Added
+- **Built-in LoRaWAN network server.** Gateways send their packet forwarder traffic (Semtech UDP, port 1700)
+  to Home Assistant – on Milesight gateways as an extra *Multi-Destination* row next to the Embedded NS. Devices
+  join Home Assistant directly with their AppKey: no device list on the gateway, and any gateway forwarding to
+  Home Assistant carries any of your devices.
+  - OTAA joins (LoRaWAN 1.0.x) with MIC check and DevNonce replay protection; join-accept through the gateway
+    that heard the device best; device addresses from the site's own block (site number 0–511).
+  - Data frames: MIC, 32-bit frame counters, replay protection, decryption, duplicates from several gateways
+    merged (best signal first); uplinks go through the normal path, so decoders, entities, dashboards, alerts and
+    command confirmation work unchanged.
+  - Class A downlinks: commands for devices joined here are queued and sent in the receive window after the next
+    uplink; confirmed downlinks report the device's ACK; LinkCheck and DeviceTime (clock sync) answered.
+  - Devices that try to join appear in **Discovered** with a form for the AppKey; **Configure → Network server
+    keys** on each device; **Configure → Built-in network server** on the gateway.
+  - Gateway sensor **Network server devices** with gateways, downlink airtime, counters and recent
+    joins / refusals. Keys are stored in Home Assistant only and never logged or shown in diagnostics.
+- Scope: EU868, class A, no ADR yet. The gateway's MQTT feed keeps working alongside.
+
 ## 0.30.0
 ### Added
 - **Site landing page** for each gateway, now created and refreshed **automatically** (at start-up and when
