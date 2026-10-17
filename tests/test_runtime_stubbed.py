@@ -1206,3 +1206,93 @@ assert any(c.get("entity") == "sensor.h1_area_board_room_comfort" for c in ana[2
 nav = dl.nav_section([("Farm", "milesight-farm", "mdi:tractor-variant")])
 assert nav["cards"][1]["tap_action"]["navigation_path"] == "/milesight-farm"
 print("live dashboards ok")
+
+# ---------------- 0.31: built-in network server (Semtech packet forwarder → hub) ----------------
+import importlib
+lns_ha = load("lns_ha")
+lcrypto = importlib.import_module("milesight_lorawan.lns.crypto")
+lphy = importlib.import_module("milesight_lorawan.lns.phy")
+KEY = bytes.fromhex("5572404c696e6b4c6f52613230313823")
+EUI, GW = "24e1241122334455", bytes.fromhex("24e124fffefa2994")
+hub_lns_entry = types.SimpleNamespace(data={"entry_type": "hub", "topic": "x/#", "payload_encoding": "base64"},
+                                      options={"lns_enabled": True, "lns_port": 1700, "lns_farm_id": 9},
+                                      entry_id="hl", title="Farm gateway")
+later = []
+hass.loop = types.SimpleNamespace(call_later=lambda d, fn, *a: later.append((fn, a)))
+hbl = hub.Hub(hass, hub_lns_entry)
+assert hbl.lns is not None and hbl.lns.port == 1700
+class _UDP:
+    def __init__(self): self.sent = []
+    def sendto(self, data, addr): self.sent.append((data, addr))
+    def close(self): pass
+udp = _UDP()
+async def _start():
+    await hbl.lns.async_start()
+loop_ = asyncio.new_event_loop()
+async def _fake_endpoint(factory, local_addr):
+    return udp, factory()
+loop_.create_datagram_endpoint = _fake_endpoint
+loop_.run_until_complete(_start())
+hbl.lns.server.keys = lambda eui: lns_ha.DeviceKeys(EUI, KEY) if eui == EUI else None
+assert hbl.lns.server.cfg.farm_id == 9 and hbl.lns.error is None
+ADDR = ("192.168.1.20", 41000)
+hbl.lns.datagram_received(b"\x02\x00\x01\x02" + GW, ADDR)                                # PULL_DATA
+assert udp.sent[-1] == (b"\x02\x00\x01\x04", ADDR)
+def push(phy, tmst=5_000_000):
+    rx = {"tmst": tmst, "freq": 868.3, "stat": 1, "modu": "LORA", "datr": "SF9BW125", "codr": "4/5", "rssi": -88,
+          "lsnr": 6.5, "size": len(phy), "data": base64.b64encode(phy).decode()}
+    hbl.lns.datagram_received(b"\x02\x00\x02\x00" + GW + json.dumps({"rxpk": [rx]}).encode(), ADDR)
+    while later:
+        fn, a = later.pop(0); fn(*a)
+# join
+nonce = (77).to_bytes(2, "little")
+msg = b"\x00" + bytes(8) + bytes.fromhex(EUI)[::-1] + nonce
+push(msg + lcrypto.aes_cmac(KEY, msg)[:4])
+resp = json.loads(udp.sent[-1][0][4:])["txpk"]
+assert udp.sent[-1][0][3] == 3 and resp["tmst"] == 10_000_000 and resp["freq"] == 868.3 and resp["datr"] == "SF9BW125"
+acc = base64.b64decode(resp["data"])
+clear = lcrypto.join_accept_decrypt(KEY, acc)
+addr = int.from_bytes(clear[6:10], "little")
+nwk, app = lcrypto.session_keys(KEY, clear[0:3], clear[3:6], nonce)
+assert addr >> 16 == 9 and hbl.stats.counts.get("joins") == 1
+# uplink from an EM300-TH: delivered to the device through the normal hub path
+entries.known.add(EUI)
+got = []
+signals.setdefault(const.SIGNAL_UPLINK.format(EUI), []).append(lambda up: got.append(up))
+def uplink(fcnt, port, payload, confirmed=False):
+    enc = lcrypto.crypt_payload(app, payload, addr, fcnt, True)
+    fr = lphy.build_data(lphy.CONF_UP if confirmed else lphy.UNCONF_UP, addr, fcnt, fport=port, enc_payload=enc)
+    return fr + lcrypto.data_mic(nwk, fr, addr, fcnt, True)
+push(uplink(0, 85, bytes.fromhex("0367f40004687b")), tmst=20_000_000)
+assert got and got[0].raw == bytes.fromhex("0367f40004687b") and got[0].fport == 85 and got[0].sf == 9
+assert got[0].gateways[0]["id"] == "24e124fffefa2994" and got[0].extra["network_server"] == "built-in"
+assert EUI in hbl.last_uplink and "24e124fffefa2994" in hbl.stats.gateways
+# a command for this device goes into the network server queue, then out after the next uplink
+asyncio.run(hbl.async_send_downlink(EUI, bytes.fromhex("ff100001"), 85))
+n_sent = len(udp.sent)
+push(uplink(1, 85, bytes.fromhex("0367f40004687b")), tmst=30_000_000)
+assert [d[0][3] for d in udp.sent[n_sent:]] == [1, 3]           # PUSH_ACK, then PULL_RESP
+pk = json.loads(udp.sent[-1][0][4:])["txpk"]
+dl = lphy.parse_data(base64.b64decode(pk["data"]))
+assert pk["tmst"] == 33_000_000 and lcrypto.crypt_payload(app, dl.frm_payload, addr, dl.fcnt16, False) == bytes.fromhex("ff100001")
+assert hbl.stats.counts.get("downlinks") == 1
+# devices not joined here still use the gateway's MQTT downlink
+assert not hbl.lns.handles("24e1240000000001")
+# unknown device joining → offered in Discovered with the network-server form
+before = len(entries.flows)
+other = b"\x00" + bytes(8) + bytes.fromhex("24e12400000000aa")[::-1] + b"\x01\x00"
+push(other + bytes(4))
+assert len(entries.flows) == before + 1 and entries.flows[-1]["lns"] is True
+# summary for the sensor / diagnostics has no keys
+summ = hbl.lns.summary()
+assert summ["devices"][EUI]["dev_addr"] == f"{addr:08x}" and "app_s_key" not in json.dumps(summ)
+assert summ["gateways"]["24e124fffefa2994"]["connected"] is True
+# gateway that never sent PULL_DATA can't be used → join refused with a hint
+hbl.lns.server.gateways["24e124fffefa2994"]["pull"] = 0
+nonce2 = (78).to_bytes(2, "little")
+msg2 = b"\x00" + bytes(8) + bytes.fromhex(EUI)[::-1] + nonce2
+push(msg2 + lcrypto.aes_cmac(KEY, msg2)[:4])
+assert hbl.lns.last_events[0]["kind"] == "join_rejected" and "Port Down" in hbl.lns.last_events[0]["reason"]
+loop_.run_until_complete(hbl.lns.async_stop())
+loop_.close()
+print("network server ok")

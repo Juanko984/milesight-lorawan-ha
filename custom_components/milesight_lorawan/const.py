@@ -133,3 +133,14 @@ SIGNAL_GATEWAY_NEW = f"{DOMAIN}_gateway_new_{{}}"  # .format(hub entry_id), args
 
 STORAGE_VERSION = 1
 TICK_SECONDS = 60
+# Built-in network server (Semtech UDP packet forwarder → Home Assistant) – gateway options
+CONF_LNS_ENABLED = "lns_enabled"
+CONF_LNS_PORT = "lns_port"
+CONF_LNS_REGION = "lns_region"
+CONF_LNS_RX1_DELAY = "lns_rx1_delay"
+CONF_LNS_FARM_ID = "lns_farm_id"            # 0-511: device address block of this site
+DEFAULT_LNS_PORT = 1700
+DEFAULT_LNS_RX1_DELAY = 3
+# per device (entry data): keys for the built-in network server
+CONF_LNS_APP_KEY = "lns_app_key"
+CONF_LNS_JOIN_EUI = "lns_join_eui"

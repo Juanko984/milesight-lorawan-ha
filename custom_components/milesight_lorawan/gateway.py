@@ -322,4 +322,7 @@ def hub_extra_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:
     out: list = [OpenAlertsSensor(hass, entry)]
     if hub is not None and hub.ns is not None:
         out.append(GatewayDevicesSensor(hass, entry))
+    if hub is not None and getattr(hub, "lns", None) is not None:
+        from .lns_ha import NetworkServerSensor
+        out.append(NetworkServerSensor(hass, entry))
     return out

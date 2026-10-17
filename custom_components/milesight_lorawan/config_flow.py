@@ -142,6 +142,8 @@ from .models import (MODELS, downlinks, entity_specs, families, load_channels, p
                      pump_capable, purposes_for, tank_source)
 from . import purposes as _purposes
 from .ns_api import DEFAULT_APP_KEY, DEFAULT_FPORT, valid_key
+from .const import (CONF_LNS_APP_KEY, CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_JOIN_EUI, CONF_LNS_PORT,
+                    CONF_LNS_REGION, CONF_LNS_RX1_DELAY, DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
 from .tank import SHAPES, capacity_l, tank_config
 
 _DEVEUI_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -218,6 +220,18 @@ IRRIGATION_KEYS = ("irr_weather", "irr_soil", "irr_target", "irr_base_minutes", 
 
 def _int_box(lo: int, hi: int) -> NumberSelector:
     return NumberSelector(NumberSelectorConfig(min=lo, max=hi, step=1, mode=NumberSelectorMode.BOX))
+
+
+def _lns_hub(hass):
+    """The first gateway with the built-in network server switched on, or None."""
+    for hub in hass.data.get(DOMAIN, {}).get("hubs", {}).values():
+        if getattr(hub, "lns", None) is not None:
+            return hub
+    return None
+
+
+def _clean_key(text: str | None) -> str:
+    return re.sub(r"[^0-9a-fA-F]", "", text or "").lower()
 
 
 def _provisioning_hub(hass):
@@ -328,7 +342,8 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                         placeholders["error"] = str(err)
                 if not errors:
                     return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"),
-                                               user_input.get(CONF_AREA), user_input.get("purpose"))
+                                               user_input.get(CONF_AREA), user_input.get("purpose"),
+                                               app_key=key if (key and _lns_hub(self.hass) is not None) else None)
         schema = {
             vol.Required(CONF_DEVEUI, default=(user_input or {}).get(CONF_DEVEUI, "")): TextSelector(),
             vol.Required(CONF_MODEL, default=(user_input or {}).get(CONF_MODEL, vol.UNDEFINED)): _model_selector(),
@@ -340,7 +355,9 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         hub = _provisioning_hub(self.hass)
         if hub is not None:
             schema[vol.Required(CONF_REGISTER, default=(user_input or {}).get(CONF_REGISTER, True))] = BooleanSelector()
-            key_now = (user_input or {}).get(CONF_APP_KEY) if user_input else (hub.ns_app_key or DEFAULT_APP_KEY)
+        if hub is not None or _lns_hub(self.hass) is not None:
+            key_now = (user_input or {}).get(CONF_APP_KEY) if user_input else (
+                (hub.ns_app_key if hub is not None else None) or DEFAULT_APP_KEY)
             schema[vol.Optional(CONF_APP_KEY, description={"suggested_value": key_now})] = \
                 TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
         return self.async_show_form(step_id="manual", errors=errors, description_placeholders=placeholders,
@@ -399,9 +416,16 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         deveui = self._disc[CONF_DEVEUI]
         guess = self._disc.get("guess")
+        errors: dict[str, str] = {}
+        lns = bool(self._disc.get("lns"))
         if user_input is not None:
-            return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"), user_input.get(CONF_AREA),
-                                       user_input.get("purpose"))
+            key = _clean_key(user_input.get(CONF_APP_KEY))
+            if key and len(key) != 32:
+                errors[CONF_APP_KEY] = "invalid_app_key"
+            else:
+                return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"),
+                                           user_input.get(CONF_AREA), user_input.get("purpose"),
+                                           app_key=key or None, join_eui=self._disc.get("join_eui"))
 
         candidates = self._disc.get("candidates") or []
         schema = vol.Schema({
@@ -410,15 +434,27 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_AREA): TextSelector(),
             vol.Optional("purpose"): _purpose_selector(),
         })
-        return self.async_show_form(step_id="confirm", data_schema=schema, description_placeholders={
-            "deveui": deveui.upper(),
+        if lns:
+            schema = schema.extend({vol.Optional(CONF_APP_KEY, description={"suggested_value": DEFAULT_APP_KEY}):
+                                    TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))})
+        return self.async_show_form(step_id="confirm_join" if lns else "confirm", data_schema=schema, errors=errors,
+                                    description_placeholders={
+            "deveui": deveui.upper(), "join_eui": (self._disc.get("join_eui") or "").upper(),
             "guess": guess or "unknown",
             "candidates": ", ".join(candidates) if candidates else "-",
         })
 
+    async def async_step_confirm_join(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self.async_step_confirm(user_input)
+
     def _create_device(self, deveui: str, model: str, name: str | None, area: str | None = None,
-                       purpose: str | None = None) -> ConfigFlowResult:
+                       purpose: str | None = None, app_key: str | None = None,
+                       join_eui: str | None = None) -> ConfigFlowResult:
         data = {CONF_ENTRY_TYPE: ENTRY_TYPE_DEVICE, CONF_DEVEUI: deveui, CONF_MODEL: model}
+        if app_key:
+            data[CONF_LNS_APP_KEY] = app_key
+            if join_eui:
+                data[CONF_LNS_JOIN_EUI] = join_eui
         if area:
             data[CONF_AREA] = area.strip()
         if purpose in _purposes.PURPOSES and _purposes.PURPOSES[purpose].families & families(model):
@@ -483,15 +519,74 @@ class MilesightOptionsFlow(OptionsFlow):
 
         if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
             return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "irrigation", "provisioning",
-                                                                      "connection"])
+                                                                      "network_server", "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         sections = ((["purpose"] if purposes_for(model) else [])
                     + (["channels", "channel_template"] if MODELS[model].dynamic else [])
                     + (["tank"] if tank_source(model) else [])
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
+        if _lns_hub(self.hass) is not None or entry.data.get(CONF_LNS_APP_KEY):
+            sections.append("network_keys")
         if sections:
             return self.async_show_menu(step_id="init", menu_options=["general", *sections])
         return await self.async_step_general()
+
+    async def async_step_network_keys(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: AppKey (and optional JoinEUI) for the gateway's built-in network server."""
+        entry = self.config_entry
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            key, join = _clean_key(user_input.get(CONF_APP_KEY)), _clean_key(user_input.get(CONF_LNS_JOIN_EUI))
+            if key and len(key) != 32:
+                errors[CONF_APP_KEY] = "invalid_app_key"
+            elif join and len(join) != 16:
+                errors[CONF_LNS_JOIN_EUI] = "invalid_join_eui"
+            else:
+                data = {k: v for k, v in entry.data.items() if k not in (CONF_LNS_APP_KEY, CONF_LNS_JOIN_EUI)}
+                if key:
+                    data[CONF_LNS_APP_KEY] = key
+                    if join:
+                        data[CONF_LNS_JOIN_EUI] = join
+                self.hass.config_entries.async_update_entry(entry, data=data)
+                if user_input.get("forget_session"):
+                    for hub in self.hass.data.get(DOMAIN, {}).get("hubs", {}).values():
+                        if getattr(hub, "lns", None) is not None and hub.lns.server is not None:
+                            hub.lns.server.forget(entry.data[CONF_DEVEUI])
+                return self.async_create_entry(data=dict(entry.options))
+        lns = _lns_hub(self.hass)
+        info = lns.lns.server.session_info(entry.data[CONF_DEVEUI]) if lns and lns.lns.server else None
+        schema = {
+            vol.Optional(CONF_APP_KEY, description={"suggested_value": entry.data.get(CONF_LNS_APP_KEY)}):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Optional(CONF_LNS_JOIN_EUI, description={"suggested_value": entry.data.get(CONF_LNS_JOIN_EUI)}):
+                TextSelector(),
+            vol.Required("forget_session", default=False): BooleanSelector(),
+        }
+        status = (f"joined, DevAddr {info['dev_addr']}, frame {info['fcnt_up']}" if info and info.get("fcnt_up") is not None
+                  else "joined, no data yet" if info else "not joined")
+        return self.async_show_form(step_id="network_keys", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"status": status})
+
+    async def async_step_network_server(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: the built-in network server (gateways send their packet forwarder traffic to Home Assistant)."""
+        entry = self.config_entry
+        keys = (CONF_LNS_ENABLED, CONF_LNS_PORT, CONF_LNS_REGION, CONF_LNS_RX1_DELAY, CONF_LNS_FARM_ID)
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in keys}
+            data.update({k: (int(v) if k in (CONF_LNS_PORT, CONF_LNS_RX1_DELAY, CONF_LNS_FARM_ID) else v)
+                         for k, v in user_input.items() if v not in (None, "")})
+            return self.async_create_entry(data=data)
+        o = entry.options
+        farm = o.get(CONF_LNS_FARM_ID, int(entry.entry_id.encode().hex()[-6:], 16) % 511 + 1)
+        schema = {
+            vol.Required(CONF_LNS_ENABLED, default=o.get(CONF_LNS_ENABLED, False)): BooleanSelector(),
+            vol.Required(CONF_LNS_PORT, default=o.get(CONF_LNS_PORT, DEFAULT_LNS_PORT)): _int_box(1024, 65535),
+            vol.Required(CONF_LNS_REGION, default=o.get(CONF_LNS_REGION, "EU868")):
+                SelectSelector(SelectSelectorConfig(options=["EU868"], mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required(CONF_LNS_RX1_DELAY, default=o.get(CONF_LNS_RX1_DELAY, DEFAULT_LNS_RX1_DELAY)): _int_box(1, 15),
+            vol.Required(CONF_LNS_FARM_ID, default=farm): _int_box(0, 511),
+        }
+        return self.async_show_form(step_id="network_server", data_schema=vol.Schema(schema))
 
     async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Device: model, offline time, battery, meters, door / occupancy / CO₂ settings …"""

@@ -72,6 +72,17 @@
         "data_description": {
           "register_on_gateway": "Registers every DevEUI on the Milesight gateway (with its AppKey, or the gateway setting) so the devices can join."
         }
+      },
+      "confirm_join": {
+        "title": "New LoRaWAN device wants to join",
+        "description": "DevEUI **{deveui}** (JoinEUI {join_eui}) is trying to join the built-in network server.\n\nChoose the model, give it a name and enter its **AppKey** (from the device label or Milesight ToolBox; Milesight devices ship with the key filled in below – change it on the device for a shared network). Leave the AppKey empty if this device is registered on your gateway's own network server instead.\n\nThe device joins on its next attempt (usually within a few minutes; power-cycle it to speed this up).",
+        "data": {
+          "model": "Model",
+          "name": "Name",
+          "area": "Area",
+          "purpose": "Fitted to (purpose, optional)",
+          "app_key": "AppKey (32 hex characters)"
+        }
       }
     },
     "error": {
@@ -103,7 +114,9 @@
           "pump": "Pump (current clamp)",
           "pivot": "Centre pivot (GPS tracker)",
           "purpose": "Purpose (what it is fitted to)",
-          "channel_template": "Sensor templates (RS485 / Modbus)"
+          "channel_template": "Sensor templates (RS485 / Modbus)",
+          "network_server": "Built-in network server (packet forwarder)",
+          "network_keys": "Network server keys"
         }
       },
       "connection": {
@@ -414,6 +427,31 @@
           "send_to_device": "The UC100 gets one downlink after each of its uplinks; Command status shows each channel as confirmed when the UC100 echoes it.",
           "fast": "The normal reporting interval comes back by itself afterwards."
         }
+      },
+      "network_server": {
+        "title": "Built-in network server",
+        "description": "Lets gateways send their **packet forwarder** traffic straight to Home Assistant, so devices join Home Assistant itself – no device list on the gateway, and any gateway that forwards here can carry any of your devices.\n\nOn the gateway: Packet Forwarder → General → Multi-Destination → **+** → Type **Semtech**, Server Address = this Home Assistant's IP address, Port Up and Port Down = the port below. Keep the gateway's Embedded NS row for devices registered there; a device must be on one network server only.\n\nBeta: EU868, class A devices, OTAA.",
+        "data": {
+          "lns_enabled": "Enable the built-in network server",
+          "lns_port": "UDP port",
+          "lns_region": "Frequency plan",
+          "lns_rx1_delay": "Receive delay (seconds)",
+          "lns_farm_id": "Site number (device address block)"
+        },
+        "data_description": {
+          "lns_rx1_delay": "Sent to devices when they join: how long they wait for an answer after sending. 3 s leaves room for slow links; 1 s is the LoRaWAN default.",
+          "lns_farm_id": "0–511. Give every site of a community network its own number so device addresses never clash.",
+          "lns_port": "1700 is the packet forwarder default. Allow it in a firewall between the gateway and Home Assistant."
+        }
+      },
+      "network_keys": {
+        "title": "Network server keys",
+        "description": "Keys for the built-in network server. Status: **{status}**.\n\nChanging the AppKey takes effect at the device's next join (power-cycle it). Leave empty when the device is on the gateway's own network server.",
+        "data": {
+          "app_key": "AppKey (32 hex characters)",
+          "lns_join_eui": "JoinEUI / AppEUI (optional, 16 hex characters)",
+          "forget_session": "Forget the current session (the device must join again)"
+        }
       }
     },
     "error": {
@@ -425,7 +463,8 @@
       "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker.",
       "template_invalid": "The channels do not fit – see below.",
       "template_nothing": "Pick a sensor to apply or a template to remove.",
-      "send_failed": "Could not send to the controller – see the message below."
+      "send_failed": "Could not send to the controller – see the message below.",
+      "invalid_join_eui": "The JoinEUI must be 16 hexadecimal characters."
     }
   },
   "selector": {

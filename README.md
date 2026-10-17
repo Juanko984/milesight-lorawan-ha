@@ -612,6 +612,43 @@ UG65 / UG56 / UG67 do not publish their own status over MQTT; for them everythin
 they forward, which is reliable as long as some devices report more often than the offline time. (Their HTTP API
 needs a password copied from the browser's developer tools, so it is not used.)
 
+## Built-in network server (beta)
+
+Home Assistant can be the LoRaWAN network server itself. Gateways send their **packet forwarder** traffic to
+Home Assistant; devices join Home Assistant with their AppKey. No device list on the gateway, and **any gateway
+that forwards to Home Assistant carries any of your devices** – the basis for a shared farm network.
+
+```
+gateway A ─┐  Semtech UDP 1700    ┌─ joins, keys, frame counters, duplicates from several gateways
+gateway B ─┼────────────────────> │  built-in network server ──> decoders, entities, dashboards, alerts
+gateway C ─┘   <── downlinks ──── └─ commands sent through the gateway that heard the device best
+```
+
+**Set up**
+
+1. Gateway entry → **Configure** → **Built-in network server**: tick *Enable*, keep port **1700**, frequency
+   plan **EU868**, receive delay **3 s**, and a site number (0–511, unique per site in a community network).
+2. On each gateway (UG65 / UG67 / UG56 …): **Packet Forwarder → General → Multi-Destination → +** → Type
+   **Semtech**, Server Address = Home Assistant's IP address, Port Up **1700**, Port Down **1700**, Enable.
+   Keep the *Embedded NS* row: devices registered on the gateway keep working there.
+3. Add a device: power it on (or press its reset). It appears under **Settings → Devices & services →
+   Discovered** as *wants to join*: choose the model, a name and enter its **AppKey** (Milesight's default key is
+   filled in). It joins on its next attempt. Or add it by hand (*Add device* with the AppKey field).
+4. To move a device from the gateway's network server: open it → **Configure → Network server keys**, enter its
+   AppKey, delete it from the gateway's device list, and power-cycle it.
+
+**Rules**
+
+* A device must be on **one** network server only – the gateway's Embedded NS *or* Home Assistant.
+* Home Assistant must be reachable from the gateways on UDP 1700 (Home Assistant OS listens on the host;
+  in Docker, publish `1700/udp`). Over the internet use a VPN or a port forward.
+* The gateway entry gets **Network server devices** (joined devices; attributes: gateways connected, downlink
+  airtime per gateway, counters, recent joins and refusals). Keys are never logged or shown in diagnostics.
+
+**Beta scope (0.31.0b1)**: EU868, class A, OTAA (LoRaWAN 1.0.x), confirmed / unconfirmed up- and downlinks,
+LinkCheck and DeviceTime (clock sync). Not yet: ADR (devices keep their data rate), class C, Basics Station,
+other regions, duty-cycle enforcement on the gateway.
+
 ## Add devices to the gateway from Home Assistant
 
 No more typing DevEUIs into the gateway's web page: Home Assistant registers new devices on the Milesight gateway's
@@ -1004,6 +1041,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.31.0b1** | Beta: built-in LoRaWAN network server – gateways' packet forwarders send to Home Assistant, devices join with their AppKey. |
 | **0.30.0** | Site landing page (auto-created, dashboard buttons, people, alerts, tanks, farm …); phone-friendly Building analytics, Farm and Tanks & alerts dashboards. |
 | **0.29.1** | Edit applied sensor templates; on the UC100 only changed channels are re-sent. |
 | **0.29.0** | Live dashboard views: pivot map, gauges with limit bands, setpoint sliders (tank, pump, pivot, temperature, irrigation). |

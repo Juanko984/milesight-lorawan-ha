@@ -41,7 +41,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     domain_data = hass.data.setdefault(DOMAIN, {"hubs": {}})
 
     if _is_hub(entry):
-        if not await mqtt.async_wait_for_mqtt_client(hass):
+        from .const import CONF_LNS_ENABLED
+        lns_only = bool({**entry.data, **entry.options}.get(CONF_LNS_ENABLED))
+        try:
+            mqtt_ok = await mqtt.async_wait_for_mqtt_client(hass)
+        except Exception:  # noqa: BLE001 - MQTT not set up at all
+            mqtt_ok = False
+        if not mqtt_ok and not lns_only:
             raise ConfigEntryNotReady("MQTT integration is not available")
         # the gateway devices are linked to the hub device (via_device), so it must exist first
         from homeassistant.helpers import device_registry as dr

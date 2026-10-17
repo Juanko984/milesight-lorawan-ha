@@ -2,6 +2,25 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.31.0b1 (beta)
+### Added
+- **Built-in LoRaWAN network server.** Gateways send their packet forwarder traffic (Semtech UDP, port 1700)
+  to Home Assistant – on Milesight gateways as an extra *Multi-Destination* row next to the Embedded NS. Devices
+  join Home Assistant directly with their AppKey: no device list on the gateway, and any gateway forwarding to
+  Home Assistant carries any of your devices.
+  - OTAA joins (LoRaWAN 1.0.x) with MIC check and DevNonce replay protection; join-accept through the gateway
+    that heard the device best; device addresses from the site's own block (site number 0–511).
+  - Data frames: MIC, 32-bit frame counters, replay protection, decryption, duplicates from several gateways
+    merged (best signal first); uplinks go through the normal path, so decoders, entities, dashboards, alerts and
+    command confirmation work unchanged.
+  - Class A downlinks: commands for devices joined here are queued and sent in the receive window after the next
+    uplink; confirmed downlinks report the device's ACK; LinkCheck and DeviceTime (clock sync) answered.
+  - Devices that try to join appear in **Discovered** with a form for the AppKey; **Configure → Network server
+    keys** on each device; **Configure → Built-in network server** on the gateway.
+  - Gateway sensor **Network server devices** with gateways, downlink airtime, counters and recent
+    joins / refusals. Keys are stored in Home Assistant only and never logged or shown in diagnostics.
+- Beta scope: EU868, class A, no ADR yet. The gateway's MQTT feed keeps working alongside.
+
 ## 0.30.0
 ### Added
 - **Site landing page** for each gateway, now created and refreshed **automatically** (at start-up and when

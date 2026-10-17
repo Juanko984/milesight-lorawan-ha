@@ -89,13 +89,25 @@ class Hub:
         from .irrigation_ha import IrrigationManager
         self.alerts = AlertManager(hass, entry, self)
         self.irrigation = IrrigationManager(hass, entry)
+        self.lns = None         # lns_ha.LnsTransport: built-in network server (Semtech packet forwarder)
+        from .const import CONF_LNS_ENABLED
+        if cfg.get(CONF_LNS_ENABLED):
+            from .lns_ha import LnsTransport
+            self.lns = LnsTransport(hass, self, cfg)
 
     async def async_start(self) -> None:
         self.stats = GatewayStats(await self.store.async_load())
         self._online = {gid: self.stats.online(gid, time.time(), self.offline_s) for gid in self.stats.gateways}
-        for topic in [self.topic, *self.extra_topics]:
-            self._unsubs.append(await mqtt.async_subscribe(self.hass, topic, self._message_received, qos=0))
-            _LOGGER.debug("Subscribed to %s", topic)
+        for topic in [self.topic, *self.extra_topics] if self.topic else []:
+            try:
+                self._unsubs.append(await mqtt.async_subscribe(self.hass, topic, self._message_received, qos=0))
+                _LOGGER.debug("Subscribed to %s", topic)
+            except Exception:  # noqa: BLE001 - MQTT not set up: the built-in network server still works
+                if self.lns is None:
+                    raise
+                _LOGGER.warning("Could not subscribe to %s – only the built-in network server is used", topic)
+        if self.lns is not None:
+            await self.lns.async_start()
         self._unsubs.append(async_track_time_interval(self.hass, self._tick, timedelta(seconds=60)))
         if self.ns is not None:
             # read the gateway's device list shortly after start and every 6 hours, so 'Devices on gateway'
@@ -111,6 +123,8 @@ class Hub:
             self._unsubs.pop()()
         await self.alerts.async_stop()
         await self.irrigation.async_stop()
+        if self.lns is not None:
+            await self.lns.async_stop()
         if self.ns is not None:
             await self.ns.async_stop()
         await self.store.async_save(self.stats.to_dict())
@@ -195,7 +209,13 @@ class Hub:
 
     async def async_send_downlink(self, deveui: str, payload: bytes, fport: int = DOWNLINK_FPORT,
                                   confirmed: bool = False) -> None:
-        """Queue a downlink via the gateway (Milesight or ChirpStack MQTT format)."""
+        """Queue a downlink via the built-in network server (devices joined there) or the gateway (Milesight or
+        ChirpStack MQTT format)."""
+        if self.lns is not None and self.lns.handles(deveui):
+            if not self.lns.enqueue(deveui, payload, fport, confirmed):
+                raise RuntimeError(f"{deveui.upper()} has not joined the built-in network server yet")
+            _LOGGER.debug("Downlink to %s queued on the built-in network server: %s", deveui, payload.hex())
+            return
         topic = (self.downlink_topic.replace("{deveui}", deveui.lower()).replace("{DEVEUI}", deveui.upper())
                  .replace("$deveui", deveui.lower()))
         msg = {"confirmed": bool(confirmed), "fPort": fport, "data": base64.b64encode(payload).decode()}
@@ -206,9 +226,19 @@ class Hub:
         self.stats.count("downlinks", self._day(time.time()))
         self._changed()
 
+    def count_downlink(self) -> None:
+        self.stats.count("downlinks", self._day(time.time()))
+        self._changed()
+
     def forget(self, deveui: str) -> None:
-        """Allow a removed device to be discovered again."""
+        """Allow a removed device to be discovered again (and drop its network server session)."""
         self._announced.discard(deveui)
+        if self.lns is not None and self.lns.server is not None:
+            self.lns.server.forget(deveui)
+
+    def lns_notification(self, note: dict[str, Any]) -> None:
+        """Join / ACK / error / gateway status from the built-in network server."""
+        self._notification(note)
 
     def _notification(self, note: dict[str, Any]) -> None:
         ts = time.time()
@@ -240,6 +270,11 @@ class Hub:
         up = parse_envelope(msg.payload, self.encoding)
         if up is None:
             return
+        self.handle_uplink(up)
+
+    @callback
+    def handle_uplink(self, up: Uplink) -> None:
+        """An uplink from the gateway's MQTT feed or the built-in network server."""
         prev = self.last_uplink.get(up.deveui)
         duplicate = (prev is not None and up.fcnt is not None and prev.fcnt == up.fcnt
                      and prev.raw == up.raw and abs(time.time() - prev.extra.get("_rx", 0)) < 30)

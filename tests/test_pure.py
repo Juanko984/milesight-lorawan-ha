@@ -1540,6 +1540,218 @@ def test_bundled_dashboard_templates_render():
     assert "**DRY-RUN**" in out["farm:Pumps"] and "finishes in 3.2 h" in out["farm:Centre pivots"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
 
+
+# ---------------------------------------------------------------- built-in network server (lns/)
+def _lns():
+    sub = types.ModuleType("mlw.lns"); sub.__path__ = [str(PKG / "lns")]; sys.modules["mlw.lns"] = sub
+    import importlib
+    return (importlib.import_module("mlw.lns.crypto"), importlib.import_module("mlw.lns.phy"),
+            importlib.import_module("mlw.lns.semtech"), importlib.import_module("mlw.lns.server"),
+            importlib.import_module("mlw.lns.region"))
+
+
+class _Device:
+    """A LoRaWAN 1.0.x end device, written from the device's point of view (decrypts the join-accept with AES
+    *encrypt*, derives its own keys) to check the server end to end."""
+    def __init__(self, crypto, phy, dev_eui, join_eui, app_key):
+        self.c, self.p = crypto, phy
+        self.dev_eui, self.join_eui, self.app_key = dev_eui, join_eui, app_key
+        self.nonce, self.fcnt, self.addr, self.nwk, self.app = 0x1234, 0, None, None, None
+
+    def join_request(self):
+        self.nonce += 1
+        msg = b"\x00" + bytes.fromhex(self.join_eui)[::-1] + bytes.fromhex(self.dev_eui)[::-1] \
+            + self.nonce.to_bytes(2, "little")
+        return msg + self.c.aes_cmac(self.app_key, msg)[:4]
+
+    def join_accept(self, phy):
+        clear = self.c.join_accept_decrypt(self.app_key, phy)
+        body, mic = clear[:-4], clear[-4:]
+        assert self.c.aes_cmac(self.app_key, phy[:1] + body)[:4] == mic, "join-accept MIC"
+        jn, nid, self.addr = body[0:3], body[3:6], int.from_bytes(body[6:10], "little")
+        self.dl, self.rxdelay, self.cflist = body[10], body[11], body[12:]
+        self.nwk, self.app = self.c.session_keys(self.app_key, jn, nid, self.nonce.to_bytes(2, "little"))
+        self.fcnt = 0
+
+    def uplink(self, port, payload, confirmed=False, fopts=b"", ack=False, adr_ack_req=False):
+        enc = self.c.crypt_payload(self.app if port else self.nwk, payload, self.addr, self.fcnt, True)
+        frame = self.p.build_data(self.p.CONF_UP if confirmed else self.p.UNCONF_UP, self.addr, self.fcnt, ack=ack,
+                                  fopts=fopts, fport=port, enc_payload=enc, adr_ack_req=adr_ack_req)
+        frame += self.c.data_mic(self.nwk, frame, self.addr, self.fcnt, True)
+        self.fcnt += 1
+        return frame
+
+    def downlink(self, phy):
+        df = self.p.parse_data(phy)
+        assert df.dev_addr == self.addr
+        assert self.c.data_mic(self.nwk, df.signed, self.addr, df.fcnt16, False) == df.mic, "downlink MIC"
+        data = self.c.crypt_payload(self.app if df.fport else self.nwk, df.frm_payload, self.addr, df.fcnt16, False)
+        return df, data
+
+
+def _rxpk(phy, rssi=-90, snr=7.5, tmst=1_000_000, freq=868.1, datr="SF7BW125"):
+    return {"tmst": tmst, "freq": freq, "chan": 0, "rfch": 0, "stat": 1, "modu": "LORA", "datr": datr,
+            "codr": "4/5", "rssi": rssi, "lsnr": snr, "size": len(phy), "data": base64.b64encode(phy).decode()}
+
+
+def test_lns_crypto_reference_vector():
+    crypto, phy, *_ = _lns()
+    # lora-packet's published example: "test" on FPort 1, DevAddr 49be7df1, FCnt 2
+    p = bytes.fromhex("40F17DBE4900020001954378762B11FF0D")
+    df = phy.parse_data(p)
+    nwk, app = bytes.fromhex("44024241ed4ce9a68c6a8bc055233fd3"), bytes.fromhex("ec925802ae430ca77fd3dd73cb2cc588")
+    assert df.dev_addr == 0x49BE7DF1 and df.fcnt16 == 2 and df.fport == 1
+    assert crypto.data_mic(nwk, df.signed, df.dev_addr, 2, True) == df.mic
+    assert crypto.crypt_payload(app, df.frm_payload, df.dev_addr, 2, True) == b"test"
+    assert phy.full_fcnt(None, 5) == 5 and phy.full_fcnt(0x1FFFE, 3) == 0x20003 and phy.full_fcnt(70000, 4463) == 4463 + 65536
+
+
+def test_lns_semtech_protocol():
+    _c, _p, sem, *_ = _lns()
+    gw = bytes.fromhex("24e124fffefa2994")
+    push = b"\x02\xab\xcd\x00" + gw + json.dumps({"rxpk": [{"data": "QA==", "stat": 1}], "stat": {"rxok": 3}}).encode()
+    d = sem.parse(push)
+    assert d.ident == sem.PUSH_DATA and d.gateway == "24e124fffefa2994" and d.body["stat"]["rxok"] == 3
+    assert sem.ack(d) == b"\x02\xab\xcd\x01"
+    pull = sem.parse(b"\x02\x01\x02\x02" + gw)
+    assert pull.ident == sem.PULL_DATA and sem.ack(pull) == b"\x02\x01\x02\x04"
+    pk = sem.txpk(b"\x60\x01", 868.1, "SF7BW125", 4_294_967_000 + 3_000_000)
+    assert pk["tmst"] == (4_294_967_000 + 3_000_000) & 0xFFFFFFFF and pk["ipol"] is True and pk["size"] == 2
+    dg, tok = sem.pull_resp(pk, 2, b"\x00\x07")
+    assert dg[:4] == b"\x02\x00\x07\x03" and json.loads(dg[4:])["txpk"]["data"] == "YAE="
+    assert sem.rxpk_phy({"stat": -1, "data": "QA=="}) is None
+    assert sem.rxpk_radio({"rsig": [{"rssic": -101, "lsnr": -3.5}]})["rssi"] == -101
+    ack = sem.parse(b"\x02\x00\x07\x05" + gw + b'{"txpk_ack":{"error":"TOO_LATE"}}')
+    assert ack.ident == sem.TX_ACK and ack.body["txpk_ack"]["error"] == "TOO_LATE"
+
+
+def test_lns_join_uplink_downlink():
+    crypto, phy, sem, srv, region = _lns()
+    key = bytes.fromhex("5572404c696e6b4c6f52613230313823")
+    dev = _Device(crypto, phy, "24e124136b316453", "24e124c0002a0001", key)
+    keys = {"24e124136b316453": srv.DeviceKeys("24e124136b316453", key)}
+    ns = srv.NetworkServer(lambda eui: keys.get(eui), srv.Settings(farm_id=7, rx1_delay=3))
+    gw1, gw2 = "24e124fffefa2994", "24e124fffe000001"
+    ns.gateway_seen(gw1, 100.0, pull=True)
+    ns.gateway_seen(gw2, 100.0, pull=True)
+
+    # join heard by two gateways: one join-accept through the stronger one, 5 s after the request
+    jr = dev.join_request()
+    assert ns.receive(gw1, _rxpk(jr, -110, -2.0, tmst=10_000_000), 101.0) == jr
+    assert ns.receive(gw2, _rxpk(jr, -80, 9.0, tmst=50_000_000), 101.1) is None          # copy
+    ev = ns.process(jr, 101.3)
+    kinds = [e.kind for e in ev]
+    assert kinds == ["join", "tx"], kinds
+    tx = ev[1].data["tx"]
+    assert tx.gateway == gw2 and tx.tmst == 55_000_000 and tx.freq == 868.1 and tx.datr == "SF7BW125"
+    dev.join_accept(tx.phy)
+    assert dev.addr >> 16 == 7 and dev.rxdelay == 3 and dev.cflist[:3] == (8671000).to_bytes(3, "little")
+    assert ns.has_session("24e124136b316453") and ns.receive(gw1, _rxpk(jr), 102.0) is None   # late copy ignored
+
+    # same DevNonce again → replay refused
+    dev.nonce -= 1
+    jr2 = dev.join_request()
+    ns.gateway_seen(gw1, 200.0, pull=True); ns.gateway_seen(gw2, 200.0, pull=True)
+    ns.receive(gw1, _rxpk(jr2), 200.0)
+    assert ns.process(jr2, 200.3)[0].kind == "join_rejected"
+    dev.nonce += 0
+    # wrong key → refused, unknown device → offered
+    bad = _Device(crypto, phy, "24e124136b316453", "24e124c0002a0001", bytes(16))
+    jr3 = bad.join_request(); jr3 = jr3[:-4] + crypto.aes_cmac(bytes(16), jr3[:-4])[:4]
+    ns.gateway_seen(gw1, 201.0, pull=True); ns.gateway_seen(gw2, 201.0, pull=True)
+    ns.receive(gw1, _rxpk(jr3), 201.0)
+    assert "wrong AppKey" in ns.process(jr3, 201.3)[0].data["reason"]
+    other = _Device(crypto, phy, "24e1240000000099", "0000000000000000", key).join_request()
+    ns.gateway_seen(gw1, 202.0, pull=True); ns.gateway_seen(gw2, 202.0, pull=True)
+    ns.receive(gw1, _rxpk(other), 202.0)
+    e = ns.process(other, 202.3)[0]
+    assert e.kind == "join_unknown" and e.dev_eui == "24e1240000000099"
+
+    # uplink (AM307-style payload) decoded and delivered once, best gateway first
+    payload = bytes.fromhex("0367f600046882")
+    up = dev.uplink(85, payload)
+    ns.gateway_seen(gw1, 300.0, pull=True); ns.gateway_seen(gw2, 300.0, pull=True)
+    ns.receive(gw1, _rxpk(up, -100, 1.0, tmst=20_000_000), 300.0)
+    ns.gateway_seen(gw1, 300.05, pull=True); ns.gateway_seen(gw2, 300.05, pull=True)
+    ns.receive(gw2, _rxpk(up, -70, 10.0, tmst=60_000_000), 300.05)
+    ev = ns.process(up, 300.3)
+    assert [e.kind for e in ev] == ["uplink"]
+    u = ev[0].data
+    assert u["payload"] == payload and u["fport"] == 85 and u["fcnt"] == 0 and u["gateways"][0]["id"] == gw2
+    assert u["sf"] == 7 and u["frequency"] == 868100000
+    # replay of the same frame later → nothing
+    ns.gateway_seen(gw1, 400.0, pull=True); ns.gateway_seen(gw2, 400.0, pull=True)
+    ns.receive(gw1, _rxpk(up), 400.0)
+    assert [e.kind for e in ns.process(up, 400.3)] == []
+
+    # queued downlink goes out in RX1 after the next uplink, 3 s later, through the best gateway
+    assert ns.enqueue("24E124136B316453", 85, bytes.fromhex("ff03b004"), confirmed=True, item_id="cmd1")
+    up2 = dev.uplink(85, payload)
+    ns.gateway_seen(gw1, 500.0, pull=True); ns.gateway_seen(gw2, 500.0, pull=True)
+    ns.receive(gw1, _rxpk(up2, tmst=70_000_000), 500.0)
+    ev = ns.process(up2, 500.3)
+    assert [e.kind for e in ev] == ["uplink", "tx"]
+    tx = ev[1].data["tx"]
+    assert tx.tmst == 73_000_000 and ev[1].data["id"] == "cmd1" and ev[1].data["confirmed"]
+    df, data = dev.downlink(tx.phy)
+    assert data == bytes.fromhex("ff03b004") and df.fport == 85 and df.mtype == phy.CONF_DOWN and df.fcnt16 == 0
+    # the device acknowledges in its next uplink → ack event
+    up3 = dev.uplink(85, payload, ack=True)
+    ns.gateway_seen(gw1, 600.0, pull=True); ns.gateway_seen(gw2, 600.0, pull=True)
+    ns.receive(gw1, _rxpk(up3), 600.0)
+    ev = ns.process(up3, 600.3)
+    assert ev[0].kind == "ack" and ev[0].data["acknowledged"] is True and ev[0].data["id"] == "cmd1"
+
+    # confirmed uplink + LinkCheckReq + DeviceTimeReq in FOpts → ACK with both answers, no payload
+    up4 = dev.uplink(85, payload, confirmed=True, fopts=bytes([0x02, 0x0D]))
+    ns.gateway_seen(gw1, 1_760_000_000.0, pull=True); ns.gateway_seen(gw2, 1_760_000_000.0, pull=True)
+    ns.receive(gw2, _rxpk(up4, -75, 8.0, tmst=90_000_000), 1_760_000_000.0)
+    ev = ns.process(up4, 1_760_000_000.5)
+    tx = next(e for e in ev if e.kind == "tx").data["tx"]
+    df, data = dev.downlink(tx.phy)
+    assert df.ack and df.fport is None and df.fopts[0] == 0x02 and df.fopts[1] == 15 and df.fopts[2] == 1
+    gps = int.from_bytes(df.fopts[4:8], "little")
+    assert gps == int(1_760_000_000.5 - 315964800 + 18) and df.fcnt16 == 1
+
+    # frame with a broken MIC, and a frame from another network (unknown address)
+    bad_up = bytearray(dev.uplink(85, payload)); bad_up[-1] ^= 0xFF
+    ns.gateway_seen(gw1, 700.0, pull=True); ns.gateway_seen(gw2, 700.0, pull=True)
+    ns.receive(gw1, _rxpk(bytes(bad_up)), 700.0)
+    assert ns.process(bytes(bad_up), 700.3)[0].kind == "mic_failed"
+    foreign = phy.build_data(phy.UNCONF_UP, 0x26011234, 1, fport=1, enc_payload=b"x") + b"\0\0\0\0"
+    ns.gateway_seen(gw1, 701.0, pull=True); ns.gateway_seen(gw2, 701.0, pull=True)
+    ns.receive(gw1, _rxpk(foreign), 701.0)
+    assert ns.process(foreign, 701.3)[0].kind == "foreign"
+
+    # too long for the data rate → dropped with a reason; gateway that never pulled → no route
+    assert ns.enqueue("24e124136b316453", 85, bytes(60))
+    up5 = dev.uplink(85, payload)
+    ns.gateway_seen(gw1, 800.0, pull=True); ns.gateway_seen(gw2, 800.0, pull=True)
+    ns.receive(gw1, _rxpk(up5, datr="SF12BW125"), 800.0)
+    ev = ns.process(up5, 800.3)
+    assert any(e.kind == "dropped" and "too long" in e.data["reason"] for e in ev)
+
+    # state survives a restart (sessions only, keys in Home Assistant's storage), info has no keys
+    state = json.loads(json.dumps(ns.to_dict()))
+    ns2 = srv.NetworkServer(lambda eui: keys.get(eui), srv.Settings(farm_id=7), state)
+    info = ns2.session_info("24e124136b316453")
+    assert info["fcnt_up"] == dev.fcnt - 1 and "nwk_s_key" not in info and "app_s_key" not in json.dumps(info)
+    ns2.gateway_seen(gw1, 900.0, pull=True)
+    up6 = dev.uplink(85, payload)
+    ns2.gateway_seen(gw1, 900.0, pull=True); ns2.gateway_seen(gw2, 900.0, pull=True)
+    ns2.receive(gw1, _rxpk(up6), 900.0)
+    assert ns2.process(up6, 900.3)[0].kind == "uplink"
+    # a confirmed uplink repeated by the device (it missed our ACK) is ACKed again but delivered once
+    up7 = dev.uplink(85, payload, confirmed=True)
+    for t in (1000.0, 1006.0):
+        ns2.gateway_seen(gw1, t, pull=True)
+        ns2.receive(gw1, _rxpk(up7), t)
+        ev = ns2.process(up7, t + 0.3)
+        assert [e.kind for e in ev] == (["uplink", "tx"] if t == 1000.0 else ["tx"]), ev
+        assert dev.downlink(ev[-1].data["tx"].phy)[0].ack
+    assert region.EU868.rx1(868.1, "SF7BW250")[1] == "SF7BW250"
+    assert region.airtime_ms(7, 13) < region.airtime_ms(12, 13) and 40 < region.airtime_ms(7, 13) < 50
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
