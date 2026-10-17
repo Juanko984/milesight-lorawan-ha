@@ -136,6 +136,7 @@ from .const import (
 )
 from .alerts import CATEGORIES, effective_categories
 from .channel_map import parse_channel_map
+from . import modbus_templates as _mt
 from .models import (MODELS, downlinks, entity_specs, families, load_channels, parse_bulk, pulse_capable,
                      pump_capable, purposes_for, tank_source)
 from . import purposes as _purposes
@@ -484,7 +485,8 @@ class MilesightOptionsFlow(OptionsFlow):
                                                                       "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         sections = ((["purpose"] if purposes_for(model) else [])
-                    + (["channels"] if MODELS[model].dynamic else []) + (["tank"] if tank_source(model) else [])
+                    + (["channels", "channel_template"] if MODELS[model].dynamic else [])
+                    + (["tank"] if tank_source(model) else [])
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if sections:
             return self.async_show_menu(step_id="init", menu_options=["general", *sections])
@@ -574,6 +576,82 @@ class MilesightOptionsFlow(OptionsFlow):
                                         vol.Optional(CONF_CHANNEL_MAP, description={"suggested_value": current}):
                                             TextSelector(TextSelectorConfig(multiline=True)),
                                     }))
+
+    # ------------------------------------------------- RS485 sensor templates
+    async def async_step_channel_template(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Pick a ready-made RS485 / Modbus sensor (weather station, soil probe …)."""
+        if user_input is not None:
+            self._tpl = {"key": user_input["template"]}
+            return await self.async_step_channel_template_values()
+        opts = [{"value": t.key, "label": t.name} for t in _mt.TEMPLATES.values()]
+        return self.async_show_form(step_id="channel_template", data_schema=vol.Schema({
+            vol.Required("template"): SelectSelector(SelectSelectorConfig(options=opts,
+                                                                          mode=SelectSelectorMode.LIST))}))
+
+    def _next_free_channel(self) -> int:
+        from .channel_map import channel_key
+        used = set()
+        for line in (self.config_entry.options.get(CONF_CHANNEL_MAP) or "").splitlines():
+            head = line.split("#", 1)[0].replace("|", ";").replace("\t", ";").split(";", 1)[0].strip()
+            k = channel_key(head) if head else None
+            m = re.fullmatch(r"modbus_chn_(\d+)(?:_reg_\d+)?", k or "")
+            if m:
+                used.add(int(m[1]))
+        return max(used) + 1 if used else 1
+
+    async def async_step_channel_template_values(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        t = _mt.TEMPLATES[self._tpl["key"]]
+        errors: dict[str, str] = {}
+        placeholders = {"template": t.name, "notes": "\n".join(f"- {n}" for n in t.notes), "problems": ""}
+        if user_input is not None:
+            rows, problems = _mt.plan(t.key, user_input.get("values") or [], int(user_input["first_channel"]),
+                                      int(user_input["slave_id"]), (user_input.get("prefix") or "").strip()
+                                      and f"{user_input['prefix'].strip()} ")
+            if problems:
+                errors["base"] = "template_invalid"
+                placeholders["problems"] = "\n\n" + "\n".join(f"- {p}" for p in problems)
+            else:
+                self._tpl.update(rows=rows)
+                return await self.async_step_channel_template_confirm()
+        u = user_input or {}
+        schema = {
+            vol.Required("values", default=u.get("values", t.defaults())): SelectSelector(SelectSelectorConfig(
+                options=[{"value": r.key, "label": f"{r.name}" + (f" ({r.unit})" if r.unit else "")
+                          + (f" – {r.note}" if r.note else "")} for r in t.regs],
+                multiple=True, mode=SelectSelectorMode.LIST)),
+            vol.Required("first_channel", default=u.get("first_channel", self._next_free_channel())):
+                _int_box(1, _mt.MAX_CHANNELS),
+            vol.Required("slave_id", default=u.get("slave_id", t.slave_id)): _int_box(1, 247),
+            vol.Optional("prefix", description={"suggested_value": u.get("prefix")}): TextSelector(),
+        }
+        return self.async_show_form(step_id="channel_template_values", data_schema=vol.Schema(schema),
+                                    errors=errors, description_placeholders=placeholders)
+
+    async def async_step_channel_template_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        entry = self.config_entry
+        t = _mt.TEMPLATES[self._tpl["key"]]
+        rows = self._tpl["rows"]
+        current = entry.options.get(CONF_CHANNEL_MAP, "") or ""
+        new_map = _mt.merge_map(current, rows, f"{t.name} (slave {rows[0]['slave_id']})")
+        if user_input is not None:
+            applied = [a for a in entry.options.get("channel_templates", [])
+                       if not ({a.get("first"), a.get("last")} & {rows[0]["channel"], rows[-1]["channel"]})]
+            applied.append({"template": t.key, "first": rows[0]["channel"], "last": rows[-1]["channel"],
+                            "slave_id": rows[0]["slave_id"]})
+            return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: new_map,
+                                                 "channel_templates": applied})
+        _, problems = parse_channel_map(new_map)
+        bauds = {_mt.TEMPLATES[a["template"]].baud for a in entry.options.get("channel_templates", [])
+                 if a.get("template") in _mt.TEMPLATES} | {t.baud}
+        warn = ("\n\n⚠ The sensors on this controller default to different baud rates "
+                f"({', '.join(str(b) for b in sorted(bauds))}): set them all to one rate – see the notes."
+                if len(bauds) > 1 else "")
+        lines = "\n".join(r["line"] for r in rows)
+        return self.async_show_form(step_id="channel_template_confirm", data_schema=vol.Schema({}),
+                                    description_placeholders={
+                                        "toolbox": _mt.toolbox_table(t, rows) + warn,
+                                        "lines": lines,
+                                        "problems": ("\n\n" + "\n".join(problems)) if problems else ""})
 
     # ---------------------------------------------------------------- tank
     async def async_step_tank(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

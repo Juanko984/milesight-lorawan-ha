@@ -21,7 +21,7 @@ def _load(name):
     spec.loader.exec_module(mod); return mod
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
-pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
+mtp = _load("modbus_templates"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1338,6 +1338,35 @@ def test_config_flow_selectors_have_no_none_options():
     for call in _re.findall(r"_float_box\(([^()]*)\)", src):
         args = [a.strip() for a in call.split(",")]
         assert len(args) < 3 or args[2] != "None", call
+
+def test_modbus_templates():
+    # Ecowitt WS90 on channels 1–9 (+ rain counter on 10): the raw values a UC300 reported
+    rows, errs = mtp.plan("ecowitt_ws90", None, 1)
+    assert not errs and [r["channel"] for r in rows] == list(range(1, 10)) and rows[0]["address"] == 357
+    m, problems = chm.parse_channel_map(mtp.merge_map("1; Wind Speed; KM/h;1\nadc_1; Level; m", rows, "WS90"))
+    assert not problems and m["modbus_chn_1"].name == "Light" and "adc_1" in m
+    raw = {1: 4409, 2: 30, 3: 629, 4: 43, 5: 12, 6: 25, 7: 202, 8: 3, 9: 8576}
+    got = {m[f"modbus_chn_{c}"].name: m[f"modbus_chn_{c}"].apply(v) for c, v in raw.items()}
+    assert got["Light"] == 44090 and got["UV index"] == 3.0 and got["Temperature"] == 22.9 and got["Humidity"] == 43
+    assert got["Wind speed"] == 1.2 and got["Wind gust"] == 2.5 and got["Wind direction"] == 202
+    assert got["Rainfall"] == 0.3 and got["Absolute pressure"] == 857.6
+    assert m["modbus_chn_3"].apply(65535) is None and m["modbus_chn_3"].device_class == "temperature"
+    # soil probe after it, with NPK, prefix; the THCPH-S manual's example frame
+    rows2, errs = mtp.plan("cwt_soil_thcph", [r.key for r in mtp.TEMPLATES["cwt_soil_thcph"].regs], 10, 2, "Field ")
+    assert errs and "16" in errs[0]                                   # 9 values from channel 10 do not fit
+    rows2, errs = mtp.plan("cwt_soil_thcph", None, 10, 2, "Field ")
+    assert not errs and [r["channel"] for r in rows2] == list(range(10, 16)) and rows2[1]["data_type"] == "INT16"
+    both = mtp.merge_map(mtp.merge_map("", rows, "WS90"), rows2, "Soil")
+    m, problems = chm.parse_channel_map(both)
+    assert not problems and len(m) == 15 and m["modbus_chn_10"].name == "Field Soil moisture"
+    assert m["modbus_chn_10"].apply(0x0292) == 65.8 and m["modbus_chn_11"].apply(0xFF9B) == -10.1
+    assert m["modbus_chn_12"].apply(0x03E8) == 1000 and m["modbus_chn_13"].apply(0x38) == 5.6
+    assert m["modbus_chn_13"].device_class == "ph" and m["modbus_chn_12"].device_class == "conductivity"
+    again = mtp.merge_map(both, rows2, "Soil")                        # re-applying replaces, does not duplicate
+    assert chm.parse_channel_map(again)[1] == [] and len(chm.parse_channel_map(again)[0]) == 15
+    assert "0x0165" in mtp.toolbox_table(mtp.TEMPLATES["ecowitt_ws90"], rows)
+    assert mtp.plan("nope", None, 1)[1] and mtp.plan("ecowitt_ws90", [], 1)[1]
+
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

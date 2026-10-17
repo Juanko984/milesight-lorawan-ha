@@ -102,7 +102,8 @@
           "irrigation": "Irrigation and frost (weather forecast)",
           "pump": "Pump (current clamp)",
           "pivot": "Centre pivot (GPS tracker)",
-          "purpose": "Purpose (what it is fitted to)"
+          "purpose": "Purpose (what it is fitted to)",
+          "channel_template": "Apply a sensor template (RS485 / Modbus)"
         }
       },
       "connection": {
@@ -195,7 +196,7 @@
       },
       "channels": {
         "title": "Channels (Modbus / analog)",
-        "description": "Give the controller's channels a name, unit and scale so third-party probes become proper sensors. One line per channel:\n\n`channel; name; unit; scale; offset; device class; decimals`\n\n`3; Tank pressure; bar; 0.01`\n`3.2; Flow; m³/h; 0.1; 0; volume_flow_rate; 1`\n`adc_1; Borehole level; m; 4-20>0-10`\n\nChannel: the Modbus channel number set in Milesight ToolBox (3 = channel 3, 3.2 = channel 3 register 2) or the input (adc_1, adv_1, analog_input_1, pt100_1, gpio_counter_1). Scale: a multiplier, or a range 4-20>0-10 that maps the raw span onto the real one. Leave columns empty (or -) for the default.\n\nReported so far: {seen}{problems}",
+        "description": "Give the controller's channels a name, unit and scale so third-party probes become proper sensors. One line per channel:\n\n`channel; name; unit; scale; offset; device class; decimals; state class; options`\n\n`3; Tank pressure; bar; 0.01`\n`3.2; Flow; m³/h; 0.1; 0; volume_flow_rate; 1`\n`adc_1; Borehole level; m; 4-20>0-10`\n\nChannel: the Modbus channel number set in Milesight ToolBox (3 = channel 3, 3.2 = channel 3 register 2) or the input (adc_1, adv_1, analog_input_1, pt100_1, gpio_counter_1). Scale: a multiplier, or a range 4-20>0-10 that maps the raw span onto the real one. Options: `s16` for signed registers, `invalid=65535` for the value a probe sends when it has no reading. Leave columns empty (or -) for the default. Ready-made lines for common probes: Configure → *Apply a sensor template*.\n\nReported so far: {seen}{problems}",
         "data": {
           "channel_map": "Channel map"
         }
@@ -375,6 +376,31 @@
           "p_no_run_h": "0 = off. A compressor that should cycle but has not run for this long has tripped or failed.",
           "p_service_h": "0 = off. Press '… serviced' after the service to start counting again."
         }
+      },
+      "channel_template": {
+        "title": "Apply a sensor template",
+        "description": "Pick the RS485 / Modbus probe wired to this controller. Its values are put on Modbus channels in the channel map with the right names, units and scaling, and you get the list of what to enter in Milesight ToolBox. Several templates can go on one controller – each on its own channels.",
+        "data": {
+          "template": "Sensor"
+        }
+      },
+      "channel_template_values": {
+        "title": "{template}",
+        "description": "Choose the values to read, the first Modbus channel to use (they take consecutive channels) and the probe's RS485 address.\n\n{notes}{problems}",
+        "data": {
+          "values": "Values",
+          "first_channel": "First Modbus channel",
+          "slave_id": "RS485 address (slave ID)",
+          "prefix": "Name prefix (optional)"
+        },
+        "data_description": {
+          "first_channel": "Suggested: the first channel not used in the channel map yet. The UC300 / UC50x have 16 Modbus channels.",
+          "prefix": "E.g. 'Field 3' → 'Field 3 Soil moisture' – useful with two probes of the same kind."
+        }
+      },
+      "channel_template_confirm": {
+        "title": "Set up in ToolBox, then submit",
+        "description": "**1. In Milesight ToolBox** (RS485 → Modbus channels) set up these channels:\n\n{toolbox}\n\n**2. Submit** to write these lines into the channel map (lines for the same channels are replaced):\n\n```\n{lines}\n```{problems}"
       }
     },
     "error": {
@@ -383,7 +409,8 @@
       "tank_empty_distance": "Enter what the sensor measures when the tank is empty.",
       "ns_topics": "The response topic must be set and different from the request topic.",
       "invalid_app_key": "The AppKey must be 32 hex digits.",
-      "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker."
+      "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker.",
+      "template_invalid": "The channels do not fit – see below."
     }
   },
   "selector": {

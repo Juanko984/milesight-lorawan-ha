@@ -698,6 +698,24 @@ The entity keeps its id and history, it just gets the new name, unit and scaled 
 the controller has reported so far with their raw values. (Which registers are read is still set on the controller
 in Milesight ToolBox – the Milesight encoders have no downlink for it.)
 
+
+### Sensor templates (RS485 / Modbus)
+
+Device → **Configure → Apply a sensor template** fills the channel map for common RS485 probes and tells you what
+to enter in Milesight ToolBox. Pick the sensor, tick the values you want, choose the first free Modbus channel and
+the probe's address; the values take consecutive channels. Several templates can go on one controller (UC300 /
+UC50x: 16 Modbus channels), e.g. a weather station on channels 1–9 and a soil probe on 10–15.
+
+| Template | Default address / bus | Values |
+|---|---|---|
+| Ecowitt WS90 / WN90LP weather station | 0x90 (144), 9600 8N1, registers 0x0165–0x016E | light, UV index, temperature, humidity, wind speed, gust, wind direction, rainfall, pressure, rain counter |
+| CWT soil sensor THCPH-S / 7-in-1 NPK | 1, 4800 8N1, registers 0x0000–0x0008 | moisture, temperature, conductivity, pH, N / P / K (7-in-1 only), salinity, TDS |
+
+All probes on one RS485 bus need the same baud rate – the confirmation page warns when the defaults differ (the
+CWT soil sensor is set to 9600 by writing 2 to register 0x07D1). The channel map now also takes options: `s16`
+for signed registers and `invalid=65535` for the "no reading" value, which then shows as unknown instead of a
+huge number. Soil-moisture channels join the irrigation advice by themselves.
+
 ## Alert escalation
 
 Gateway entry → **Configure → Alert escalation** sends alerts to phones (Home Assistant Companion app) and makes
@@ -953,6 +971,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.26.0** | RS485 sensor templates for UC controllers (Ecowitt WS90 weather station, CWT soil / NPK probe); channel-map options s16 and invalid=…; soil channels feed the irrigation advice. |
 | **0.25.1** | Fix: the Pump options form (current clamps) opened with an empty "Error". |
 | **0.25.0** | Purposes: what a device is fitted to (≈50, from fridge to gate to panic button) – grouped labels, entity looks, default limits, cold-chain log, duty cycle, after-hours, bins, flood, rain gauge, toilets, panic; Cold chain and Energy & HVAC dashboards. |
 | **0.24.0** | Pump analytics (run hours, short-cycling, dry-run, overload, m³ per kWh), centre-pivot analytics from an AT101 (angle, % done, speed, time to finish, stall alarm), forecast-aware irrigation advice and frost warnings, Farm dashboard. |

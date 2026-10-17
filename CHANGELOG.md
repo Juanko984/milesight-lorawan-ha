@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.26.0
+### Added
+- **Sensor templates for RS485 / Modbus probes** on UC controllers (device → Configure → *Apply a sensor
+  template*): Ecowitt WS90 / WN90LP weather station and CWT THCPH-S / 7-in-1 NPK soil sensor. Pick the values, the
+  first channel and the address; the channel map gets named, scaled lines and a confirmation page lists what to
+  set in Milesight ToolBox (slave ID, register, data type), with a warning when the probes' baud rates differ.
+  Several templates per controller.
+- Channel map options column: `s16` / `s32` (signed registers) and `invalid=65535` (no reading → unknown).
+- Soil-moisture channels of UC controllers join the irrigation advice.
+
+### Fixed
+- The integration's documentation and issue links pointed to a placeholder instead of the GitHub repository.
+
 ## 0.25.1
 ### Fixed
 - Device → Configure → *Pump (current clamp)* showed an empty "Error" dialog: the power-factor box was built with

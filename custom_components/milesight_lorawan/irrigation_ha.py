@@ -61,6 +61,12 @@ def soil_values(hass: HomeAssistant, entity_ids: tuple[str, ...]) -> list[float]
             continue                                 # counted below as a chosen sensor
         if isinstance(v, (int, float)) and rt.values.get("online") is not False:
             out.append(float(v))
+    for e in hass.config_entries.async_entries(DOMAIN):          # soil probes on UC controllers (channel map)
+        rt = getattr(e, "runtime_data", None)
+        for key, ch in (getattr(rt, "channels", None) or {}).items():
+            v = rt.values.get(key) if ch.device_class == "moisture" else None
+            if isinstance(v, (int, float)) and f"{rt.deveui}_{key}" not in chosen:
+                out.append(float(v))
     for eid in entity_ids:
         st = hass.states.get(eid)
         try:

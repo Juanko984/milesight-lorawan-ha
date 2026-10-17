@@ -3,7 +3,7 @@ analog input into a named sensor with a unit and a scale. Pure Python (unit-test
 
 One line per channel, columns separated by ';' (or '|' / tab):
 
-    channel ; name ; unit ; scale ; offset ; device class ; decimals
+    channel ; name ; unit ; scale ; offset ; device class ; decimals ; state class ; options
 
     3        ; Tank pressure ; bar ; 0.01
     3.2      ; Flow          ; m³/h ; 0.1 ; 0 ; volume_flow_rate ; 1
@@ -13,6 +13,8 @@ One line per channel, columns separated by ';' (or '|' / tab):
 * channel – a Modbus channel number ("3" = modbus_chn_3, "3.2" = channel 3 register 2) or the decoded key
   (adc_1, adv_1, analog_input_1, pt100_1, gpio_counter_1, modbus_chn_3_reg_2 …)
 * scale – a multiplier, or a range 'a-b>c-d' that maps the raw span a…b onto c…d (4-20>0-10)
+* options – 's16' (the register is a signed 16-bit number: 65535 = -1), 's32', 'invalid=65535' (the sensor sends
+  this when it has no reading: the entity shows unknown); several separated by spaces or commas
 * empty columns (or '-') keep the default. Lines starting with '#' are ignored.
 """
 from __future__ import annotations
@@ -55,11 +57,17 @@ class Channel:
     device_class: str | None = None
     decimals: int | None = None
     state_class: str = "measurement"
+    signed: int = 0                        # 16 / 32: the raw register is a signed number
+    invalid: tuple = ()                    # raw values that mean 'no reading'
 
     def apply(self, raw: object) -> object:
         """Scaled value (non-numbers pass through)."""
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             return raw
+        if raw in self.invalid:
+            return None
+        if self.signed and raw >= 2 ** (self.signed - 1) and raw < 2 ** self.signed:
+            raw = raw - 2 ** self.signed
         v = raw * self.scale + self.offset
         return round(v, self.decimals) if self.decimals is not None else round(v, 6)
 
@@ -86,7 +94,7 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
         if not line:
             continue
         cols = [c.strip() for c in re.split(r"[;|\t]", line)]
-        cols = [("" if c == "-" else c) for c in cols] + [""] * 8
+        cols = [("" if c == "-" else c) for c in cols] + [""] * 9
         key = channel_key(cols[0])
         if key is None:
             errors.append(f"line {n}: unknown channel '{cols[0]}' (use 3, 3.2, adc_1, pt100_1 …)")
@@ -136,7 +144,26 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
         if dc in ("volume_storage", "energy_storage") and sc != "measurement":
             errors.append(f"line {n}: {dc} needs the state class measurement")
             continue
-        out[key] = Channel(key, name or _default_name(key), unit, scale, offset, dc, decimals, sc)
+        signed, invalid, bad = 0, [], None
+        for tok in re.split(r"[\s,]+", cols[8].lower()):
+            if not tok:
+                continue
+            if tok in ("s16", "int16", "signed"):
+                signed = 16
+            elif tok in ("s32", "int32"):
+                signed = 32
+            elif tok.startswith("invalid="):
+                try:
+                    invalid += [int(x, 0) for x in tok.split("=", 1)[1].split("/") if x]
+                except ValueError:
+                    bad = tok
+            else:
+                bad = tok
+        if bad:
+            errors.append(f"line {n}: unknown option '{bad}' (use s16, s32, invalid=65535)")
+            continue
+        out[key] = Channel(key, name or _default_name(key), unit, scale, offset, dc, decimals, sc, signed,
+                           tuple(invalid))
     return out, errors
 
 

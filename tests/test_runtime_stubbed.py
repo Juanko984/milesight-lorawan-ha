@@ -1115,3 +1115,13 @@ specs = {s.key: rt.adjust_spec(s) for s in models.entity_specs("WS301")}
 assert specs["door_active"].name == "Door" and specs["door_left_open"].name == "Door left open"
 assert rt.binary["door"].left_open_s == 120
 print("purposes ok")
+
+mt = sys.modules.get("milesight_lorawan.modbus_templates") or load("modbus_templates")
+rows, _ = mt.plan("ecowitt_ws90", None, 1)
+e_ws, rt = make_with("00000000000e0390", "UC300", {"channel_map": mt.merge_map("", rows, "WS90")}, title="Weather")
+assert {s.key: s for s in rt.extra_specs()}["modbus_chn_1"].device_class == "illuminance"
+send("00000000000e0390", bytes.fromhex("ff19000102d204"))
+assert rt.values["modbus_chn_1"] == 12340
+send("00000000000e0390", bytes.fromhex("ff19000102ffff"))
+assert rt.values["modbus_chn_1"] is None                       # 0xFFFF = no reading
+print("templates ok")
