@@ -2,6 +2,23 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.28.0
+### Added
+- **Send sensor templates to the UC100** (firmware v1 and v2) over LoRaWAN: Modbus channels (slave ID, register,
+  type, quantity, signed), channel names and – on v2 – the RS485 port settings, packed into downlinks of at most
+  50 bytes. Each channel is tracked in *Command status* and confirmed when the UC100 echoes it. Optional 1-minute
+  reporting for 30 minutes so the queued downlinks arrive sooner. Byte format identical to Milesight's encoders.
+- Removing a template can also delete its channels on the UC100; applying a template over another one removes the
+  old channels the new one does not reuse.
+- The UC100 decoders read the device's answers to channel commands instead of stopping at them.
+
+### Changed
+- The UC100 has 32 Modbus channels (not 64): the LuxPower template ticks 32 values by default (SOH, grid frequency
+  and min cell voltage are optional).
+
+### Note
+- The UC300 and UC50x have no Modbus channel downlinks in Milesight's protocol; their channels stay a ToolBox job.
+
 ## 0.27.0
 ### Added
 - Sensor template **LuxPower LXP / EG4 hybrid inverter** for the **UC100** (Modbus RTU converter): 46 values in

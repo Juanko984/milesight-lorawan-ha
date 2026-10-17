@@ -1454,6 +1454,26 @@ _UC100_ALARM = {0: "normal", 1: "threshold alarm", 2: "threshold release alarm",
 _UC100_V2_ALARM = {0: "normal", 1: "threshold alarm", 2: "threshold alarm release", 3: "mutation alarm"}   # firmware v2
 
 
+def _uc100_echo(out: dict, b: bytes, i: int) -> int | None:
+    """UC100 answer to a Modbus channel command (fe/ff ef …): remove / set / name. Returns the next index."""
+    if i >= len(b):
+        return None
+    op = b[i]
+    if op == 0x00 and _need(b, i, 2):
+        out.setdefault("modbus_channels_removed", []).append(b[i + 1])
+        return min(len(b), i + 4)
+    if op == 0x01 and _need(b, i, 7):
+        out.setdefault("modbus_channels_set", []).append(
+            {"channel": b[i + 1], "slave_id": b[i + 2], "address": _u16le(b, i + 3), "type": b[i + 5],
+             "quantity": b[i + 6] & 0x0F, "signed": bool(b[i + 6] & 0x10)})
+        return i + 7
+    if op == 0x02 and _need(b, i, 3) and _need(b, i + 3, b[i + 2]):
+        out.setdefault("modbus_channels_named", []).append(
+            {"channel": b[i + 1], "name": b[i + 3:i + 3 + b[i + 2]].decode("ascii", "replace")})
+        return i + 3 + b[i + 2]
+    return None
+
+
 def decode_uc100(b: bytes) -> dict[str, Any]:
     """UC100 Modbus RTU → LoRaWAN converter (firmware v1)."""
     out: dict[str, Any] = {}
@@ -1461,9 +1481,14 @@ def decode_uc100(b: bytes) -> dict[str, Any]:
     while i + 2 <= len(b):
         cid, ctype = b[i], b[i + 1]
         i += 2
-        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype not in (0x19, 0x15, 0xEE) else None
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype not in (0x19, 0x15, 0xEE, 0xEF) else None
         if n is not None:
             i += n
+        elif cid in (0xFE, 0xFF) and ctype == 0xEF:
+            nxt = _uc100_echo(out, b, i)
+            if nxt is None:
+                break
+            i = nxt
         elif cid == 0xFF and ctype == 0x19:
             nxt = _modbus_19(out, b, i, True, bool_types=(0, 1))
             if nxt is None:
@@ -1504,9 +1529,14 @@ def decode_uc100_v2(b: bytes) -> dict[str, Any]:
     while i + 2 <= len(b):
         cid, ctype = b[i], b[i + 1]
         i += 2
-        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype != 0x15 else None
+        n = _decode_common(cid, ctype, b, i, out) if cid == 0xFF and ctype not in (0x15, 0xEF) else None
         if n is not None:
             i += n
+        elif cid in (0xFE, 0xFF) and ctype == 0xEF:
+            nxt = _uc100_echo(out, b, i)
+            if nxt is None:
+                break
+            i = nxt
         elif cid == 0xF9 and ctype == 0x73 and _need(b, i, 2):
             v1, v2 = b[i], b[i + 1]
             chn = name(v1 & 0x3F, (v2 >> 5) & 0x03)

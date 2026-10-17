@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 MAX_CHANNELS = 16          # Modbus channels on the UC300 / UC50x
-CONTROLLER_CHANNELS = {"UC100": 64, "UC100-V2": 64}   # Modbus channels per model (others: MAX_CHANNELS)
+CONTROLLER_CHANNELS = {"UC100": 32, "UC100-V2": 32}   # Modbus channels per model (others: MAX_CHANNELS)
 
 
 def max_channels(model_key: str | None) -> int:
@@ -147,7 +147,7 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
             (("vbat", 4, "Battery voltage", "V", "0.1", 0, "voltage", 1), {"group": "Battery", "toolbox": "Vbat"}),
             (("soc", 5, "Battery SOC", "%", "1", 0, "battery", 0), {"group": "Battery", "toolbox": "SOC", "byte": "lo",
                                                                   "note": "SOC = low byte of register 5"}),
-            (("soh", 5, "Battery SOH", "%", "1", 0, None, 0), {"group": "Battery", "toolbox": "SOH", "byte": "hi",
+            (("soh", 5, "Battery SOH", "%", "1", 0, None, 0), {"group": "Battery", "toolbox": "SOH", "byte": "hi", "optional": True,
                                                              "note": "SOH = high byte of register 5 (same register "
                                                                      "on a second channel)"}),
             (("pchg", 10, "Battery charge power", "W", "1", 0, "power", 0), {"group": "Battery",
@@ -160,7 +160,8 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
             (("cell_max", 101, "Cell voltage max", "V", "0.001", 0, "voltage", 3), {"group": "Battery",
                                                                                    "toolbox": "MaxCellVolt"}),
             (("cell_min", 102, "Cell voltage min", "V", "0.001", 0, "voltage", 3), {"group": "Battery",
-                                                                                   "toolbox": "MinCellVolt"}),
+                                                                                   "toolbox": "MinCellVolt",
+                                                                                   "optional": True}),
             (("tcell_max", 103, "Cell temperature max", "°C", "0.1", 0, "temperature", 1),
              {"group": "Battery", "toolbox": "MaxCellTemp", "signed": True}),
             (("tcell_min", 104, "Cell temperature min", "°C", "0.1", 0, "temperature", 1),
@@ -171,7 +172,7 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
             (("capacity", 97, "Battery capacity", "Ah", "1", 0, None, 0), {"group": "Battery", "toolbox": "BatCap",
                                                                           "optional": True}),
             (("vgrid", 12, "Grid voltage", "V", "0.1", 0, "voltage", 1), {"group": "Grid", "toolbox": "VacR"}),
-            (("fgrid", 15, "Grid frequency", "Hz", "0.01", 0, "frequency", 2), {"group": "Grid", "toolbox": "Fac"}),
+            (("fgrid", 15, "Grid frequency", "Hz", "0.01", 0, "frequency", 2), {"group": "Grid", "toolbox": "Fac", "optional": True}),
             (("p_export", 26, "Grid export power", "W", "1", 0, "power", 0), {"group": "Grid", "toolbox": "Ptogrid"}),
             (("p_import", 27, "Grid import power", "W", "1", 0, "power", 0), {"group": "Grid", "toolbox": "Ptouser"}),
             (("p_rec", 17, "AC charge power", "W", "1", 0, "power", 0), {"group": "Grid", "toolbox": "Prec",

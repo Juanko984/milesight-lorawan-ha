@@ -1130,11 +1130,23 @@ e_lx, rt = make_with("00000000001c0100", "UC100", {"channel_map": mt.merge_map("
                      title="LuxPower")
 def ff19(ch, dtype, payload):
     return bytes([0xFF, 0x19, ch - 1, len(payload), dtype]) + payload
-send("00000000001c0100", ff19(6, 2, (532).to_bytes(2, "little")) + ff19(7, 2, (0x6450).to_bytes(2, "little"))
-     + ff19(8, 2, (0x6450).to_bytes(2, "little")) + ff19(28, 4, (123456).to_bytes(4, "little")))
+chn = {r["toolbox_name"]: r["channel"] for r in rows}
+send("00000000001c0100", ff19(chn["Vbat"], 2, (532).to_bytes(2, "little"))
+     + ff19(chn["SOC"], 2, (0x6450).to_bytes(2, "little")) + ff19(chn["Epv1_all"], 4, (123456).to_bytes(4, "little")))
 v = rt.values
-assert v["modbus_chn_6"] == 53.2 and v["modbus_chn_7"] == 80 and v["modbus_chn_8"] == 100
-assert v["modbus_chn_28"] == 12345.6
+assert v[f"modbus_chn_{chn['Vbat']}"] == 53.2 and v[f"modbus_chn_{chn['SOC']}"] == 80
+assert v[f"modbus_chn_{chn['Epv1_all']}"] == 12345.6
 specs = {s.key: s for s in rt.extra_specs()}
-assert specs["modbus_chn_7"].device_class == "battery" and specs["modbus_chn_28"].state_class == "total_increasing"
+assert specs[f"modbus_chn_{chn['SOC']}"].device_class == "battery"
+assert specs[f"modbus_chn_{chn['Epv1_all']}"].state_class == "total_increasing"
+mc = load("modbus_config")
+rows32, _ = mt.plan("luxpower_lxp", None, 1, 1, max_channels=mt.max_channels("UC100"))
+n0 = len(PUBLISHED)
+frames = asyncio.run(rt.async_modbus_push(mc.template_commands(rows32), label="LuxPower"))
+sent = [m for m in PUBLISHED[n0:] if m[0].endswith("00000000001c0100")]
+assert frames == len(sent) and all(m[1]["fPort"] == 85 for m in sent)
+assert base64.b64decode(sent[0][1]["data"]).startswith(bytes.fromhex("ffef01010100000201"))
+assert "modbus_channel_1" in rt.commands.items and rt.meta["modbus_push"]["commands"] == 64
+send("00000000001c0100", bytes.fromhex("feef01010100000201"))       # the UC100 echoes channel 1
+assert "modbus_channel_1" not in rt.commands.items and rt.commands.last["status"] == "confirmed"
 print("templates ok")

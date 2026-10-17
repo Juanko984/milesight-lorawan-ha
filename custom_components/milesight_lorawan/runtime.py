@@ -77,7 +77,8 @@ from .tank import TankTracker, level_mm, tank_config, volume_l
 _LOGGER = logging.getLogger(__name__)
 
 # decoded keys that are not device state (lists / nested structures handled separately)
-_NOT_RAW = ("history", "events", "wifi", "button_events", "template_1", "template_2", "update_content_result")
+_NOT_RAW = ("history", "events", "wifi", "button_events", "template_1", "template_2", "update_content_result",
+            "modbus_channels_set", "modbus_channels_named", "modbus_channels_removed")
 DS3604_BLOCKS = tuple(f"text_{n}" for n in range(1, 11)) + ("qrcode",)
 
 def _flag(v: Any) -> bool | None:
@@ -1042,6 +1043,32 @@ class DeviceRuntime:
 
     async def async_send_raw(self, payload: bytes, fport: int | None = None) -> None:
         await self._downlink(payload, fport)
+
+    async def async_modbus_push(self, commands: list, serial: bytes | None = None, fast_minutes: float = 0,
+                                label: str = "") -> int:
+        """Program Modbus channels on a UC100: the commands packed into downlinks (each tracked until the device
+        echoes it). fast_minutes: report every minute meanwhile, so the queued downlinks go out sooner."""
+        import asyncio
+        from .modbus_config import FPORT, pack
+        if serial:
+            commands = [("modbus_serial_port", serial)] + list(commands)
+        frames = pack(commands)
+        for n, frame in enumerate(frames):
+            await self._downlink(b"".join(cmd for _, cmd in frame), FPORT)
+            for name, cmd in frame:
+                self._remember(name, cmd, None, fport=FPORT)
+            if n < len(frames) - 1:
+                await asyncio.sleep(0.5)          # keep the gateway queue in order
+        self.meta["modbus_push"] = {"label": label, "commands": len(commands), "downlinks": len(frames),
+                                    "at": time.time()}
+        if fast_minutes and "prefix" in (downlinks(self.model.key).get("report_interval") or {}):
+            try:
+                await self.async_walk_test(fast_minutes)
+            except Exception:  # noqa: BLE001 - the channels are queued anyway
+                _LOGGER.debug("Fast reporting not started for %s", self.deveui, exc_info=True)
+        self._publish(time.time())
+        await self.store.async_save(self._data_to_save())
+        return len(frames)
 
     # ------------------------------------------------------- commissioning
     async def async_walk_test(self, minutes: float = 30) -> dict[str, Any]:

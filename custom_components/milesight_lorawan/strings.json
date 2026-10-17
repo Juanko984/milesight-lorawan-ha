@@ -379,10 +379,11 @@
       },
       "channel_template": {
         "title": "Sensor templates",
-        "description": "**On this controller:**\n{applied}\n\nPick a sensor to apply (its values go on Modbus channels in the channel map, with the ToolBox settings to match), or tick applied templates to remove them (their channels are taken out of the channel map – remember to delete them in ToolBox too).",
+        "description": "**On this controller:**\n{applied}\n\nPick a sensor to apply (its values go on Modbus channels in the channel map – and on a UC100 straight to the device), or tick applied templates to remove them (their channels are taken out of the channel map, and out of the UC100 when *Also remove from the controller* is on).{error}",
         "data": {
           "template": "Apply a sensor",
-          "remove": "Remove"
+          "remove": "Remove",
+          "remove_from_device": "Also remove from the controller (UC100)"
         }
       },
       "channel_template_values": {
@@ -401,7 +402,17 @@
       },
       "channel_template_confirm": {
         "title": "Set up in ToolBox, then submit",
-        "description": "**1. In Milesight ToolBox → RS485** set up these channels (same columns as ToolBox):\n\n{toolbox}\n\n**2. Submit** to write these lines into the channel map (lines for the same channels are replaced):{replaces}\n\n```\n{lines}\n```{problems}"
+        "description": "**1. Channel setup** (same columns as ToolBox):\n\n{toolbox}{device}\n\n**2. Submit** to write these lines into the channel map (lines for the same channels are replaced):{replaces}\n\n```\n{lines}\n```{problems}{error}",
+        "data": {
+          "send_to_device": "Send to the controller over LoRaWAN",
+          "send_names": "Also send the channel names",
+          "set_serial": "Also set the RS485 port (baud rate, data bits, parity, stop bits)",
+          "fast": "Report every minute for 30 minutes so the setup arrives sooner"
+        },
+        "data_description": {
+          "send_to_device": "The UC100 gets one downlink after each of its uplinks; Command status shows each channel as confirmed when the UC100 echoes it.",
+          "fast": "The normal reporting interval comes back by itself afterwards."
+        }
       }
     },
     "error": {
@@ -412,7 +423,8 @@
       "invalid_app_key": "The AppKey must be 32 hex digits.",
       "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker.",
       "template_invalid": "The channels do not fit – see below.",
-      "template_nothing": "Pick a sensor to apply or a template to remove."
+      "template_nothing": "Pick a sensor to apply or a template to remove.",
+      "send_failed": "Could not send to the controller – see the message below."
     }
   },
   "selector": {

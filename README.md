@@ -705,19 +705,29 @@ Device → **Configure → Sensor templates** lists the templates applied to the
 applies new ones. Applying fills the channel map for common RS485 probes and tells you what
 to enter in Milesight ToolBox. Pick the sensor, tick the values you want, choose the first free Modbus channel and
 the probe's address; the values take consecutive channels. Several templates can go on one controller (UC300 /
-UC50x: 16 Modbus channels, UC100: 64), e.g. a soil / NPK probe (address 1) on channels 1–9 and a WS101LL level sensor (address 2) on 10–16.
+UC50x: 16 Modbus channels, UC100: 32), e.g. a soil / NPK probe (address 1) on channels 1–9 and a WS101LL level sensor (address 2) on 10–16.
 
 | Template | Default address / bus | Values |
 |---|---|---|
 | Ecowitt WS90 / WN90LP weather station | 0x90 (144) or 1, 9600 8N1, registers 357–366 (0x0165–0x016E) | light, UV index, temperature, humidity, wind speed, gust, wind direction, rainfall, pressure, rain counter |
 | CWT 7-in-1 soil / NPK sensor (THCPH-S) | 1, 9600 8N1, input registers 0–8 (signed) | moisture, temperature, conductivity, pH, nitrogen, phosphorus, potassium, salinity, TDS |
 | WoMaster WS101LL liquid level sensor | 1 (set to 2 next to another probe), 9600 8N1, input registers 2–6, 13, 2000 | water level (Measure Value), unit code, decimal points, full point; zero point, offset and address optional |
-| LuxPower LXP / EG4 hybrid inverter (UC100) | 1, 19200 8N1, input registers 0–106 (32-bit totals CDAB) | PV, battery / BMS, grid, inverter, energy today and totals, fault codes (46 values, 35 by default) |
+| LuxPower LXP / EG4 hybrid inverter (UC100) | 1, 19200 8N1, input registers 0–106 (32-bit totals CDAB) | PV, battery / BMS, grid, inverter, energy today and totals, fault codes (46 values, 32 by default) |
 
 All probes on one RS485 bus need the same baud rate – the confirmation page warns when the defaults differ (the
 CWT soil sensor is set to 9600 by writing 2 to register 0x07D1). The channel map now also takes options: `s16`
 for signed registers and `invalid=65535` for the "no reading" value, which then shows as unknown instead of a
 huge number. Soil-moisture channels join the irrigation advice by themselves.
+
+
+**UC100: set up over LoRaWAN.** On a UC100 (firmware v1 or v2) the confirmation page has *Send to the controller*:
+the channels (slave ID, register, type, quantity, signed) and their names go to the device as downlinks – no
+ToolBox needed. On firmware v2 the RS485 port settings (baud, data bits, parity, stop bits) are sent too; on v1
+set them once in ToolBox. The UC100 takes one downlink after each uplink, so *Report every minute for 30 minutes*
+is on by default (the normal interval comes back by itself). Every channel shows up in *Command status* and is
+confirmed when the UC100 echoes it. Removing a template can also delete its channels from the UC100. The byte
+format is the one Milesight's own encoders use. The UC300 and UC50x have no Modbus downlinks in Milesight's
+protocol – set their channels up in ToolBox.
 
 ## Alert escalation
 
@@ -974,6 +984,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.28.0** | Sensor templates are sent to the UC100 over LoRaWAN (channels, names, RS485 port on v2) and confirmed; removing a template deletes its channels on the UC100. UC100 limited to its 32 channels. |
 | **0.27.0** | LuxPower / EG4 inverter template for the UC100 (64 channels, 32-bit totals, packed SOC / SOH). |
 | **0.26.2** | Sensor templates: CWT 7-in-1 NPK updated to the tested ToolBox setup, new WoMaster WS101LL liquid level template. |
 | **0.26.1** | Sensor templates: ToolBox-style channel list, applied templates shown and removable, WS90 rain counter by default. |

@@ -137,6 +137,7 @@ from .const import (
 from .alerts import CATEGORIES, effective_categories
 from .channel_map import parse_channel_map
 from . import modbus_templates as _mt
+from . import modbus_config as _mc
 from .models import (MODELS, downlinks, entity_specs, families, load_channels, parse_bulk, pulse_capable,
                      pump_capable, purposes_for, tank_source)
 from . import purposes as _purposes
@@ -586,6 +587,14 @@ class MilesightOptionsFlow(OptionsFlow):
         if user_input is not None:
             remove = [int(i) for i in user_input.get("remove") or []]
             if remove:
+                if user_input.get("remove_from_device") and getattr(entry, "runtime_data", None) is not None:
+                    cmds = [c for i in remove for c in _mc.remove_commands(applied[i]["first"], applied[i]["last"])]
+                    try:
+                        await entry.runtime_data.async_modbus_push(cmds, label="remove template")
+                    except Exception as err:  # noqa: BLE001
+                        errors["base"] = "send_failed"
+                        self._send_error = str(err)
+            if remove and not errors:
                 text = entry.options.get(CONF_CHANNEL_MAP, "") or ""
                 for i in remove:
                     a = applied[i]
@@ -594,20 +603,25 @@ class MilesightOptionsFlow(OptionsFlow):
                 keep = [a for i, a in enumerate(applied) if i not in remove]
                 return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: text,
                                                      "channel_templates": keep})
-            if user_input.get("template"):
+            if not errors and user_input.get("template"):
                 self._tpl = {"key": user_input["template"]}
                 return await self.async_step_channel_template_values()
-            errors["base"] = "template_nothing"
+            if not errors:
+                errors["base"] = "template_nothing"
         opts = [{"value": t.key, "label": t.name} for t in _mt.TEMPLATES.values()]
         schema = {vol.Optional("template"): SelectSelector(SelectSelectorConfig(options=opts,
                                                                                mode=SelectSelectorMode.LIST))}
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        if applied and _mc.can_push(model):
+            schema[vol.Required("remove_from_device", default=True)] = BooleanSelector()
         if applied:
             schema[vol.Optional("remove", default=[])] = SelectSelector(SelectSelectorConfig(
                 options=[{"value": str(i), "label": f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
                                                    f" – channels {a['first']}–{a['last']}"}
                          for i, a in enumerate(applied)], multiple=True, mode=SelectSelectorMode.LIST))
         return self.async_show_form(step_id="channel_template", data_schema=vol.Schema(schema), errors=errors,
-                                    description_placeholders={"applied": _mt.describe_applied(applied)})
+                                    description_placeholders={"applied": _mt.describe_applied(applied),
+                                                              "error": ("\n\n⚠ " + self._send_error) if getattr(self, "_send_error", "") else ""})
 
     def _next_free_channel(self) -> int:
         from .channel_map import channel_key
@@ -662,10 +676,29 @@ class MilesightOptionsFlow(OptionsFlow):
         for a in overlap:                                # a template on these channels is replaced as a whole
             current = _mt.remove_from_map(current, a["first"], a["last"], a.get("title"))
         new_map = _mt.merge_map(current, rows, title)
-        if user_input is not None:
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        push = _mc.can_push(model)
+        errors: dict[str, str] = {}
+        if user_input is not None and push and user_input.get("send_to_device") \
+                and getattr(entry, "runtime_data", None) is not None:
+            serial = None
+            if user_input.get("set_serial") and model in _mc.SERIAL_MODELS:
+                bits, parity, stop = _mc.parse_serial(t.serial)
+                serial = _mc.serial_cmd(t.baud, bits, stop, parity)
+            removed = [c for a in overlap for c in _mc.remove_commands(a["first"], a["last"])
+                       if int(c[0].rsplit("_", 1)[1]) not in {r["channel"] for r in rows}]
+            try:
+                await entry.runtime_data.async_modbus_push(
+                    removed + _mc.template_commands(rows, names=bool(user_input.get("send_names", True))), serial,
+                    30 if user_input.get("fast") else 0, label=t.name)
+            except Exception as err:  # noqa: BLE001 - shown in the form
+                errors["base"] = "send_failed"
+                self._send_error = str(err)
+        if user_input is not None and not errors:
             applied = [a for a in entry.options.get("channel_templates", []) if a not in overlap]
             applied.append({"template": t.key, "first": lo, "last": hi, "slave_id": rows[0]["slave_id"],
-                            "title": title, "values": [r["name"] for r in rows]})
+                            "title": title, "values": [r["name"] for r in rows],
+                            "sent_to_device": bool(push and (user_input or {}).get("send_to_device"))})
             applied.sort(key=lambda a: a["first"])
             return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: new_map,
                                                  "channel_templates": applied})
@@ -676,10 +709,30 @@ class MilesightOptionsFlow(OptionsFlow):
                 f"({', '.join(str(b) for b in sorted(bauds))}): set them all to one rate – see the notes."
                 if len(bauds) > 1 else "")
         lines = "\n".join(r["line"] for r in rows)
-        return self.async_show_form(step_id="channel_template_confirm", data_schema=vol.Schema({}),
+        schema: dict = {}
+        if push:
+            schema[vol.Required("send_to_device", default=True)] = BooleanSelector()
+            schema[vol.Required("send_names", default=True)] = BooleanSelector()
+            if model in _mc.SERIAL_MODELS:
+                schema[vol.Required("set_serial", default=True)] = BooleanSelector()
+            schema[vol.Required("fast", default=True)] = BooleanSelector()
+        return self.async_show_form(step_id="channel_template_confirm", data_schema=vol.Schema(schema),
+                                    errors=errors,
                                     description_placeholders={
                                         "toolbox": _mt.toolbox_table(t, rows) + warn,
                                         "lines": lines,
+                                        "device": ("\n\n**This controller can be set up from here:** tick *Send to "
+                                                   "the controller* and the channels go to the device over LoRaWAN "
+                                                   f"({len(_mc.pack(_mc.template_commands(rows)))} downlinks, "
+                                                   "delivered one per uplink; each is confirmed when the device "
+                                                   "echoes it – see Command status). "
+                                                   + ("The RS485 port speed is sent too." if model in
+                                                      _mc.SERIAL_MODELS else
+                                                      f"Firmware v1 cannot set its RS485 port remotely – set "
+                                                      f"{t.baud} baud {t.serial} in ToolBox once."))
+                                        if push else "\n\nThe UC300 / UC50x cannot be set up over LoRaWAN – "
+                                                     "enter the channels in ToolBox.",
+                                        "error": ("\n\n⚠ " + self._send_error) if getattr(self, "_send_error", "") else "",
                                         "replaces": ("\n\nThis replaces: " + "; ".join(
                                             f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
                                             f" (channels {a['first']}–{a['last']})" for a in overlap)) if overlap else "",
