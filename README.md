@@ -358,7 +358,7 @@ integration and it puts them in place itself:
 * **Any time**: the gateway's **Install dashboards and blueprints** button.
 * Blueprints or dashboards you edited in Home Assistant are **kept** (the notification says so). To get ours back,
   delete your copy and press the button.
-* The Building dashboard is still generated per gateway with *Update building dashboard*.
+* The site landing page (below) is generated per gateway and links to these dashboards.
 
 Developers: the files are edited in `blueprints/` and `dashboards/` and copied into the package with
 `python3 tools/sync_resources.py` (a test fails if they differ).
@@ -390,11 +390,22 @@ After a setting is sent (e.g. *Reporting interval*), the device's **Last command
 entity's `confirmed_by_device` attribute shows the same. Firmware and hardware versions on the device page update
 whenever the device reports them.
 
-### Building dashboard
+### Site landing page
 
-A ready-made **Building** dashboard for each site, built from Home Assistant's own cards only (no HACS):
-a banner with the company details, badges, overall health, air quality, system health, a section per area and
-the occupancy heat map.
+A ready-made landing page for each site (sidebar: the site's name), built from Home Assistant's own cards only
+(no HACS):
+* a **banner** with the site name, company, address, facilities contact and logo, and an *all normal* / *needs
+  attention* strip;
+* **buttons to the other dashboards** in the sidebar (Farm, Tanks & alerts, Building analytics, Cold chain …);
+* overall health gauge, **open alerts** and *Needs attention*, air quality gauges, system health;
+* **People**: in the building now, people per area and a compact occupancy heat map (one row of squares per area,
+  fits a phone);
+* a section per area, then **tanks** (fill gauges), **irrigation** (forecast, advice, soil), the **pivot map**,
+  **pumps**, **cold chain** and **energy** for the devices that are set up.
+
+It is created and refreshed **by itself** (at start-up and when devices change) once the gateway's sensors exist.
+If you edit it in Home Assistant, it is left alone; the gateway's **Update site dashboard** button regenerates
+it.
 
 1. Gateway entry → **Configure** → **Site information**. Home Assistant already provides the **company name**
    (Settings → System → General → Name), country, time zone, the Home zone, the **areas** (Settings → Areas) and the
@@ -402,9 +413,8 @@ the occupancy heat map.
    address, phone, e-mail, logo, which areas to show and in what order, an optional outside temperature sensor,
    and the CO₂ alert level (default 1,200 ppm). *Company name* overrides the Home Assistant name when they differ;
    the site name is the gateway entry's name.
-2. Leave **Create / update the Building dashboard** ticked and submit. The dashboard appears in the sidebar as
-   *Building – &lt;site&gt;*. After adding areas or devices, press the gateway's **Update building dashboard**
-   button. The banner, badges, gauges, heat map and *Needs attention* update by themselves.
+2. Submit. The landing page appears in the sidebar under the site's name (URL `/building-<site>`). The banner,
+   badges, gauges, heat map and alerts update by themselves.
 
 Logo: copy the file into the `www` folder of your configuration (File editor / Samba add-on) and enter
 `/local/<file name>` (default `/local/logo.png`).
@@ -421,7 +431,7 @@ The gateway device gets the sensors behind it, also usable in your own dashboard
 | **Average temperature / humidity / CO₂ / PM2.5 / PM10 / TVOC / formaldehyde / pressure** | Over online devices – only measures your devices have (TVOC only from devices reporting µg/m³) |
 
 The dashboard is saved like any dashboard edited in the UI, so it can be changed afterwards – but pressing
-*Update building dashboard* again replaces it. To keep your own changes, copy it (⋮ → Edit → ⋮ → Raw
+*Update site dashboard* again replaces it. To keep your own changes, copy it (⋮ → Edit → ⋮ → Raw
 configuration editor) into a dashboard of your own. If Home Assistant refuses the direct save, the YAML is written
 to `/config/milesight_building-<site>.yaml` with a notification on how to paste it.
 [`dashboards/building_overview.example.yaml`](dashboards/building_overview.example.yaml) shows what is generated.
@@ -994,6 +1004,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.30.0** | Site landing page (auto-created, dashboard buttons, people, alerts, tanks, farm …); phone-friendly Building analytics, Farm and Tanks & alerts dashboards. |
 | **0.29.1** | Edit applied sensor templates; on the UC100 only changed channels are re-sent. |
 | **0.29.0** | Live dashboard views: pivot map, gauges with limit bands, setpoint sliders (tank, pump, pivot, temperature, irrigation). |
 | **0.28.1** | LuxPower template slimmed to 26 default values (daily kWh from the totals); UC300 has 32 Modbus channels. |

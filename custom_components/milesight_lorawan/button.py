@@ -62,7 +62,7 @@ class UpdateDashboardButton(ButtonEntity):
     """Gateway: (re)generate the Building dashboard from the site information and areas."""
 
     _attr_has_entity_name = True
-    _attr_name = "Update building dashboard"
+    _attr_name = "Update site dashboard"
     _attr_icon = "mdi:view-dashboard-edit-outline"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -76,7 +76,7 @@ class UpdateDashboardButton(ButtonEntity):
         try:
             await async_update_dashboard(self.hass, self.entry)
         except Exception as err:  # noqa: BLE001
-            raise HomeAssistantError(f"Could not update the building dashboard: {err}") from err
+            raise HomeAssistantError(f"Could not update the site dashboard: {err}") from err
 
 
 class _HubButton(ButtonEntity):

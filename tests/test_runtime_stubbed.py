@@ -662,10 +662,16 @@ site_entry.options["site_company"] = "Acme Ltd"
 assert by["site"].native_value == "Acme Ltd"                                # override
 where = asyncio.run(dmod.async_update_dashboard(hass2, site_entry))
 dash = hass2.data["lovelace"].dashboards["building-head-office"]
-assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Building – Head office"
+assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Head office"
 assert dash.saved["views"][0]["sections"][0]["cards"][0]["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
-assert heads[-3:] == ["Meeting room 1", "Open office", "Occupancy today"], heads
+assert heads[-3:] == ["People", "Meeting room 1", "Open office"], heads
+saved_hash = dmod._hash(dash.saved)
+assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None      # up to date
+dash.saved = {"title": "Mine", "views": []}                                                  # edited by hand
+assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None and dash.saved["title"] == "Mine"
+assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry)) == "/building-head-office"  # the button rewrites
+assert dmod._hash(dash.saved) == saved_hash
 print("building ok")
 
 # ---------------- 0.20: channel map, tanks, alert escalation, gateway provisioning ----------------
@@ -1187,4 +1193,16 @@ n.hass = hass
 assert n._attr_mode == num.NumberMode.SLIDER and n._attr_native_max_value == 90
 asyncio.run(n.async_set_native_value(33.4))
 assert UPDATED[-1]["tank_low_pct"] == 33
+# site landing page sections and building analytics
+site = dl.site_sections(eid, rts, [])
+heads = [sec["cards"][0]["heading"] for sec in site]
+assert "Tanks and silos" in heads and "Pivots" in heads and "Pumps" in heads, heads
+assert all(len(sec["cards"]) > 1 for sec in site)
+hubx = types.SimpleNamespace(entry=types.SimpleNamespace(entry_id="h1"),
+                             areas=types.SimpleNamespace(summary={"Board room": {}, "Lab": {}}))
+ana = dl.analytics_cards(eid, rts, [hubx])
+assert [sec["cards"][0]["heading"] for sec in ana][:3] == ["Occupancy today", "Occupancy yesterday", "Board room"]
+assert any(c.get("entity") == "sensor.h1_area_board_room_comfort" for c in ana[2]["cards"])
+nav = dl.nav_section([("Farm", "milesight-farm", "mdi:tractor-variant")])
+assert nav["cards"][1]["tap_action"]["navigation_path"] == "/milesight-farm"
 print("live dashboards ok")

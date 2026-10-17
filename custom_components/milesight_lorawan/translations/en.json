@@ -125,7 +125,7 @@
       },
       "site": {
         "title": "Site information",
-        "description": "Shown in the banner of the Building dashboard. Taken from Home Assistant: the name (\"{ha_name}\", Settings → System → General), country, time zone, the Home zone, areas (Settings → Areas) and the contact person (Settings → People). Fill in only what Home Assistant does not know.",
+        "description": "Shown in the banner of the site landing page. Taken from Home Assistant: the name (\"{ha_name}\", Settings → System → General), country, time zone, the Home zone, areas (Settings → Areas) and the contact person (Settings → People). Fill in only what Home Assistant does not know.",
         "data": {
           "site_company": "Company name (optional override)",
           "site_contact": "Facilities contact (person)",
@@ -136,7 +136,7 @@
           "site_areas": "Areas on the dashboard",
           "site_outside_sensor": "Outside temperature (optional)",
           "co2_alert": "CO₂ alert above (ppm)",
-          "update_dashboard": "Create / update the Building dashboard"
+          "update_dashboard": "Regenerate the site landing page now (replaces your edits)"
         },
         "data_description": {
           "site_company": "Leave empty to use the Home Assistant name. The site name is this gateway's name (rename it on the integration page).",
@@ -146,7 +146,7 @@
           "site_areas": "In this order. Leave empty to show every area that has Milesight devices.",
           "site_outside_sensor": "Shown as a badge at the top of the dashboard.",
           "co2_alert": "Areas above this level appear in Needs attention and the banner.",
-          "update_dashboard": "Generates the dashboard with a section per area. Also available as the gateway's 'Update building dashboard' button."
+          "update_dashboard": "Generates the site landing page (site banner, dashboards, people, alerts, areas, tanks, farm, cold chain, energy). It also refreshes by itself unless you edited it; the gateway's 'Update site dashboard' button regenerates it."
         }
       },
       "general": {

@@ -165,6 +165,15 @@ def _live(hass: HomeAssistant, file: str, config: dict) -> dict:
         return config
 
 
+def _refresh_landing(hass: HomeAssistant) -> None:
+    """The site landing pages show buttons to these dashboards and the devices' sections: refresh them."""
+    try:
+        from .dashboard import refresh_all
+        refresh_all(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not refresh the site dashboards", exc_info=True)
+
+
 def _hide(hass: HomeAssistant, url: str) -> None:
     """Take an integration-made dashboard out of the sidebar (its content stays stored for later)."""
     from .dashboard import _lovelace_dashboards
@@ -201,6 +210,7 @@ async def async_install(hass: HomeAssistant, version: str | None = None, force: 
         await async_label_devices(hass)
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Could not label the Milesight devices", exc_info=True)
+    _refresh_landing(hass)
     _LOGGER.info("Milesight resources: %s", out)
     return out
 
@@ -256,6 +266,7 @@ async def async_sync(hass: HomeAssistant) -> dict[str, Any]:
     state["live"] = live
     await store.async_save(state)
     await async_label_devices(hass)
+    _refresh_landing(hass)
     return out
 
 

@@ -32,17 +32,15 @@ def _attention(alerts: str) -> str:
 
 
 def _heatmap(areas: list[str]) -> str:
-    names = json.dumps(areas, ensure_ascii=False)
-    return f"""{{% set names = {names} %}}
-{{% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'defined') | selectattr('attributes.area', 'in', names) | list %}}
-{{% if not rows %}}No occupancy data yet – people counters, PIR and desk sensors in these areas fill this in.{{% else %}}
-{{% set hours = range(7, 20) %}}
-| Area | Now | Today |{{% for h in hours %}} {{{{ '%02d' % h }}}} |{{% endfor %}}
-|---|---|---|{{% for h in hours %}}---|{{% endfor %}}
-{{% for n in names %}}{{% for s in rows if s.attributes.area == n %}}| {{{{ n }}}} | {{{{ ('Occupied' ~ ((' ' ~ s.attributes.people_now) if s.attributes.people_now is not none else '')) if s.attributes.occupied_now else 'Empty' }}}} | {{{{ s.state if s.state not in ('unknown', 'unavailable') else '–' }}}} % |{{% for h in hours %}}{{% set p = s.attributes.hourly_today[h] %}} {{{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}}} |{{% endfor %}}
-{{% endfor %}}{{% endfor %}}
+    from .dashboard_live import heatmap_md
+    return heatmap_md(areas)
 
-⬛ empty · 🟩 under 25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 over 75 % · ⬜ no data{{% endif %}}"""
+
+def _open_alerts(entity: str) -> str:
+    return f"""{{% set al = state_attr({json.dumps(entity)}, 'alerts') or [] %}}
+{{% if not al %}}<ha-alert alert-type="success">No open alerts</ha-alert>{{% else %}}
+{{% for a in al %}}<ha-alert alert-type="{{{{ 'error' if a.severity == 'critical' else 'warning' }}}}" title="{{{{ a.title }}}}">{{{{ a.message }}}}<br><small>since {{{{ a.since }}}} · {{{{ a.status }}}}{{% if a.acknowledged_by %}} by {{{{ a.acknowledged_by }}}}{{% endif %}}</small></ha-alert>
+{{% endfor %}}{{% endif %}}"""
 
 
 def _tile(entity: str | None, name: str, icon: str | None = None, columns: int = 6, **kw: Any) -> dict | None:
@@ -73,12 +71,19 @@ def _section(cards: list[dict | None], span: int | None = None) -> dict:
 GREEN, YELLOW, RED = "var(--success-color)", "var(--warning-color)", "var(--error-color)"
 
 
+def _nav(title: str, url: str, icon: str) -> dict:
+    return {"type": "button", "name": title, "icon": icon, "show_state": False,
+            "tap_action": {"action": "navigate", "navigation_path": f"/{url}"},
+            "grid_options": {"columns": 3, "rows": 2}}
+
+
 def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
-    """ctx: title, site, health, comfort, air_quality, systems, people, alerts, avg{measure: id},
+    """ctx: title, site, health, comfort, air_quality, systems, people, alerts, open_alerts, avg{measure: id},
     devices_online, battery_low, gateways_online, uplinks, outside, co2_alert, areas[{name, icon, comfort,
-    occupancy, co2, temperature}]."""
+    occupancy, co2, temperature}], nav[(title, url, icon)], live[sections from dashboard_live.site_sections]."""
     avg = ctx.get("avg", {})
     co2_alert = ctx.get("co2_alert", 1200)
+    areas = ctx.get("areas", [])
     badges = [b for b in (
         {"type": "entity", "entity": ctx.get("outside"), "name": "Outside", "show_name": True} if ctx.get("outside") else None,
         {"type": "entity", "entity": ctx.get("health"), "name": "Building health", "show_name": True},
@@ -90,15 +95,28 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
     sections = [
         _section([{"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}}],
                  span=4),
+    ]
+    if ctx.get("nav"):
+        sections.append(_section([{"type": "heading", "heading": "Dashboards", "icon": "mdi:view-dashboard"}]
+                                 + [_nav(*n) for n in ctx["nav"]], span=4))
+    sections += [
         _section([
             {"type": "heading", "heading": "Overall health", "icon": "mdi:heart-pulse"},
             {"type": "gauge", "entity": ctx.get("health"), "name": "Building health", "min": 0, "max": 100,
-             "severity": {"green": 80, "yellow": 60, "red": 0}, "grid_options": {"columns": "full"}}
+             "needle": True, "segments": [{"from": 0, "color": RED}, {"from": 60, "color": YELLOW},
+                                          {"from": 80, "color": GREEN}], "grid_options": {"columns": "full"}}
             if ctx.get("health") else None,
             _tile(ctx.get("comfort"), "Comfort", "mdi:emoticon-happy-outline"),
             _tile(ctx.get("air_quality"), "Air quality", "mdi:air-filter"),
             _tile(ctx.get("systems"), "Systems", "mdi:router-network"),
-            _tile(ctx.get("people"), "Occupancy", "mdi:account-group"),
+            _tile(ctx.get("people"), "People now", "mdi:account-group"),
+        ]),
+        _section([
+            {"type": "heading", "heading": "Needs attention", "icon": "mdi:bell-alert"},
+            {"type": "markdown", "content": _open_alerts(ctx["open_alerts"]), "grid_options": {"columns": "full"}}
+            if ctx.get("open_alerts") else None,
+            {"type": "markdown", "content": _attention(ctx["alerts"]), "grid_options": {"columns": "full"}}
+            if ctx.get("alerts") else None,
         ]),
         _section([
             {"type": "heading", "heading": "Air quality", "icon": "mdi:air-filter"},
@@ -107,25 +125,32 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
             _gauge(avg.get("tvoc"), "TVOC", 0, 1000, [(0, GREEN), (300, YELLOW), (500, RED)]),
             _gauge(avg.get("humidity"), "Humidity", 0, 100, [(0, YELLOW), (30, GREEN), (60, YELLOW)]),
             {"type": "history-graph", "title": "CO₂ today", "hours_to_show": 24,
-             "entities": [{"entity": a["co2"], "name": a["name"]} for a in ctx.get("areas", []) if a.get("co2")]
+             "entities": [{"entity": a["co2"], "name": a["name"]} for a in areas if a.get("co2")]
              or [{"entity": avg["co2"], "name": "Building"}], "grid_options": {"columns": "full"}}
-            if avg.get("co2") or any(a.get("co2") for a in ctx.get("areas", [])) else None,
+            if avg.get("co2") or any(a.get("co2") for a in areas) else None,
             _tile(avg.get("temperature"), "Temperature", "mdi:thermometer"),
             _tile(avg.get("pm10"), "PM10", "mdi:blur"),
             _tile(avg.get("hcho"), "Formaldehyde", "mdi:molecule"),
             _tile(avg.get("pressure"), "Pressure", "mdi:gauge"),
-        ], span=2),
+        ]),
         _section([
             {"type": "heading", "heading": "System health", "icon": "mdi:router-network"},
             _tile(ctx.get("devices_online"), "Devices online", "mdi:check-network-outline"),
             _tile(ctx.get("gateways_online"), "Gateways online", "mdi:router-wireless"),
             _tile(ctx.get("battery_low"), "Battery low", "mdi:battery-alert-variant-outline"),
             _tile(ctx.get("uplinks"), "Uplinks today", "mdi:upload-network"),
-            {"type": "markdown", "title": "Needs attention", "content": _attention(ctx["alerts"]),
-             "grid_options": {"columns": "full"}} if ctx.get("alerts") else None,
         ]),
     ]
-    for a in ctx.get("areas", []):
+    people = [a for a in areas if a.get("occupancy")]
+    if areas:
+        sections.append(_section(
+            [{"type": "heading", "heading": "People", "icon": "mdi:account-group"},
+             _tile(ctx.get("people"), "In the building now", "mdi:account-group", columns=12)]
+            + [_tile(a["occupancy"], a["name"], a.get("icon") or "mdi:account-clock", columns=6,
+                     state_content=["people_now", "state"]) for a in people]
+            + [{"type": "markdown", "content": _heatmap([a["name"] for a in areas]),
+                "grid_options": {"columns": "full"}}], span=2))
+    for a in areas:
         cards = [{"type": "heading", "heading": a["name"], "icon": a.get("icon") or "mdi:texture-box"},
                  _tile(a.get("comfort"), "Comfort", "mdi:emoticon-happy-outline", columns=12,
                        state_content=["state", "temperature", "humidity", "co2"]),
@@ -133,12 +158,8 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
                  _tile(a.get("co2"), "CO₂", "mdi:molecule-co2")]
         if len(cards) > 1 and any(cards[1:]):
             sections.append(_section(cards))
-    if ctx.get("areas"):
-        sections.append(_section([
-            {"type": "heading", "heading": "Occupancy today", "icon": "mdi:account-clock"},
-            {"type": "markdown", "content": _heatmap([a["name"] for a in ctx["areas"]]),
-             "grid_options": {"columns": "full"}},
-        ], span=4))
+    sections += [s_ for s_ in ctx.get("live") or [] if s_]
+    sections = [s_ for s_ in sections if s_["cards"] and not (len(s_["cards"]) == 1 and s_["cards"][0]["type"] == "heading")]
     return {"title": ctx.get("title", "Building"), "views": [{
         "type": "sections", "title": "Overview", "path": "overview", "icon": "mdi:office-building",
         "max_columns": 4, "badges": badges, "sections": sections}]}

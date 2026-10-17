@@ -190,14 +190,15 @@ def _hub_schema(opts: dict) -> dict:
     }
 
 
-def _schedule_dashboard(hass, entry: ConfigEntry) -> None:
-    """Build the dashboard once the entry has (possibly) reloaded with the new options and its sensors exist."""
+def _schedule_dashboard(hass, entry: ConfigEntry, auto: bool = False) -> None:
+    """Build the dashboard once the entry has (possibly) reloaded with the new options and its sensors exist.
+    auto: leave a landing page edited by hand alone."""
     from homeassistant.helpers.event import async_call_later
 
     async def _run(_now) -> None:
         from .dashboard import async_update_dashboard
         try:
-            await async_update_dashboard(hass, entry)
+            await async_update_dashboard(hass, entry, auto=auto)
         except Exception:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).warning("Could not create the building dashboard", exc_info=True)
@@ -448,8 +449,7 @@ class MilesightOptionsFlow(OptionsFlow):
             data = {k: v for k, v in entry.options.items() if k not in _SITE_KEYS}
             data.update({k: v for k, v in user_input.items() if v not in (None, "", [])})
             data[CONF_SITE_LOGO] = user_input.get(CONF_SITE_LOGO) or ""      # cleared logo stays cleared
-            if update:
-                _schedule_dashboard(self.hass, entry)
+            _schedule_dashboard(self.hass, entry, auto=not update)
             return self.async_create_entry(data=data)
         o = entry.options
 
@@ -470,7 +470,7 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Optional(CONF_SITE_OUTSIDE, description=sv(CONF_SITE_OUTSIDE)):
                 EntitySelector(EntitySelectorConfig(domain=["sensor", "weather"])),
             vol.Required(CONF_CO2_ALERT, default=o.get(CONF_CO2_ALERT, DEFAULT_CO2_ALERT)): _int_box(600, 5000),
-            vol.Required(CONF_UPDATE_DASHBOARD, default=True): BooleanSelector(),
+            vol.Required(CONF_UPDATE_DASHBOARD, default=False): BooleanSelector(),
         }
         hass_name = self.hass.config.location_name
         return self.async_show_form(step_id="site", data_schema=vol.Schema(schema),

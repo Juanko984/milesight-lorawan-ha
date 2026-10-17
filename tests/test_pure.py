@@ -703,7 +703,10 @@ def test_dashboard_config_and_templates():
            "comfort": "sensor.c", "air_quality": "sensor.aq", "systems": "sensor.sys", "people": "sensor.p",
            "alerts": "sensor.al", "avg": {"co2": "sensor.avg_co2", "pm2_5": "sensor.avg_pm"},
            "devices_online": "sensor.on", "battery_low": None, "gateways_online": "sensor.gw", "uplinks": None,
-           "outside": None, "co2_alert": 1100,
+           "outside": None, "co2_alert": 1100, "open_alerts": "sensor.open",
+           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Tanks & alerts", "milesight-tanks", "mdi:storage-tank")],
+           "live": [{"type": "grid", "cards": [{"type": "heading", "heading": "Tanks and silos"},
+                                               {"type": "gauge", "entity": "sensor.t1_tank_fill"}]}],
            "areas": [{"name": "Board room", "icon": "mdi:table-furniture", "comfort": "sensor.br_c",
                       "occupancy": "sensor.br_o", "co2": "sensor.br_co2"},
                      {"name": "Sam's office", "icon": None, "comfort": None, "occupancy": None, "co2": None}]}
@@ -713,13 +716,19 @@ def test_dashboard_config_and_templates():
         ["Building health", "People in building", "Devices online", "Alerts"]
     secs = view["sections"]
     heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
-    assert heads == [None, "Overall health", "Air quality", "System health", "Board room", "Occupancy today"]
-    air = secs[2]["cards"]
+    assert heads == [None, "Dashboards", "Overall health", "Needs attention", "Air quality", "System health",
+                     "People", "Board room", "Tanks and silos"], heads
+    by_head = dict(zip(heads, secs))
+    nav = by_head["Dashboards"]["cards"][1:]
+    assert [n["tap_action"]["navigation_path"] for n in nav] == ["/milesight-farm", "/milesight-tanks"]
+    ppl = by_head["People"]["cards"]
+    assert ppl[1]["entity"] == "sensor.p" and ppl[2]["state_content"] == ["people_now", "state"]
+    air = by_head["Air quality"]["cards"]
     co2 = next(c for c in air if c["type"] == "gauge" and c["name"] == "CO₂")
     assert co2["segments"][-1]["from"] == 1100 and co2["needle"] is True
     assert next(c for c in air if c["type"] == "history-graph")["entities"] == [{"entity": "sensor.br_co2",
                                                                                  "name": "Board room"}]
-    assert secs[4]["cards"][1]["state_content"] == ["state", "temperature", "humidity", "co2"]
+    assert by_head["Board room"]["cards"][1]["state_content"] == ["state", "temperature", "humidity", "co2"]
     assert all(c.get("entity") is None or c["entity"] for s_ in secs for c in s_["cards"])   # no empty entities
     json.dumps(cfg)                                                                          # storable
 
@@ -739,18 +748,22 @@ def test_dashboard_config_and_templates():
     banner = env.from_string(secs[0]["cards"][0]["content"]).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme", now=Now)
     assert "Facilities" not in banner and "<img" not in banner and "All systems normal" in banner
-    md = next(c for c in secs[3]["cards"] if c["type"] == "markdown")["content"]
+    md = by_head["Needs attention"]["cards"][2]["content"]
     al = [{"severity": "serious", "where": "Meeting room 1", "what": "CO₂ 1,340 ppm", "detail": "Above", "since": "14:05"}]
     out = env.from_string(md).render(state_attr=lambda e, a: al)
     assert 'alert-type="error" title="Meeting room 1 · CO₂ 1,340 ppm"' in out and "since 14:05" in out
-    heat = secs[5]["cards"][1]["content"]
+    heat = ppl[-1]["content"]
     assert '["Board room", "Sam\'s office"]' in heat                 # names safely quoted
     S = types.SimpleNamespace
     sensor = S(state="40", attributes={"area": "Board room", "hourly_today": [None] * 7 + [0, 30, 80] + [None] * 14,
                                         "occupied_now": True, "people_now": 3})
     env.tests["defined"] = lambda v: v is not None and not isinstance(v, jinja2.Undefined)
     out = env.from_string(heat).render(states=S(sensor=[sensor]))
-    assert "| Board room | Occupied 3 | 40 % | ⬛ | 🟨 | 🟥 | ⬜ |" in out, out
+    assert "**Board room** · 🧑 3 · 40 % today  \n⬜⬛🟨🟥⬜" in out, out
+    oa = env.from_string(by_head["Needs attention"]["cards"][1]["content"]).render(
+        state_attr=lambda e, a: [{"severity": "critical", "title": "Tank low", "message": "12 %", "since": "09:00",
+                                  "status": "open", "acknowledged_by": None}])
+    assert 'alert-type="error" title="Tank low"' in oa and "since 09:00 · open" in oa
 
 
 
@@ -1478,6 +1491,54 @@ def test_edit_applied_template():
            "values": ["Field Soil moisture", "Field Soil temperature", "Field Soil pH"]}
     d = mtp.applied_defaults(mtp.TEMPLATES["cwt_soil_thcph"], old)
     assert d["values"] == ["moisture", "temperature", "ph"] and d["prefix"] == "Field" and d["first_channel"] == 11
+
+
+def test_bundled_dashboard_templates_render():
+    """The markdown cards of the shipped dashboards render (phone-friendly: no wide tables)."""
+    import jinja2
+    import yaml
+    S = types.SimpleNamespace
+    env = jinja2.Environment(extensions=["jinja2.ext.loopcontrols"])
+    env.filters["int"] = lambda v, d=0: int(float(v)) if str(v).replace(".", "", 1).lstrip("-").isdigit() else d
+    env.filters["timestamp_custom"] = lambda v, f: "17 Oct 09:00"
+    sensors = [
+        S(state="72", attributes={"kind": "comfort", "area": "Lab", "temperature": 22.5, "humidity": 48, "co2": None}),
+        S(state="40", attributes={"area": "Lab", "hourly_today": [0] * 7 + [30, 80] + [None] * 15,
+                                   "hourly_yesterday": [0] * 24, "occupied_now": True, "people_now": 2,
+                                   "utilisation_today": None}),
+        S(state="1200", attributes={"milesight_role": "tank", "device": "Tank 1", "area": "Yard", "fill": 34.6,
+                                     "capacity_l": 5000, "usage_per_day": 210.4, "days_left": 8, "low": False,
+                                     "sudden_drop": False}),
+        S(state="1", attributes={"milesight_role": "alerts_open", "alerts": [
+            {"severity": "critical", "title": "Pump dry-run", "message": "2.1 A", "since": "08:10", "status": "open"}]}),
+        S(state="12", attributes={"milesight_role": "pump", "device": "Borehole", "area": None, "running": True,
+                                   "dry_run": True, "overload": False, "short_cycling": False, "current": 2.1,
+                                   "normal_current": 9.8, "starts_last_hour": 1}),
+        S(state="55", attributes={"milesight_role": "pivot", "device": "Pivot 1", "status": "running", "angle": 198.2,
+                                   "speed": 12, "finish_in_h": 3.24}),
+        S(state="irrigate", attributes={"milesight_role": "irrigation", "site": "Farm", "minutes": 40, "reason": "dry",
+                                         "soil_moisture": 18, "target_moisture": 30, "rain_window_h": 24,
+                                         "rain_mm": 0.4, "rain_probability": 10, "forecast_error": None}),
+    ]
+    states = S(sensor=sensors, binary_sensor=[S(state="off", attributes={"milesight_role": "frost", "expected": False})])
+    out = {}
+    for f in ("building_analytics", "tanks_and_alerts", "farm"):
+        cfg = yaml.safe_load((PKG.parents[1] / "dashboards" / f"{f}.yaml").read_text(encoding="utf-8"))
+        for view in cfg["views"]:
+            for sec in view["sections"]:
+                for card in sec["cards"]:
+                    if card["type"] == "markdown":
+                        text = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0)
+                        assert "|---|" not in text, (f, text)          # no wide tables any more
+                        out[f"{f}:{sec['cards'][0]['heading']}"] = text
+    assert "**Lab** · 🟡 72 / 100" in out["building_analytics:Comfort per area"]
+    assert "🌡️ 22.5 °C · 💧 48 %" in out["building_analytics:Comfort per area"]
+    assert "**Lab** · 🧑 2 · 40 % today" in out["building_analytics:Occupancy today"]
+    assert "closed today / outside opening hours" in out["building_analytics:Utilisation today (opening hours)"]
+    assert "🟦🟦🟦⬜⬜⬜⬜⬜⬜⬜ **34 %**" in out["tanks_and_alerts:Tanks and silos"]
+    assert 'title="Pump dry-run"' in out["tanks_and_alerts:Open alerts"]
+    assert "**DRY-RUN**" in out["farm:Pumps"] and "finishes in 3.2 h" in out["farm:Centre pivots"]
+    assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

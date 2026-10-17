@@ -2,6 +2,28 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.30.0
+### Added
+- **Site landing page** for each gateway, now created and refreshed **automatically** (at start-up and when
+  devices change – not only with the button). Sidebar title: the site's name. It shows the banner (site name,
+  company, address, facilities contact, logo, status), **buttons to every installed dashboard**, overall health,
+  **open alerts** and *Needs attention*, air quality, system health, **People** (in the building now, people per
+  area, compact heat map), a section per area, and the site's **tanks, irrigation, pivot map, pumps, cold chain
+  and energy**. A landing page you edited by hand is left alone; the gateway button (renamed **Update site
+  dashboard**) regenerates it. If you had generated the old Building dashboard before, press the button once.
+- **Building analytics** gets a *Live* view: per area comfort and occupancy gauges, temperature, CO₂, humidity and
+  a 24 h graph.
+
+### Changed
+- **Building analytics**, **Farm** and **Tanks & alerts** dashboards rebuilt as sections views with
+  phone-friendly cards instead of wide tables:
+  - occupancy heat maps are one row of squares per area (06:00–21:00) with people now and today's share – no more
+    sideways scrolling;
+  - utilisation shows a bar, or *closed today / outside opening hours* instead of "– %";
+  - comfort per area: score with a coloured dot, temperature, humidity and CO₂ on one line;
+  - tanks: fill bar, litres, use per day and days left; pumps and pivots: status line, progress bar and details;
+  - irrigation advice as a coloured banner with a soil-moisture bar.
+
 ## 0.29.1
 ### Added
 - **Edit applied sensor templates** (device → Configure → Sensor templates → *Edit*): the form opens with the
