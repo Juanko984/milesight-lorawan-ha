@@ -1360,9 +1360,12 @@ class DeviceRuntime:
 
     def _link_values(self, v: dict[str, Any], ts: float) -> None:
         """Signal quality per device and the command-confirmation state."""
-        from .models import NETWORK_SERVERS
-        ns = self.meta.get("network_server")
-        v["network_server"] = NETWORK_SERVERS[ns][0] if ns in NETWORK_SERVERS else None
+        from .const import DOWNLINK_CHIRPSTACK
+        from .models import NETWORK_SERVERS, network_of
+        hubs = list(self.hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+        ns = network_of(self.meta.get("network_server"), dict(self.entry.data),
+                        bool(hubs) and all(getattr(h, "downlink_format", None) == DOWNLINK_CHIRPSTACK for h in hubs))
+        v["network_server"] = NETWORK_SERVERS[ns][0]
         self.attrs["network_server"] = {"network_server": ns}
         rssi, snr, sf = v.get("rssi"), v.get("snr"), self.meta.get("spreading_factor")
         heard = self.link.heard_by(ts, 24 * 3600)

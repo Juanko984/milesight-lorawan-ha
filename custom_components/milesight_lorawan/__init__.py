@@ -135,6 +135,16 @@ async def _async_install_resources(hass: HomeAssistant) -> None:
     except Exception:  # noqa: BLE001 - never block the gateway
         _LOGGER.warning("Could not install the Milesight blueprints / dashboards", exc_info=True)
         return
+    # devices set up alongside the gateway were skipped by their own sync: label them all once they exist
+    from homeassistant.helpers.event import async_call_later
+
+    async def _late(_now) -> None:
+        from .resources import async_label_devices
+        try:
+            await async_label_devices(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not label the Milesight devices", exc_info=True)
+    async_call_later(hass, 60, _late)
     if out:
         from homeassistant.components import persistent_notification
         persistent_notification.async_create(

@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.31.0b3 (beta)
+### Fixed
+- Network-server label missing on most devices: it was only added after a device's next uplink, and devices set
+  up together with the gateway at start-up were skipped. All devices are now labelled about a minute after
+  start-up (and at every start); a device that has not reported yet is labelled from its set-up (AppKey for the
+  built-in network server → Home Assistant, otherwise the gateway's network server).
+
 ## 0.31.0b2 (beta)
 ### Added
 - **How each device is connected**: a *Network server* diagnostic sensor on every device (*Gateway (Embedded NS)*,

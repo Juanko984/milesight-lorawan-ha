@@ -194,6 +194,10 @@ async def async_install(hass: HomeAssistant, version: str | None = None, force: 
     state = await store.async_load() or {}
     if not force and version and state.get("version") == version:
         await async_restore(hass, state)
+        try:                                   # labels for devices set up before the gateway (at every start)
+            await async_label_devices(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not label the Milesight devices", exc_info=True)
         return {}
     out = {"blueprints": await async_install_blueprints(hass, state)}
     try:
@@ -284,6 +288,9 @@ async def async_label_devices(hass: HomeAssistant) -> None:
     state = await store.async_load() or {}
     labelled: dict[str, list[str]] = state.setdefault("labelled", {})
     lreg, dreg = lr.async_get(hass), dr.async_get(hass)
+    from .const import DOWNLINK_CHIRPSTACK
+    hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+    state["_chirpstack"] = bool(hubs) and all(getattr(h, "downlink_format", None) == DOWNLINK_CHIRPSTACK for h in hubs)
     ids: dict[str, str] = {}
     changed = False
     for e in hass.config_entries.async_entries(DOMAIN):
@@ -309,17 +316,21 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         dreg.async_update_device(device.id, labels=set(device.labels) | add)
         labelled[device.id] = sorted(set(labelled.get(device.id, [])) | set(new))
         changed = True
+    state.pop("_chirpstack", None)
     if changed:
         await store.async_save(state)
+
+
+def _chirpstack_hub(state: dict[str, Any]) -> bool:
+    return bool(state.get("_chirpstack"))
 
 
 def _connection_label(entry: Any, device: Any, lreg: Any, dreg: Any, state: dict[str, Any]) -> bool:
     """One label per device for how it reaches Home Assistant (gateway's network server, ChirpStack or the
     built-in one); swapped when that changes. Returns True when the device's labels changed."""
-    from .models import NETWORK_SERVERS
-    ns = (getattr(getattr(entry, "runtime_data", None), "meta", None) or {}).get("network_server")
-    if ns not in NETWORK_SERVERS:
-        return False
+    from .models import NETWORK_SERVERS, network_of
+    ns = network_of((getattr(getattr(entry, "runtime_data", None), "meta", None) or {}).get("network_server"),
+                    dict(entry.data), _chirpstack_hub(state))
     conn: dict[str, str] = state.setdefault("connection", {})
     if conn.get(device.id) == ns:
         return False

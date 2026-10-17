@@ -1301,6 +1301,11 @@ up_l = decoders.Uplink(deveui=EUI, raw=bytes.fromhex("0367f40004687b"), fport=85
 up_l.extra["network_server"] = "built-in"
 rt_l.handle_uplink(up_l)
 assert rt_l.values["network_server"] == "Home Assistant (packet forwarder)" and rt_l.meta["network_server"] == "built-in"
+# devices that have not reported since the update: worked out from their set-up
+mdl_ = sys.modules["milesight_lorawan.models"]
+assert mdl_.network_of(None, {}) == "embedded" and mdl_.network_of(None, {"lns_app_key": "00" * 16}) == "built-in"
+assert mdl_.network_of(None, {}, chirpstack_hub=True) == "chirpstack" and mdl_.network_of("built-in", {}) == "built-in"
+quiet = types.SimpleNamespace(data={"deveui": "x"}, runtime_data=types.SimpleNamespace(meta={}))
 res_c = load("resources")
 class _Lab:
     def __init__(self): self.by = {}
@@ -1317,6 +1322,9 @@ assert not res_c._connection_label(e_l, devs.d, labs, devs, st)                 
 rt_l.meta["network_server"] = "embedded"
 assert res_c._connection_label(e_l, devs.d, labs, devs, st)
 assert devs.d.labels == {"keep", "lorawan_·_gateway_network_server"}             # swapped, user's label kept
+dq = types.SimpleNamespace(id="d2", labels=set())
+devs2 = _Dev(); devs2.d = dq
+assert res_c._connection_label(quiet, dq, labs, devs2, st) and dq.labels == {"lorawan_·_gateway_network_server"}
 loop_.run_until_complete(hbl.lns.async_stop())
 loop_.close()
 print("network server ok")

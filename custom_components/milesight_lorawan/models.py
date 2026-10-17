@@ -2162,3 +2162,13 @@ NETWORK_SERVERS = {
     "chirpstack": ("ChirpStack", "LoRaWAN · ChirpStack", "mdi:server"),
     "built-in": ("Home Assistant (packet forwarder)", "LoRaWAN · Home Assistant network server", "mdi:home-assistant"),
 }
+
+
+def network_of(meta_ns: str | None, entry_data: dict, chirpstack_hub: bool = False) -> str:
+    """How a device reaches Home Assistant: what its last uplink said, else what its set-up implies
+    (an AppKey for the built-in network server, otherwise the gateway's network server)."""
+    if meta_ns in NETWORK_SERVERS:
+        return meta_ns
+    if entry_data.get("lns_app_key"):
+        return "built-in"
+    return "chirpstack" if chirpstack_hub else "embedded"

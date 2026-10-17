@@ -1044,6 +1044,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.31.0b3** | Beta fix: network-server label on every device from start-up. |
 | **0.31.0b2** | Beta: network-server chip (label) and sensor on every device. |
 | **0.31.0b1** | Beta: built-in LoRaWAN network server – gateways' packet forwarders send to Home Assistant, devices join with their AppKey. |
 | **0.30.0** | Site landing page (auto-created, dashboard buttons, people, alerts, tanks, farm …); phone-friendly Building analytics, Farm and Tanks & alerts dashboards. |
