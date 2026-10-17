@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.31.0b4 (beta)
+### Added – smart alerts
+- **Phone buttons**: *Acknowledge*, *Snooze 1 h* and *Open dashboard* on every alert (tapping the notification
+  opens the dashboard too). The dashboard matches the alert: Tanks & alerts, Farm, Cold chain, Energy & HVAC,
+  Building analytics, Signal / Fleet, otherwise the site landing page. A snoozed alert pauses reminders and
+  escalation and comes back as *Still active* if it has not cleared; snooze time is a setting.
+- **On-call rota**: lines like `Mon-Fri 07:00-17:00: notify.mobile_app_juan`, overnight shifts and weekends;
+  the person on call is told first, outside the rota *Notify first*.
+- **Escalation to the next person**: *Escalate to* is now an ordered list – each escalation adds the next person,
+  one at a time (with one backup it behaves as before).
+- **Quiet hours per category**: e.g. `building: 18-07`, `tank: none`; other categories keep the general quiet hours.
+- **Weekly alert summary** (default Monday 08:00): alerts by category, the noisiest devices and the mean time to
+  acknowledge, to *Notify first* and the rota. Gateway sensor **Alerts last 7 days** (with who is on call now)
+  and button **Send alert summary**. Alert history is kept 5 weeks.
+
 ## 0.31.0b3 (beta)
 ### Fixed
 - Network-server label missing on most devices: it was only added after a device's next uplink, and devices set

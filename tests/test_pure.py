@@ -905,7 +905,7 @@ def test_alert_escalation():
     assert [m["kind"] for m in out] == ["new"] and out[0]["targets"] == ["notify.a"] and out[0]["action"] == "Start pump"
     aid = out[0]["id"]
     data = alr.notify_data(out[0])
-    assert [a["action"] for a in data["data"]["actions"]] == [f"MSL_ACK_{aid}", f"MSL_RUN_{aid}"]
+    assert [a["action"] for a in data["data"]["actions"]] == [f"MSL_ACK_{aid}", f"MSL_SNZ_{aid}", f"MSL_RUN_{aid}"]
     assert data["data"]["tag"] == f"milesight_{aid}" and "push" not in data["data"]
     assert eng.update(low, t + 600, day, cfg) == []                    # not yet
     out = eng.update(low, t + 900, day, cfg)
@@ -1751,6 +1751,95 @@ def test_lns_join_uplink_downlink():
         assert dev.downlink(ev[-1].data["tx"].phy)[0].ack
     assert region.EU868.rx1(868.1, "SF7BW250")[1] == "SF7BW250"
     assert region.airtime_ms(7, 13) < region.airtime_ms(12, 13) and 40 < region.airtime_ms(7, 13) < 50
+
+
+def test_smart_alerts_rota_snooze_summary():
+    # on-call rota: weekdays by day, an overnight shift, weekends; first matching line wins
+    rota = alr.parse_rota("""
+        Mon-Fri 07:00-17:00: notify.mobile_app_juan
+        weekdays 17-07: notify.mobile_app_piet   # overnight
+        Weekend: notify.mobile_app_sam, notify.mobile_app_ann
+    """)
+    assert len(rota) == 3 and rota[2].targets == ("notify.mobile_app_sam", "notify.mobile_app_ann")
+    cfg = alr.AlertSettings(primary=["notify.boss"], rota=rota, backup=["notify.b1", "notify.b2"], escalate_min=10,
+                            category_quiet=alr.parse_category_quiet("building: 18-07\nsafety: none"),
+                            quiet_start=22, quiet_end=6,
+                            dashboards={"tank": "/milesight-tanks", "*": "/building-farm"})
+    fri_day, fri_night = datetime(2026, 10, 16, 9, 0, tzinfo=TZ), datetime(2026, 10, 16, 23, 0, tzinfo=TZ)
+    sat_early, sat_noon = datetime(2026, 10, 17, 5, 0, tzinfo=TZ), datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
+    assert cfg.first_line(fri_day) == ["notify.mobile_app_juan"]
+    assert cfg.first_line(fri_night) == ["notify.mobile_app_piet"]
+    assert cfg.first_line(sat_early) == ["notify.mobile_app_piet"]          # Friday's night shift runs into Saturday
+    assert cfg.first_line(sat_noon) == ["notify.mobile_app_sam", "notify.mobile_app_ann"]
+    assert alr.AlertSettings(primary=["notify.boss"]).first_line(fri_day) == ["notify.boss"]
+    evening = datetime(2026, 10, 16, 19, 0, tzinfo=TZ)
+    assert cfg.quiet("building", evening) and not cfg.quiet("tank", evening)
+    assert cfg.quiet("tank", fri_night) and not cfg.quiet("safety", fri_night)
+    for bad in ("Mon-Fri 07-17 notify.x", "Funday 07-17: notify.x", "Mon 25-26: notify.x"):
+        try:
+            alr.parse_rota(bad)
+            raise AssertionError(bad)
+        except alr.RotaError:
+            pass
+    try:
+        alr.parse_category_quiet("kitchen: 18-07")
+        raise AssertionError("unknown category")
+    except alr.RotaError:
+        pass
+
+    # escalation one person at a time along the backup list; Open dashboard link per category
+    eng = alr.AlertEngine()
+    t = T("2026-10-16 09:00")
+    low = {"t1:tank_low": {"title": "Tank low – Diesel", "message": "low", "severity": "warning", "category": "tank"}}
+    out = eng.update(low, t, fri_day, cfg)
+    assert out[0]["targets"] == ["notify.mobile_app_juan"] and out[0]["url"] == "/milesight-tanks"
+    d = alr.notify_data(out[0])["data"]
+    assert [a["title"] for a in d["actions"]] == ["Acknowledge", "Snooze 1 h", "Open dashboard"]
+    assert d["actions"][2] == {"action": "URI", "title": "Open dashboard", "uri": "/milesight-tanks"}
+    assert d["clickAction"] == d["url"] == "/milesight-tanks"
+    out = eng.update(low, t + 600, fri_day, cfg)
+    assert out[0]["kind"] == "escalated" and out[0]["targets"] == ["notify.b1", "notify.mobile_app_juan"]
+    out = eng.update(low, t + 1200, fri_day, cfg)
+    assert out[0]["targets"] == ["notify.b1", "notify.b2", "notify.mobile_app_juan"]
+    assert eng.update(low, t + 1800, fri_day, cfg) == []                 # end of the list, no reminders set
+
+    # snooze: no escalation for an hour, then 'still active' to everyone notified so far
+    eng2 = alr.AlertEngine()
+    out = eng2.update(low, t, fri_day, cfg)
+    aid2 = out[0]["id"]
+    sn = eng2.snooze(aid2, t + 60, 60, "Juan")
+    assert sn[0]["kind"] == "snoozed" and "Snoozed for 1 h by Juan" in sn[0]["message"]
+    assert [a["title"] for a in alr.notify_data(sn[0])["data"]["actions"]] == ["Acknowledge", "Open dashboard"]
+    assert eng2.update(low, t + 1200, fri_day, cfg) == []                # would have escalated at +10 min
+    out = eng2.update(low, t + 3700, fri_day, cfg)
+    assert out[0]["kind"] == "snooze_over" and out[0]["title"].startswith("Still active")
+    out = eng2.update(low, t + 3700 + 600, fri_day, cfg)
+    assert out[0]["kind"] == "escalated"                                  # the clock restarted after the snooze
+    assert eng2.snooze("nope", t, 60) == []
+
+    # weekly summary: counts, categories, noisiest sources, mean time to acknowledge
+    eng3 = alr.AlertEngine()
+    leak = {"d9:leak_active": {"title": "Water leak – Kitchen", "message": "m", "severity": "critical",
+                               "category": "safety"}}
+    a1 = eng3.update(low, t, fri_day, cfg)[0]["id"]
+    eng3.acknowledge(a1, t + 300, "Juan")                                  # 5 min
+    eng3.update({**low, **leak}, t + 400, fri_day, cfg)
+    leak_id = eng3.alerts["d9:leak_active"]["id"]
+    eng3.acknowledge(leak_id, t + 400 + 900, "Sam")                        # 15 min
+    eng3.update({}, t + 2000, fri_day, cfg)
+    eng3.update({}, t + 2400, fri_day, cfg)
+    eng3.update(low, t + 2500, fri_day, cfg)                              # tank low flaps back
+    s = eng3.summary(t + 3000, names={"t1": "Diesel tank"})
+    assert s["alerts"] == 2 and s["critical"] == 1 and s["mtta_min"] == 10.0 and s["acknowledged"] == 2, s
+    assert s["by_category"] == {"tank": 1, "safety": 1}
+    assert s["noisiest"][0] == {"source": "Diesel tank", "alerts": 1, "flaps": 1}
+    text = alr.summary_text(s)
+    assert "2 alerts (1 critical)" in text and "Mean time to acknowledge: 10 min" in text
+    assert "Diesel tank 1 (+1 repeats)" in text
+    assert alr.summary_text(alr.AlertEngine().summary(t)).startswith("No alerts")
+    st = json.loads(json.dumps(eng3.to_dict()))
+    assert alr.AlertEngine(st).summary(t + 3000)["alerts"] == 2           # survives a restart
+    assert eng3.summary(t + 9 * 86400)["alerts"] == 0                      # only the last 7 days
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

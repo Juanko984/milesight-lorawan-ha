@@ -245,10 +245,10 @@
       },
       "alerts": {
         "title": "Alert escalation",
-        "description": "Sends alerts to phones (Home Assistant Companion app) with an Acknowledge button. Nobody acknowledges within the escalation time → the backup people are notified too. Non-critical alerts wait until quiet hours end; leaks, smoke, gas, falls, sudden tank drops and gateway outages always go through.",
+        "description": "Sends alerts to phones (Home Assistant Companion app) with **Acknowledge**, **Snooze** and **Open dashboard** buttons (tapping the notification opens the dashboard for that alert too). Who is told first: the person **on call** in the rota, else *Notify first*. Nobody acknowledges within the escalation time → the **next person** on the *Escalate to* list is added, one at a time. Non-critical alerts wait until quiet hours end; leaks, smoke, gas, falls, sudden tank drops and gateway outages always go through.",
         "data": {
           "alert_primary": "Notify first",
-          "alert_backup": "Escalate to",
+          "alert_backup": "Escalate to (in this order, one at a time)",
           "alert_escalate_min": "Escalate after (minutes)",
           "alert_repeat_min": "Remind every (minutes)",
           "alert_quiet_start": "Quiet hours from (hour)",
@@ -257,14 +257,24 @@
           "alert_notify_resolved": "Tell people when it is resolved",
           "alert_categories": "Alerts to send",
           "alert_action_entity": "Extra button on tank-low alerts runs",
-          "alert_action_title": "Extra button label"
+          "alert_action_title": "Extra button label",
+          "alert_rota": "On-call rota (optional)",
+          "alert_category_quiet": "Quiet hours per category (optional)",
+          "alert_snooze_min": "Snooze for (minutes)",
+          "alert_weekly_summary": "Send a weekly alert summary",
+          "alert_summary_day": "Summary day",
+          "alert_summary_hour": "Summary hour"
         },
         "data_description": {
           "alert_primary": "notify services, e.g. notify.mobile_app_juans_phone. Leave empty to switch escalation off.",
           "alert_repeat_min": "Until someone acknowledges. 0 = no reminders.",
           "alert_quiet_start": "e.g. 22 to 6. Leave both empty for none.",
           "alert_dedupe_min": "Stops a flapping sensor from sending the same alert again and again.",
-          "alert_action_entity": "Optional: a switch, script or button, e.g. the borehole pump. Pressing it on the phone also acknowledges the alert."
+          "alert_action_entity": "Optional: a switch, script or button, e.g. the borehole pump. Pressing it on the phone also acknowledges the alert.",
+          "alert_rota": "One line per shift, first match wins: `Mon-Fri 07:00-17:00: notify.mobile_app_juan` · `Weekdays 17-07: notify.mobile_app_piet` (overnight) · `Weekend: notify.mobile_app_sam, notify.mobile_app_ann`. Outside the rota, *Notify first* is used.",
+          "alert_category_quiet": "Overrides the quiet hours above for a category: `building: 18-07` · `devices: 20:00-06:30` · `tank: none` (never held). Categories: safety, cold_chain, security, tank, pumps, irrigation, energy, facilities, building, devices, gateways, commands.",
+          "alert_snooze_min": "The Snooze button holds reminders and escalation this long; if the alert is still active it comes back as 'Still active'.",
+          "alert_weekly_summary": "Alerts of the last 7 days, the noisiest devices and the mean time to acknowledge – sent to *Notify first* and the rota. Also on the gateway's 'Alerts last 7 days' sensor and 'Send alert summary' button."
         }
       },
       "provisioning": {
@@ -464,7 +474,8 @@
       "template_invalid": "The channels do not fit – see below.",
       "template_nothing": "Pick a sensor to apply or a template to remove.",
       "send_failed": "Could not send to the controller – see the message below.",
-      "invalid_join_eui": "The JoinEUI must be 16 hexadecimal characters."
+      "invalid_join_eui": "The JoinEUI must be 16 hexadecimal characters.",
+      "rota_invalid": "Could not read this: {error}"
     }
   },
   "selector": {

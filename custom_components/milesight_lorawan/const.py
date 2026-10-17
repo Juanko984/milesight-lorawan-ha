@@ -144,3 +144,10 @@ DEFAULT_LNS_RX1_DELAY = 3
 # per device (entry data): keys for the built-in network server
 CONF_LNS_APP_KEY = "lns_app_key"
 CONF_LNS_JOIN_EUI = "lns_join_eui"
+# Smart alerts (gateway options)
+CONF_ALERT_ROTA = "alert_rota"                   # on-call rota lines: "Mon-Fri 07-17: notify.x"
+CONF_ALERT_CATEGORY_QUIET = "alert_category_quiet"   # "building: 18-07" / "safety: none"
+CONF_ALERT_SNOOZE_MIN = "alert_snooze_min"
+CONF_ALERT_SUMMARY = "alert_weekly_summary"
+CONF_ALERT_SUMMARY_DAY = "alert_summary_day"     # mon … sun
+CONF_ALERT_SUMMARY_HOUR = "alert_summary_hour"

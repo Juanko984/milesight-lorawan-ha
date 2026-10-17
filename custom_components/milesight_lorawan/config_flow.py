@@ -142,6 +142,9 @@ from .models import (MODELS, downlinks, entity_specs, families, load_channels, p
                      pump_capable, purposes_for, tank_source)
 from . import purposes as _purposes
 from .ns_api import DEFAULT_APP_KEY, DEFAULT_FPORT, valid_key
+from .const import (CONF_ALERT_CATEGORY_QUIET, CONF_ALERT_ROTA, CONF_ALERT_SNOOZE_MIN, CONF_ALERT_SUMMARY,
+                    CONF_ALERT_SUMMARY_DAY, CONF_ALERT_SUMMARY_HOUR)
+from .alerts import DAYS as _DAYS, RotaError, parse_category_quiet, parse_rota
 from .const import (CONF_LNS_APP_KEY, CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_JOIN_EUI, CONF_LNS_PORT,
                     CONF_LNS_REGION, CONF_LNS_RX1_DELAY, DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
 from .tank import SHAPES, capacity_l, tank_config
@@ -1067,12 +1070,23 @@ class MilesightOptionsFlow(OptionsFlow):
         entry = self.config_entry
         keys = (CONF_ALERT_PRIMARY, CONF_ALERT_BACKUP, CONF_ALERT_ESCALATE_MIN, CONF_ALERT_REPEAT_MIN,
                 CONF_ALERT_QUIET_START, CONF_ALERT_QUIET_END, CONF_ALERT_DEDUPE_MIN, CONF_ALERT_RESOLVED,
-                CONF_ALERT_CATEGORIES, CONF_ALERT_ACTION_ENTITY, CONF_ALERT_ACTION_TITLE)
+                CONF_ALERT_CATEGORIES, CONF_ALERT_ACTION_ENTITY, CONF_ALERT_ACTION_TITLE, CONF_ALERT_ROTA,
+                CONF_ALERT_CATEGORY_QUIET, CONF_ALERT_SNOOZE_MIN, CONF_ALERT_SUMMARY, CONF_ALERT_SUMMARY_DAY,
+                CONF_ALERT_SUMMARY_HOUR)
+        errors: dict[str, str] = {}
+        placeholders = {"error": ""}
         if user_input is not None:
-            data = {k: v for k, v in entry.options.items() if k not in keys}
-            data.update({k: v for k, v in user_input.items() if v not in (None, "")})
-            data["alert_categories_known"] = list(CATEGORIES)      # categories added later start switched on
-            return self.async_create_entry(data=data)
+            for key, parse in ((CONF_ALERT_ROTA, parse_rota), (CONF_ALERT_CATEGORY_QUIET, parse_category_quiet)):
+                try:
+                    parse(user_input.get(key))
+                except RotaError as err:
+                    errors[key] = "rota_invalid"
+                    placeholders["error"] = str(err)
+            if not errors:
+                data = {k: v for k, v in entry.options.items() if k not in keys}
+                data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+                data["alert_categories_known"] = list(CATEGORIES)      # categories added later start switched on
+                return self.async_create_entry(data=data)
         o = entry.options
         services = sorted(f"notify.{s}" for s in self.hass.services.async_services().get("notify", {})
                           if s not in ("send_message",))
@@ -1096,8 +1110,21 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Optional(CONF_ALERT_ACTION_ENTITY, description=sv(CONF_ALERT_ACTION_ENTITY)):
                 EntitySelector(EntitySelectorConfig(domain=["switch", "script", "button", "input_boolean"])),
             vol.Optional(CONF_ALERT_ACTION_TITLE, description=sv(CONF_ALERT_ACTION_TITLE, "Start pump")): TextSelector(),
+            vol.Optional(CONF_ALERT_ROTA, description=sv(CONF_ALERT_ROTA)): TextSelector(TextSelectorConfig(multiline=True)),
+            vol.Optional(CONF_ALERT_CATEGORY_QUIET, description=sv(CONF_ALERT_CATEGORY_QUIET)):
+                TextSelector(TextSelectorConfig(multiline=True)),
+            vol.Required(CONF_ALERT_SNOOZE_MIN, default=o.get(CONF_ALERT_SNOOZE_MIN, 60)): _int_box(5, 1440),
+            vol.Required(CONF_ALERT_SUMMARY, default=o.get(CONF_ALERT_SUMMARY, True)): BooleanSelector(),
+            vol.Required(CONF_ALERT_SUMMARY_DAY, default=o.get(CONF_ALERT_SUMMARY_DAY, "mon")):
+                SelectSelector(SelectSelectorConfig(options=list(_DAYS), translation_key="weekday",
+                                                    mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required(CONF_ALERT_SUMMARY_HOUR, default=o.get(CONF_ALERT_SUMMARY_HOUR, 8)): _int_box(0, 23),
         }
-        return self.async_show_form(step_id="alerts", data_schema=vol.Schema(schema))
+        if user_input is not None:                     # keep what was typed when the form comes back with an error
+            schema = {(type(k)(k.schema, description={"suggested_value": user_input.get(k.schema)})
+                       if isinstance(k, vol.Optional) else k): v for k, v in schema.items()}
+        return self.async_show_form(step_id="alerts", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders=placeholders)
 
     # ------------------------------------------------ gateway provisioning
     async def async_step_provisioning(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

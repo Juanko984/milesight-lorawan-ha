@@ -784,20 +784,34 @@ protocol – set their channels up in ToolBox.
 Gateway entry → **Configure → Alert escalation** sends alerts to phones (Home Assistant Companion app) and makes
 sure someone reacts:
 
-* **Notify first** / **Escalate to** – notify services (e.g. `notify.mobile_app_juans_phone`). Nobody presses
-  *Acknowledge* within *Escalate after* (default 15 min) → the backup people get it too; optional reminders.
-* **Quiet hours** – non-critical alerts wait until the morning. Leaks, smoke, gas, falls, sudden tank drops and
+* **On-call rota** (optional) – who is told first, by day and time; the first matching line wins, outside the
+  rota *Notify first* is used:
+  ```
+  Mon-Fri 07:00-17:00: notify.mobile_app_juan
+  Weekdays 17-07: notify.mobile_app_piet          # overnight, runs into the next morning
+  Weekend: notify.mobile_app_sam, notify.mobile_app_ann
+  ```
+* **Escalate to** – an ordered list. Nobody presses *Acknowledge* within *Escalate after* (default 15 min) → the
+  **next person** on the list is added, then the next, one at a time; optional reminders.
+* **Quiet hours** – non-critical alerts wait until the morning. **Per category** you can override them
+  (`building: 18-07`, `devices: 20:00-06:30`, `tank: none` = never held). Leaks, smoke, gas, falls, sudden tank drops and
   gateway outages always go through, as critical alerts (they sound on a muted iPhone / use the Android alarm
   stream).
 * **Duplicates** – a sensor that flaps on and off continues the same alert; *Resolved* is only sent once it stays
   resolved for a few minutes.
-* **Actions** – every alert has *Acknowledge*; tank-low alerts can have an extra button (e.g. *Start pump*) that
-  runs a switch, script or button.
+* **Buttons on the phone** – **Acknowledge**, **Snooze 1 h** (reminders and escalation pause; if it is still
+  active it comes back as *Still active*; the time is a setting) and **Open dashboard** (the dashboard for the
+  alert: Tanks, Farm, Cold chain, Energy, Building analytics, Signal / Fleet, else the site landing page – tapping
+  the notification opens it too). Tank-low alerts can show an extra button instead (e.g. *Start pump*) that runs
+  a switch, script or button (Android shows three buttons).
+* **Weekly summary** – every Monday 08:00 (day and hour are settings) a message to *Notify first* and the rota:
+  alerts of the last 7 days by category, the noisiest devices (with repeats) and the mean time to acknowledge.
 * **Alerts to send** – safety, tanks, pumps (dry-run, overload, short-cycling), irrigation (pivot stalled, frost
   tonight), building (CO₂ / temperature / humidity), devices (offline, battery), gateways offline, commands not
   confirmed. Categories added in a later version start switched on.
 
-The gateway gets **Open alerts** (with the list and who acknowledged) and **Acknowledge all alerts**; service
+The gateway gets **Open alerts** (with the list and who acknowledged), **Alerts last 7 days** (the summary, who
+is on call now), **Acknowledge all alerts** and **Send alert summary**; service
 `milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
 
 ## Live dashboard views (gauges, sliders, maps)
@@ -1044,6 +1058,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.31.0b4** | Beta: smart alerts – Snooze and Open dashboard buttons, on-call rota, one-by-one escalation, quiet hours per category, weekly summary. |
 | **0.31.0b3** | Beta fix: network-server label on every device from start-up. |
 | **0.31.0b2** | Beta: network-server chip (label) and sensor on every device. |
 | **0.31.0b1** | Beta: built-in LoRaWAN network server – gateways' packet forwarders send to Home Assistant, devices join with their AppKey. |

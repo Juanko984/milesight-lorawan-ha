@@ -16,7 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
         hub = entry.runtime_data
         buttons: list = [UpdateDashboardButton(hass, entry), _HubButton(hass, entry, "acknowledge_alerts"),
-                         _HubButton(hass, entry, "install_resources")]
+                         _HubButton(hass, entry, "install_resources"), _HubButton(hass, entry, "alert_summary")]
         if getattr(hub, "ns", None) is not None:
             buttons.append(_HubButton(hass, entry, "sync_gateway"))
         async_add_entities(buttons)
@@ -85,7 +85,8 @@ class _HubButton(ButtonEntity):
     _attr_has_entity_name = True
     KINDS = {"acknowledge_alerts": ("Acknowledge all alerts", "mdi:bell-check-outline"),
              "sync_gateway": ("Sync devices with gateway", "mdi:sync"),
-             "install_resources": ("Install dashboards and blueprints", "mdi:package-down")}
+             "install_resources": ("Install dashboards and blueprints", "mdi:package-down"),
+             "alert_summary": ("Send alert summary", "mdi:email-newsletter")}
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str) -> None:
         from .building import hub_device
@@ -99,6 +100,8 @@ class _HubButton(ButtonEntity):
         try:
             if self.kind == "acknowledge_alerts":
                 await hub.alerts.async_acknowledge(None, None)
+            elif self.kind == "alert_summary":
+                await hub.alerts.async_send_summary()
             elif self.kind == "install_resources":
                 from homeassistant.components import persistent_notification
                 from homeassistant.loader import async_get_integration

@@ -748,7 +748,8 @@ asyncio.run(mgr._run())
 sent = [c for c in CALLS if c[1] == "mobile_app_juan"]
 assert len(sent) == 1 and sent[0][2]["title"] == "Tank low – Diesel tank", CALLS
 acts = sent[0][2]["data"]["actions"]
-assert acts[1]["title"] == "Start pump" and acts[0]["action"].startswith("MSL_ACK_")
+assert acts[2]["title"] == "Start pump" and acts[0]["action"].startswith("MSL_ACK_")
+assert acts[1]["title"] == "Snooze 1 h" and acts[1]["action"].startswith("MSL_SNZ_")
 aid = acts[0]["action"].removeprefix("MSL_ACK_")
 key = next(k for k in mgr.engine.alerts)
 mgr.engine.alerts[key]["level_at"] -= 16 * 60         # nobody answered for 16 minutes
@@ -762,6 +763,21 @@ asyncio.run(mgr._on_action(types.SimpleNamespace(data={"action": "MSL_ACK_unknow
 alerts_sensor = gateway.OpenAlertsSensor(hass3, types.SimpleNamespace(**{**vars(alert_entry), "runtime_data": hb}))
 hb.alerts = mgr
 assert alerts_sensor.native_value == 0 and alerts_sensor.extra_state_attributes["alerts"][0]["status"] == "acknowledged"
+# snooze from the phone, weekly summary on its day and hour (once), summary sensor
+mgr.engine.alerts.clear()
+CALLS.clear(); asyncio.run(mgr._run())
+aid2 = next(iter(mgr.engine.alerts.values()))["id"]
+CALLS.clear()
+asyncio.run(mgr._on_action(types.SimpleNamespace(data={"action": f"MSL_SNZ_{aid2}"}, context=None)))
+assert any(c[2]["title"].startswith("⏸") for c in CALLS) and next(iter(mgr.engine.alerts.values()))["snoozed_until"]
+from datetime import datetime as _dt
+mon8 = _dt(2026, 10, 19, 8, 3, tzinfo=ZoneInfo("Africa/Johannesburg"))
+CALLS.clear(); asyncio.run(mgr._weekly(time.time(), mon8)); asyncio.run(mgr._weekly(time.time(), mon8))
+summ = [c for c in CALLS if c[2].get("title", "").startswith("Weekly alert summary")]
+assert len(summ) == 1 and "alerts" in summ[0][2]["message"] and "actions" not in summ[0][2]["data"]
+week_sensor = gateway.AlertSummarySensor(hass3, types.SimpleNamespace(**{**vars(alert_entry), "runtime_data": hb}))
+assert week_sensor.native_value >= 1 and "summary" in week_sensor.extra_state_attributes
+assert week_sensor.extra_state_attributes["on_call_now"] == ["notify.mobile_app_juan"]
 print("alerts ok")
 
 # gateway provisioning over ns-api
