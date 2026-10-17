@@ -1936,17 +1936,25 @@ def test_maintenance_dashboard_renders():
              "offline_hours": 30.5, "last_seen": "x", "service": []}]
     states = S(sensor=[S(state="2", attributes={"milesight_role": "fleet_total", "devices": devs})])
     cfg = yaml.safe_load((PKG.parents[1] / "dashboards" / "maintenance.yaml").read_text(encoding="utf-8"))
+    gws = [{"name": "UG65", "online": True, "packets_today": 120, "devices_today": 9}]
+    states.sensor.append(S(state="1", attributes={"milesight_role": "net_gateways_online", "gateways": gws}))
+    assert [v["path"] for v in cfg["views"]] == ["maintenance", "devices", "signal"]
     out = {}
-    for sec in cfg["views"][0]["sections"]:
-        for card in sec["cards"]:
-            if card["type"] == "markdown":
-                head = next((c.get("heading") for c in sec["cards"] if c["type"] == "heading"), "summary")
-                out[head] = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0, dict=dict)
+    for view in cfg["views"]:
+        for sec in view["sections"]:
+            for card in sec["cards"]:
+                if card["type"] == "markdown":
+                    head = next((c.get("heading") for c in sec["cards"] if c["type"] == "heading"), "summary")
+                    out[head] = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0,
+                                                                        dict=dict)
+                    assert "|---|" not in out[head], head          # phone-friendly, no wide tables
     assert "**2 devices** · 🔋 1 batteries due in 90 days · 📴 1 offline > 24 h · 📶 0 weak signal" in out["summary"]
     assert "🟠 **Cold room** · Kitchen · 40 %" in out["Batteries"] and "replace by **2026-12-01** (45 days)" in out["Batteries"]
     assert "No forecast yet: Freezer" in out["Batteries"]
     assert "📴 **Freezer**" in out["Offline more than 24 h"] and "1.3 days" in out["Offline more than 24 h"]
-    assert "🟠 **Cold room**" in out["Weak signal"]
+    assert "🟠 **Cold room**" in out["Weak or lossy devices"] and "best" not in out["Weak or lossy devices"].split("Freezer")[0][:0]
+    assert "🟢 **UG65**" in out["Gateways"] and "120 packets" in out["Gateways"]
+    assert "🔴 **Freezer** · EM300-TH" in out["All devices"] and "🔋 40 % (due 2026-12-01)" in out["All devices"]
     assert "⚠ mixed: 1.2 (1), 1.3 (1)" in out["Firmware"] and "Older than 1.3: Cold room" in out["Firmware"]
     assert "🔋 **Cold room**" in out["Service history"] and "Battery replaced · Juan" in out["Service history"]
 

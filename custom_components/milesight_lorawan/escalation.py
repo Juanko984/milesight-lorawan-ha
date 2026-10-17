@@ -75,8 +75,8 @@ def alert_settings(opts: dict[str, Any]) -> AlertSettings:
 # alert category -> ready-made dashboard (resources.DASHBOARDS url); others open the site landing page
 CATEGORY_DASHBOARD = {"tank": "milesight-tanks", "pumps": "milesight-farm", "irrigation": "milesight-farm",
                       "cold_chain": "milesight-cold-chain", "energy": "milesight-energy",
-                      "building": "milesight-analytics", "gateways": "milesight-signal", "devices": "milesight-maintenance",
-                      "commands": "milesight-fleet"}
+                      "building": "milesight-analytics", "gateways": "milesight-maintenance/signal",
+                      "devices": "milesight-maintenance", "commands": "milesight-maintenance/devices"}
 
 
 class AlertManager:
@@ -111,7 +111,7 @@ class AlertManager:
         except Exception:  # noqa: BLE001 - links are a convenience
             return
         shown = {u for u, d in (res.get("dashboards") or {}).items() if not d.get("hidden")}
-        paths = {c: f"/{u}" for c, u in CATEGORY_DASHBOARD.items() if u in shown}
+        paths = {c: f"/{u}" for c, u in CATEGORY_DASHBOARD.items() if u.split("/")[0] in shown}
         paths["*"] = f"/{landing.get('url') or dashboard_url(self.entry)}"
         self.cfg.dashboards = paths
 

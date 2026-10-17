@@ -117,7 +117,8 @@
           "channel_template": "Sensor templates (RS485 / Modbus)",
           "network_server": "Built-in network server (packet forwarder)",
           "network_keys": "Network server keys",
-          "settings_profile": "Settings profile (copy to other devices)"
+          "settings_profile": "Settings profile (copy to other devices)",
+          "location": "Location (map)"
         }
       },
       "connection": {
@@ -477,6 +478,14 @@
         },
         "data_description": {
           "send_to_devices": "Queued like any command and confirmed by each device's next uplink. Untick to copy only the Home Assistant options."
+        }
+      },
+      "location": {
+        "title": "Device location",
+        "description": "Where the device is mounted – a fixed point shown on the Maintenance dashboard's map, in the handover report and as the device's *Location* entity. Current: **{status}**.\n\nEasiest on site: open **LoRaWAN commissioning** in the Home Assistant app → *Walk test* → pick the device → **Use my phone's location** while standing next to it.",
+        "data": {
+          "location": "Location",
+          "clear": "Clear the location"
         }
       }
     },

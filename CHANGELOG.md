@@ -2,7 +2,31 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
-## 0.31.0b5 (beta)
+## 0.34.0
+### Added
+- **Device location**: every device can have a fixed location – on site in **LoRaWAN commissioning → Walk test →
+  Use my phone's location** (the phone's GPS, with its accuracy), or device → Configure → *Location* with a map
+  picker. It becomes the device's **Location** entity (shown on Home Assistant's map), a **Map** tab on the
+  Maintenance dashboard, and a column / map link in the handover report ("No location captured" is listed as an
+  open point). Settings profiles never copy it.
+### Changed
+- **One Maintenance dashboard with tabs**: *Overview* (batteries, offline, firmware, service history), *Devices*
+  (every device once: status, battery and due date, signal, network server, firmware, last command, last seen),
+  *Signal* (gateways, weak or lossy devices) and *Map*. The separate *LoRaWAN fleet* and *LoRaWAN signal*
+  dashboards are removed from the sidebar – their content is in the tabs, without the duplicated lists (the old
+  "needs attention" and two "all devices" tables). Phone links for gateway and command alerts open the matching tab.
+- The built-in network server, network-server label, smart alerts and maintenance features are out of beta.
+
+## 0.33.1
+### Fixed
+- **Site landing page did not appear**: a landing page made before 0.30 (no fingerprint) was treated as "edited by
+  hand" and never updated, and problems were only logged at debug level. It is now replaced once (your old copy
+  is kept in storage), retried while the gateway's sensors are still starting, and failures are logged as warnings.
+- The landing page is named after the **site / company** (Site information → Company, else Home Assistant's
+  location name) instead of the gateway entry ("Milesight gateway (milesight/uplink/#)"), and a notification with
+  a link appears when it is created.
+
+## 0.33.0
 ### Added – battery and maintenance
 - **Battery forecast**: *Battery replacement due* (date) and *Battery days left* on every battery device, from the
   daily battery trend, corrected for changes in the reporting rate; new batteries detected by themselves or via
@@ -17,7 +41,7 @@ All notable changes to this integration. Versions follow the GitHub releases / H
   page (print or save as PDF) and CSV in /config/www/milesight/ with open points, gateways and every device's
   area, purpose, network server, signal, battery and due date, firmware, last seen and walk-test result.
 
-## 0.31.0b4 (beta)
+## 0.32.0
 ### Added – smart alerts
 - **Phone buttons**: *Acknowledge*, *Snooze 1 h* and *Open dashboard* on every alert (tapping the notification
   opens the dashboard too). The dashboard matches the alert: Tanks & alerts, Farm, Cold chain, Energy & HVAC,
@@ -32,14 +56,14 @@ All notable changes to this integration. Versions follow the GitHub releases / H
   acknowledge, to *Notify first* and the rota. Gateway sensor **Alerts last 7 days** (with who is on call now)
   and button **Send alert summary**. Alert history is kept 5 weeks.
 
-## 0.31.0b3 (beta)
+## 0.31.2
 ### Fixed
 - Network-server label missing on most devices: it was only added after a device's next uplink, and devices set
   up together with the gateway at start-up were skipped. All devices are now labelled about a minute after
   start-up (and at every start); a device that has not reported yet is labelled from its set-up (AppKey for the
   built-in network server → Home Assistant, otherwise the gateway's network server).
 
-## 0.31.0b2 (beta)
+## 0.31.1
 ### Added
 - **How each device is connected**: a *Network server* diagnostic sensor on every device (*Gateway (Embedded NS)*,
   *ChirpStack* or *Home Assistant (packet forwarder)*) and a matching device label – **LoRaWAN · Gateway network
@@ -47,7 +71,7 @@ All notable changes to this integration. Versions follow the GitHub releases / H
   filter. The label swaps by itself when a device moves from one network server to the other; your own labels
   are kept.
 
-## 0.31.0b1 (beta)
+## 0.31.0
 ### Added
 - **Built-in LoRaWAN network server.** Gateways send their packet forwarder traffic (Semtech UDP, port 1700)
   to Home Assistant – on Milesight gateways as an extra *Multi-Destination* row next to the Embedded NS. Devices
@@ -64,7 +88,7 @@ All notable changes to this integration. Versions follow the GitHub releases / H
     keys** on each device; **Configure → Built-in network server** on the gateway.
   - Gateway sensor **Network server devices** with gateways, downlink airtime, counters and recent
     joins / refusals. Keys are stored in Home Assistant only and never logged or shown in diagnostics.
-- Beta scope: EU868, class A, no ADR yet. The gateway's MQTT feed keeps working alongside.
+- Scope: EU868, class A, no ADR yet. The gateway's MQTT feed keeps working alongside.
 
 ## 0.30.0
 ### Added

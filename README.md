@@ -327,8 +327,9 @@ mistakes are listed line by line. The single-device forms (manual and discovered
 
 The gateway device gets four sensors: **Devices**, **Devices online**, **Devices offline** and **Devices with low
 battery**. Their attributes list the devices (name, model, area, battery, RSSI / SNR, last seen).
-A ready-made dashboard is in [`dashboards/fleet_overview.yaml`](dashboards/fleet_overview.yaml) – a status glance,
-a *Needs attention* table and a table of all devices.
+They feed the **Maintenance** dashboard ([`dashboards/maintenance.yaml`](dashboards/maintenance.yaml)): tabs
+*Overview*, *Devices* (every device with battery, signal, network server, firmware and last seen), *Signal* and
+*Map*.
 
 Every device also has an **Online** sensor (off after the *Offline gap*, default 120 min, without an uplink)
 and – for battery devices – a **Battery low** sensor (threshold per device under **Configure**, default 20 %).
@@ -340,13 +341,14 @@ HACS only installs the integration folder, so the blueprints and ready-made dash
 integration and it puts them in place itself:
 
 * **After every update** (first start of a new version) the blueprints are copied to
-  `config/blueprints/automation/milesight_lorawan/` and the dashboards appear in the sidebar: **LoRaWAN fleet**,
-  **LoRaWAN signal** (installer), **Tanks & alerts**, **Building analytics** and **Farm** (each only when the site
+  `config/blueprints/automation/milesight_lorawan/` and the dashboards appear in the sidebar: **Maintenance**
+  (tabs Overview, Devices, Signal, Map), **Tanks & alerts**, **Building analytics**, **Farm**, **Cold chain** and
+  **Energy & HVAC** (each only when the site
   needs it, see below). A notification lists what changed.
 * **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
   (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL), *People & occupancy* (VS range, people
-  counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). LoRaWAN fleet and LoRaWAN
-  signal are always there; **Tanks & alerts** appears when the first tank / silo sensor is added and
+  counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). Maintenance is always
+  there; **Tanks & alerts** appears when the first tank / silo sensor is added and
   **Building analytics** with the first comfort or occupancy sensor, **Farm** with the first pump, pivot, valve
   controller or the gateway's irrigation forecast, **Cold chain** with the first fridge / freezer and **Energy &
   HVAC** with the first air conditioner, lighting circuit, geyser or mains clamp (see [Purposes](#purposes--what-a-device-is-fitted-to)). *Pump / motor* and *Irrigation* also follow a device's options
@@ -559,8 +561,8 @@ Every device gets diagnostic sensors that help installers place sensors and gate
 | **Packet loss today** | From gaps in the frame counter (a rejoin is not counted); yesterday's value as an attribute |
 | *Link margin*, *Uplinks today*, *Frequency*, *Frame counter* | Disabled by default |
 
-The same frame forwarded by two gateways is counted once. Dashboard for installers:
-[`dashboards/signal_quality.yaml`](dashboards/signal_quality.yaml) – gateways, weak / lossy devices, all devices.
+The same frame forwarded by two gateways is counted once. For installers: the
+Maintenance dashboard's *Signal* tab – gateways and weak / lossy devices.
 
 ## DS3604 display content
 
@@ -612,7 +614,7 @@ UG65 / UG56 / UG67 do not publish their own status over MQTT; for them everythin
 they forward, which is reliable as long as some devices report more often than the offline time. (Their HTTP API
 needs a password copied from the browser's developer tools, so it is not used.)
 
-## Built-in network server (beta)
+## Built-in network server
 
 Home Assistant can be the LoRaWAN network server itself. Gateways send their **packet forwarder** traffic to
 Home Assistant; devices join Home Assistant with their AppKey. No device list on the gateway, and **any gateway
@@ -648,7 +650,7 @@ gateway C ─┘   <── downlinks ──── └─ commands sent through t
 * The gateway entry gets **Network server devices** (joined devices; attributes: gateways connected, downlink
   airtime per gateway, counters, recent joins and refusals). Keys are never logged or shown in diagnostics.
 
-**Beta scope (0.31.0b1)**: EU868, class A, OTAA (LoRaWAN 1.0.x), confirmed / unconfirmed up- and downlinks,
+**Scope**: EU868, class A, OTAA (LoRaWAN 1.0.x), confirmed / unconfirmed up- and downlinks,
 LinkCheck and DeviceTime (clock sync). Not yet: ADR (devices keep their data rate), class C, Basics Station,
 other regions, duty-cycle enforcement on the gateway.
 
@@ -835,6 +837,11 @@ opening hours, meters, channel map – optional) and, optionally, the settings s
 interval, alarm thresholds …) – only what differs is sent, queued and confirmed like any command. Options that
 belong to one device (pivot centre, applied Modbus templates, meter offset) are not copied. Also as the action
 `milesight_lorawan.apply_settings_profile`.
+
+**Device location** – a fixed point per device: on site open **LoRaWAN commissioning** in the Home Assistant app
+→ *Walk test* → pick the device → **Use my phone's location** (allow location for the app), or device →
+**Configure → Location** with a map picker. It becomes the device's **Location** entity (Home Assistant's Map
+too), the Maintenance dashboard's **Map** tab and a column in the handover report.
 
 **Installer handover report** – the gateway's **Create handover report** button (or the action
 `milesight_lorawan.handover_report`) writes a printable page and a CSV to `/config/www/milesight/` and shows
@@ -1086,11 +1093,13 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
-| **0.31.0b5** | Beta: battery forecast, Maintenance dashboard with service history, settings profiles, installer handover report. |
-| **0.31.0b4** | Beta: smart alerts – Snooze and Open dashboard buttons, on-call rota, one-by-one escalation, quiet hours per category, weekly summary. |
-| **0.31.0b3** | Beta fix: network-server label on every device from start-up. |
-| **0.31.0b2** | Beta: network-server chip (label) and sensor on every device. |
-| **0.31.0b1** | Beta: built-in LoRaWAN network server – gateways' packet forwarders send to Home Assistant, devices join with their AppKey. |
+| **0.34.0** | Maintenance dashboard with tabs (Overview, Devices, Signal, Map) replaces Fleet and Signal; device location captured with the phone. |
+| **0.33.1** | Site landing page created reliably, named after the site, with a notification. |
+| **0.33.0** | Battery forecast, Maintenance dashboard with service history, settings profiles, installer handover report. |
+| **0.32.0** | Smart alerts – Snooze and Open dashboard buttons, on-call rota, one-by-one escalation, quiet hours per category, weekly summary. |
+| **0.31.2** | Network-server label on every device from start-up. |
+| **0.31.1** | Network-server chip (label) and sensor on every device. |
+| **0.31.0** | Built-in LoRaWAN network server – gateways' packet forwarders send to Home Assistant, devices join with their AppKey. |
 | **0.30.0** | Site landing page (auto-created, dashboard buttons, people, alerts, tanks, farm …); phone-friendly Building analytics, Farm and Tanks & alerts dashboards. |
 | **0.29.1** | Edit applied sensor templates; on the UC100 only changed channels are re-sent. |
 | **0.29.0** | Live dashboard views: pivot map, gauges with limit bands, setpoint sliders (tank, pump, pivot, temperature, irrigation). |

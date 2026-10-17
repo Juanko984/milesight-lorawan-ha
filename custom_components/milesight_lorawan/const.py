@@ -151,3 +151,4 @@ CONF_ALERT_SNOOZE_MIN = "alert_snooze_min"
 CONF_ALERT_SUMMARY = "alert_weekly_summary"
 CONF_ALERT_SUMMARY_DAY = "alert_summary_day"     # mon … sun
 CONF_ALERT_SUMMARY_HOUR = "alert_summary_hour"
+CONF_LOCATION = "location"                       # device option: fixed {latitude, longitude, accuracy, at, by}

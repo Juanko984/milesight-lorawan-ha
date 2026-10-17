@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 DEVICE_ONLY = ("pivot_centre", "pivot_lat", "pivot_lon", "channel_templates", "meter_offset", "model",
-               "tank_probe_offset_mm", "pump_water_entity")
+               "tank_probe_offset_mm", "pump_water_entity", "location")
 CHANNEL_KEYS = ("channel_map",)
 
 

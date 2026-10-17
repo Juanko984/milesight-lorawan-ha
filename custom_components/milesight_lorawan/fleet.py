@@ -40,6 +40,8 @@ def maintenance_fields(rt, entry, ts: float) -> dict[str, Any]:
         "hardware": str(rt.raw.get("hardware_version")) if rt.raw.get("hardware_version") is not None else None,
         "purpose": getattr(getattr(rt, "purpose", None), "label", None),
         "network_server": v.get("network_server"),
+        "latitude": (rt.fixed_location() or (None, None))[0] if hasattr(rt, "fixed_location") else None,
+        "longitude": (rt.fixed_location() or (None, None))[1] if hasattr(rt, "fixed_location") else None,
         "offline_hours": round((ts - last) / 3600, 1) if last and v.get("online") is False else None,
         "service": [{"at": datetime.fromtimestamp(e["at"], timezone.utc).isoformat(timespec="seconds"), "kind": e["kind"], "text": e["text"],
                      "by": e.get("by")} for e in log[-3:]][::-1],

@@ -661,14 +661,27 @@ assert by["building_alerts"].extra_state_attributes["alerts"][0]["where"] == "Me
 assert by["building_health"].native_value is not None and "building_avg_pm2_5" not in by   # AM307 has no PM
 site_entry.options["site_company"] = "Acme Ltd"
 assert by["site"].native_value == "Acme Ltd"                                # override
+class _DashStore:
+    data = None
+    async def async_load(self): return _DashStore.data
+    async def async_save(self, d): _DashStore.data = json.loads(json.dumps(d))
+dmod._store = lambda h, e: _DashStore()
+# a landing page made before 0.30 (no fingerprint) is replaced once by the automatic update, old copy kept
+_old = dmod._register(hass2, "building-head-office", "Building – Head office", "milesight_site1")
+_old.saved = {"title": "old", "views": []}
+_DashStore.data = {"url": "building-head-office", "title": "Building – Head office", "id": "milesight_site1", "own": True}
+assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) == "/building-head-office"
+assert _DashStore.data["backup"] == {"title": "old", "views": []} and _DashStore.data["hash"]
+hass2.data["lovelace"].dashboards.pop("building-head-office"); _DashStore.data = None
 where = asyncio.run(dmod.async_update_dashboard(hass2, site_entry))
 dash = hass2.data["lovelace"].dashboards["building-head-office"]
-assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Head office"
+assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Acme Ltd"
 assert dash.saved["views"][0]["sections"][0]["cards"][0]["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
 assert heads[-3:] == ["People", "Meeting room 1", "Open office"], heads
 saved_hash = dmod._hash(dash.saved)
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None      # up to date
+assert _DashStore.data["own"] is True and _DashStore.data["title"] == "Acme Ltd"
 dash.saved = {"title": "Mine", "views": []}                                                  # edited by hand
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None and dash.saved["title"] == "Mine"
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry)) == "/building-head-office"  # the button rewrites
@@ -860,7 +873,7 @@ assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") 
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 11 and (bp / "leak.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-fleet", "milesight-signal", "milesight-maintenance", "milesight-tanks", "milesight-analytics"}
+assert set(dashes) == {"milesight-maintenance", "milesight-tanks", "milesight-analytics"}
 assert dashes["milesight-tanks"].saved["title"] == "Tanks & alerts" and "milesight-tanks" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -869,12 +882,19 @@ assert out["dashboards"]["removed"] == ["Tanks & alerts"] and "milesight-tanks" 
 SITE.append(types.SimpleNamespace(data={"entry_type": "device", "deveui": "a2", "model": "EM410-RDL"}, options={}))
 assert asyncio.run(res.async_sync(hass4))["dashboards"]["written"] == ["Tanks & alerts"] and "milesight-tanks" in dashes
 (bp / "leak.yaml").write_text("# my own version\n")                         # user edits a blueprint …
-dashes["milesight-fleet"].saved = {"title": "Mine", "views": []}             # … and a dashboard
+dashes["milesight-maintenance"].saved = {"title": "Mine", "views": []}       # … and a dashboard
 (bp / "alarm.yaml").unlink()
 out = asyncio.run(res.async_install(hass4, "0.22.0"))
 assert out["blueprints"]["written"] == ["alarm.yaml"] and out["blueprints"]["kept"] == ["leak.yaml"]
-assert out["dashboards"]["kept"] == ["LoRaWAN fleet"] and dashes["milesight-fleet"].saved["title"] == "Mine"
+assert out["dashboards"]["kept"] == ["Maintenance"] and dashes["milesight-maintenance"].saved["title"] == "Mine"
 assert "kept" in res.summary(out)
+# the old Fleet / Signal dashboards (before 0.34) are taken out of the sidebar: they are Maintenance tabs now
+st_r = {"dashboards": {"milesight-fleet": {"title": "LoRaWAN fleet", "hash": "x"},
+                       "milesight-signal": {"title": "LoRaWAN signal", "hash": "y"}}}
+dashes["milesight-fleet"] = object()
+out_r = asyncio.run(res.async_install_dashboards(hass4, st_r))
+assert out_r["merged"] == ["LoRaWAN fleet", "LoRaWAN signal"] and "milesight-fleet" not in dashes
+assert "milesight-fleet" not in st_r["dashboards"] and "tabs of the Maintenance dashboard" in res.summary({"dashboards": out_r})
 print("resources ok")
 
 
@@ -1408,4 +1428,24 @@ assert out_ho["html"].startswith("/local/milesight/handover-farm-gate-") and int
 page = open(os.path.join(tmpd, "www", "milesight", out_ho["html"].rsplit("/", 1)[1]), encoding="utf-8").read()
 assert "Fridge A" in page and "LoRaWAN installation handover" in page
 entries.async_entry_for_domain_unique_id = lambda d, u: u in entries.known
+# fixed device location: Location tracker entity, map tab, fleet / handover fields
+assert rt_b.fixed_location() is None and not any(sp.key == "fixed_location" for sp in rt_b.extra_specs())
+e_b.options = {**e_b.options, "location": {"latitude": -33.91234, "longitude": 18.41234, "accuracy": 6, "by": "Juan"}}
+assert rt_b.fixed_location() == (-33.91234, 18.41234)
+spec_loc = next(sp for sp in rt_b.extra_specs() if sp.key == "fixed_location")
+dtrk = load("device_tracker")
+trk = dtrk.MilesightTracker(rt_b, spec_loc)
+rt_b._publish(time.time())
+assert trk.latitude == -33.91234 and trk.longitude == 18.41234 and trk.location_accuracy == 6
+assert trk.extra_state_attributes["milesight_role"] == "device_location" and rt_b.values["fixed_location"] == "fixed"
+dlive = sys.modules["milesight_lorawan.dashboard_live"]
+mv = dlive.map_view(lambda plat, uid: f"{plat}.{uid}", [rt_a, rt_b])
+assert mv["type"] == "panel" and mv["cards"][0]["entities"] == [{"entity": "device_tracker.00000000000b0002_fixed_location",
+                                                                 "name": "Fridge B"}]
+assert dlive.with_live_view("maintenance.yaml", {"views": [{"path": "maintenance"}]}, lambda p_, u: f"{p_}.{u}",
+                         [rt_b], [])["views"][-1]["path"] == "map"
+fb = fleet.maintenance_fields(rt_b, e_b, time.time())
+assert fb["latitude"] == -33.91234 and "location" in __import__("milesight_lorawan.profiles", fromlist=["x"]).DEVICE_ONLY
+ho_mod = load("handover")
+assert "-33.912340, 18.412340" in ho_mod.report_csv([{"name": "x", **fb}])
 print("maintenance ok")

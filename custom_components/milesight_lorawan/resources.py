@@ -20,9 +20,9 @@ from .const import DOMAIN, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 RES = pathlib.Path(__file__).parent / "resources"
+RETIRED = {"milesight-fleet": "milesight-maintenance/devices",      # merged into Maintenance (tabs) in 0.34
+           "milesight-signal": "milesight-maintenance/signal"}
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
-    "fleet_overview.yaml": ("milesight-fleet", "mdi:access-point-network", None),
-    "signal_quality.yaml": ("milesight-signal", "mdi:signal", None),
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
     "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
@@ -116,6 +116,10 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
     dashboards = _lovelace_dashboards(hass)
     result: dict[str, list[str]] = {"written": [], "kept": [], "removed": []}
     wanted = wanted_dashboards(site_tags(hass) if tags is None else tags)
+    for url in [u for u in done if u in RETIRED]:      # dashboards merged into another one: out of the sidebar
+        mine = done.pop(url)
+        _hide(hass, url)
+        result.setdefault("merged", []).append(mine.get("title") or url)
     for f, (url, icon, _needs) in DASHBOARDS.items():
         config = configs[f]
         title = config.get("title") or url
@@ -243,6 +247,8 @@ def summary(out: dict[str, Any]) -> str:
         lines.append(f"Blueprints you changed were kept: {', '.join(n.removesuffix('.yaml') for n in bp['kept'])}.")
     if db.get("written"):
         lines.append(f"Dashboards in the sidebar: {', '.join(db['written'])}.")
+    if db.get("merged"):
+        lines.append(f"{' and '.join(db['merged'])} are now tabs of the Maintenance dashboard.")
     if db.get("removed"):
         lines.append(f"Dashboards removed from the sidebar (no devices need them yet): {', '.join(db['removed'])}.")
     if db.get("kept"):

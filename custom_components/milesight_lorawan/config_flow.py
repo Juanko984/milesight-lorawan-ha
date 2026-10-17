@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 try:  # Home Assistant 2026.x replaced voluptuous with probatio (same API)
@@ -530,10 +531,31 @@ class MilesightOptionsFlow(OptionsFlow):
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if _lns_hub(self.hass) is not None or entry.data.get(CONF_LNS_APP_KEY):
             sections.append("network_keys")
+        sections.append("location")
         sections.append("settings_profile")
         if sections:
             return self.async_show_menu(step_id="init", menu_options=["general", *sections])
         return await self.async_step_general()
+
+    async def async_step_location(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: where it is mounted (a fixed point on the map). Easiest on the phone: LoRaWAN commissioning →
+        walk test → 'Use my phone's location'."""
+        entry = self.config_entry
+        cur = entry.options.get("location") or {}
+        if user_input is not None:
+            opts = {k: v for k, v in entry.options.items() if k != "location"}
+            loc = user_input.get("location") or {}
+            if not user_input.get("clear") and isinstance(loc.get("latitude"), (int, float)):
+                opts["location"] = {"latitude": round(float(loc["latitude"]), 6),
+                                    "longitude": round(float(loc["longitude"]), 6),
+                                    "accuracy": None, "at": time.time(), "by": "options"}
+            return self.async_create_entry(data=opts)
+        home = {"latitude": self.hass.config.latitude, "longitude": self.hass.config.longitude}
+        default = {"latitude": cur["latitude"], "longitude": cur["longitude"]} if cur.get("latitude") is not None else home
+        schema = {vol.Optional("location", default=default): LocationSelector(LocationSelectorConfig(radius=False)),
+                  vol.Required("clear", default=False): BooleanSelector()}
+        return self.async_show_form(step_id="location", data_schema=vol.Schema(schema), description_placeholders={
+            "status": f"{cur['latitude']:.6f}, {cur['longitude']:.6f}" if cur.get("latitude") is not None else "not set"})
 
     async def async_step_settings_profile(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Device: copy this device's set-up to others of the same model, save it as a profile, or load one."""

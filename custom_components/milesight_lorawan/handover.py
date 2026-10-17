@@ -11,7 +11,7 @@ COLUMNS = [("name", "Device"), ("model", "Model"), ("deveui", "DevEUI"), ("area"
            ("network_server", "Network server"), ("online", "Online"), ("signal", "Signal"), ("rssi", "RSSI dBm"),
            ("snr", "SNR dB"), ("sf", "SF"), ("gateway", "Best gateway"), ("gateways_heard", "Gateways"),
            ("packet_loss", "Loss today %"), ("battery", "Battery %"), ("battery_replace_by", "Battery due"),
-           ("firmware", "Firmware"), ("last_seen", "Last seen"), ("walk_test", "Walk test")]
+           ("firmware", "Firmware"), ("last_seen", "Last seen"), ("walk_test", "Walk test"), ("location", "Location")]
 _ICON = {"excellent": "🟢", "good": "🟢", "fair": "🟠", "poor": "🔴"}
 
 
@@ -26,6 +26,8 @@ def _cell(d: dict[str, Any], key: str) -> str:
     v = d.get(key)
     if key == "walk_test":
         return _walk(v)
+    if key == "location":
+        return f"{d['latitude']:.6f}, {d['longitude']:.6f}" if d.get("latitude") is not None else ""
     if key == "online":
         return "yes" if v else "no"
     if key == "last_seen" and v:
@@ -48,6 +50,7 @@ def checks(devices: list[dict[str, Any]]) -> list[str]:
     off = [d["name"] for d in devices if not d.get("online")]
     weak = [d["name"] for d in devices if d.get("signal") == "poor"]
     noarea = [d["name"] for d in devices if not d.get("area")]
+    noloc = [d["name"] for d in devices if d.get("latitude") is None]
     low = [d["name"] for d in devices if d.get("battery_low")]
     single = [d["name"] for d in devices if d.get("gateways_heard") == 1 and d.get("signal") in ("poor", "fair")]
     if off:
@@ -60,6 +63,8 @@ def checks(devices: list[dict[str, Any]]) -> list[str]:
         out.append(f"Battery low: {', '.join(low)}")
     if noarea:
         out.append(f"No area set: {', '.join(noarea)}")
+    if noloc:
+        out.append(f"No location captured: {', '.join(noloc)}")
     return out
 
 
@@ -81,7 +86,9 @@ def report_html(site: dict[str, Any], devices: list[dict[str, Any]], gateways: l
             f"<br><small>{'due ' + e(d['battery_replace_by']) if d.get('battery_replace_by') else ''}</small></td>",
             f"<td>{'🟢' if d.get('online') else '🔴'} {e(_cell(d, 'last_seen'))}<br><small>{e(d.get('network_server') or '')}"
             f"{' · fw ' + e(d['firmware']) if d.get('firmware') else ''}</small></td>",
-            f"<td><small>{e(_walk(d.get('walk_test')))}</small></td>"]) + "</tr>")
+            f"<td><small>{e(_walk(d.get('walk_test')))}</small>"
+            + (f"<br><small><a href=\"https://maps.google.com/?q={d['latitude']},{d['longitude']}\">📍 map</a></small>"
+               if d.get("latitude") is not None else "") + "</td>"]) + "</tr>")
     gw_rows = "".join(f"<li>{e(g.get('name') or g['id'])} <small>({e(g['id'])}, {g.get('packets_today') or 0} packets today)"
                       f"</small></li>" for g in gateways) or "<li>–</li>"
     todo_html = ("<ul>" + "".join(f"<li>{e(t)}</li>" for t in todo) + "</ul>") if todo else "<p>✅ Nothing open.</p>"
@@ -105,7 +112,7 @@ small{{color:#555}} .cards{{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}}
 <h2>Open points</h2>{todo_html}
 <h2>Gateways</h2><ul>{gw_rows}</ul>
 <h2>Devices</h2>
-<table><thead><tr><th>Device</th><th>Area / purpose</th><th>Signal</th><th>Battery</th><th>Last seen</th><th>Walk test</th></tr></thead>
+<table><thead><tr><th>Device</th><th>Area / purpose</th><th>Signal</th><th>Battery</th><th>Last seen</th><th>Walk test / location</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
 <div class="sign"><div>Installer – name, signature, date</div><div>Customer – name, signature, date</div></div>
 </body></html>"""

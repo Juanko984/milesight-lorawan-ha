@@ -351,12 +351,42 @@ BUILDERS = {"farm.yaml": farm_cards, "tanks_and_alerts.yaml": tank_cards, "cold_
             "energy.yaml": energy_cards, "building_analytics.yaml": analytics_cards}
 
 
+def location_entities(eid: Resolver, runtimes: list) -> list[dict]:
+    """Every device with a fixed location (and GNSS trackers) for a map card."""
+    out = []
+    for rt in runtimes:
+        e = None
+        if hasattr(rt, "fixed_location") and rt.fixed_location() is not None:
+            e = _e(eid, rt, "device_tracker", "fixed_location")
+        elif "at101" in getattr(rt.model, "features", ()) or getattr(rt, "distance", None) is not None:
+            e = _e(eid, rt, "device_tracker", "location")
+        if e:
+            out.append({"entity": e, "name": rt.entry.title})
+    return out
+
+
+def map_view(eid: Resolver, runtimes: list) -> dict | None:
+    ents = location_entities(eid, runtimes)
+    if not ents:
+        return None
+    return {"title": "Map", "path": "map", "icon": "mdi:map-marker-radius", "type": "panel",
+            "cards": [{"type": "map", "entities": ents, "theme_mode": "auto", "default_zoom": 16,
+                       "hours_to_show": 0}]}
+
+
+AFTER = {"maintenance.yaml": map_view}     # extra tabs at the end (not a 'Live' tab in front)
+
+
 def live_view(sections: list[dict], title: str = "Live", path: str = "live", icon: str = "mdi:gauge") -> dict:
     return {"type": "sections", "title": title, "path": path, "icon": icon, "max_columns": 4, "sections": sections}
 
 
 def with_live_view(file: str, config: dict, eid: Resolver, runtimes: list, hubs: list) -> dict:
     """The bundled dashboard plus a first 'Live' view (only when there is something to show)."""
+    after = AFTER.get(file)
+    if after is not None:
+        extra = after(eid, runtimes)
+        return {**config, "views": list(config.get("views") or []) + [extra]} if extra else config
     builder = BUILDERS.get(file)
     if builder is None:
         return config

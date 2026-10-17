@@ -1,9 +1,10 @@
-# Milesight LoRaWAN – maintenance
+# Milesight LoRaWAN – maintenance: overview, every device, signal & gateways (and, installed by the integration,
+# a map of the devices' locations).
 # Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
-# No entity ids to edit: everything comes from the gateway's 'Devices' sensor (fleet).
+# No entity ids to edit: everything comes from the gateway's sensors.
 title: Maintenance
 views:
-  - title: Maintenance
+  - title: Overview
     path: maintenance
     icon: mdi:wrench-clock
     type: sections
@@ -58,22 +59,6 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Weak signal
-            icon: mdi:signal-cellular-1
-          - type: markdown
-            grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set weak = devs | selectattr('signal', 'in', ['poor', 'bad', 'very_poor', 'fair']) | sort(attribute='name') | list %}
-              {% if not weak %}All devices have a good signal ✅{% else %}
-              {% for d in weak %}{{ '🔴' if d.signal in ['bad', 'very_poor', 'poor'] else '🟠' }} **{{ d.name }}**{{ ' · ' ~ d.area if d.area else '' }} · {{ d.signal | replace('_', ' ') }}  
-              <small>RSSI {{ d.rssi }} dBm · SNR {{ d.snr }} dB · SF{{ d.sf }} · {{ d.gateways_heard or 0 }} gateway(s){% if d.packet_loss %} · {{ d.packet_loss }} % lost today{% endif %}</small>
-
-              {% endfor %}
-              <small>Move the device or gateway, add an antenna or a second gateway.</small>{% endif %}
-      - type: grid
-        cards:
-          - type: heading
             heading: Firmware
             icon: mdi:chip
           - type: markdown
@@ -102,3 +87,66 @@ views:
               <small>{{ e.text }}{% if e.by %} · {{ e.by }}{% endif %}</small>
 
               {% endif %}{% endfor %}{% endif %}
+  - title: Devices
+    path: devices
+    icon: mdi:format-list-bulleted
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: All devices
+            icon: mdi:access-point-network
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
+              {% set icon = {'excellent': '🟢', 'good': '🟢', 'fair': '🟠', 'poor': '🔴'} %}
+              {% if not devs %}No devices yet.{% endif %}
+              {% for d in devs | sort(attribute='name') %}{{ '🟢' if d.online else '🔴' }} **{{ d.name }}** · {{ d.model }}{{ ' · ' ~ d.area if d.area else '' }}{{ ' · ' ~ d.purpose if d.purpose else '' }}  
+              <small>{% if d.battery is not none %}🔋 {{ d.battery }} %{% if d.battery_replace_by %} (due {{ d.battery_replace_by }}){% endif %} · {% endif %}{{ icon.get(d.signal, '⚪') }} {{ d.signal or 'no signal data' }}{% if d.rssi is not none %} · {{ d.rssi }} dBm / {{ d.snr }} dB · SF{{ d.sf }}{% endif %}{% if d.gateways_heard %} · {{ d.gateways_heard }} gw{% endif %}{% if d.packet_loss %} · {{ d.packet_loss }} % lost{% endif %}  
+              {{ d.network_server or '' }}{% if d.firmware %} · fw {{ d.firmware }}{% endif %}{% if d.command %} · last command {{ d.command }}{% endif %} · last seen {{ as_timestamp(d.last_seen) | timestamp_custom('%d %b %H:%M') if d.last_seen else 'never' }}{% if d.latitude is not none and d.latitude is defined %} · 📍{% endif %}</small>
+
+              {% endfor %}
+  - title: Signal
+    path: signal
+    icon: mdi:signal
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Gateways
+            icon: mdi:router-wireless
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set gws = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_gateways_online')
+                 | map(attribute='attributes.gateways') | sum(start=[]) | list %}
+              {% if not gws %}No gateways seen yet – they appear with the first uplink that lists them.{% else %}
+              {% for g in gws | sort(attribute='name') %}{{ '🟢' if g.online else ('🔴' if g.online is false else '⚪') }} **{{ g.name }}**  
+              <small>{{ g.packets_today }} packets · {{ g.devices_today }} devices today</small>
+
+              {% endfor %}{% endif %}
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Weak or lossy devices
+            icon: mdi:signal-cellular-1
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
+              {% set bad = devs | selectattr('signal', 'in', ['poor', 'fair']) | list
+                 + (devs | selectattr('packet_loss', 'defined') | rejectattr('packet_loss', 'none') | selectattr('packet_loss', 'ge', 10) | list) %}
+              {% if not bad %}All devices have a good link ✅{% else %}
+              {% for d in bad | unique(attribute='deveui') | sort(attribute='name') %}{{ '🔴' if d.signal == 'poor' else '🟠' }} **{{ d.name }}**{{ ' · ' ~ d.area if d.area else '' }} · {{ d.signal or '–' }}  
+              <small>RSSI {{ d.rssi }} dBm · SNR {{ d.snr }} dB · SF{{ d.sf }} · {{ d.gateways_heard or 0 }} gateway(s){% if d.packet_loss %} · {{ d.packet_loss }} % lost today{% endif %}{% if d.gateway %} · best {{ d.gateway }}{% endif %}</small>
+
+              {% endfor %}
+              <small>Move the device or gateway, add an antenna or a second gateway. Run a walk test from *LoRaWAN commissioning*.</small>{% endif %}
+              <small>🟢 good / excellent · 🟠 fair · 🔴 poor (link margin = SNR above what the spreading factor needs)</small>

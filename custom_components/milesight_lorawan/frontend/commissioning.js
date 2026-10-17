@@ -275,6 +275,28 @@ class MilesightCommissioning extends HTMLElement {
     } catch (e) { this._error(e); }
   }
 
+  async _location(clear) {
+    try {
+      if (clear) {
+        await this._ws({ type: "location", deveui: this._watch });
+        this._info("Location cleared.");
+      } else {
+        if (!navigator.geolocation) { this._error("This browser cannot read the location – use the Home Assistant app, or set it in the device's options."); return; }
+        this._info("Reading the phone's location…");
+        const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, fail,
+          { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }));
+        const c = pos.coords;
+        await this._ws({ type: "location", deveui: this._watch, latitude: c.latitude, longitude: c.longitude,
+                         accuracy: c.accuracy });
+        this._info(`Location saved: ${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)} (±${Math.round(c.accuracy)} m).`);
+      }
+      await this._loadDevices();
+    } catch (e) {
+      this._error(e && e.code === 1 ? "Location permission denied – allow location for the Home Assistant app (phone settings) and try again."
+                  : (e && e.message) || e);
+    }
+  }
+
   async _save() {
     const live = this._samples.filter((s) => !s.previous && !s.duplicate);
     if (!live.length) { this._error("No uplinks received during this test yet."); return; }
@@ -327,6 +349,7 @@ class MilesightCommissioning extends HTMLElement {
         button.on { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); }
         button:disabled { opacity: .5; }
         .row { display:flex; flex-wrap: wrap; gap: 8px; }
+        .loc { display:flex; flex-direction:column; gap:8px; padding: 10px 12px; border-radius: 10px; background: var(--secondary-background-color, rgba(127,127,127,.08)); }
         .row > * { flex: 1 1 160px; }
         label { display:flex; flex-direction:column; gap:4px; font-size: 13px; color: var(--secondary-text-color); }
         input, select, textarea { font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--divider-color);
@@ -436,6 +459,11 @@ class MilesightCommissioning extends HTMLElement {
         <select id="w-dev"><option value="">– pick a device –</option>${opts}${unk ? `<optgroup label="Heard, not set up">${unk}</optgroup>` : ""}</select>
         <label>Where are you / where is it mounted? (saved with each uplink)
           <input id="w-spot" value="${esc(this._spot)}" placeholder="e.g. Barn, north wall, 2 m high"></label>
+        ${this._watch && dev ? `<div class="loc">
+          <b>📍 Location</b> ${dev.location ? `${dev.location.latitude.toFixed(6)}, ${dev.location.longitude.toFixed(6)}${dev.location.accuracy ? ` (±${dev.location.accuracy} m)` : ""}` : `<span class="muted">not set</span>`}
+          <div class="row"><button id="b-loc">Use my phone's location</button>${dev.location ? `<button id="b-loc-clear">Clear</button>` : ""}</div>
+          <p class="hint">Stand at the device and press the button – the phone's GPS position is saved as the device's fixed location (shown on the Maintenance map and in the handover report).</p>
+        </div>` : ""}
         ${this._watch ? `<div class="row">
           ${dev?.can_fast ? (dev.walk_test ? `<button id="b-fast-off">Stop fast reporting</button>` : `<button id="b-fast">Fast reporting (30 min)</button>`) : ""}
           <button id="b-sound">${this._sound ? "Sound on" : "Sound off"}</button>
@@ -498,6 +526,8 @@ class MilesightCommissioning extends HTMLElement {
     on("b-fast-off", "click", () => this._fast(false));
     on("b-sound", "click", () => { this._sound = !this._sound; this._render(); });
     on("b-save", "click", () => this._save());
+    on("b-loc", "click", () => this._location(false));
+    on("b-loc-clear", "click", () => this._location(true));
     on("b-clear", "click", () => { this._samples = []; this._msg = null; this._render(); });
   }
 }

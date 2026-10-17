@@ -524,7 +524,17 @@ class DeviceRuntime:
         if self.pivot is not None:
             specs += pivot_specs()
         specs += channel_specs(self.channels)
+        if self.fixed_location() is not None:
+            specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
+
+    def fixed_location(self) -> tuple[float, float] | None:
+        """Where the device is mounted (captured on the phone in the commissioning panel, or set in its options)."""
+        loc = self.entry.options.get("location") or {}
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and not (lat == 0 and lon == 0):
+            return float(lat), float(lon)
+        return None
 
     # ------------------------------------------------------------- purposes
     @property
@@ -1287,6 +1297,8 @@ class DeviceRuntime:
         if isinstance(v.get("battery"), (int, float)):
             v["battery_low"] = v["battery"] < self.battery_low_pct
         self._battery_values(v, ts)
+        if self.fixed_location() is not None:
+            v["fixed_location"] = "fixed"
         fleet = (v["online"], v.get("battery_low"))
         if fleet != self._fleet_state:
             if self._fleet_state is not None and None not in (fleet[0], self._fleet_state[0]) \
