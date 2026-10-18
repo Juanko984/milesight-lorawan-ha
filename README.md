@@ -654,6 +654,29 @@ gateway C ─┘   <── downlinks ──── └─ commands sent through t
 LinkCheck and DeviceTime (clock sync). Not yet: ADR (devices keep their data rate), class C, Basics Station,
 other regions, duty-cycle enforcement on the gateway.
 
+## Gateway discovery
+
+Home Assistant finds Milesight gateways by itself, three ways:
+
+* **On the network** – a gateway plugged into the same network shows up under **Settings → Devices & services →
+  Discovered** as *Milesight gateway found* (Home Assistant's DHCP discovery, Milesight MAC prefix 24:E1:24). Add it
+  with a name and an area. On a new installation this also sets up the integration with the **built-in network
+  server** – no MQTT broker needed. The card says exactly what to set on the gateway (packet forwarder → Semtech →
+  Home Assistant's IP, port 1700) if it is not prepared for Home Assistant already.
+* **From its first packet** – a gateway that forwards to Home Assistant (built-in network server, or uplinks over
+  MQTT) and is not known yet is offered as *New gateway sending to Home Assistant*.
+* **By QR code** – scan the gateway's label or your own sticker in **LoRaWAN commissioning** (gateway EUI, MAC
+  address, JSON such as `{"gateway_eui": "24E124FFFEFA2994", "model": "UG65"}`, or labelled text).
+
+A gateway added before it sends is matched to its first packet by EUI (a Milesight gateway EUI is its MAC address
+with FFFE in the middle), or by IP address when it forwards with another interface's EUI. It is then named, put in
+its area, linked to its web page (*Visit* on the device page) and a notification says it is connected; event
+`milesight_lorawan_gateway_connected`.
+
+**Off-the-shelf kits**: prepare each gateway before shipping – packet forwarder Semtech destination pointing at the
+customer's Home Assistant, frequency plan – and stick a QR code with its EUI. The customer installs Home Assistant
+and this integration, plugs in the gateway (discovered), then scans the sensors' QR codes.
+
 ## Add devices to the gateway from Home Assistant
 
 No more typing DevEUIs into the gateway's web page: Home Assistant registers new devices on the Milesight gateway's
@@ -1136,6 +1159,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.37.0** | Gateway discovery: on the network (DHCP), from the first packet, by QR code; first gateway sets up the built-in network server. |
 | **0.36.0** | Cold storage dashboard (Overview, Units, Trends, Compliance); weekly / monthly compliance PDFs by e-mail; corrective actions; estimated power in W. |
 | **0.35.0** | Voltage, power factor and running threshold fields for clamps; energy from Ah × V; typed-in pump settings. |
 | **0.34.2** | Gauges show a tile instead of "non-numeric" until data arrives; never-heard devices on Maintenance. |

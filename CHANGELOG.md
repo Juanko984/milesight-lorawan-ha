@@ -2,6 +2,22 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.37.0
+### Added
+- **Gateway discovery on the network**: a Milesight gateway that joins the network (DHCP, MAC prefix 24:E1:24) is
+  offered under *Discovered*. Name it and pick an area; the card shows what to set on the gateway (Semtech packet
+  forwarder → Home Assistant's IP, port 1700). On a new installation it sets up the integration with the built-in
+  network server, no MQTT broker needed; on an MQTT site it can switch the built-in network server on.
+- **Gateway discovery from traffic**: a gateway heard for the first time (built-in network server or MQTT uplinks)
+  is offered as *New gateway sending to Home Assistant*.
+- **Gateway QR codes** in *LoRaWAN commissioning*: gateway EUI, MAC, JSON or label text → name and area; adopted
+  at once if it already sends, else from its first packet.
+- Gateways announced beforehand are matched to their first packet by EUI or IP address, renamed, put in their
+  area, linked to their web page, with a notification and the event `milesight_lorawan_gateway_connected`.
+### Changed
+- MQTT is no longer a hard dependency: an installation that only uses the built-in network server works without
+  an MQTT broker (MQTT is still used when a gateway entry has an uplink topic).
+
 ## 0.36.0
 ### Added
 - **Cold storage dashboard** (was *Cold chain*), built for production sites: **Overview** with the site status (units

@@ -201,6 +201,7 @@ class MilesightCommissioning extends HTMLElement {
     try {
       this._msg = null;
       const r = await this._ws({ type: "parse", text });
+      if (r.gateway) { this._gateway = r.gateway; this._parsed = null; this._form = {}; this._manual = ""; this._render(); return; }
       if (!r.deveui) { this._error(`The code was read ("${text.slice(0, 60)}") but holds no DevEUI. Type it in below.`); return; }
       this._parsed = r; this._form = {}; this._manual = "";
       this._render();
@@ -400,12 +401,43 @@ class MilesightCommissioning extends HTMLElement {
     }
   }
 
+  async _addGateway() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const g = this._gateway;
+    this._busy = true; this._render();
+    try {
+      const r = await this._ws({ type: "add_gateway", eui: g.eui, name: $("g-name").value, area: $("g-area").value,
+                                 model: g.model || undefined, mac: g.mac || undefined });
+      this._busy = false; this._gateway = null;
+      this._info(r.status === "connected"
+        ? `${r.name} is connected and sending to Home Assistant. Now scan the sensors.`
+        : r.lns ? `${r.name} is added and connects by itself when it is prepared for Home Assistant. Otherwise set its packet forwarder (Semtech) to ${r.ha_ip}, port ${r.port}. It shows as connected with its first packet.`
+                : `${r.name} is added. It shows as connected when the first uplink it forwards arrives over MQTT.`);
+    } catch (e) { this._busy = false; this._error(e); }
+  }
+
+  _renderGateway() {
+    const g = this._gateway;
+    return `
+      <div class="card">
+        <h2>${g.known ? "Gateway already added" : "Gateway"}</h2>
+        <p class="hint">EUI ${esc((g.eui || "").toUpperCase())}${g.model ? " · " + esc(g.model) : ""}${g.sn ? " · SN " + esc(g.sn) : ""}${g.heard ? " · already sending to Home Assistant" : ""}</p>
+        ${g.known ? `<p class="hint">It is in Home Assistant as <b>${esc(g.name || g.eui)}</b>.</p><div class="row"><button id="b-again">Scan another</button></div>` : `
+        <div class="row">
+          <label>Name<input id="g-name" value="${esc((this._form || {}).gname || g.suggested_name || "")}"></label>
+          <label>Area<input id="g-area" value="${esc((this._form || {}).garea || "")}" placeholder="e.g. Pump house"></label>
+        </div>
+        <div class="row"><button class="primary" id="b-add-gw" ${this._busy ? "disabled" : ""}>${this._busy ? "Adding…" : "Add gateway"}</button><button id="b-again">Cancel</button></div>`}
+      </div>`;
+  }
+
   _renderAdd() {
+    if (this._gateway) return this._renderGateway();
     const p = this._parsed;
     const scanners = `
       <div class="card">
         <h2>Scan the QR code</h2>
-        <p class="hint">On the device label or its box. Works in the Home Assistant app (offline too), with the phone's camera, or from a photo.</p>
+        <p class="hint">On the device or gateway label, or its box. Works in the Home Assistant app (offline too), with the phone's camera, or from a photo.</p>
         <div class="row">
           ${this._appScanner ? `<button class="primary" id="b-app">Scan with the app</button>` : ""}
           ${this._liveCamera ? `<button ${this._appScanner ? "" : 'class="primary"'} id="b-cam">${this._camera ? "Stop camera" : "Use the camera"}</button>` : ""}
@@ -530,7 +562,10 @@ class MilesightCommissioning extends HTMLElement {
         if (id === "f-model") this._render();            // the purposes depend on the model
       });
     }
-    on("b-again", "click", () => { this._parsed = null; this._form = {}; this._msg = null; this._render(); });
+    on("b-again", "click", () => { this._parsed = null; this._gateway = null; this._form = {}; this._msg = null; this._render(); });
+    on("b-add-gw", "click", () => this._addGateway());
+    on("g-name", "input", (e) => { this._form = { ...(this._form || {}), gname: e.target.value }; });
+    on("g-area", "input", (e) => { this._form = { ...(this._form || {}), garea: e.target.value }; });
     on("b-walk-existing", "click", () => { const d = this._parsed.deveui; this._parsed = null; this._msg = null; this._startWatch(d); });
     on("b-walk-added", "click", () => { this._msg = null; this._startWatch(this._lastAdded.deveui); });
     on("w-dev", "change", (e) => { this._msg = null; if (e.target.value) this._startWatch(e.target.value); else { this._stopWatch(); this._watch = null; this._render(); } });

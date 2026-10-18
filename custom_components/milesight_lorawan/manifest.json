@@ -5,6 +5,7 @@
     "frontend",
     "http",
     "lovelace",
+    "mqtt",
     "panel_custom",
     "persistent_notification",
     "recorder",
@@ -12,13 +13,16 @@
   ],
   "codeowners": [],
   "config_flow": true,
-  "dependencies": [
-    "mqtt"
+  "dependencies": [],
+  "dhcp": [
+    {
+      "macaddress": "24E124*"
+    }
   ],
   "documentation": "https://github.com/Juanko984/milesight-lorawan-ha",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Juanko984/milesight-lorawan-ha/issues",
   "requirements": [],
-  "version": "0.36.0"
+  "version": "0.37.0"
 }

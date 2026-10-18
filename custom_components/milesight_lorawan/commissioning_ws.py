@@ -58,7 +58,7 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             hass.http.register_static_path(STATIC_URL, str(FRONTEND), True)
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
-        for handler in (ws_parse, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
+        for handler in (ws_parse, ws_add_gateway, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
     if not data.get("commissioning_panel"):
@@ -85,7 +85,17 @@ def async_remove_panel(hass: HomeAssistant) -> None:
 @websocket_api.require_admin
 @callback
 def ws_parse(hass: HomeAssistant, connection, msg: dict) -> None:
-    """QR text → DevEUI, AppKey, model guess; whether it is already set up and whether the gateway can add it."""
+    """QR text → DevEUI, AppKey, model guess; whether it is already set up and whether the gateway can add it.
+    A gateway's code (gateway EUI / MAC) answers {'gateway': {...}} instead."""
+    from .gateway_discovery import default_name, parse_gateway_code
+    gw = parse_gateway_code(msg["text"])
+    if gw is not None:
+        known = next((h for h in _hubs(hass) if hasattr(h, "gateway_known") and h.gateway_known(gw["eui"])), None)
+        g = (known.stats.gateways.get(gw["eui"]) or known.stats.expected.get(gw["eui"]) or {}) if known else {}
+        connection.send_result(msg["id"], {"gateway": {**gw, "known": known is not None, "name": g.get("name"),
+                                                       "suggested_name": default_name(gw["eui"], gw.get("model")),
+                                                       "heard": any(gw["eui"] in h.stats.gateways for h in _hubs(hass))}})
+        return
     p = parse_qr(msg["text"], guess_from_name)
     deveui = p.get("deveui")
     candidates: list[str] = []
@@ -107,6 +117,35 @@ def ws_parse(hass: HomeAssistant, connection, msg: dict) -> None:
                       "label": pp.label + (f" · {GROUPS[pp.group][0].split('· ')[1]}" if pp.group else "")}
                      for pp in PURPOSES.values()],
     })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/commission/add_gateway", vol.Required("eui"): str, vol.Optional("name"): str,
+    vol.Optional("area"): str, vol.Optional("model"): str, vol.Optional("mac"): str,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_add_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
+    """A gateway scanned in the panel: adopt it now if it already sends, else as soon as it does."""
+    from .config_flow import _local_ip
+    from .const import CONF_LNS_ENABLED, CONF_LNS_PORT, DEFAULT_LNS_PORT
+    from .gateway_discovery import default_name, is_gateway_eui, norm_hex
+    eui = norm_hex(msg["eui"])
+    if not is_gateway_eui(eui):
+        connection.send_error(msg["id"], "invalid", "A gateway EUI is 16 hex digits with FFFE in the middle")
+        return
+    hubs = [h for h in _hubs(hass) if hasattr(h, "expect_gateway")]
+    if not hubs:
+        connection.send_error(msg["id"], "no_hub", "Set up Milesight LoRaWAN first")
+        return
+    hub = next((h for h in hubs if h.entry.options.get(CONF_LNS_ENABLED)), hubs[0])
+    name = (msg.get("name") or "").strip() or default_name(eui, msg.get("model"))
+    status = hub.expect_gateway(eui, {"name": name, "area": (msg.get("area") or "").strip() or None,
+                                      "model": msg.get("model"), "mac": msg.get("mac")})
+    lns = bool(hub.entry.options.get(CONF_LNS_ENABLED))
+    connection.send_result(msg["id"], {
+        "status": status, "name": name, "lns": lns, "ha_ip": await _local_ip(hass),
+        "port": int(hub.entry.options.get(CONF_LNS_PORT) or DEFAULT_LNS_PORT)})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/devices"})

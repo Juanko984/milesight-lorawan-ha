@@ -99,6 +99,9 @@ class Hub:
 
     async def async_start(self) -> None:
         self.stats = GatewayStats(await self.store.async_load())
+        for eui, info in (self.entry.options.get("pending_gateways") or {}).items():   # announced in the set-up
+            if not self.gateway_known(eui):
+                self.stats.expected[eui] = dict(info)
         self._online = {gid: self.stats.online(gid, time.time(), self.offline_s) for gid in self.stats.gateways}
         for topic in [self.topic, *self.extra_topics] if self.topic else []:
             try:
@@ -189,8 +192,90 @@ class Hub:
         return datetime.fromtimestamp(ts, dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.UTC
                                       ).date().isoformat()
 
+    # ------------------------------------------------------------ gateway discovery
+    def _gateways_found(self, new: list[str]) -> None:
+        """Gateways heard for the first time: adopt the ones announced beforehand (network discovery or QR
+        scan), offer the others under Discovered."""
+        from .gateway_discovery import match_expected
+        for gid in new:
+            g = self.stats.gateways.get(gid) or {}
+            if g.get("approved"):
+                continue
+            ip = (g.get("info") or {}).get("ip")
+            key = match_expected(self.stats.expected, gid, ip)
+            if key is not None:
+                info = self.stats.expected.pop(key)
+                self.stats.adopt(gid, {**info, "ip": ip or info.get("ip")})
+                self._close_gateway_cards(gid, key)
+                from homeassistant.components import persistent_notification
+                persistent_notification.async_create(
+                    self.hass, f"**{info.get('name') or gid}** is sending to Home Assistant"
+                               f"{(' (' + str(info['area']) + ')') if info.get('area') else ''}. "
+                               "Devices it hears now show up under Settings → Devices & services → Discovered.",
+                    title="Milesight LoRaWAN: gateway connected", notification_id=f"{DOMAIN}_gateway_{gid}")
+                self.hass.bus.async_fire(f"{DOMAIN}_gateway_connected", {"gateway_id": gid,
+                                                                       "gateway": info.get("name"), "hub": self.entry.title})
+            else:
+                self._offer_gateway(gid, ip)
+
+    def _offer_gateway(self, gid: str, ip: str | None) -> None:
+        from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY
+        g = self.stats.gateways.get(gid) or {}
+        self.hass.async_create_task(self.hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_INTEGRATION_DISCOVERY},
+            data={"gateway_id": gid, "hub_entry_id": self.entry.entry_id, "ip": ip,
+                  "model": (g.get("info") or {}).get("model"),
+                  "connection": (g.get("info") or {}).get("connection")}))
+
+    def _close_gateway_cards(self, *euis: str) -> None:
+        ids = {f"gateway:{e}" for e in euis if e}
+        for flow in self.hass.config_entries.flow.async_progress_by_handler(DOMAIN):
+            if (flow.get("context") or {}).get("unique_id") in ids:
+                self.hass.config_entries.flow.async_abort(flow["flow_id"])
+
+    def gateway_known(self, eui: str) -> bool:
+        """Confirmed or announced already."""
+        return bool((self.stats.gateways.get(eui) or {}).get("approved")) or eui in self.stats.expected
+
+    def expect_gateway(self, eui: str, info: dict[str, Any]) -> str:
+        """A gateway announced by network discovery or a QR scan. 'connected' when it already sends to Home
+        Assistant (it is named now), else 'waiting' (it is adopted from its first packet)."""
+        from .gateway_discovery import match_expected
+        info = {k: v for k, v in info.items() if v not in (None, "")}
+        heard = {gid: g for gid, g in self.stats.gateways.items() if not g.get("approved")}
+        gid = eui if eui in self.stats.gateways else None
+        if gid is None and info.get("ip"):
+            by_ip = [k for k, g in heard.items() if (g.get("info") or {}).get("ip") == info["ip"]]
+            gid = by_ip[0] if len(by_ip) == 1 else None
+        self._close_gateway_cards(eui, gid or "")
+        if gid is not None:
+            self.stats.adopt(gid, info)
+            self._rename_gateway_device(gid, info)
+            self._changed(force=True)
+            return "connected"
+        self.stats.expected[eui] = info
+        self.store.async_delay_save(self.stats.to_dict, 1)
+        return "waiting"
+
+    def _rename_gateway_device(self, gid: str, info: dict[str, Any]) -> None:
+        from homeassistant.helpers import area_registry as ar
+        from homeassistant.helpers import device_registry as dr
+        dreg = dr.async_get(self.hass)
+        dev = dreg.async_get_device(identifiers={(DOMAIN, f"gw_{gid}")})
+        if dev is None:
+            return
+        kw: dict[str, Any] = {}
+        if info.get("name") and not dev.name_by_user:
+            kw["name"] = info["name"]
+        if info.get("area") and not dev.area_id:
+            kw["area_id"] = ar.async_get(self.hass).async_get_or_create(str(info["area"])).id
+        if kw:
+            dreg.async_update_device(dev.id, **kw)
+
     def _changed(self, new: list[str] | bool = (), force: bool = False) -> None:
         """Refresh gateway entities – at most every 30 s for plain traffic (the 60 s tick catches up)."""
+        if isinstance(new, list) and new:
+            self._gateways_found(new)
         for gid in new if isinstance(new, list) else []:
             async_dispatcher_send(self.hass, SIGNAL_GATEWAY_NEW.format(self.entry.entry_id), gid)
         now = time.monotonic()

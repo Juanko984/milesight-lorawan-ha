@@ -124,7 +124,8 @@ def _gw_device(entry: ConfigEntry, gid: str, g: dict[str, Any]) -> DeviceInfo:
                       manufacturer=MANUFACTURER if info or gid.startswith("24e124") else None,
                       model=info.get("model") or "LoRaWAN gateway", serial_number=info.get("sn") or gid.upper(),
                       sw_version=info.get("firmware_version"), hw_version=info.get("hardware_version"),
-                      via_device=(DOMAIN, f"hub_{entry.entry_id}"))
+                      via_device=(DOMAIN, f"hub_{entry.entry_id}"), suggested_area=g.get("area"),
+                      configuration_url=f"http://{g['ip']}" if g.get("ip") else None)
 
 
 class GatewaySensor(_Base, SensorEntity):

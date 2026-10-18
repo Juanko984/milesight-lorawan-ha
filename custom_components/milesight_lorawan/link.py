@@ -298,9 +298,20 @@ class GatewayStats:
         self.day: str | None = d.get("day")
         self.counts: dict[str, int] = {k: 0 for k in HUB_COUNTERS} | d.get("counts", {})
         self.gateways: dict[str, dict[str, Any]] = d.get("gateways", {})
+        self.expected: dict[str, dict[str, Any]] = d.get("expected", {})   # announced (DHCP / QR), not heard yet
 
     def to_dict(self) -> dict[str, Any]:
-        return {"day": self.day, "counts": self.counts, "gateways": self.gateways}
+        return {"day": self.day, "counts": self.counts, "gateways": self.gateways, "expected": self.expected}
+
+    def adopt(self, gid: str, info: dict[str, Any]) -> None:
+        """A gateway the user confirmed: its name, area, address; it is no longer offered as new."""
+        g = self.gateways.get(gid)
+        if g is None:
+            return
+        g["approved"] = True
+        for k in ("name", "area", "ip", "mac", "model"):
+            if info.get(k):
+                g[k] = info[k]
 
     def _roll(self, day: str) -> None:
         if day == self.day:

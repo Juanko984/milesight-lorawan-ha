@@ -182,6 +182,20 @@ def _downlink_format_selector() -> SelectSelector:
     ))
 
 
+async def _local_ip(hass, target: str | None = None) -> str:
+    """Home Assistant's address as the gateway sees it (the interface facing the gateway)."""
+    try:
+        from homeassistant.components.network import async_get_source_ip
+        return await async_get_source_ip(hass, target_ip=target) if target else await async_get_source_ip(hass)
+    except Exception:  # noqa: BLE001 - fall back to the configured URL
+        try:
+            from urllib.parse import urlparse
+            from homeassistant.helpers.network import get_url
+            return urlparse(get_url(hass, allow_external=False)).hostname or "Home Assistant's IP address"
+        except Exception:  # noqa: BLE001
+            return "Home Assistant's IP address"
+
+
 def _hub_schema(opts: dict) -> dict:
     return {
         vol.Required(CONF_TOPIC, default=opts.get(CONF_TOPIC, DEFAULT_TOPIC)): TextSelector(),
@@ -302,6 +316,7 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._disc: dict[str, Any] = {}
+        self._gw: dict[str, Any] = {}
 
     def _hubs(self) -> list[ConfigEntry]:
         return [e for e in self._async_current_entries() if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB]
@@ -404,8 +419,108 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         return self._create_device(data[CONF_DEVEUI], data[CONF_MODEL], data.get("name"), data.get(CONF_AREA),
                                    data.get("purpose"))
 
+    # ------------------------------------------------------- gateway discovery
+    def _hub_objects(self) -> list[Any]:
+        return [h for e in self._hubs() if (h := getattr(e, "runtime_data", None)) is not None
+                and hasattr(h, "expect_gateway")]
+
+    async def async_step_dhcp(self, discovery_info: Any) -> ConfigFlowResult:
+        """A Milesight gateway joined the network (DHCP, MAC prefix 24:E1:24)."""
+        from .gateway_discovery import is_milesight_mac, mac_to_eui
+        def _get(key: str) -> Any:
+            return discovery_info.get(key) if isinstance(discovery_info, dict) else getattr(discovery_info, key, None)
+        mac, ip, host = _get("macaddress"), _get("ip"), _get("hostname")
+        if not is_milesight_mac(mac):
+            return self.async_abort(reason="not_milesight_gateway")
+        eui = mac_to_eui(mac)
+        await self.async_set_unique_id(f"gateway:{eui}")
+        self._abort_if_unique_id_configured()
+        for hub in self._hub_objects():
+            if hub.gateway_known(eui) or any((g.get("ip") == ip and g.get("approved"))
+                                             for g in hub.stats.gateways.values()):
+                return self.async_abort(reason="already_configured")
+        return await self._gateway_found({"eui": eui, "ip": ip, "mac": mac, "hostname": host, "source": "network"})
+
+    async def _gateway_found(self, gw: dict[str, Any]) -> ConfigFlowResult:
+        from .gateway_discovery import default_name
+        self._gw = gw
+        self.context["title_placeholders"] = {"name": default_name(gw["eui"], gw.get("model")),
+                                              "deveui": gw.get("ip") or gw["eui"].upper()}
+        return await self.async_step_gateway_found()
+
+    async def async_step_gateway_found(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Name and area for a gateway; set up the built-in network server when there is none yet."""
+        from .const import (CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_PORT, CONF_LNS_REGION, CONF_LNS_RX1_DELAY,
+                            DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
+        from .gateway_discovery import default_name
+        gw = self._gw
+        hubs = self._hubs()
+        lns_hub = next((e for e in hubs if e.options.get(CONF_LNS_ENABLED)), None)
+        connected = gw.get("source") == "packets"
+        port = int((lns_hub.options.get(CONF_LNS_PORT) if lns_hub else None) or DEFAULT_LNS_PORT)
+        ha_ip = await _local_ip(self.hass, gw.get("ip"))
+        if user_input is not None:
+            info = {"name": (user_input.get("name") or "").strip() or default_name(gw["eui"], gw.get("model")),
+                    "area": (user_input.get(CONF_AREA) or "").strip() or None, "ip": gw.get("ip"),
+                    "mac": gw.get("mac"), "model": gw.get("model")}
+            use_lns = bool(user_input.get("use_lns", lns_hub is not None or not hubs))
+            if not hubs:
+                # first gateway on a new installation: the built-in network server, no MQTT broker needed
+                farm = int(gw["eui"][-4:], 16) % 511 + 1
+                return self.async_create_entry(
+                    title="Milesight LoRaWAN network",
+                    data={CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: "", CONF_PAYLOAD_ENCODING: ENCODING_BASE64,
+                          CONF_DOWNLINK_TOPIC: DEFAULT_DOWNLINK_TOPIC, CONF_DOWNLINK_FORMAT: DOWNLINK_MILESIGHT,
+                          CONF_EXTRA_TOPICS: "", CONF_GATEWAY_OFFLINE_MIN: DEFAULT_GATEWAY_OFFLINE_MIN},
+                    options={CONF_LNS_ENABLED: True, CONF_LNS_PORT: DEFAULT_LNS_PORT, CONF_LNS_REGION: "EU868",
+                             CONF_LNS_RX1_DELAY: DEFAULT_LNS_RX1_DELAY, CONF_LNS_FARM_ID: farm,
+                             "pending_gateways": {gw["eui"]: info}})
+            target = None
+            if gw.get("hub_entry_id"):
+                target = next((e for e in hubs if e.entry_id == gw["hub_entry_id"]), None)
+            target = target or lns_hub or hubs[0]
+            if use_lns and not target.options.get(CONF_LNS_ENABLED):
+                # switch the built-in network server on; the gateway is adopted after the reload
+                opts = {**target.options, CONF_LNS_ENABLED: True,
+                        CONF_LNS_PORT: target.options.get(CONF_LNS_PORT, DEFAULT_LNS_PORT),
+                        CONF_LNS_REGION: target.options.get(CONF_LNS_REGION, "EU868"),
+                        CONF_LNS_RX1_DELAY: target.options.get(CONF_LNS_RX1_DELAY, DEFAULT_LNS_RX1_DELAY),
+                        "pending_gateways": {**(target.options.get("pending_gateways") or {}), gw["eui"]: info}}
+                self.hass.config_entries.async_update_entry(target, options=opts)      # reloads the entry
+                status = "waiting"
+            else:
+                hub = getattr(target, "runtime_data", None)
+                status = hub.expect_gateway(gw["eui"], info) if hub is not None and hasattr(hub, "expect_gateway") \
+                    else "waiting"
+            return self.async_abort(reason=f"gateway_{status}", description_placeholders={
+                "name": info["name"], "ha_ip": ha_ip, "port": str(port), "gw_ip": gw.get("ip") or "the gateway"})
+        schema: dict[Any, Any] = {
+            vol.Optional("name", description={"suggested_value": default_name(gw["eui"], gw.get("model"))}):
+                TextSelector(),
+            vol.Optional(CONF_AREA): TextSelector(),
+        }
+        if hubs and lns_hub is None and not connected:
+            schema[vol.Required("use_lns", default=True)] = BooleanSelector()
+        return self.async_show_form(
+            step_id="gateway_found" if not connected else "gateway_heard", data_schema=vol.Schema(schema),
+            description_placeholders={"eui": gw["eui"].upper(), "gw_ip": gw.get("ip") or "–", "ha_ip": ha_ip,
+                                      "port": str(port), "connection": gw.get("connection") or "LoRaWAN"})
+
+    async def async_step_gateway_heard(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self.async_step_gateway_found(user_input)
+
     # ------------------------------------------------------- auto-discovery
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        if discovery_info.get("gateway_id"):            # a gateway forwarded its first packet
+            eui = discovery_info["gateway_id"]
+            await self.async_set_unique_id(f"gateway:{eui}")
+            self._abort_if_unique_id_configured()
+            if any(h.gateway_known(eui) for h in self._hub_objects()):
+                return self.async_abort(reason="already_configured")
+            return await self._gateway_found({"eui": eui, "ip": discovery_info.get("ip"), "source": "packets",
+                                              "model": discovery_info.get("model"),
+                                              "hub_entry_id": discovery_info.get("hub_entry_id"),
+                                              "connection": discovery_info.get("connection")})
         deveui = discovery_info[CONF_DEVEUI]
         await self.async_set_unique_id(deveui)
         self._abort_if_unique_id_configured()

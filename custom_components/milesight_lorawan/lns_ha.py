@@ -106,10 +106,10 @@ class LnsTransport(asyncio.DatagramProtocol):
         if d.ident == semtech.PULL_DATA and d.gateway:
             self._addr[d.gateway] = (addr, d.version)
             if self.server.gateway_seen(d.gateway, now, pull=True):
-                self._gateway_new(d.gateway)
+                self._gateway_new(d.gateway, addr)
         elif d.ident == semtech.PUSH_DATA and d.gateway:
             if self.server.gateway_seen(d.gateway, now):
-                self._gateway_new(d.gateway)
+                self._gateway_new(d.gateway, addr)
             body = d.body or {}
             if isinstance(body.get("stat"), dict):
                 st = body["stat"]
@@ -128,9 +128,11 @@ class LnsTransport(asyncio.DatagramProtocol):
     def error_received(self, exc: Exception) -> None:
         _LOGGER.debug("Network server UDP error: %s", exc)
 
-    def _gateway_new(self, gw: str) -> None:
-        self.hub.lns_notification({"kind": "gateway_info", "gateway_id": gw,
-                                   "info": {"connection": "packet forwarder (Semtech UDP)"}})
+    def _gateway_new(self, gw: str, addr: Any = None) -> None:
+        info = {"connection": "packet forwarder (Semtech UDP)"}
+        if isinstance(addr, tuple) and addr:
+            info["ip"] = str(addr[0])
+        self.hub.lns_notification({"kind": "gateway_info", "gateway_id": gw, "info": info})
 
     def _send(self, tx) -> bool:
         target = self._addr.get(tx.gateway)

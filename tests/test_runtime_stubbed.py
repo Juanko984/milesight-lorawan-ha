@@ -118,7 +118,11 @@ class FakeEntries:
     def async_entry_for_domain_unique_id(self, d, u): return u in self.known
 class FakeFlow:
     def __init__(self, entries): self.entries = entries
-    def async_init(self, domain, context, data): entries.flows.append(data); return None
+    def async_init(self, domain, context, data):
+        (GW_FLOWS if "gateway_id" in data else entries.flows).append(data); return None
+    def async_progress_by_handler(self, d): return list(OPEN_FLOWS)
+    def async_abort(self, flow_id): ABORTED.append(flow_id)
+GW_FLOWS, OPEN_FLOWS, ABORTED = [], [], []
 entries = FakeEntries(); entries.flow = FakeFlow(entries)
 fired = []
 hass = types.SimpleNamespace(bus=types.SimpleNamespace(async_fire=lambda e, d: fired.append((e, d))),
@@ -1599,3 +1603,53 @@ assert mgr.reports()[0]["unit"] == "Fridge 3" and "path" not in mgr.reports()[0]
 asyncio.run(mgr._run_period("week", NOW)); n1 = len(mgr.data["reports"])
 asyncio.run(mgr._run_period("week", NOW)); assert len(mgr.data["reports"]) == n1
 print("compliance ok")
+
+
+# ---------------- 0.37: gateway discovery (network / first packet / QR) ----------------
+assert GW_FLOWS and GW_FLOWS[0]["gateway_id"] == "24e124fffef00001" and GW_FLOWS[0]["hub_entry_id"] == "h", GW_FLOWS[:2]
+lns_offer = [f for f in GW_FLOWS if f["gateway_id"] == "24e124fffefa2994"]
+assert lns_offer and lns_offer[0]["ip"] == "192.168.1.20" and lns_offer[0]["hub_entry_id"] == "hl"
+assert "packet forwarder" in lns_offer[0]["connection"]
+# a gateway that already sends: naming it adopts it at once and closes its discovery card
+OPEN_FLOWS.append({"flow_id": "f1", "context": {"unique_id": "gateway:24e124fffefa2994"}})
+dreg_calls = []
+sys.modules["homeassistant.helpers.device_registry"].async_get = lambda h: types.SimpleNamespace(
+    async_get_device=lambda identifiers: types.SimpleNamespace(id="d1", name_by_user=None, area_id=None),
+    async_update_device=lambda i, **kw: dreg_calls.append(kw))
+sys.modules.setdefault("homeassistant.helpers.area_registry", mod("homeassistant.helpers.area_registry"))
+sys.modules["homeassistant.helpers.area_registry"].async_get = lambda h: types.SimpleNamespace(
+    async_get_or_create=lambda n: types.SimpleNamespace(id="area_" + n.lower().replace(" ", "_")))
+assert hbl.expect_gateway("24e124fffefa2994", {"name": "Pump house gateway", "area": "Pump house"}) == "connected"
+g = hbl.stats.gateways["24e124fffefa2994"]
+assert g["approved"] and g["name"] == "Pump house gateway" and g["area"] == "Pump house" and "f1" in ABORTED
+assert dreg_calls[-1] == {"name": "Pump house gateway", "area_id": "area_pump_house"}
+assert hbl.gateway_known("24e124fffefa2994")
+# a gateway announced by DHCP / QR before it sends: adopted from its first packet, by EUI or by IP
+n = len(GW_FLOWS)
+assert hbl.expect_gateway("24e124fffe000777", {"name": "Barn", "area": "Barn", "ip": "192.168.1.77"}) == "waiting"
+assert hbl.gateway_known("24e124fffe000777") and "24e124fffe000777" in hbl.stats.to_dict()["expected"]
+NOTES_GW = []
+sys.modules["homeassistant.components.persistent_notification"].async_create = lambda h, m, title=None, notification_id=None: NOTES_GW.append((title, m))
+hbl.lns.datagram_received(b"\x02\x00\x01\x02" + bytes.fromhex("24e124fffe000778"), ("192.168.1.77", 41000))  # Wi-Fi EUI
+g2 = hbl.stats.gateways["24e124fffe000778"]
+assert g2["approved"] and g2["name"] == "Barn" and g2["ip"] == "192.168.1.77" and len(GW_FLOWS) == n, GW_FLOWS[n:]
+assert not hbl.stats.expected and NOTES_GW and "Barn" in NOTES_GW[-1][1]
+assert any(e == "milesight_lorawan_gateway_connected" for e, d in fired)
+gwmod = load("gateway")
+info = gwmod._gw_device(hub_lns_entry, "24e124fffe000778", g2)
+assert info["suggested_area"] == "Barn" and info["configuration_url"] == "http://192.168.1.77"
+# an unknown gateway is offered once
+hbl.lns.datagram_received(b"\x02\x00\x01\x02" + bytes.fromhex("24e124fffe000999"), ("192.168.1.99", 41000))
+hbl.lns.datagram_received(b"\x02\x00\x01\x02" + bytes.fromhex("24e124fffe000999"), ("192.168.1.99", 41000))
+assert [f["gateway_id"] for f in GW_FLOWS[n:]] == ["24e124fffe000999"]
+# pending gateways from the set-up flow are expected after a restart
+hub_new = types.SimpleNamespace(data={"entry_type": "hub", "topic": ""}, entry_id="hn", title="Network",
+                                options={"lns_enabled": False, "pending_gateways": {"24e124fffe0000aa": {"name": "Shed"}}})
+hn = hub.Hub(hass, hub_new)
+async def _st():
+    hn.stats = hub.GatewayStats() if hasattr(hub, "GatewayStats") else hn.stats
+    for eui, info in hub_new.options["pending_gateways"].items():
+        if not hn.gateway_known(eui): hn.stats.expected[eui] = dict(info)
+asyncio.run(_st())
+assert hn.stats.expected == {"24e124fffe0000aa": {"name": "Shed"}}
+print("gateway discovery ok")

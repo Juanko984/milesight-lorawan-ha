@@ -2032,6 +2032,28 @@ def test_pdfmini_and_compliance():
     assert len(pts) <= 200 and max(v for _, v in pts) == 9.0
 
 
+
+def test_gateway_discovery():
+    gd = _load("gateway_discovery")
+    assert gd.mac_to_eui("24:E1:24:FA:29:94") == "24e124fffefa2994" and gd.eui_to_mac("24E124FFFEFA2994") == "24:e1:24:fa:29:94"
+    assert gd.is_gateway_eui("24e124fffefa2994") and not gd.is_gateway_eui("24e124136d058239")
+    assert gd.is_milesight_mac("24e124fa2994") and not gd.is_milesight_mac("aabbccddeeff")
+    assert gd.default_name("24e124fffefa2994", "UG65") == "UG65 FA2994" and gd.default_name("24e124fffefa2994") == "Gateway FA2994"
+    j = gd.parse_gateway_code('{"gateway_eui": "24E124FFFEFA2994", "model": "UG65-868M", "sn": "6223D1234567"}')
+    assert j == {"eui": "24e124fffefa2994", "mac": "24e124fa2994", "sn": "6223D1234567", "model": "UG65"}
+    t = gd.parse_gateway_code("Milesight UG67\nMAC: 24:E1:24:FA:29:94\nSN: 6223D7654321")
+    assert t["eui"] == "24e124fffefa2994" and t["model"] == "UG67" and t["sn"] == "6223D7654321"
+    assert gd.parse_gateway_code("24E1-24FF-FEFA-2994")["eui"] == "24e124fffefa2994"
+    assert gd.parse_gateway_code("Gateway EUI: 24E124FFFEFA2994")["eui"] == "24e124fffefa2994"
+    assert gd.parse_gateway_code("24E124136D058239") is None                     # a sensor DevEUI
+    assert gd.parse_gateway_code("LW:D0:24E124C0002A0001:24E124136D058239:...") is None
+    assert gd.parse_gateway_code("") is None
+    exp = {"24e124fffefa2994": {"ip": "192.168.1.50"}, "24e124fffe000001": {"ip": "192.168.1.51"}}
+    assert gd.match_expected(exp, "24E124FFFEFA2994", None) == "24e124fffefa2994"
+    assert gd.match_expected(exp, "24e124fffefa2995", "192.168.1.50") == "24e124fffefa2994"   # Wi-Fi MAC, same IP
+    assert gd.match_expected(exp, "0016c001ff10a235", "10.0.0.9") is None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
