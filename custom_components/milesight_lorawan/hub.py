@@ -302,6 +302,24 @@ class Hub:
         self.store.async_delay_save(self.stats.to_dict, 5)
         return {"known": known, "offered": offered}
 
+    def forget_gateway(self, eui: str) -> bool:
+        """Remove a gateway from the integration: its statistics, its 'announced' record and its Home Assistant
+        device, so it can be discovered and set up again. Returns True when something was removed."""
+        from .gateway_discovery import norm_hex
+        eui = norm_hex(eui)
+        had = self.stats.gateways.pop(eui, None) is not None
+        had |= self.stats.expected.pop(eui, None) is not None
+        self._online.pop(eui, None)
+        if had:
+            from homeassistant.helpers import device_registry as dr
+            dreg = dr.async_get(self.hass)
+            dev = dreg.async_get_device(identifiers={(DOMAIN, f"gw_{eui}")})
+            if dev is not None:
+                dreg.async_remove_device(dev.id)
+            self.store.async_delay_save(self.stats.to_dict, 1)
+            self._changed(force=True)
+        return had
+
     def gateway_known(self, eui: str) -> bool:
         """Confirmed or announced already."""
         return bool((self.stats.gateways.get(eui) or {}).get("approved")) or eui in self.stats.expected

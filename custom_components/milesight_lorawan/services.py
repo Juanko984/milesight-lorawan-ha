@@ -29,6 +29,7 @@ SERVICE_PROFILE = "apply_settings_profile"
 SERVICE_HANDOVER = "handover_report"
 SERVICE_COMPLIANCE = "compliance_report"
 SERVICE_CONFIGURE_GW = "configure_gateway"
+SERVICE_FORGET_GW = "forget_gateway"
 DISPLAY_BLOCKS = [f"text_{n}" for n in range(1, 11)] + ["qrcode"]
 ACTIONS = ["on", "off", "on_for", "off_for", "open_for", "open_until_pulses", "set"]
 
@@ -304,6 +305,16 @@ def async_register_services(hass: HomeAssistant) -> None:
         return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics}
 
     from homeassistant.core import SupportsResponse
+    async def _forget_gateway(call: ServiceCall) -> dict:
+        from .gateway_discovery import norm_hex
+        eui = norm_hex(call.data["gateway_eui"])
+        removed = [h.entry.title for h in _hubs(hass) if hasattr(h, "forget_gateway") and h.forget_gateway(eui)]
+        if not removed:
+            raise ServiceValidationError(f"No gateway {eui.upper()} is known")
+        return {"forgotten": eui.upper(), "from": removed}
+
+    hass.services.async_register(DOMAIN, SERVICE_FORGET_GW, _forget_gateway, schema=vol.Schema(
+        {vol.Required("gateway_eui"): cv.string}), supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_CONFIGURE_GW, _configure_gateway, schema=vol.Schema({
         vol.Required("host"): cv.string, vol.Required("username", default="admin"): cv.string,
         vol.Required("password"): cv.string, vol.Required("mode", default="lns"): vol.In(["lns", "mqtt", "both"]),

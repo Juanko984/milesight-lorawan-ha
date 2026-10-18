@@ -104,6 +104,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return ok
 
 
+async def async_remove_config_entry_device(hass: HomeAssistant, entry: ConfigEntry, device_entry) -> bool:
+    """Let the user delete a device from the Home Assistant UI. For a gateway sub-device, also forget it from the
+    hub's statistics so it can be discovered again; otherwise just allow the removal."""
+    hub = getattr(entry, "runtime_data", None)
+    for domain, ident in device_entry.identifiers:
+        if domain == DOMAIN and ident.startswith("gw_") and hub is not None and hasattr(hub, "forget_gateway"):
+            hub.forget_gateway(ident[3:])
+    return True
+
+
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up stored analytics and allow re-discovery when a device is deleted."""
     if _is_hub(entry):

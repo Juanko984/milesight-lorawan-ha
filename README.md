@@ -3,9 +3,9 @@
 [![Release](https://img.shields.io/github/v/release/Juanko984/milesight-lorawan-ha?label=version)](https://github.com/Juanko984/milesight-lorawan-ha/releases)
 [![HACS](https://img.shields.io/badge/HACS-custom-orange.svg)](https://hacs.xyz)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
-![Models](https://img.shields.io/badge/supported%20models-45-brightgreen.svg)
+![Models](https://img.shields.io/badge/supported%20models-118-brightgreen.svg)
 
-**Current version: 0.16.0** · [Version history](#version-history)
+**Current version: 0.39.1** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -1173,7 +1173,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
-| **0.39.0** | Configure the gateway from Home Assistant over the LAN (Semtech and/or embedded NS + MQTT); configure_gateway service. |
+| **0.39.1** | Configure the gateway from Home Assistant over the LAN (Semtech and/or embedded NS + MQTT); configure_gateway and forget_gateway services; delete a gateway from the device page. |
 | **0.38.0** | Gateway connection and "found via" shown; network scan for gateways. |
 | **0.37.0** | Gateway discovery: on the network (DHCP), from the first packet, by QR code; first gateway sets up the built-in network server. |
 | **0.36.0** | Cold storage dashboard (Overview, Units, Trends, Compliance); weekly / monthly compliance PDFs by e-mail; corrective actions; estimated power in W. |

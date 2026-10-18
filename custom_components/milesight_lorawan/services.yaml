@@ -271,3 +271,10 @@ configure_gateway:
     mqtt_password:
       selector:
         text:
+forget_gateway:
+  fields:
+    gateway_eui:
+      required: true
+      example: "24E124FFFEF61E38"
+      selector:
+        text:

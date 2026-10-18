@@ -2,8 +2,11 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
-## 0.39.0
+## 0.39.1
 ### Added
+- **Forget a gateway**: delete a gateway from the Home Assistant device page (a *Delete* option is now offered), or
+  the service `milesight_lorawan.forget_gateway` (by EUI). It is removed from the integration's statistics so it can
+  be discovered and set up again – useful for re-testing the automatic configuration.
 - **Configure the gateway from Home Assistant over the LAN** – no visit to its web page. On a discovered gateway
   (with an IP address) tick *Configure this gateway for me* and enter its admin login; Home Assistant can:
   - point the gateway's packet forwarder at Home Assistant's built-in network server (a Semtech destination), and / or

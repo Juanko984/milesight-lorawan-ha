@@ -1682,4 +1682,16 @@ finally:
 assert out == {"known": ["24e124fffef00001"], "offered": ["24e124fffe000088"]}, out
 assert hb.stats.gateways["24e124fffef00001"]["ip"] == "192.168.1.50"
 assert GW_FLOWS[n:][-1:] == [{"lan": True, "mac": "24:e1:24:00:00:88", "ip": "192.168.1.88", "hub_entry_id": "h"}], GW_FLOWS[n:]
+# forget a gateway: it is removed from stats, expected and the device registry, so it can be found again
+rm_dev=[]
+sys.modules["homeassistant.helpers.device_registry"].async_get = lambda h: types.SimpleNamespace(
+    async_get_device=lambda identifiers: types.SimpleNamespace(id="gwdev1"),
+    async_remove_device=lambda i: rm_dev.append(i))
+assert hbl.gateway_known("24e124fffefa2994")
+assert hbl.forget_gateway("24E124FFFEFA2994") is True
+assert not hbl.gateway_known("24e124fffefa2994") and "24e124fffefa2994" not in hbl.stats.gateways and "gwdev1" in rm_dev
+assert hbl.forget_gateway("24e124fffe999999") is False
+# an announced-but-not-heard gateway is forgettable too
+hbl.stats.expected["24e124fffe0000bb"] = {"name": "x"}
+assert hbl.forget_gateway("24e124fffe0000bb") is True and "24e124fffe0000bb" not in hbl.stats.expected
 print("gateway discovery ok")

@@ -881,6 +881,50 @@
           "description": "E-mail the reports (otherwise only create the files)."
         }
       }
+    },
+    "configure_gateway": {
+      "name": "Configure gateway",
+      "description": "Logs in to a Milesight gateway over the LAN and sets it up: point its packet forwarder at Home Assistant (Semtech) and/or set up its embedded network server and MQTT. The password is sent only to the gateway and never stored.",
+      "fields": {
+        "host": {
+          "name": "Gateway IP address",
+          "description": "e.g. 192.168.1.50"
+        },
+        "username": {
+          "name": "Gateway username",
+          "description": "Usually admin."
+        },
+        "password": {
+          "name": "Gateway password",
+          "description": "The gateway's admin password."
+        },
+        "mode": {
+          "name": "What to set up",
+          "description": "lns = Semtech to Home Assistant's built-in network server; mqtt = embedded network server + MQTT; both."
+        },
+        "band": {
+          "name": "Frequency plan",
+          "description": "EU868, US915, AU915, AS923, IN865, KR920."
+        },
+        "mqtt_user": {
+          "name": "MQTT username",
+          "description": "MQTT only: the broker login the gateway should use."
+        },
+        "mqtt_password": {
+          "name": "MQTT password",
+          "description": "MQTT only: that login's password."
+        }
+      }
+    },
+    "forget_gateway": {
+      "name": "Forget gateway",
+      "description": "Removes a gateway from the integration (its statistics and its device) so it can be discovered and set up again.",
+      "fields": {
+        "gateway_eui": {
+          "name": "Gateway EUI",
+          "description": "The gateway's EUI, e.g. 24E124FFFEF61E38 (shown as the device name)."
+        }
+      }
     }
   },
   "entity": {
