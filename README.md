@@ -679,6 +679,14 @@ with FFFE in the middle), or by IP address when it forwards with another interfa
 its area, linked to its web page (*Visit* on the device page) and a notification says it is connected; event
 `milesight_lorawan_gateway_connected`.
 
+**Configure the gateway from Home Assistant** (no web page visit): on a discovered gateway with an IP address, tick
+*Configure this gateway for me* and enter its admin login. Home Assistant logs in over the LAN and points the
+packet forwarder at itself (built-in network server), and / or sets up the gateway's embedded network server with an
+application and MQTT data transmission (broker and all topics, including the ns-api request/response topics for
+adding devices). Also the service `milesight_lorawan.configure_gateway`. The admin password is sent only to the
+gateway, encrypted the way its login page does, and is never stored. Supported on UG65 / UG67 / UG56 / UG63 with the
+web API.
+
 **Off-the-shelf kits**: prepare each gateway before shipping – packet forwarder Semtech destination pointing at the
 customer's Home Assistant, frequency plan – and stick a QR code with its EUI. The customer installs Home Assistant
 and this integration, plugs in the gateway (discovered), then scans the sensors' QR codes.
@@ -1165,6 +1173,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.39.0** | Configure the gateway from Home Assistant over the LAN (Semtech and/or embedded NS + MQTT); configure_gateway service. |
 | **0.38.0** | Gateway connection and "found via" shown; network scan for gateways. |
 | **0.37.0** | Gateway discovery: on the network (DHCP), from the first packet, by QR code; first gateway sets up the built-in network server. |
 | **0.36.0** | Cold storage dashboard (Overview, Units, Trends, Compliance); weekly / monthly compliance PDFs by e-mail; corrective actions; estimated power in W. |

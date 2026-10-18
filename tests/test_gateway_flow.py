@@ -54,7 +54,7 @@ class ConfigFlow:
         return list(self.hass.config_entries.items)
 
     def async_show_form(self, step_id, data_schema=None, errors=None, description_placeholders=None):
-        return {"type": "form", "step_id": step_id, "schema": data_schema, "placeholders": description_placeholders}
+        return {"type": "form", "step_id": step_id, "schema": data_schema, "errors": errors or {}, "placeholders": description_placeholders}
 
     def async_create_entry(self, title, data, options=None):
         return {"type": "create_entry", "title": title, "data": data, "options": options}
@@ -88,11 +88,30 @@ async def _src_ip(hass, target_ip=None):
     return "192.168.1.20"
 mod("homeassistant.components")
 mod("homeassistant.components.network", async_get_source_ip=_src_ip)
+mod("homeassistant.helpers.aiohttp_client", async_get_clientsession=lambda h: None)
+
+CALLS = []
+class FakeClient:
+    def __init__(self, session, host, user, pw, **kw): CALLS.append(("init", host, user, pw))
+    async def login(self):
+        if self.bad: raise _GwErr("wrong gateway username or password")
+    async def async_read_info(self): return {"model": "UG65", "eui": "24e124fffefa2994"}
+    async def async_point_at_home_assistant(self, ip, band="EU868", port=1700): CALLS.append(("semtech", ip, band)); return True
+    async def async_setup_mqtt(self, ip, u, pw, prefix="milesight", app_name="Home Assistant"):
+        CALLS.append(("mqtt", ip, u)); return {"topic": "milesight/uplink/#", "downlink_topic": "milesight/downlink/{deveui}",
+            "extra_topics": "milesight/ack, milesight/join, milesight/gateway", "ns_request_topic": "milesight/request",
+            "ns_response_topic": "milesight/response"}
+FakeClient.bad = False
+class _GwErr(Exception): pass
 
 import importlib  # noqa: E402
+import types as _t
+_ga = _t.ModuleType("milesight_lorawan.gateway_api"); _ga.GatewayClient = FakeClient; _ga.GatewayError = _GwErr
+import sys as _sys
 _pkg = types.ModuleType("milesight_lorawan")
 _pkg.__path__ = [str(ROOT / "custom_components" / "milesight_lorawan")]
 sys.modules["milesight_lorawan"] = _pkg                 # skip the package __init__ (needs all of HA)
+sys.modules["milesight_lorawan.gateway_api"] = _ga
 cf = importlib.import_module("milesight_lorawan.config_flow")
 
 
@@ -202,4 +221,29 @@ assert r["reason"] == "already_configured" and h.stats.gateways["24e124fffe00004
 r = run(make_flow(ents).async_step_integration_discovery({"gateway_id": "24e124fffe000555", "ip": "10.0.0.5",
                                                            "connection": "packet forwarder (Semtech UDP)"}))
 assert r["placeholders"]["found"] == "Semtech UDP · first packet"
+# 6. auto-configure a new gateway (no hub yet): Semtech mode sets up the built-in network server
+ents = Entries()
+fl = make_flow(ents)
+run(fl.async_step_dhcp(dhcp))
+r = run(fl.async_step_gateway_found({"name": "Depot", "auto_configure": True}))
+assert r["step_id"] == "gateway_configure" and r["placeholders"]["ha_ip"] == "192.168.1.20"
+CALLS.clear()
+r = run(fl.async_step_gateway_configure({"username": "admin", "password": "pw", "mode": "lns", "band": "EU868"}))
+assert ("semtech", "192.168.1.20", "EU868") in CALLS and r["type"] == "create_entry"
+assert r["options"]["lns_enabled"] is True and "24e124fffefa2994" in r["options"]["pending_gateways"]
+# MQTT mode on a fresh install: creates an MQTT hub with the gateway's topics and ns-api request/response
+ents = Entries(); fl = make_flow(ents); run(fl.async_step_dhcp(dhcp))
+run(fl.async_step_gateway_found({"name": "Depot", "auto_configure": True}))
+CALLS.clear()
+r = run(fl.async_step_gateway_configure({"username": "admin", "password": "pw", "mode": "mqtt"}))
+assert ("mqtt", "192.168.1.20", None) in CALLS and r["type"] == "create_entry"
+assert r["data"]["topic"] == "milesight/uplink/#" and r["data"]["ns_request_topic"] == "milesight/request"
+assert r["data"].get("lns_enabled") is None
+# wrong password -> error on the same step, nothing created
+ents = Entries(); fl = make_flow(ents); run(fl.async_step_dhcp(dhcp))
+run(fl.async_step_gateway_found({"name": "Depot", "auto_configure": True}))
+FakeClient.bad = True
+r = run(fl.async_step_gateway_configure({"username": "admin", "password": "bad", "mode": "lns"}))
+assert r["type"] == "form" and r["errors"]["base"] == "gateway_login"
+FakeClient.bad = False
 print("gateway flow ok")

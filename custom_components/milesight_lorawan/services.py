@@ -28,6 +28,7 @@ SERVICE_BATTERY = "battery_replaced"
 SERVICE_PROFILE = "apply_settings_profile"
 SERVICE_HANDOVER = "handover_report"
 SERVICE_COMPLIANCE = "compliance_report"
+SERVICE_CONFIGURE_GW = "configure_gateway"
 DISPLAY_BLOCKS = [f"text_{n}" for n in range(1, 11)] + ["qrcode"]
 ACTIONS = ["on", "off", "on_for", "off_for", "open_for", "open_until_pulses", "set"]
 
@@ -270,7 +271,44 @@ def async_register_services(hass: HomeAssistant) -> None:
                 "reports": [{k: r[k] for k in ("unit", "status", "url", "excursions", "out_min", "coverage")}
                             for r in out["reports"]]}
 
+    async def _configure_gateway(call: ServiceCall) -> dict:
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+        from homeassistant.helpers.network import get_url
+        from urllib.parse import urlparse
+        from .gateway_api import GatewayClient, GatewayError
+        hub = next((h for h in _hubs(hass)), None)
+        host = call.data["host"]
+        try:
+            from homeassistant.components.network import async_get_source_ip
+            ha_ip = await async_get_source_ip(hass, target_ip=host)
+        except Exception:  # noqa: BLE001
+            ha_ip = urlparse(get_url(hass, allow_external=False)).hostname
+        client = GatewayClient(async_get_clientsession(hass), host, call.data["username"], call.data["password"])
+        done = []
+        try:
+            await client.login()
+            info = await client.async_read_info()
+            if call.data["mode"] in ("lns", "both"):
+                done.append("semtech" if await client.async_point_at_home_assistant(ha_ip, band=call.data["band"])
+                            else "semtech_already")
+            topics = {}
+            if call.data["mode"] in ("mqtt", "both"):
+                topics = await client.async_setup_mqtt(ha_ip, call.data.get("mqtt_user") or None,
+                                                       call.data.get("mqtt_password") or None)
+                done.append("mqtt")
+            if hub is not None and info.get("eui") and hasattr(hub, "expect_gateway"):
+                from .gateway_discovery import norm_hex
+                hub.expect_gateway(norm_hex(info["eui"]), {"name": info.get("model"), "ip": host, "model": info.get("model")})
+        except GatewayError as err:
+            raise ServiceValidationError(str(err)) from err
+        return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics}
+
     from homeassistant.core import SupportsResponse
+    hass.services.async_register(DOMAIN, SERVICE_CONFIGURE_GW, _configure_gateway, schema=vol.Schema({
+        vol.Required("host"): cv.string, vol.Required("username", default="admin"): cv.string,
+        vol.Required("password"): cv.string, vol.Required("mode", default="lns"): vol.In(["lns", "mqtt", "both"]),
+        vol.Optional("band", default="EU868"): cv.string, vol.Optional("mqtt_user"): cv.string,
+        vol.Optional("mqtt_password"): cv.string}), supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_COMPLIANCE, _compliance, schema=COMPLIANCE_SCHEMA,
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_LOG, _log, schema=LOG_SCHEMA)

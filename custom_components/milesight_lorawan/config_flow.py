@@ -475,6 +475,10 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                     "area": (user_input.get(CONF_AREA) or "").strip() or None, "ip": gw.get("ip"),
                     "mac": gw.get("mac"), "model": gw.get("model"), "found": gw.get("found")}
             use_lns = bool(user_input.get("use_lns", lns_hub is not None or not hubs))
+            if user_input.get("auto_configure") and gw.get("ip"):
+                self._gw = {**gw, "_name": info["name"] if False else (user_input.get("name") or "").strip(),
+                            "_area": (user_input.get(CONF_AREA) or "").strip(), "_use_lns": use_lns}
+                return await self.async_step_gateway_configure()
             if not hubs:
                 # first gateway on a new installation: the built-in network server, no MQTT broker needed
                 farm = int(gw["eui"][-4:], 16) % 511 + 1
@@ -512,6 +516,8 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         if hubs and lns_hub is None and not connected:
             schema[vol.Required("use_lns", default=True)] = BooleanSelector()
+        if gw.get("ip") and not connected:
+            schema[vol.Required("auto_configure", default=False)] = BooleanSelector()
         return self.async_show_form(
             step_id="gateway_found" if not connected else "gateway_heard", data_schema=vol.Schema(schema),
             description_placeholders={"eui": gw["eui"].upper(), "gw_ip": gw.get("ip") or "–", "ha_ip": ha_ip,
@@ -520,6 +526,98 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_gateway_heard(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self.async_step_gateway_found(user_input)
+
+    async def async_step_gateway_configure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Log in to the gateway over the LAN and set it up: point its packet forwarder at Home Assistant (built-in
+        network server) and / or set up its embedded network server + MQTT – no visit to its web page."""
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+        from .gateway_api import GatewayClient, GatewayError
+        gw = self._gw
+        errors: dict[str, str] = {}
+        ha_ip = await _local_ip(self.hass, gw.get("ip"))
+        mode_default = "lns" if gw.get("_use_lns", True) else "mqtt"
+        if user_input is not None:
+            client = GatewayClient(async_get_clientsession(self.hass), gw["ip"],
+                                   user_input["username"], user_input["password"])
+            mode = user_input.get("mode", mode_default)
+            done = []
+            try:
+                await client.login()
+                info = await client.async_read_info()
+                if mode in ("lns", "both"):
+                    if await client.async_point_at_home_assistant(ha_ip, band=user_input.get("band", "EU868")):
+                        done.append("packet forwarder → Home Assistant")
+                    else:
+                        done.append("packet forwarder already set")
+                if mode in ("mqtt", "both"):
+                    topics = await client.async_setup_mqtt(ha_ip, user_input.get("mqtt_user") or None,
+                                                           user_input.get("mqtt_password") or None)
+                    done.append("application + MQTT")
+                    self._gw["_mqtt_topics"] = topics
+            except GatewayError as err:
+                errors["base"] = "gateway_login" if "password" in str(err) or "login" in str(err) else "gateway_api"
+                self.context["_gw_error"] = str(err)
+            if not errors:
+                self._gw["model"] = self._gw.get("model") or (info or {}).get("model")
+                return await self._finish_gateway(gw, gw.get("_use_lns", True), mode)
+        schema = {
+            vol.Required("username", default="admin"): TextSelector(),
+            vol.Required("password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Required("mode", default=mode_default): SelectSelector(SelectSelectorConfig(
+                options=["lns", "mqtt", "both"], translation_key="gateway_mode", mode=SelectSelectorMode.LIST)),
+            vol.Optional("band", default="EU868"): SelectSelector(SelectSelectorConfig(
+                options=["EU868", "US915", "AU915", "AS923", "IN865", "KR920"], mode=SelectSelectorMode.DROPDOWN)),
+            vol.Optional("mqtt_user"): TextSelector(),
+            vol.Optional("mqtt_password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+        }
+        return self.async_show_form(step_id="gateway_configure", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
+                                                              "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
+                                                              "error": self.context.get("_gw_error", "")})
+
+    async def _finish_gateway(self, gw: dict[str, Any], use_lns: bool, mode: str) -> ConfigFlowResult:
+        """Create / update the hub entry and register the gateway, after it was configured over the LAN."""
+        from .const import (CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_PORT, CONF_LNS_REGION, CONF_LNS_RX1_DELAY,
+                            DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
+        from .gateway_discovery import default_name
+        info = {"name": gw.get("_name") or default_name(gw["eui"], gw.get("model")), "area": gw.get("_area") or None,
+                "ip": gw.get("ip"), "mac": gw.get("mac"), "model": gw.get("model"), "found": gw.get("found")}
+        hubs = self._hubs()
+        topics = gw.get("_mqtt_topics") or {}
+        want_lns = mode in ("lns", "both")
+        if not hubs:
+            if mode == "mqtt":
+                farm_opts: dict[str, Any] = {}
+                data = {CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: topics.get("topic", DEFAULT_TOPIC),
+                        CONF_PAYLOAD_ENCODING: ENCODING_BASE64,
+                        CONF_DOWNLINK_TOPIC: topics.get("downlink_topic", DEFAULT_DOWNLINK_TOPIC),
+                        CONF_DOWNLINK_FORMAT: DOWNLINK_MILESIGHT, CONF_EXTRA_TOPICS: topics.get("extra_topics", ""),
+                        CONF_GATEWAY_OFFLINE_MIN: DEFAULT_GATEWAY_OFFLINE_MIN,
+                        CONF_NS_REQUEST_TOPIC: topics.get("ns_request_topic", ""),
+                        CONF_NS_RESPONSE_TOPIC: topics.get("ns_response_topic", "")}
+                return self.async_create_entry(title=info["name"], data=data,
+                                               options={"pending_gateways": {gw["eui"]: info}})
+            farm = int(gw["eui"][-4:], 16) % 511 + 1
+            return self.async_create_entry(title="Milesight LoRaWAN network", data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: topics.get("topic", ""),
+                CONF_PAYLOAD_ENCODING: ENCODING_BASE64, CONF_DOWNLINK_TOPIC: DEFAULT_DOWNLINK_TOPIC,
+                CONF_DOWNLINK_FORMAT: DOWNLINK_MILESIGHT, CONF_EXTRA_TOPICS: "",
+                CONF_GATEWAY_OFFLINE_MIN: DEFAULT_GATEWAY_OFFLINE_MIN}, options={
+                CONF_LNS_ENABLED: True, CONF_LNS_PORT: DEFAULT_LNS_PORT, CONF_LNS_REGION: "EU868",
+                CONF_LNS_RX1_DELAY: DEFAULT_LNS_RX1_DELAY, CONF_LNS_FARM_ID: farm,
+                "pending_gateways": {gw["eui"]: info}})
+        target = next((e for e in hubs if e.entry_id == gw.get("hub_entry_id")), None) or hubs[0]
+        hub = getattr(target, "runtime_data", None)
+        if want_lns and not target.options.get(CONF_LNS_ENABLED):
+            opts = {**target.options, CONF_LNS_ENABLED: True,
+                    CONF_LNS_PORT: target.options.get(CONF_LNS_PORT, DEFAULT_LNS_PORT),
+                    CONF_LNS_REGION: target.options.get(CONF_LNS_REGION, "EU868"),
+                    CONF_LNS_RX1_DELAY: target.options.get(CONF_LNS_RX1_DELAY, DEFAULT_LNS_RX1_DELAY),
+                    "pending_gateways": {**(target.options.get("pending_gateways") or {}), gw["eui"]: info}}
+            self.hass.config_entries.async_update_entry(target, options=opts)
+        elif hub is not None and hasattr(hub, "expect_gateway"):
+            hub.expect_gateway(gw["eui"], info)
+        return self.async_abort(reason="gateway_configured", description_placeholders={"name": info["name"]})
 
     # ------------------------------------------------------- auto-discovery
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:

@@ -90,7 +90,8 @@
         "data": {
           "name": "Name",
           "area": "Area",
-          "use_lns": "Use Home Assistant as the network server"
+          "use_lns": "Use Home Assistant as the network server",
+          "auto_configure": "Configure this gateway for me (needs its admin password)"
         },
         "data_description": {
           "use_lns": "Turns on the built-in network server (UDP port {port}). Leave it off if this gateway sends over MQTT instead."
@@ -103,6 +104,22 @@
           "name": "Name",
           "area": "Area"
         }
+      },
+      "gateway_configure": {
+        "title": "Configure the gateway automatically",
+        "description": "Home Assistant will log in to **{name}** ({gw_ip}) and set it up – no visit to its web page. Enter the gateway's admin login. {error}",
+        "data": {
+          "username": "Gateway username",
+          "password": "Gateway password",
+          "mode": "What to set up",
+          "band": "Frequency plan",
+          "mqtt_user": "MQTT username for the gateway",
+          "mqtt_password": "MQTT password for the gateway"
+        },
+        "data_description": {
+          "mode": "Semtech points the gateway at Home Assistant's built-in network server. MQTT sets up the gateway's own network server and sends uplinks over the broker.",
+          "mqtt_user": "Only for MQTT: the broker login the gateway should use (e.g. a Home Assistant user)."
+        }
       }
     },
     "error": {
@@ -110,7 +127,9 @@
       "bulk_invalid": "Some lines could not be read – see the list above.",
       "bulk_nothing_new": "All these devices are already set up.",
       "invalid_app_key": "The AppKey must be 32 hex digits.",
-      "provision_failed": "The gateway did not accept the device: {error}. Untick 'Also add it to the gateway' to add it to Home Assistant only."
+      "provision_failed": "The gateway did not accept the device: {error}. Untick 'Also add it to the gateway' to add it to Home Assistant only.",
+      "gateway_login": "The gateway rejected that username or password.",
+      "gateway_api": "Could not configure the gateway (see the message above)."
     },
     "abort": {
       "already_configured": "This device or gateway is already set up.",
@@ -118,7 +137,8 @@
       "bulk_done": "Adding {count} devices ({skipped} already set up). They appear under Milesight LoRaWAN in a moment.{gateway}",
       "gateway_connected": "{name} is connected and sending to Home Assistant.",
       "gateway_waiting": "{name} is added. It appears as soon as it sends its first packet – point its packet forwarder (Semtech) at {ha_ip}, port {port}, if it is not prepared for this already.",
-      "not_milesight_gateway": "This is not a Milesight gateway."
+      "not_milesight_gateway": "This is not a Milesight gateway.",
+      "gateway_configured": "{name} was configured and is connected to Home Assistant."
     }
   },
   "options": {
@@ -597,6 +617,13 @@
         "weekly": "Weekly (Monday)",
         "monthly": "Monthly (1st of the month)",
         "both": "Weekly and monthly"
+      }
+    },
+    "gateway_mode": {
+      "options": {
+        "lns": "Semtech → Home Assistant network server",
+        "mqtt": "Embedded network server + MQTT",
+        "both": "Both"
       }
     }
   },

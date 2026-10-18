@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.39.0
+### Added
+- **Configure the gateway from Home Assistant over the LAN** – no visit to its web page. On a discovered gateway
+  (with an IP address) tick *Configure this gateway for me* and enter its admin login; Home Assistant can:
+  - point the gateway's packet forwarder at Home Assistant's built-in network server (a Semtech destination), and / or
+  - set up the gateway's own embedded network server: create an application and its MQTT data transmission (broker,
+    uplink/downlink/ack/join and ns-api request/response topics) so uplinks arrive over the broker.
+  Also as a service `milesight_lorawan.configure_gateway` (host, admin login, mode: semtech / mqtt / both) for
+  gateways already added. The admin password is sent only to the gateway, encrypted the way its own login page does,
+  and is never stored or logged. Works with UG65 / UG67 / UG56 / UG63 firmware that has the web API.
+  For the off-the-shelf product: the customer plugs the gateway in, it is discovered, they enter its password once,
+  and both the gateway and Home Assistant are set up end to end.
+
 ## 0.38.0
 ### Added
 - **How each gateway is connected and was found**: gateway devices show the connection in their model line

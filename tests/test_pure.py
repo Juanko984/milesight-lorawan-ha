@@ -2064,6 +2064,50 @@ def test_gateway_discovery():
     assert len(hosts) == 253 and "192.168.1.20" not in hosts and hosts[0] == "192.168.1.1" and gd.subnet_hosts("x") == []
 
 
+
+def test_gateway_api():
+    import json as _json
+    ga = _load("gateway_api")
+    fix = _json.load(open(PKG.parent.parent / "tests" / "gateway_fixtures.json"))
+    # login password transform reproduces what the gateway page sends (verified against a real login)
+    tok = ga.encrypt_password("admin")
+    assert ga.decrypt_password(tok) == "admin" and len(__import__("base64").b64decode(tok)) == 16
+    assert ga.encrypt_password("a long admin password 123") and ga.decrypt_password(ga.encrypt_password("xy")) == "xy"
+    # adding a Semtech destination to a real gateway's general_conf keeps the embedded one and matches the gateway's own write
+    out = ga.with_semtech(fix["general_conf_before"], "192.168.1.174")
+    types = [s["serv_type"] for s in out["servs"]]
+    assert types == ["ursalink", "semtech"] and out["servs"][0] == fix["general_conf_before"]["servs"][0]
+    sem = out["servs"][1]
+    assert sem["serv_addr"] == "192.168.1.174" and sem["serv_port_up"] == 1700 and sem["serv_port_down"] == 1700
+    assert sem["band"] == "EU868" and sem["region"] == "EU(Europe)" and sem["serv_enabled"] is True
+    assert ga.has_semtech(out, "192.168.1.174") and not ga.has_semtech(fix["general_conf_before"], "192.168.1.174")
+    # idempotent: running it again updates the same entry, does not add a second
+    again = ga.with_semtech(out, "192.168.1.174")
+    assert [s["serv_type"] for s in again["servs"]] == ["ursalink", "semtech"]
+    # a different band
+    assert ga.semtech_destination("10.0.0.1", band="US915")["region"] == "US(United States)"
+    # MQTT integration body carries the HA topics; keys match the gateway's own request
+    m = ga.mqtt_integration("7", "192.168.1.174", 1883, "home", "pw", "milesight")
+    for k in fix["mqtt_body"]:
+        assert k in m, k
+    assert m["uplinkTopic"] == "milesight/uplink" and m["downlinkTopic"] == "milesight/downlink"
+    assert m["requestTopic"] == "milesight/request" and m["responseTopic"] == "milesight/response"
+    assert m["useAuth"] is True and m["username"] == "home" and m["host"] == "192.168.1.174"
+    t = ga.ha_topics("milesight")
+    assert t["topic"] == "milesight/uplink/#" and t["downlink_topic"] == "milesight/downlink/{deveui}"
+    assert t["ns_request_topic"] == "milesight/request"
+    # application body matches the gateway's own create call shape
+    a = ga.application_body("Home Assistant", "f6f7d81d-647f-4c7f-8409-3e5218c0c523")
+    assert set(a) >= set(k for k in fix["app_body"] if k != "id") and a["serviceProfileID"] == fix["app_body"]["serviceProfileID"]
+    # pick an OTAA ClassA profile, skip ABP
+    profs = [{"profile": {"supportsJoin": False, "supportsClassC": False}, "name": "ClassA-ABP"},
+             {"profile": {"supportsJoin": True, "supportsClassC": False}, "name": "ClassA-OTAA"},
+             {"profile": {"supportsJoin": True, "supportsClassC": True}, "name": "ClassC-OTAA"}]
+    assert ga.pick_profile(profs)["name"] == "ClassA-OTAA" and ga.pick_profile(profs, want_class_c=True)["name"] == "ClassC-OTAA"
+    d = ga.device_body("24E1 24 13 6D 05 82 39", "Front door", "7", "pid", "5572404C696E6B4C6F52613230313823")
+    assert d["devEUI"] == "24e124136d058239" and d["appKey"] == "5572404c696e6b4c6f52613230313823" and d["appEUI"] == "0000000000000000"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
