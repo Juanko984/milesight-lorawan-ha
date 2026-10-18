@@ -89,6 +89,8 @@ class Hub:
         from .irrigation_ha import IrrigationManager
         self.alerts = AlertManager(hass, entry, self)
         self.irrigation = IrrigationManager(hass, entry)
+        from .compliance_ha import ComplianceManager
+        self.compliance = ComplianceManager(hass, entry)
         self.lns = None         # lns_ha.LnsTransport: built-in network server (Semtech packet forwarder)
         from .const import CONF_LNS_ENABLED
         if cfg.get(CONF_LNS_ENABLED):
@@ -117,12 +119,14 @@ class Hub:
             self._unsubs.append(async_track_time_interval(self.hass, self._auto_sync, timedelta(hours=6)))
         await self.alerts.async_start()
         await self.irrigation.async_start()
+        await self.compliance.async_start()
 
     async def async_stop(self) -> None:
         while self._unsubs:
             self._unsubs.pop()()
         await self.alerts.async_stop()
         await self.irrigation.async_stop()
+        await self.compliance.async_stop()
         if self.lns is not None:
             await self.lns.async_stop()
         if self.ns is not None:

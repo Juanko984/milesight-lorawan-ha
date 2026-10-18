@@ -675,6 +675,13 @@ class DeviceRuntime:
                 "alarm": v.get("temp_alarm"), "excursions_today": v.get("temp_excursions_today"),
                 "min_today": self.tempw.s["min"], "max_today": self.tempw.s["max"],
                 "door_open": v.get("door_active"), "log": self.tempw.s["log"][-31:]}
+            if p is not None and p.group == "cold_chain":
+                v["temp_in_range_7d"] = self._in_range_7d(ts, v.get("temp_out_today"))
+                acts = [x for x in self.meta.get("_service_log", []) if x.get("kind") == "corrective_action"]
+                v["corrective_action"] = acts[-1]["text"] if acts else ""
+                self.attrs["corrective_action"] = {"milesight_role": "corrective_action", "device": self.entry.title,
+                                                   "actions": acts[-10:]}
+                self.attrs["temp_out_today"]["in_range_7d"] = v["temp_in_range_7d"]
             self.attrs["temp_alarm"] = {"since": (self.tempw.s["alarm"] or {}).get("since"),
                                         "peak": (self.tempw.s["alarm"] or {}).get("peak")}
         if self._pkey == "mains":
@@ -747,6 +754,12 @@ class DeviceRuntime:
                                 running=ch is not None or "load" not in self.model.features)
         if self.tempw is not None:
             specs += temp_specs(self.pcfg)
+            if p is not None and p.group == "cold_chain":
+                from .models import EntitySpec
+                specs += [EntitySpec("temp_in_range_7d", "Time in range 7 days", unit="%", state_class="measurement",
+                                     icon="mdi:shield-check-outline", precision=2),
+                          EntitySpec("corrective_action", "Log corrective action", platform="text",
+                                     icon="mdi:clipboard-edit-outline")]
         if p is not None:
             specs += purpose_specs(p.key, self.pcfg)
             if self.pcfg.get("after_hours") and self._pfam & {"contact", "motion"}:
@@ -986,6 +999,16 @@ class DeviceRuntime:
         self._publish(ts)
 
     # ------------------------------------------------------------ maintenance
+    def _in_range_7d(self, ts: float, out_today: Any) -> float | None:
+        """% of the last 7 days (6 logged days + today so far) the temperature was inside the allowed range."""
+        log = self.tempw.s["log"][-6:]
+        today_s = ts - self._day_start(ts)
+        total_min = len(log) * 1440 + today_s / 60
+        if total_min < 60:
+            return None
+        out = sum(d.get("out_min") or 0 for d in log) + (out_today or 0)
+        return round(max(0.0, 100 - out / total_min * 100), 2)
+
     def log_service(self, kind: str, text: str, by: str | None = None, ts: float | None = None) -> None:
         """Service history of this device (battery replaced, firmware, settings profile, notes)."""
         log = self.meta.setdefault("_service_log", [])
@@ -1475,12 +1498,14 @@ class DeviceRuntime:
             if chans:
                 v["current_total"] = round(sum(v[k] for k in chans), 2)
         if volts > 0:
-            for k in chans:
+            pf = power_factor(dict(self.entry.options))
+            for k in chans:                         # real power estimate: I × V × power factor (W); apparent: I × V
                 v[k.replace("current", "apparent_power")] = round(v[k] * volts)
+                v[k.replace("current", "power")] = round(v[k] * volts * pf)
             if "current_total" in v:
                 v["apparent_power"] = round(v["current_total"] * volts)
+                v["power"] = round(v["current_total"] * volts * pf)
             # no energy counter on the clamp: energy = cumulative current (Ah) × voltage × power factor
-            pf = power_factor(dict(self.entry.options))
             for sfx in ("", "_1", "_2", "_3"):
                 ah = v.get(f"total_current{sfx}")
                 if isinstance(ah, (int, float)) and not isinstance(ah, bool) and f"energy{sfx}" not in self.raw:

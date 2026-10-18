@@ -1241,7 +1241,9 @@ def _ct(f: frozenset[str]) -> list[EntitySpec]:
                        enabled_default=False, **amp),
             EntitySpec(f"current{sfx}_min", f"Current{lbl} min (last alarm)", icon="mdi:arrow-collapse-down",
                        enabled_default=False, **amp),
-            EntitySpec(f"apparent_power{sfx}", f"Estimated power{lbl}", unit="VA", device_class="apparent_power",
+            EntitySpec(f"power{sfx}", f"Estimated power{lbl}", unit="W", device_class="power",
+                       state_class="measurement", precision=0),
+            EntitySpec(f"apparent_power{sfx}", f"Apparent power{lbl}", unit="VA", device_class="apparent_power",
                        state_class="measurement", precision=0, enabled_default=False),
         ]
         specs += _alarm(f"current{sfx}", f"Current{lbl}")
@@ -1249,7 +1251,9 @@ def _ct(f: frozenset[str]) -> list[EntitySpec]:
         specs += [
             EntitySpec("current_total", "Current (all channels)", state_class="measurement", icon="mdi:current-ac",
                        precision=2, **amp),
-            EntitySpec("apparent_power", "Estimated power (all channels)", unit="VA", device_class="apparent_power",
+            EntitySpec("power", "Estimated power (all channels)", unit="W", device_class="power",
+                       state_class="measurement", precision=0),
+            EntitySpec("apparent_power", "Apparent power (all channels)", unit="VA", device_class="apparent_power",
                        state_class="measurement", precision=0, enabled_default=False),
         ]
     specs += [

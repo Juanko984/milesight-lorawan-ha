@@ -481,6 +481,38 @@ class MilesightOptionsFlow(OptionsFlow):
         opts = {**entry.data, **entry.options}
         return self.async_show_form(step_id="connection", data_schema=vol.Schema(_hub_schema(opts)))
 
+    async def async_step_compliance(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: cold-chain compliance reports (PDF per fridge / cold room, weekly or monthly, by e-mail)."""
+        from .compliance_ha import (CONF_COMPLIANCE_ATTACH, CONF_COMPLIANCE_HOUR, CONF_COMPLIANCE_NOTIFY,
+                                    CONF_COMPLIANCE_SCHEDULE, DEFAULT_COMPLIANCE_HOUR, DEFAULT_COMPLIANCE_SCHEDULE,
+                                    cold_units)
+        entry = self.config_entry
+        o = entry.options
+        notify = sorted(f"notify.{n}" for n in self.hass.services.async_services().get("notify", {}))
+        if user_input is not None:
+            data = {**o, **user_input}
+            data[CONF_COMPLIANCE_NOTIFY] = user_input.get(CONF_COMPLIANCE_NOTIFY) or []
+            return self.async_create_entry(data=data)
+        cur = o.get(CONF_COMPLIANCE_NOTIFY) or []
+        cur = cur if isinstance(cur, list) else [x.strip() for x in str(cur).split(",") if x.strip()]
+        schema = {
+            vol.Required(CONF_COMPLIANCE_SCHEDULE, default=o.get(CONF_COMPLIANCE_SCHEDULE,
+                                                                 DEFAULT_COMPLIANCE_SCHEDULE)):
+                SelectSelector(SelectSelectorConfig(options=["off", "weekly", "monthly", "both"],
+                                                    translation_key="compliance_schedule",
+                                                    mode=SelectSelectorMode.LIST)),
+            vol.Optional(CONF_COMPLIANCE_NOTIFY, description={"suggested_value": cur}):
+                SelectSelector(SelectSelectorConfig(options=sorted(set(notify) | set(cur)), multiple=True,
+                                                    custom_value=True, mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required(CONF_COMPLIANCE_ATTACH, default=o.get(CONF_COMPLIANCE_ATTACH, True)): BooleanSelector(),
+            vol.Required(CONF_COMPLIANCE_HOUR, default=o.get(CONF_COMPLIANCE_HOUR, DEFAULT_COMPLIANCE_HOUR)):
+                _int_box(0, 23),
+        }
+        units = cold_units(self.hass)
+        return self.async_show_form(step_id="compliance", data_schema=vol.Schema(schema), description_placeholders={
+            "units": ", ".join(u["rt"].entry.title for u in units) or "none yet – set a temperature sensor's "
+                                                                      "purpose to Fridge / cold room or Freezer"})
+
     async def async_step_site(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Gateway: site information for the banner and the Building dashboard."""
         entry = self.config_entry
@@ -522,8 +554,9 @@ class MilesightOptionsFlow(OptionsFlow):
             return self.async_create_entry(data=user_input)
 
         if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-            return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "irrigation", "provisioning",
-                                                                      "network_server", "connection"])
+            return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "compliance", "irrigation",
+                                                                      "provisioning", "network_server",
+                                                                      "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         sections = ((["purpose"] if purposes_for(model) else [])
                     + (["channels", "channel_template"] if MODELS[model].dynamic else [])

@@ -2,6 +2,25 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.36.0
+### Added
+- **Cold storage dashboard** (was *Cold chain*), built for production sites: **Overview** with the site status (units
+  in range, in alarm, drifting within the delay, doors open, worst time in range over 7 days), red / amber alerts and
+  every unit by area; **Units** detail; **Trends** (hourly and daily min / mean / max over 7 and 30 days);
+  **Compliance**; plus the existing **Table** and **Compressors** tabs.
+- **Cold-room compliance reports**: a PDF per fridge, freezer or cold room, weekly and / or monthly, e-mailed
+  automatically through a notify service (PDFs attached) – min / max / mean / mean kinetic temperature, time out of
+  range, excursions with peak, duration and corrective action, door-open time, data coverage and gaps, daily table,
+  chart and sign-off. Gateway → Configure → *Cold-chain compliance reports*; buttons for last week / last month;
+  service `milesight_lorawan.compliance_report`; sensor *Compliance reports*; event
+  `milesight_lorawan_compliance_report`. No extra Python packages (built-in PDF writer).
+- **Corrective actions** for cold units: a *Log corrective action* field on the device (saved with the user's name),
+  also `log_service` kind `corrective_action`; they are printed in the reports.
+- *Time in range 7 days* sensor for every fridge / freezer probe.
+### Changed
+- Current clamps: **Estimated power** is now real power in **W** (current × voltage × power factor) and is enabled
+  by default; the VA value is now called *Apparent power*.
+
 ## 0.35.0
 ### Added
 - Current clamps (CT101/CT103/CT303/CT310…): **Voltage**, **Power factor** and **Running above** are now typed-in

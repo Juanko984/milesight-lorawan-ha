@@ -277,6 +277,164 @@ def cold_chain_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
     return [s for s in out if s]
 
 
+# ------------------------------------------------------------------ cold storage (multi-view)
+_COLD_ROLE = ("states.sensor | selectattr('attributes.milesight_role', 'defined') | "
+              "selectattr('attributes.milesight_role', 'eq', 'cold_chain') | list")
+
+STATUS_MD = """{% set t = """ + _COLD_ROLE + """ %}{% if not t %}No fridge, freezer or cold-room probes yet – open a temperature sensor → Configure → Purpose → *Fridge / cold room* or *Freezer*.{% else %}{% set alarm = t | selectattr('attributes.alarm') | list %}{% set doors = t | selectattr('attributes.door_open', 'eq', true) | list %}{% set drift = t | rejectattr('attributes.alarm') | selectattr('attributes.temperature', 'number') | list %}{% set ns = namespace(out=[], tir=[]) %}{% for s in drift %}{% set a = s.attributes %}{% if (a.high is number and a.temperature > a.high) or (a.low is number and a.temperature < a.low) %}{% set ns.out = ns.out + [s] %}{% endif %}{% endfor %}{% for s in t %}{% if s.attributes.in_range_7d is number %}{% set ns.tir = ns.tir + [s.attributes.in_range_7d] %}{% endif %}{% endfor %}
+| Units | In range | Alarm | Drifting (within delay) | Doors open | Time in range, 7 days |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| **{{ t | count }}** | **{{ t | count - alarm | count - ns.out | count }}** | **{{ alarm | count }}** | **{{ ns.out | count }}** | **{{ doors | count }}** | **{{ (ns.tir | min) if ns.tir else '–' }} %** (worst unit) |
+
+{% for s in alarm %}{% set a = s.attributes %}<ha-alert alert-type="error" title="{{ a.device }}{{ ' · ' ~ a.area if a.area }}">{{ a.temperature }} °C – allowed {{ a.low if a.low is not none else '' }} … {{ a.high if a.high is not none else '' }} °C. Out of range {{ s.state }} min today. Record what was done under Compliance → Corrective actions.</ha-alert>
+{% endfor %}{% for s in ns.out %}{% set a = s.attributes %}<ha-alert alert-type="warning" title="{{ a.device }}">{{ a.temperature }} °C is outside {{ a.low if a.low is not none else '' }} … {{ a.high if a.high is not none else '' }} °C – alarm after {{ a.delay_min or 0 }} min unless it recovers{{ ' (door open)' if a.door_open }}.</ha-alert>
+{% endfor %}{% for s in doors %}<ha-alert alert-type="info">{{ s.attributes.device }}: door open.</ha-alert>
+{% endfor %}{% if not alarm and not ns.out %}<ha-alert alert-type="success">All units within their limits.</ha-alert>{% endif %}{% endif %}"""
+
+REPORTS_MD = """{% set r = state_attr('{e}', 'reports') or [] %}{% if not r %}No reports yet. They are made automatically ({{ state_attr('{e}', 'schedule') }}) – or press a button above.{% else %}| | Unit | Period | Min / max | Out of range | Excursions | Coverage | PDF |
+|---|---|---|---|---|---|---|---|
+{% for x in r[:25] %}| {{ {'compliant': '🟢', 'deviations': '🟠'}.get(x.status, '🔴') }} | {{ x.unit }} | {{ x.period }} | {{ x.min if x.min is not none else '–' }} / {{ x.max if x.max is not none else '–' }} °C | {{ x.out_min }} min | {{ x.excursions }} | {{ x.coverage }} % | [open]({{ x.url }}) |
+{% endfor %}
+🟢 compliant · 🟠 excursions with a corrective action recorded · 🔴 needs attention (excursion without an action, or data missing){% endif %}
+{% if state_attr('{e}', 'email') %}E-mailed with {{ state_attr('{e}', 'email') | join(', ') }}.{% else %}Not e-mailed yet: gateway → Configure → *Cold-chain compliance reports*.{% endif %}"""
+
+LOG_MD = """{% set a = states['{e}'].attributes if states['{e}'] is defined else {} %}| Day | Min | Max | Out of range | Excursions |
+|---|---|---|---|---|
+{% for d in (a.log or [])[-14:] | reverse %}| {{ d.day }} | {{ d.min }} °C | {{ d.max }} °C | {{ d.out_min }} min | {{ d.excursions }} |
+{% endfor %}"""
+
+
+def _cold_units(runtimes: list) -> list:
+    return sorted([rt for rt in runtimes if getattr(getattr(rt, "purpose", None), "group", None) == "cold_chain"
+                   and getattr(rt, "tempw", None) is not None],
+                  key=lambda rt: ((rt.entry.data.get("area") or "~").lower(), rt.entry.title.lower()))
+
+
+def _cold_temp(eid: Resolver, rt: Any) -> str | None:
+    key = "temperature" if "temperature" in rt.raw or "temperature_1" not in rt.raw else "temperature_1"
+    return _e(eid, rt, "sensor", key)
+
+
+def _cold_gauge(eid: Resolver, rt: Any, cols: int = HALF, name: str | None = None) -> dict | None:
+    lo, hi = rt.pcfg.get("temp_low"), rt.pcfg.get("temp_high")
+    if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)):
+        return _tile(_cold_temp(eid, rt), name or rt.entry.title, None, cols)
+    span = max(4, hi - lo)
+    return _gauge(_cold_temp(eid, rt), name or rt.entry.title, lo - span, hi + span,
+                  [(lo - span, BLUE), (lo, GREEN), (hi, RED)], unit="°C", cols=cols)
+
+
+def _stats(entities: list, title: str, days: int, period: str) -> dict | None:
+    ents = [e for e in entities if e]
+    if not ents:
+        return None
+    return _g({"type": "statistics-graph", "title": title, "entities": ents, "days_to_show": days,
+               "period": period, "stat_types": ["min", "mean", "max"], "chart_type": "line"}, FULL)
+
+
+def _press(entity: str | None, name: str, icon: str) -> dict | None:
+    if not entity:
+        return None
+    return _g({"type": "tile", "entity": entity, "name": name, "icon": icon, "hide_state": True,
+               "tap_action": {"action": "perform-action", "perform_action": "button.press",
+                              "target": {"entity_id": entity}, "confirmation": {"text": f"{name}?"}}}, HALF)
+
+
+def cold_chain_views(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
+    """Cold storage: Overview (status, alarms, every unit at a glance by area), Units (detail), Trends (7 / 30
+    days min-mean-max) and Compliance (reports, corrective actions, daily log)."""
+    units = _cold_units(runtimes)
+    if not units:
+        return []
+    areas: dict[str, list] = {}
+    for rt in units:
+        areas.setdefault(rt.entry.data.get("area") or "Other", []).append(rt)
+
+    overview = [_section("Cold storage status", [_md(STATUS_MD)], "mdi:snowflake-thermometer", span=4)]
+    for area, rts in areas.items():
+        cards = []
+        for rt in rts:
+            cards += [_cold_gauge(eid, rt, HALF),
+                      _g({"type": "vertical-stack", "cards": [c for c in (
+                          {"type": "tile", "entity": _e(eid, rt, "binary_sensor", "temp_alarm"), "name": "Alarm",
+                           "icon": "mdi:thermometer-alert"} if _e(eid, rt, "binary_sensor", "temp_alarm") else None,
+                          {"type": "tile", "entity": _e(eid, rt, "sensor", "temp_in_range_7d"), "name": "In range 7 d"}
+                          if _e(eid, rt, "sensor", "temp_in_range_7d") else None,
+                          {"type": "tile", "entity": _e(eid, rt, "binary_sensor", "door_active"), "name": "Door"}
+                          if _e(eid, rt, "binary_sensor", "door_active") else None,
+                          {"type": "tile", "entity": _e(eid, rt, "sensor", "load_duty_24h"), "name": "Compressor 24 h"}
+                          if _e(eid, rt, "sensor", "load_duty_24h") else None) if c]}, HALF)]
+        overview.append(_section(area, cards, "mdi:texture-box"))
+
+    detail = []
+    for rt in units:
+        temp = _cold_temp(eid, rt)
+        lo, hi = rt.pcfg.get("temp_low"), rt.pcfg.get("temp_high")
+        detail.append(_section(rt.entry.title, [
+            _cold_gauge(eid, rt, FULL, "Temperature"),
+            _md(f"**Allowed** {'' if lo is None else lo} … {'' if hi is None else hi} °C · alarm after "
+                f"{rt.pcfg.get('temp_delay_min') or 0} min out of range"
+                + (f" · {rt.entry.data['area']}" if rt.entry.data.get("area") else "")),
+            _tile(_e(eid, rt, "sensor", "temp_out_today"), "Out of range today", cols=HALF),
+            _tile(_e(eid, rt, "sensor", "temp_excursions_today"), "Excursions today", cols=HALF),
+            _tile(_e(eid, rt, "binary_sensor", "door_active"), "Door", cols=HALF),
+            _tile(_e(eid, rt, "sensor", "door_today_s"), "Door open today", cols=HALF),
+            _tile(_e(eid, rt, "binary_sensor", "load_active"), "Compressor", cols=HALF),
+            _tile(_e(eid, rt, "sensor", "load_duty_24h"), "Compressor duty 24 h", cols=HALF),
+            _history([temp, _e(eid, rt, "binary_sensor", "door_active")], "Last 24 h"),
+            *_setpoint_tiles(eid, rt, ["p_temp_low", "p_temp_high", "p_left_open_min"]),
+            _tile(_e(eid, rt, "sensor", "battery"), "Battery", cols=HALF),
+            _tile(_e(eid, rt, "binary_sensor", "online") or _e(eid, rt, "sensor", "last_seen"), "Online", cols=HALF),
+        ], getattr(rt.purpose, "icon", None) or "mdi:fridge-outline"))
+
+    trends = []
+    for rt in units:
+        temp = _cold_temp(eid, rt)
+        trends.append(_section(rt.entry.title, [
+            _stats([temp], "Hourly min / mean / max – 7 days", 7, "hour"),
+            _stats([temp], "Daily min / mean / max – 30 days", 30, "day"),
+            _history([_e(eid, rt, "sensor", "temp_in_range_7d")], "Time in range, 7 days (%)", 24 * 7),
+        ], "mdi:chart-bell-curve-cumulative"))
+
+    comp = []
+    for hub in hubs:
+        rep = eid("sensor", f"{hub.entry.entry_id}_compliance_reports")
+        if not rep:
+            continue
+        hid = hub.entry.entry_id
+        comp.append(_section("Compliance reports (PDF)", [
+            _press(eid("button", f"{hid}_compliance_week"), "Create: last week", "mdi:file-certificate-outline"),
+            _press(eid("button", f"{hid}_compliance_month"), "Create: last month", "mdi:file-certificate"),
+            _md(REPORTS_MD.replace("{e}", rep)),
+        ], "mdi:file-certificate-outline", span=4))
+    acts = [r for rt in units if (r := _e(eid, rt, "text", "corrective_action"))]
+    if acts:
+        comp.append(_section("Corrective actions", [
+            _md("Type what was done about an excursion (e.g. *door seal replaced, product moved to cold room 2, "
+                "temperature re-checked 3 °C*) and press Enter. It is saved with your name and the time, and "
+                "printed in the unit's compliance report."),
+            _entities([{"entity": r, "name": rt.entry.title} for rt in units
+                       if (r := _e(eid, rt, "text", "corrective_action"))]),
+        ], "mdi:clipboard-edit-outline", span=2))
+    for rt in units:
+        e = _e(eid, rt, "sensor", "temp_out_today")
+        if e:
+            comp.append(_section(f"{rt.entry.title} – daily log", [_md(LOG_MD.replace("{e}", e))],
+                                 "mdi:notebook-outline"))
+
+    def view(title: str, path: str, icon: str, sections: list) -> dict | None:
+        sections = [x for x in sections if x]
+        return {"type": "sections", "title": title, "path": path, "icon": icon, "max_columns": 4,
+                "sections": sections} if sections else None
+    return [v for v in (view("Overview", "overview", "mdi:view-dashboard-outline", overview),
+                        view("Units", "units", "mdi:fridge-outline", detail),
+                        view("Trends", "trends", "mdi:chart-line", trends),
+                        view("Compliance", "compliance", "mdi:file-certificate-outline", comp)) if v]
+
+
+VIEWS = {"cold_chain.yaml": cold_chain_views}     # builders that make several tabs in front of the bundled ones
+
+
 def energy_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
     out = []
     for rt in runtimes:
@@ -406,6 +564,10 @@ def live_view(sections: list[dict], title: str = "Live", path: str = "live", ico
 
 def with_live_view(file: str, config: dict, eid: Resolver, runtimes: list, hubs: list) -> dict:
     """The bundled dashboard plus a first 'Live' view (only when there is something to show)."""
+    views = VIEWS.get(file)
+    if views is not None:
+        made = views(eid, runtimes, hubs)
+        return {**config, "views": made + list(config.get("views") or [])} if made else config
     after = AFTER.get(file)
     if after is not None:
         extra = after(eid, runtimes)

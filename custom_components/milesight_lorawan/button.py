@@ -17,7 +17,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         hub = entry.runtime_data
         buttons: list = [UpdateDashboardButton(hass, entry), _HubButton(hass, entry, "acknowledge_alerts"),
                          _HubButton(hass, entry, "install_resources"), _HubButton(hass, entry, "alert_summary"),
-                         _HubButton(hass, entry, "handover_report")]
+                         _HubButton(hass, entry, "handover_report"), _HubButton(hass, entry, "compliance_week"),
+                         _HubButton(hass, entry, "compliance_month")]
         if getattr(hub, "ns", None) is not None:
             buttons.append(_HubButton(hass, entry, "sync_gateway"))
         async_add_entities(buttons)
@@ -88,7 +89,9 @@ class _HubButton(ButtonEntity):
              "sync_gateway": ("Sync devices with gateway", "mdi:sync"),
              "install_resources": ("Install dashboards and blueprints", "mdi:package-down"),
              "alert_summary": ("Send alert summary", "mdi:email-newsletter"),
-             "handover_report": ("Create handover report", "mdi:clipboard-check-outline")}
+             "handover_report": ("Create handover report", "mdi:clipboard-check-outline"),
+             "compliance_week": ("Cold-chain report: last week", "mdi:file-certificate-outline"),
+             "compliance_month": ("Cold-chain report: last month", "mdi:file-certificate")}
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str) -> None:
         from .building import hub_device
@@ -104,6 +107,8 @@ class _HubButton(ButtonEntity):
                 await hub.alerts.async_acknowledge(None, None)
             elif self.kind == "alert_summary":
                 await hub.alerts.async_send_summary()
+            elif self.kind in ("compliance_week", "compliance_month"):
+                await hub.compliance.async_create(self.kind.removeprefix("compliance_"), send=True)
             elif self.kind == "handover_report":
                 from homeassistant.components import persistent_notification
                 from .const import DOMAIN

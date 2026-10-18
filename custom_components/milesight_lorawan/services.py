@@ -27,6 +27,7 @@ SERVICE_LOG = "log_service"
 SERVICE_BATTERY = "battery_replaced"
 SERVICE_PROFILE = "apply_settings_profile"
 SERVICE_HANDOVER = "handover_report"
+SERVICE_COMPLIANCE = "compliance_report"
 DISPLAY_BLOCKS = [f"text_{n}" for n in range(1, 11)] + ["qrcode"]
 ACTIONS = ["on", "off", "on_for", "off_for", "open_for", "open_until_pulses", "set"]
 
@@ -66,7 +67,12 @@ TANK_SCHEMA = vol.Schema({vol.Required("device_id"): vol.Any(cv.string, [cv.stri
 LOG_SCHEMA = vol.Schema({vol.Required("device_id"): vol.Any(cv.string, [cv.string]),
                          vol.Required("note"): cv.string,
                          vol.Optional("kind", default="maintenance"): vol.In(["maintenance", "battery_replaced",
-                                                                             "firmware", "note"])})
+                                                                             "firmware", "note",
+                                                                             "corrective_action"])})
+COMPLIANCE_SCHEMA = vol.Schema({vol.Optional("period", default="week"): vol.In(["week", "month", "custom"]),
+                                vol.Optional("start"): cv.datetime, vol.Optional("end"): cv.datetime,
+                                vol.Optional("device_id"): vol.Any(cv.string, [cv.string]),
+                                vol.Optional("send", default=True): cv.boolean})
 PROFILE_SCHEMA = vol.Schema({vol.Required("profile"): cv.string,
                              vol.Required("device_id"): vol.Any(cv.string, [cv.string]),
                              vol.Optional("include_channels", default=True): cv.boolean,
@@ -243,7 +249,30 @@ def async_register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError("No Milesight gateway set up")
         return await async_handover_report(hass, hub)
 
+    async def _compliance(call: ServiceCall) -> dict:
+        from .maintenance_ha import first_hub_entry
+        hub = first_hub_entry(hass)
+        if hub is None:
+            raise ServiceValidationError("No Milesight gateway set up")
+        period = call.data["period"]
+        start, end = call.data.get("start"), call.data.get("end")
+        if period == "custom" and (start is None or end is None or end <= start):
+            raise ServiceValidationError("A custom period needs a start and an end after it")
+        ids = call.data.get("device_id")
+        try:
+            out = await hub.runtime_data.compliance.async_create(
+                period, start if period == "custom" else None, end if period == "custom" else None,
+                device_ids=(ids if isinstance(ids, list) else [ids]) if ids else None, send=call.data["send"],
+                by=await _user(call))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        return {"period": out["period"], "sent_to": out["sent_to"],
+                "reports": [{k: r[k] for k in ("unit", "status", "url", "excursions", "out_min", "coverage")}
+                            for r in out["reports"]]}
+
     from homeassistant.core import SupportsResponse
+    hass.services.async_register(DOMAIN, SERVICE_COMPLIANCE, _compliance, schema=COMPLIANCE_SCHEMA,
+                                 supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_LOG, _log, schema=LOG_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_BATTERY, _battery, schema=TANK_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_PROFILE, _profile, schema=PROFILE_SCHEMA,

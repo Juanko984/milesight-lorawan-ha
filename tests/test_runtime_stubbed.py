@@ -1514,3 +1514,88 @@ e_nv, rt2 = make_with("24e124746e359612", "CT103", {}, title="No voltage")
 send("24e124746e359612", base64.b64decode("A5d1hw4ABJgtAAln//8="))
 assert rt2.values.get("energy") is None and rt2.limits["run_a"] == 0.2
 print("ct103 energy ok")
+
+# ---------------- 0.36: power in W, cold storage views, corrective actions, compliance reports ----------------
+e_w, rt = make_with("24e124746e359614", "CT103", {"mains_voltage": 230, "power_factor": 0.9}, title="Pump W")
+send("24e124746e359614", base64.b64decode("A5cWiA4ABJhWAQlniwE="))           # 3.42 A
+assert rt.values["power"] == round(3.42 * 230 * 0.9) and rt.values["apparent_power"] == round(3.42 * 230), rt.values
+spec = {s.key: s for s in models.entity_specs("CT103")}
+assert spec["power"].unit == "W" and spec["power"].device_class == "power" and spec["apparent_power"].name == "Apparent power"
+
+fr = e_f.runtime_data
+keys = {s.key: s for s in fr.extra_specs()}
+assert keys["corrective_action"].platform == "text" and "temp_in_range_7d" in keys
+txt = load("text")
+ent = txt.CorrectiveActionText(fr, keys["corrective_action"])
+class _U: name = "Juan"
+async def _gu(uid): return _U()
+ent.hass = types.SimpleNamespace(auth=types.SimpleNamespace(async_get_user=_gu))
+ent._context = types.SimpleNamespace(user_id="u1")
+asyncio.run(ent.async_set_value("Door seal replaced, product moved"))
+assert fr.meta["_service_log"][-1]["kind"] == "corrective_action" and fr.meta["_service_log"][-1]["by"] == "Juan"
+assert fr.values["corrective_action"] == "Door seal replaced, product moved"
+assert isinstance(fr.values["temp_in_range_7d"], (int, float)) or fr.values["temp_in_range_7d"] is None
+
+dl = load("dashboard_live")
+eid = lambda plat, uid: f"{plat}.{uid}"
+hubobj = types.SimpleNamespace(entry=types.SimpleNamespace(entry_id="hubX", title="Site"))
+cv = dl.cold_chain_views(eid, [fr, rt], [hubobj])
+assert [v["path"] for v in cv] == ["overview", "units", "trends", "compliance"], [v["path"] for v in cv]
+flat = json.dumps(cv)
+assert "statistics-graph" in flat and "text.0000000000f00001_corrective_action" in flat and "button.hubX_compliance_week" in flat
+assert "sensor.hubX_compliance_reports" in flat and "Kitchen" in flat and "Pump W" not in flat
+cfg = dl.with_live_view("cold_chain.yaml", {"views": [{"title": "Table"}]}, eid, [fr], [hubobj])
+assert cfg["views"][0]["path"] == "overview" and cfg["views"][-1]["title"] == "Table"
+
+# compliance manager end to end with a stubbed recorder
+import tempfile, time as _time
+from zoneinfo import ZoneInfo as _ZI
+TZ = _ZI("Africa/Johannesburg")
+NOW = datetime(2026, 10, 19, 6, 5, tzinfo=TZ)                     # Monday morning
+import os
+dtu = sys.modules["homeassistant.util.dt"]; sys.modules["homeassistant.util"].dt = dtu
+dtu.now = lambda: NOW; dtu.as_local = lambda d: d.astimezone(TZ); dtu.parse_datetime = datetime.fromisoformat
+wk0 = datetime(2026, 10, 12, tzinfo=TZ).timestamp()
+class _S:
+    def __init__(self, ts, st): self.last_updated = datetime.fromtimestamp(ts, timezone.utc); self.state = st
+def _changes(hass, start, end, eid, **kw):
+    if eid.endswith("_temperature"):
+        return {eid: [_S(wk0 - 600 + i * 600, str(3.0 if not 1000 < i < 1010 else 9.0)) for i in range(7 * 144 + 2)]}
+    return {eid: []}
+class _Inst:
+    async def async_add_executor_job(self, f, *a): return f(*a)
+mod("homeassistant.components.recorder", get_instance=lambda h: _Inst(),
+    history=types.SimpleNamespace(state_changes_during_period=_changes))
+mod("homeassistant.components.recorder.statistics", statistics_during_period=lambda *a: {})
+mod("homeassistant.helpers.entity_registry", async_get=lambda h: _EntReg())
+NOTES, CALLS, FIRED2 = [], [], []
+mod("homeassistant.components.persistent_notification", async_create=lambda h, m, title=None, notification_id=None: NOTES.append((title, m)))
+sys.modules["homeassistant.components"].persistent_notification = sys.modules["homeassistant.components.persistent_notification"]
+sys.modules["homeassistant.helpers.event"].async_track_time_change = lambda h, f, **kw: (lambda: None)
+async def _call(domain, name, data, blocking=False): CALLS.append((domain, name, data))
+tmp = tempfile.mkdtemp()
+bld = load("building")
+bld.site_info = lambda h, e: {"company": "Korb Farms", "site": "Packhouse"}
+hub_e = types.SimpleNamespace(entry_id="hubX", title="Site", options={"compliance_notify": "smtp_haccp"})
+hass_c = types.SimpleNamespace(
+    config=types.SimpleNamespace(time_zone="Africa/Johannesburg", path=lambda *p: os.path.join(tmp, *p)),
+    config_entries=types.SimpleNamespace(async_entries=lambda d: [e_f]),
+    services=types.SimpleNamespace(has_service=lambda d, n: n == "smtp_haccp", async_call=_call),
+    bus=types.SimpleNamespace(async_fire=lambda ev, d: FIRED2.append((ev, d))),
+    async_add_executor_job=lambda f, *a: asyncio.sleep(0, f(*a)))
+cha = load("compliance_ha")
+assert cha.notify_services("smtp_a, notify.b") == ["notify.smtp_a", "notify.b"]
+assert [u["temp"] for u in cha.cold_units(hass_c)] == ["sensor.0000000000f00001_temperature"]
+mgr = cha.ComplianceManager(hass_c, hub_e)
+out = asyncio.run(mgr.async_create("week"))
+r = out["reports"][0]
+assert r["unit"] == "Fridge 3" and r["status"] in ("deviations", "not_compliant") and r["excursions"] == 1, r
+assert r["max"] == 9.0 and r["url"].startswith("/local/milesight/compliance/2026/fridge-3-week-20261012-") and r["coverage"] > 99
+assert open(r["path"], "rb").read(5) == b"%PDF-"
+assert CALLS and CALLS[0][:2] == ("notify", "smtp_haccp") and CALLS[0][2]["data"]["images"] == [r["path"]]
+assert out["sent_to"] == ["notify.smtp_haccp"] and NOTES and FIRED2[-1][0] == "milesight_lorawan_compliance_report"
+assert mgr.reports()[0]["unit"] == "Fridge 3" and "path" not in mgr.reports()[0]
+# the scheduled run on Monday makes it once
+asyncio.run(mgr._run_period("week", NOW)); n1 = len(mgr.data["reports"])
+asyncio.run(mgr._run_period("week", NOW)); assert len(mgr.data["reports"]) == n1
+print("compliance ok")

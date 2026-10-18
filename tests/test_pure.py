@@ -1987,6 +1987,51 @@ def test_run_threshold_and_ct_energy():
     assert spt.clamp(spt.DEVICE["pump_normal_a"], 0.49) == 0.49 and spt.clamp(spt.DEVICE["mains_voltage"], 230.4) == 230
 
 
+
+def test_pdfmini_and_compliance():
+    pm = _load("pdfmini"); cp = _load("compliance")
+    assert pm.text_width("Hello", 10) == round((722 + 556 + 222 + 222 + 556) * 10 / 1000, 3)
+    assert pm.fit("A very long unit name indeed", 8, 40).endswith("...") and pm.clean("≥ 5 °C ✓") == ">= 5 °C OK"
+    doc = pm.Pdf("t"); pg = doc.page(); pg.text(10, 20, "Fridge (1) \\ °C"); pg.rect(0, 0, 10, 10, fill="#ff0000")
+    out = doc.output()
+    assert out.startswith(b"%PDF-1.4") and out.rstrip().endswith(b"%%EOF") and b"/Count 1" in out
+    tz = ZoneInfo("Africa/Johannesburg")
+    s, e, label = cp.period_bounds("week", datetime(2026, 10, 18, 7, tzinfo=tz))
+    assert (s.isoformat(), e.isoformat()) == ("2026-10-05T00:00:00+02:00", "2026-10-12T00:00:00+02:00") and "Week 41" in label
+    s2, e2, l2 = cp.period_bounds("month", datetime(2026, 10, 1, 6, tzinfo=tz))
+    assert s2.day == 1 and s2.month == 9 and e2.month == 10 and l2 == "September 2026"
+    t0, t1 = s.timestamp(), e.timestamp()
+    temps = [(t0 - 300 + i * 600, 3.0) for i in range(7 * 144 + 1)]
+    temps = [(ts, 8.0 if t0 + 86400 <= ts < t0 + 86400 + 1800 else (7.0 if t0 + 2 * 86400 <= ts < t0 + 2 * 86400 + 600 else v))
+             for ts, v in temps]
+    temps = [x for x in temps if not (t0 + 3 * 86400 < x[0] < t0 + 3 * 86400 + 5 * 3600)]       # 5 h without data
+    doors = [(t0 + 3600, "on"), (t0 + 3700, "off"), (t0 + 7200, "on"), (t0 + 7200 + 600, "off")]
+    unit = cp.Unit("Fridge 3", "Kitchen", low=0, high=5, delay_min=15, left_open_min=2, max_gap_s=7200)
+    res = cp.analyse(unit, temps, doors, t0, t1, tz)
+    assert res["min"] == 3.0 and res["max"] == 8.0 and len(res["excursions"]) == 1 and res["brief"] == 1, res["excursions"]
+    ex = res["excursions"][0]
+    assert ex["minutes"] == 30 and ex["peak"] == 8.0 and ex["action"] is None
+    assert res["out_min"] == 40 and res["status"] == "not_compliant" and len(res["gaps"]) == 1
+    assert res["door"]["count"] == 2 and res["door"]["open_s"] == 700 and res["door"]["long"][0]["minutes"] == 10
+    assert len(res["days"]) == 7 and res["days"][1]["excursions"] == 1 and res["days"][1]["out_min"] == 30
+    assert res["days"][3]["coverage"] < 100 and 97 < res["coverage"] < 100 and 2.9 < res["mkt"] < 3.2
+    act = [{"ts": t0 + 86400 + 2400, "text": "Seal fixed", "by": "Juan"}]
+    res2 = cp.analyse(unit, temps, doors, t0, t1, tz, act)
+    assert res2["excursions"][0]["action"]["text"] == "Seal fixed" and res2["status"] == "deviations"
+    clean = cp.analyse(unit, [(t0 - 60 + i * 600, 3.0) for i in range(7 * 144 + 1)], None, t0, t1, tz)
+    assert clean["status"] == "compliant" and clean["reasons"] == [] and clean["coverage"] == 100.0
+    assert cp.analyse(unit, [], None, t0, t1, tz)["status"] == "not_compliant"
+    pdf = cp.report_pdf({"company": "Korb", "site": "Farm"}, unit, res2, temps, label, "now", tz)
+    assert pdf.startswith(b"%PDF") and b"/Count 2" in pdf or b"/Count 1" in pdf
+    hourly = [(t0 + h * 3600, 2.0, 3.0, 6.5) for h in range(48)]
+    merged, cut = cp.merge_hourly([(t0 + 47 * 3600 + 10, 3.1)], hourly, t0)
+    assert cut == t0 + 47 * 3600 + 10 and max(v for _, v in merged) == 6.5 and merged[-1] == (cut, 3.1)
+    assert cp.merge_hourly([(t0 + 60, 3.0)], hourly, t0) == ([(t0 + 60, 3.0)], None)
+    many = [(t0 + i * 60, 3.0 + (i % 7)) for i in range(7 * 1440)]
+    pts = cp.chart_points(many, t0, t1, 100)
+    assert len(pts) <= 200 and max(v for _, v in pts) == 9.0
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

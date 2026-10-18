@@ -15,7 +15,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return
-    setup_platform_entities(entry, async_add_entities, "text", DisplayText)
+    setup_platform_entities(entry, async_add_entities, "text",
+                            lambda rt, spec: CorrectiveActionText(rt, spec) if spec.key == "corrective_action"
+                            else DisplayText(rt, spec))
+
+
+class CorrectiveActionText(MilesightEntity, TextEntity):
+    """Cold chain: type what was done about an excursion; it goes into the device's service history and the
+    compliance report (with the user's name)."""
+
+    _attr_mode = TextMode.TEXT
+    _attr_native_min = 0
+    _attr_native_max = 255
+
+    @property
+    def native_value(self) -> str | None:
+        return self.raw_value or ""
+
+    @property
+    def extra_state_attributes(self):
+        return self.runtime.attrs.get("corrective_action")
+
+    async def async_set_value(self, value: str) -> None:
+        value = (value or "").strip()
+        if not value:
+            return
+        by = None
+        ctx = getattr(self, "_context", None)
+        if ctx is not None and ctx.user_id:
+            user = await self.hass.auth.async_get_user(ctx.user_id)
+            by = user.name if user else None
+        self.runtime.log_service("corrective_action", value, by)
+        self.runtime._publish(__import__("time").time())
 
 
 class DisplayText(MilesightEntity, TextEntity):

@@ -1,10 +1,12 @@
-# Milesight LoRaWAN – cold chain (fridges, freezers, cold rooms)
+# Milesight LoRaWAN – cold storage (fridges, freezers, cold rooms)
 # Installed by the integration when a device is fitted to a fridge / freezer (device → Configure → Purpose).
-# No entity ids to edit: the cards find the probes, door contacts and compressor clamps themselves.
-title: Cold chain
+# The integration adds the Overview, Units, Trends and Compliance tabs in front of these with your entities;
+# these two tabs find the probes, door contacts and compressor clamps themselves.
+title: Cold storage
 views:
-  - title: Cold chain
+  - title: Table
     path: cold-chain
+    icon: mdi:table
     cards:
       - type: markdown
         title: Now
@@ -18,17 +20,6 @@ views:
 
           🔴 out of range for longer than the delay (short door openings and defrost cycles do not raise the alarm; with a door contact on the same device the delay restarts once the door closes){% endif %}
       - type: markdown
-        title: Compressors
-        content: |
-          {% set c = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'load') | selectattr('attributes.group', 'eq', 'cold_chain') | list %}
-          {% if not c %}No compressor clamps yet – a CT clamp or smart socket on the fridge → Configure → Purpose → Fridge / cold room.{% else %}
-          | | Compressor | Area | Now | Duty today | Duty 24 h | Starts today |
-          |---|---|---|---|---|---|---|
-          {% for s in c | sort(attribute='attributes.device') %}{% set a = s.attributes %}| {{ '🔴' if a.ran_too_long or a.not_running else '🟢' }} | {{ a.device }}{{ ' ch ' ~ a.channel if a.channel else '' }} | {{ a.area or '' }} | {{ 'running' if a.running else 'off' }} | {{ a.duty_today if a.duty_today is not none else '–' }} % | {{ a.duty_24h if a.duty_24h is not none else '–' }} % | {{ a.starts_today }} |
-          {% endfor %}
-
-          A compressor at 90–100 % duty or never stopping means it cannot keep up (door, seals, gas, condenser); one that has not run for hours has tripped or failed.{% endif %}
-      - type: markdown
         title: Cold-chain log (last 7 days)
         content: |
           {% set t = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'cold_chain') | list %}
@@ -41,3 +32,18 @@ views:
           {% endfor %}
           {% endfor %}
           The full 31 days are in each probe's *Time out of range today* attributes (log) and in the history.
+  - title: Compressors
+    path: compressors
+    icon: mdi:heat-pump-outline
+    cards:
+      - type: markdown
+        title: Compressors
+        content: |
+          {% set c = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'load') | selectattr('attributes.group', 'eq', 'cold_chain') | list %}
+          {% if not c %}No compressor clamps yet – a CT clamp or smart socket on the fridge → Configure → Purpose → Fridge / cold room.{% else %}
+          | | Compressor | Area | Now | Duty today | Duty 24 h | Starts today |
+          |---|---|---|---|---|---|---|
+          {% for s in c | sort(attribute='attributes.device') %}{% set a = s.attributes %}| {{ '🔴' if a.ran_too_long or a.not_running else '🟢' }} | {{ a.device }}{{ ' ch ' ~ a.channel if a.channel else '' }} | {{ a.area or '' }} | {{ 'running' if a.running else 'off' }} | {{ a.duty_today if a.duty_today is not none else '–' }} % | {{ a.duty_24h if a.duty_24h is not none else '–' }} % | {{ a.starts_today }} |
+          {% endfor %}
+
+          A compressor at 90–100 % duty or never stopping means it cannot keep up (door, seals, gas, condenser); one that has not run for hours has tripped or failed.{% endif %}

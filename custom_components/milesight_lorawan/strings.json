@@ -118,7 +118,8 @@
           "network_server": "Built-in network server (packet forwarder)",
           "network_keys": "Network server keys",
           "settings_profile": "Settings profile (copy to other devices)",
-          "location": "Location (map)"
+          "location": "Location (map)",
+          "compliance": "Cold-chain compliance reports"
         }
       },
       "connection": {
@@ -197,7 +198,7 @@
           "co2_limit": "Time above this level is counted as 'CO2 above limit'. 1000 ppm is a common indoor guideline.",
           "install_height_mm": "Distance the sensor measures when the bin / tank is empty (sensor to bottom). Used to calculate the fill level %. 0 = off.",
           "run_threshold_a": "The load counts as running while the current (any channel) is at or above this. Used for running time and start counts. 0 = automatic: 30 % of the pump normal current when one is set, else 0.2 A.",
-          "mains_voltage": "Phase voltage, e.g. 230. Enables the 'Estimated power' sensors (current × voltage, in VA) and the Energy sensor (cumulative current × voltage × power factor) on clamps without an energy counter. 0 = off.",
+          "mains_voltage": "Phase voltage, e.g. 230. Enables 'Estimated power' (current × voltage × power factor, in W), 'Apparent power' (VA) and the Energy sensor (cumulative current × voltage × power factor) on clamps without an energy counter. 0 = off.",
           "battery_low_pct": "The 'Battery low' sensor turns on below this level.",
           "meter_type": "Turn the pulse counter into a water / gas / electricity meter for the Energy dashboard.",
           "meter_pulses_per_unit": "e.g. 1 pulse per litre with unit L = 1; 100 pulses per m³ = 100.",
@@ -487,6 +488,20 @@
           "location": "Location",
           "clear": "Clear the location"
         }
+      },
+      "compliance": {
+        "title": "Cold-chain compliance reports",
+        "description": "One PDF per fridge, freezer or cold room for food-safety (HACCP) audits: min / max / mean, mean kinetic temperature, time out of range, excursions with peak, duration and corrective action, door-open time, data gaps, a daily table, a chart and a sign-off block. Weekly reports cover Monday–Sunday and are made on Monday; monthly ones on the 1st. Units now: {units}.\n\nE-mail: pick an e-mail notify service (e.g. the SMTP integration). The PDFs are attached when *Attach the PDFs* is on, and linked as well. Files are kept in /config/www/milesight/compliance/. Keep at least 10 days of recorder history (the default); for older parts of a month the hourly statistics are used.",
+        "data": {
+          "compliance_schedule": "Create reports",
+          "compliance_notify": "E-mail them with",
+          "compliance_attach": "Attach the PDFs",
+          "compliance_hour": "At (hour)"
+        },
+        "data_description": {
+          "compliance_notify": "Notify services, e.g. notify.smtp_haccp. Leave empty to only keep the files and show a notification.",
+          "compliance_hour": "Hour of the day the reports are made (5 minutes past)."
+        }
       }
     },
     "error": {
@@ -551,6 +566,14 @@
         "security": "Security (after hours, left open, panic)",
         "energy": "Energy (after-hours loads, outages, phase imbalance)",
         "facilities": "Facilities (bins, cleaning, service requests)"
+      }
+    },
+    "compliance_schedule": {
+      "options": {
+        "off": "Off (only on demand)",
+        "weekly": "Weekly (Monday)",
+        "monthly": "Monthly (1st of the month)",
+        "both": "Weekly and monthly"
       }
     }
   },
@@ -739,7 +762,7 @@
         },
         "kind": {
           "name": "Kind",
-          "description": "maintenance, battery_replaced (also restarts the battery forecast), firmware or note."
+          "description": "maintenance, battery_replaced (also restarts the battery forecast), firmware, note or corrective_action (cold-chain compliance reports)."
         },
         "note": {
           "name": "Note",
@@ -782,6 +805,32 @@
     "handover_report": {
       "name": "Handover report",
       "description": "Writes the installer handover report (printable page and CSV) to /config/www/milesight/ and returns their links."
+    },
+    "compliance_report": {
+      "name": "Cold-chain compliance report",
+      "description": "Creates the PDF temperature record of every fridge, freezer and cold room (or the chosen ones) and e-mails it with the service set in the gateway's Cold-chain compliance reports options.",
+      "fields": {
+        "period": {
+          "name": "Period",
+          "description": "week = last Monday–Sunday, month = last calendar month, custom = start to end."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Custom period only."
+        },
+        "end": {
+          "name": "End",
+          "description": "Custom period only."
+        },
+        "device_id": {
+          "name": "Devices",
+          "description": "Only these units (default: all)."
+        },
+        "send": {
+          "name": "Send",
+          "description": "E-mail the reports (otherwise only create the files)."
+        }
+      }
     }
   },
   "entity": {

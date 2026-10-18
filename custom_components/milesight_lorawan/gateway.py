@@ -356,9 +356,48 @@ class AlertSummarySensor(SensorEntity):
                 "escalation_chain": list(cfg.backup)}
 
 
+class ComplianceReportsSensor(SensorEntity):
+    """Cold-chain compliance reports: when the last ones were made; the recent reports (unit, period, status,
+    PDF link) as attributes for the Cold chain dashboard."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_name = "Compliance reports"
+    _attr_icon = "mdi:file-certificate-outline"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass, self.entry = hass, entry
+        self._attr_unique_id = f"{entry.entry_id}_compliance_reports"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"hub_{entry.entry_id}")})
+
+    async def async_added_to_hass(self) -> None:
+        from .compliance_ha import SIGNAL_COMPLIANCE
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, SIGNAL_COMPLIANCE.format(self.entry.entry_id), self.async_write_ha_state))
+
+    def _mgr(self):
+        return getattr(_hub(self.entry), "compliance", None)
+
+    @property
+    def native_value(self):
+        mgr = self._mgr()
+        reps = mgr.reports(1) if mgr else []
+        return dt_util.parse_datetime(reps[0]["created"]) if reps else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from .compliance_ha import CONF_COMPLIANCE_NOTIFY, CONF_COMPLIANCE_SCHEDULE, DEFAULT_COMPLIANCE_SCHEDULE
+        mgr = self._mgr()
+        o = self.entry.options
+        return {"milesight_role": "compliance_reports", "reports": mgr.reports(40) if mgr else [],
+                "schedule": o.get(CONF_COMPLIANCE_SCHEDULE, DEFAULT_COMPLIANCE_SCHEDULE),
+                "email": o.get(CONF_COMPLIANCE_NOTIFY) or None}
+
+
 def hub_extra_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:
     hub = _hub(entry)
-    out: list = [OpenAlertsSensor(hass, entry), AlertSummarySensor(hass, entry)]
+    out: list = [OpenAlertsSensor(hass, entry), AlertSummarySensor(hass, entry), ComplianceReportsSensor(hass, entry)]
     if hub is not None and hub.ns is not None:
         out.append(GatewayDevicesSensor(hass, entry))
     if hub is not None and getattr(hub, "lns", None) is not None:

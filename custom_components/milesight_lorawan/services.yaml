@@ -177,6 +177,7 @@ log_service:
             - battery_replaced
             - firmware
             - note
+            - corrective_action
     note:
       required: true
       example: "Cleaned the sensor, re-mounted at 1.5 m"
@@ -212,3 +213,28 @@ apply_settings_profile:
       selector:
         boolean:
 handover_report:
+compliance_report:
+  fields:
+    period:
+      default: week
+      selector:
+        select:
+          options:
+            - week
+            - month
+            - custom
+    start:
+      selector:
+        datetime:
+    end:
+      selector:
+        datetime:
+    device_id:
+      selector:
+        device:
+          integration: milesight_lorawan
+          multiple: true
+    send:
+      default: true
+      selector:
+        boolean:

@@ -342,7 +342,7 @@ integration and it puts them in place itself:
 
 * **After every update** (first start of a new version) the blueprints are copied to
   `config/blueprints/automation/milesight_lorawan/` and the dashboards appear in the sidebar: **Maintenance**
-  (tabs Overview, Devices, Signal, Map), **Tanks & alerts**, **Building analytics**, **Farm**, **Cold chain** and
+  (tabs Overview, Devices, Signal, Map), **Tanks & alerts**, **Building analytics**, **Farm**, **Cold storage** and
   **Energy & HVAC** (each only when the site
   needs it, see below). A notification lists what changed.
 * **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
@@ -817,6 +817,44 @@ The gateway gets **Open alerts** (with the list and who acknowledged), **Alerts 
 is on call now), **Acknowledge all alerts** and **Send alert summary**; service
 `milesight_lorawan.acknowledge_alert`; every message also fires `milesight_lorawan_alert` for your own automations.
 
+## Cold storage and compliance reports
+
+The **Cold storage** dashboard (installed once a device's purpose is *Fridge / cold room* or *Freezer*) has:
+
+* **Overview** – how many units are in range, in alarm, drifting (out of range but still within the alarm delay)
+  and have the door open, the worst *time in range over 7 days*, red / amber alerts per unit, and every unit by
+  area: a temperature gauge (blue below, green inside, red above the limits) with alarm, door, time in range and
+  compressor duty.
+* **Units** – per unit: temperature, limits, out of range and excursions today, door, compressor, the last 24 h,
+  the alarm limits (typed in), battery and connection.
+* **Trends** – hourly min / mean / max over 7 days and daily over 30 days (long-term statistics), time in range.
+* **Compliance** – the reports with their status and PDF link, buttons for *last week* / *last month*, the
+  **corrective actions** (type what was done; it is saved with your name and time) and a 14-day log per unit.
+* **Table** and **Compressors** – the all-units table, 7-day log and the compressor duty table.
+
+**Compliance reports** (gateway → Configure → *Cold-chain compliance reports*): one PDF per fridge, freezer or cold
+room for food-safety / HACCP audits – minimum, maximum, mean and **mean kinetic temperature**, **time out of
+range**, **excursions** (out of range longer than the alarm delay) with start, end, peak and the **corrective
+action** recorded, short excursions (door openings, defrost), **door-open time** and count, doors left open,
+**data coverage and gaps**, a daily table, a chart with the allowed band and a sign-off block. The status is
+*Compliant*, *Deviations – actioned* (every excursion has a corrective action) or *Not compliant* (an excursion
+without an action, or less than 95 % data coverage).
+
+* **Weekly** (Monday–Sunday, made on Monday), **monthly** (made on the 1st), both, or off; default weekly at 06:05.
+  If Home Assistant was off at that time, the missing report is made at the next start.
+* **E-mail**: choose a notify service (e.g. the [SMTP integration](https://www.home-assistant.io/integrations/smtp/)
+  with your auditor / QA address). The PDFs are attached and linked. Without one, the reports are kept and shown
+  in a notification and on the dashboard.
+* Files: `/config/www/milesight/compliance/<year>/` with an unguessable name (the `/local/` folder is not behind the
+  login). Raw history comes from the recorder (10 days by default); older parts of a month use the hourly
+  long-term statistics – set `recorder: purge_keep_days: 35` for full detail in monthly reports.
+* On demand: buttons *Cold-chain report: last week / last month*, or the service
+  `milesight_lorawan.compliance_report` (period `week`, `month` or `custom` with start / end, optional devices,
+  send or not – it returns the links). Event `milesight_lorawan_compliance_report` for your own automations (e.g.
+  copy the PDFs to a NAS).
+* Corrective actions: the unit's **Log corrective action** field, or `milesight_lorawan.log_service` with kind
+  `corrective_action`.
+
 ## Battery and maintenance
 
 **Battery forecast** – every battery device gets **Battery replacement due** (a date) and **Battery days left**.
@@ -990,7 +1028,7 @@ added up):
   otherwise 0.2 A.
 * **Pump energy today** from the clamp's energy counter. Clamps without one (CT101/CT103) get an *Energy* sensor
   once you type a **Voltage** under Configuration: cumulative current (Ah) × voltage × **Power factor** (default
-  0.85).
+  0.85), and **Estimated power** in W (current × voltage × power factor; *Apparent power* in VA is there too).
 * Choose a **water meter** (e.g. an EM300-DI / UC pulse counter set up as a water meter) and you also get
   **Pumped today** and **Water per kWh** (m³/kWh) – a falling figure means a worn impeller or a dropping water table.
 
@@ -1098,6 +1136,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.36.0** | Cold storage dashboard (Overview, Units, Trends, Compliance); weekly / monthly compliance PDFs by e-mail; corrective actions; estimated power in W. |
 | **0.35.0** | Voltage, power factor and running threshold fields for clamps; energy from Ah × V; typed-in pump settings. |
 | **0.34.2** | Gauges show a tile instead of "non-numeric" until data arrives; never-heard devices on Maintenance. |
 | **0.34.1** | Alert notifications: View on map / Open dashboard as a button (no jump on tap); phone location via the app's own tracking. |
