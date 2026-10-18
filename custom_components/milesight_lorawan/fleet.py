@@ -340,7 +340,7 @@ async def async_setup_areas(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     saved = await tracker.store.async_load()
     if isinstance(saved, dict):
         tracker.data = {a: d for a, d in saved.items() if isinstance(d, dict) and "day" in d}
-    entry.async_on_unload(lambda: hass.async_create_task(tracker.store.async_save(tracker.data)))
+    entry.async_on_unload(lambda: tracker.store.async_save(tracker.data))
     tracker.sample()
     entry.async_on_unload(async_track_time_interval(hass, tracker.sample, timedelta(seconds=60)))
     return tracker

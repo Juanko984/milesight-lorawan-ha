@@ -303,12 +303,16 @@ class GatewayDevicesSensor(_Base, SensorEntity):
         g = hub.gateway_devices if hub else {}
         known = {e.unique_id for e in self.hass.config_entries.async_entries(DOMAIN)}
         at = g.get("at")
+        devs = g.get("devices", [])
+        # keep the attribute well under Home Assistant's 16 KB recorder limit on big gateways: a compact list,
+        # capped, with only what the dashboard and sync need.
+        compact = [{"deveui": d.get("deveui"), "name": d.get("name"),
+                    "in_home_assistant": d.get("deveui") in known} for d in devs[:200]]
         return {"milesight_role": "net_registered", "site": self.entry.title,
-                "devices": [{**d, "in_home_assistant": d["deveui"] in known} for d in g.get("devices", [])],
-                "not_in_home_assistant": sum(1 for d in g.get("devices", []) if d["deveui"] not in known
+                "devices": compact, "devices_total": len(devs), "devices_shown": len(compact),
+                "not_in_home_assistant": sum(1 for d in devs if d.get("deveui") not in known
                                              and (not hub or not hub.ns_application
                                                   or d.get("application_id") in ("", hub.ns_application))),
-                "applications": g.get("applications"), "profiles": g.get("profiles"),
                 "application_id": hub.ns_application if hub else None, "profile_id": hub.ns_profile if hub else None,
                 "last_sync": dt_util.utc_from_timestamp(at).isoformat() if at else None, "error": g.get("error")}
 

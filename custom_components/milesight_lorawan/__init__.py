@@ -85,10 +85,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if _is_hub(entry):
-        await hass.config_entries.async_unload_platforms(entry, HUB_PLATFORMS)
-        from .dashboard import async_remove_panel
-        await async_remove_panel(hass, entry)
-        await entry.runtime_data.async_stop()
+        ok = await hass.config_entries.async_unload_platforms(entry, HUB_PLATFORMS)
+        try:
+            from .dashboard import async_remove_panel
+            await async_remove_panel(hass, entry)
+        except Exception:  # noqa: BLE001 - never let cleanup block the unload / leave the entry stuck
+            _LOGGER.exception("Could not remove the Milesight dashboard panel")
+        hub = getattr(entry, "runtime_data", None)
+        if hub is not None:
+            try:
+                await hub.async_stop()
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Error stopping the Milesight gateway hub")
         hass.data.get(DOMAIN, {}).get("hubs", {}).pop(entry.entry_id, None)
         if not hass.data.get(DOMAIN, {}).get("hubs"):
             try:
@@ -96,11 +104,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _remove_commissioning(hass)
             except Exception:  # noqa: BLE001
                 pass
-        return True
+        return ok
 
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if ok:
-        await entry.runtime_data.async_stop()
+    if ok and getattr(entry, "runtime_data", None) is not None:
+        try:
+            await entry.runtime_data.async_stop()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Error stopping Milesight device runtime")
     return ok
 
 

@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.1
+### Fixed
+- A failed or interrupted reload could leave the gateway entry stuck ("Error unloading entry"): unload is now
+  resilient — a cleanup or stop error is logged and the entry still unloads, so a reload or restart recovers it.
+- "State attributes … exceed maximum size of 16384 bytes" on the *Devices on gateway* sensor: the device list is
+  now compact and capped (with `devices_total` kept as a count), so it stays well under the recorder limit on
+  gateways with many devices.
+
 ## 0.40.0
 ### Fixed
 - **Gateway configuration over the LAN now logs in correctly** (UG65 / firmware 60 returned HTTP 500): the gateway
