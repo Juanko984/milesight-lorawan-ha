@@ -202,7 +202,8 @@
           "site_areas": "Areas on the dashboard",
           "site_outside_sensor": "Outside temperature (optional)",
           "co2_alert": "CO₂ alert above (ppm)",
-          "update_dashboard": "Regenerate the site landing page now (replaces your edits)"
+          "update_dashboard": "Regenerate the site landing page now (replaces your edits)",
+          "set_ha_name": "Use the company name as Home Assistant's name (top-left)"
         },
         "data_description": {
           "site_company": "Leave empty to use the Home Assistant name. The site name is this gateway's name (rename it on the integration page).",
@@ -212,7 +213,8 @@
           "site_areas": "In this order. Leave empty to show every area that has Milesight devices.",
           "site_outside_sensor": "Shown as a badge at the top of the dashboard.",
           "co2_alert": "Areas above this level appear in Needs attention and the banner.",
-          "update_dashboard": "Generates the site landing page (site banner, dashboards, people, alerts, areas, tanks, farm, cold chain, energy). It also refreshes by itself unless you edited it; the gateway's 'Update site dashboard' button regenerates it."
+          "update_dashboard": "Generates the site landing page (site banner, dashboards, people, alerts, areas, tanks, farm, cold chain, energy). It also refreshes by itself unless you edited it; the gateway's 'Update site dashboard' button regenerates it.",
+          "set_ha_name": "Renames this Home Assistant instance (Settings → System → Home information) to the company name above."
         }
       },
       "general": {

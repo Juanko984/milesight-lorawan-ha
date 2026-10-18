@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.0
+### Fixed
+- **Gateway configuration over the LAN now logs in correctly** (UG65 / firmware 60 returned HTTP 500): the gateway
+  authenticates its web calls with HTTP Basic auth, which the client now sends (and the network-server REST calls
+  use the login token). Verified against real UG56 and UG65 traffic.
+### Added
+- Gateway → Configure → **Site information**: *Use the company name as Home Assistant's name* renames this Home
+  Assistant instance (the name shown top-left) to your site's company name.
+### Changed
+- Gateway login is also tried in several forms (the password transform and content-type have varied across gateway
+  firmware), so configuring works on more UG firmware versions.
+- A gateway server error (HTTP 5xx) during configuration is reported as such instead of "wrong username or
+  password", and the MQTT step shows the broker address the gateway will actually use (Home Assistant's IP when the
+  broker is the Mosquitto add-on).
+
 ## 0.39.3
 ### Fixed
 - Configuring a gateway over the LAN failed with *gateway refused …*: the gateway expects its web calls as a

@@ -94,7 +94,7 @@ CALLS = []
 class FakeClient:
     def __init__(self, session, host, user, pw, **kw): CALLS.append(("init", host, user, pw))
     async def login(self):
-        if self.bad: raise _GwErr("wrong gateway username or password")
+        if self.bad: raise _GwErr("gateway login failed (username or password not accepted)")
     async def async_read_info(self): return {"model": "UG65", "eui": "24e124fffefa2994"}
     async def async_point_at_home_assistant(self, ip, band="EU868", port=1700): CALLS.append(("semtech", ip, band)); return True
     async def async_setup_mqtt(self, ip, u, pw, prefix="milesight", app_name="Home Assistant"):

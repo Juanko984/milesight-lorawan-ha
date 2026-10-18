@@ -42,8 +42,14 @@ async def main():
     assert c.jwt == "JWT123"
     # after login the JWT rides as Bearer AND cookie
     info = await c.async_read_info()
-    hdr = s.requests[-1]["headers"]
-    assert hdr["Authorization"] == "Bearer JWT123" and hdr["Cookie"] == "token=JWT123"
+    import base64
+    basic = "Basic " + base64.b64encode(b"admin:pw").decode()
+    # /cgi is authorised by HTTP Basic auth (what the gateway's whole origin uses)
+    cgi = [r for r in s.requests if r["url"].endswith("/cgi")][-1]
+    assert cgi["headers"]["Authorization"] == basic, cgi["headers"]
+    # the login itself also uses Basic auth, not a token
+    login = [r for r in s.requests if r["url"].endswith("/internal/login")][0]
+    assert login["headers"]["Authorization"] == basic
     assert info["model"] == "UG56-L04EU-868M" and info["eui"] == "24E124FFFEF61E38", info
     # point at HA: reads general_conf (1 semtech added) and writes it back, keeping the embedded dest
     changed = await c.async_point_at_home_assistant("192.168.1.20")
@@ -51,5 +57,10 @@ async def main():
     servs = s.last_set["values"][0]["value"]["servs"]
     assert [x["serv_type"] for x in servs] == ["ursalink", "semtech"]
     assert servs[1]["serv_addr"] == "192.168.1.20" and servs[1]["serv_port_up"] == 1700
-    print("transport ok:", info["model"], "| semtech added")
+    # a network-server REST call uses the Bearer JWT instead of Basic
+    s.requests.clear()
+    await c.async_profiles()
+    api = [r for r in s.requests if "/urprofiles" in r["url"]][0]
+    assert api["headers"]["Authorization"] == "Bearer JWT123", api["headers"]
+    print("transport ok:", info["model"], "| semtech added | cgi=Basic api=Bearer")
 asyncio.run(main())

@@ -587,7 +587,9 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._gw["_mqtt_topics"] = await client.async_setup_mqtt(broker_ip, mqtt_user, mqtt_password)
         except GatewayError as err:
             self.context["_gw_error"] = str(err)
-            return {"base": "gateway_login" if ("password" in str(err) or "login" in str(err)) else "gateway_api"}
+            msg = str(err).lower()
+            bad_login = "not accepted" in msg or "login failed" in msg
+            return {"base": "gateway_login" if bad_login else "gateway_api"}
         self._gw["model"] = self._gw.get("model") or (info or {}).get("model")
         return {}
 
@@ -632,10 +634,16 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                                                               "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
                                                               "error": self.context.get("_gw_error", "")})
 
+    def _broker_for_gateway(self, d: dict[str, Any], ha_ip: str) -> str:
+        host = d.get("host") or ha_ip
+        return ha_ip if host in ("localhost", "127.0.0.1", "core-mosquitto", "") else host
+
     async def async_step_gateway_mqtt(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """The broker login the gateway should use for its MQTT output – prefilled from Home Assistant's own MQTT."""
         gw, errors = self._gw, {}
         d = self._mqtt_defaults()
+        ha_ip = await _local_ip(self.hass, self._gwcfg.get("host"))
+        broker = self._broker_for_gateway(d, ha_ip)
         if user_input is not None:
             errors = await self._run_gateway_config(self._gwcfg["mode"],
                                                     user_input.get("mqtt_user") or d.get("username") or None,
@@ -648,7 +656,7 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(step_id="gateway_mqtt", data_schema=vol.Schema(schema), errors=errors,
                                     description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
-                                                              "broker": d.get("host") or "Home Assistant",
+                                                              "broker": broker,
                                                               "user": d.get("username") or "(none set)",
                                                               "error": self.context.get("_gw_error", "")})
 
@@ -825,9 +833,16 @@ class MilesightOptionsFlow(OptionsFlow):
         entry = self.config_entry
         if user_input is not None:
             update = bool(user_input.pop(CONF_UPDATE_DASHBOARD, False))
+            set_name = bool(user_input.pop("set_ha_name", False))
             data = {k: v for k, v in entry.options.items() if k not in _SITE_KEYS}
             data.update({k: v for k, v in user_input.items() if v not in (None, "", [])})
             data[CONF_SITE_LOGO] = user_input.get(CONF_SITE_LOGO) or ""      # cleared logo stays cleared
+            company = (user_input.get(CONF_SITE_COMPANY) or "").strip()
+            if set_name and company:
+                try:
+                    await self.hass.config.async_update(location_name=company)   # the name top-left in Home Assistant
+                except Exception:  # noqa: BLE001
+                    pass
             _schedule_dashboard(self.hass, entry, auto=not update)
             return self.async_create_entry(data=data)
         o = entry.options
@@ -849,6 +864,7 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Optional(CONF_SITE_OUTSIDE, description=sv(CONF_SITE_OUTSIDE)):
                 EntitySelector(EntitySelectorConfig(domain=["sensor", "weather"])),
             vol.Required(CONF_CO2_ALERT, default=o.get(CONF_CO2_ALERT, DEFAULT_CO2_ALERT)): _int_box(600, 5000),
+            vol.Required("set_ha_name", default=False): BooleanSelector(),
             vol.Required(CONF_UPDATE_DASHBOARD, default=False): BooleanSelector(),
         }
         hass_name = self.hass.config.location_name

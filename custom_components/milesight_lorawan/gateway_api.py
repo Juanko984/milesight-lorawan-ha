@@ -180,23 +180,31 @@ class GatewayClient:
         self.jwt: str | None = None
         self.info: dict[str, Any] = {}
 
-    def _headers(self) -> dict[str, str]:
-        # the gateway's web page posts a JSON string with a form content-type, and authorises with the JWT both as
-        # a Bearer header and a `token` cookie – reproduce both so it behaves exactly like the browser.
+    def _headers(self, path: str) -> dict[str, str]:
+        # The gateway authenticates its whole web origin with HTTP Basic auth (admin:password); the browser sends it
+        # on every request, so /islogin, /cgi and the login endpoint need it. The network-server REST endpoints
+        # (/api/... other than the login) are authorised with the JWT the login returns.
+        import base64
         h = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01",
              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
-        if self.jwt:
+        is_api = "/api/" in path and "internal/login" not in path
+        if is_api and self.jwt:
             h["Authorization"] = f"Bearer {self.jwt}"
-            h["Cookie"] = f"token={self.jwt}"
+        else:
+            token = base64.b64encode(f"{self.username}:{self._password}".encode("utf-8")).decode("ascii")
+            h["Authorization"] = f"Basic {token}"
         return h
 
-    async def _json(self, method: str, path: str, payload: Any = None) -> Any:
+    async def _json(self, method: str, path: str, payload: Any = None, as_json: bool = False) -> Any:
         import asyncio
         import json as _json
         url = path if path.startswith("http") else f"{self.base}{path}"
+        headers = self._headers(path)
+        if as_json:                                        # some firmware wants a real JSON content-type
+            headers["Content-Type"] = "application/json; charset=UTF-8"
         body = _json.dumps(payload) if payload is not None else None
         try:
-            async with self.session.request(method, url, data=body, headers=self._headers(),
+            async with self.session.request(method, url, data=body, headers=headers,
                                             timeout=__import__("aiohttp").ClientTimeout(total=self.timeout)) as resp:
                 text = await resp.text()
                 if resp.status == 401:
@@ -210,11 +218,22 @@ class GatewayClient:
             raise GatewayError(f"cannot reach {self.base}: {err}") from err
 
     async def login(self) -> None:
-        data = await self._json("POST", "/api/internal/login",
-                                 {"username": self.username, "password": encrypt_password(self._password)})
-        self.jwt = (data or {}).get("jwt")
-        if not self.jwt:
-            raise GatewayError("wrong gateway username or password")
+        # the password transform and the login content-type have varied across gateway firmware, so try the known
+        # forms (encrypted / plain, form / json content-type) and keep the first that returns a token.
+        last = "no token returned"
+        for pw in (encrypt_password(self._password), self._password):
+            for as_json in (False, True):
+                try:
+                    data = await self._json("POST", "/api/internal/login",
+                                            {"username": self.username, "password": pw}, as_json=as_json)
+                except GatewayError as err:
+                    last = str(err)
+                    continue
+                if (data or {}).get("jwt"):
+                    self.jwt = data["jwt"]
+                    return
+                last = "username or password not accepted"
+        raise GatewayError(f"gateway login failed ({last})")
 
     async def _cgi(self, core: str, function: str, base: str, value: Any = None, index: int = 0) -> Any:
         v: dict[str, Any] = {"base": base}

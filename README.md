@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-118-brightgreen.svg)
 
-**Current version: 0.39.3** · [Version history](#version-history)
+**Current version: 0.40.0** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -1174,6 +1174,8 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.40.0** | Gateway LAN login fixed (HTTP Basic auth); option to set Home Assistant's name to the site company. |
+| **0.39.4** | Gateway login tried across firmware variants; clearer config errors; broker address fix. |
 | **0.39.3** | Gateway LAN config fixed (form body + token cookie); MQTT login prefilled from HA; MQTT fields only when relevant. |
 | **0.39.2** | *Configure over LAN* button on gateway devices. |
 | **0.39.1** | Configure the gateway from Home Assistant over the LAN (Semtech and/or embedded NS + MQTT); configure_gateway and forget_gateway services; delete a gateway from the device page. |
