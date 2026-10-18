@@ -1,0 +1,254 @@
+{
+ "general_conf_before": {
+  "gateway_eui": "24E124FFFEF61E38",
+  "gateway_id": "24E124FFFEF61E38",
+  "radio_type": "sx1250",
+  "loriot_support": true,
+  "status": 1,
+  "data_retransmission": false,
+  "pending_data": 0,
+  "lns_type": 1,
+  "special_filter": true,
+  "net_id_mode": 0,
+  "net_id_list": [],
+  "join_eui_mode": 0,
+  "join_eui_list": [],
+  "dev_eui_mode": 0,
+  "dev_eui_list": [],
+  "mip_net_id_list": [],
+  "servs": [
+   {
+    "id": 0,
+    "serv_enabled": true,
+    "serv_addr": "localhost",
+    "serv_type": "ursalink",
+    "serv_port_up": 1700,
+    "serv_port_down": 1700,
+    "serv_mqtt_port": 1883,
+    "sync_freq_plan": false,
+    "connected": 1
+   }
+  ]
+ },
+ "general_conf_set": {
+  "gateway_id": "24E124FFFEF61E38",
+  "servs": [
+   {
+    "id": 0,
+    "serv_enabled": true,
+    "serv_addr": "localhost",
+    "serv_type": "ursalink",
+    "serv_port_up": 1700,
+    "serv_port_down": 1700,
+    "serv_mqtt_port": 1883,
+    "sync_freq_plan": false,
+    "connected": 1
+   },
+   {
+    "id": 1,
+    "sync_freq_plan": false,
+    "actility_platform": null,
+    "serv_type": "semtech",
+    "serv_addr": "192.168.1.174",
+    "band": "EU868",
+    "region": "EU(Europe)",
+    "serv_port_up": 1700,
+    "serv_port_down": 1700,
+    "serv_enabled": true
+   }
+  ],
+  "special_filter": true,
+  "net_id_list": [],
+  "join_eui_list": [],
+  "dev_eui_list": [],
+  "data_retransmission": false
+ },
+ "mqtt_body": {
+  "TLSMode": 0,
+  "clientID": "",
+  "connectTimeout": 30,
+  "mode": 0,
+  "advanced": false,
+  "customData": "{\n    \"application_id\": \"%application_id%\",\n    \"application_name\": \"%application_name%\",\n    \"application_description\": \"%application_description%\",\n    \"gatewayEUI\": \"%gatewayEUI%\",\n    \"sn\": \"%sn%\",\n    \"model\": \"%model%\"\n}",
+  "host": "192.168.1.174",
+  "id": "7",
+  "keepAliveInterval": 60,
+  "retransmissionEnabled": true,
+  "password": "",
+  "port": 1883,
+  "useAuth": true,
+  "useTLS": false,
+  "sslSecurity": true,
+  "username": "",
+  "ackQoS": 0,
+  "ackTopic": "",
+  "errorQoS": 0,
+  "errorTopic": "",
+  "joinQoS": 0,
+  "joinTopic": "",
+  "upQoS": 0,
+  "uplinkTopic": "milesight/uplink",
+  "downlinkTopic": "milesight/downlink",
+  "downlinkQoS": 0,
+  "mcDownlinkTopic": "",
+  "mcDownlinkQoS": 0,
+  "requestTopic": "",
+  "requestQoS": 0,
+  "responseTopic": "",
+  "responseQoS": 0,
+  "uplinkRetain": false,
+  "joinRetain": false,
+  "ackRetain": false,
+  "errorRetain": false,
+  "responseRetain": false,
+  "lastWillEnable": false,
+  "lastWillTopic": "",
+  "lastWillQoS": 0,
+  "lastWillRetain": false,
+  "lastWillPayload": ""
+ },
+ "app_body": {
+  "metadata": false,
+  "description": "HA Lorawan",
+  "name": "HA Lorawan",
+  "organizationID": "1",
+  "metadataDetails": [],
+  "serviceProfileID": "f6f7d81d-647f-4c7f-8409-3e5218c0c523"
+ },
+ "summary_response": {
+  "id": 4,
+  "model": "UG56",
+  "pn": "L04EU3100000US0010310000",
+  "oem": "0000",
+  "rtver": "56.0.0.9-r2",
+  "status": 0,
+  "result": [
+   {
+    "get": [
+     {
+      "type": "system",
+      "index": 1,
+      "value": {
+       "model": "UG56-L04EU-868M",
+       "sn": "6041E1704711",
+       "firmware_ver": "56.0.0.9-r2",
+       "hardware_ver": "V1.2",
+       "partnumber": "",
+       "local_time": "2026-10-18 15:07:52 Sunday",
+       "uptime": 284905,
+       "cpu_load": "3%",
+       "memory_total": "512MB",
+       "memory_free": "22MB",
+       "memory_avail_percent": "4.30%",
+       "flash_total": 64,
+       "flash_free": 6249,
+       "emmc_total": "8.0GB",
+       "emmc_free": "6.1GB",
+       "emmc_avail_percent": "76.29%",
+       "sd_total": "-",
+       "sd_free": "-",
+       "sd_avail_percent": "-",
+       "ssd_total": "-",
+       "ssd_free": "-",
+       "ssd_avail_percent": "-",
+       "temperature": "",
+       "cpu_temperature": "",
+       "lorawan_band": "EU868",
+       "lora_freq": "",
+       "gateway_fleet_total": 0,
+       "gateway_fleet_online": 0,
+       "ns": {
+        "status": 1,
+        "device_total": 55,
+        "device_online": 42
+       },
+       "packet_forwarder": {
+        "destinations": [
+         {
+          "id": 0,
+          "serv_enabled": true,
+          "serv_addr": "localhost",
+          "serv_type": "ursalink",
+          "serv_port_up": 1700,
+          "serv_port_down": 1700,
+          "serv_mqtt_port": 1883,
+          "sync_freq_plan": false,
+          "connected": 1
+         },
+         {
+          "id": 1,
+          "serv_enabled": true,
+          "serv_addr": "192.168.1.174",
+          "serv_type": "semtech",
+          "serv_port_up": 1700,
+          "serv_port_down": 1700,
+          "sync_freq_plan": false,
+          "connected": 0
+         }
+        ],
+        "active_nodes": 37
+       }
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "general_conf_response": {
+  "id": 20,
+  "model": "UG65",
+  "pn": "L04EU3100000ZA0010310100",
+  "oem": "0000",
+  "rtver": "60.0.0.50",
+  "status": 0,
+  "result": [
+   {
+    "custom": false,
+    "enable": true,
+    "mode": 1,
+    "region_freq": 0,
+    "default_region_id": "eu868",
+    "region_ids": [
+     "eu868"
+    ],
+    "get": [
+     {
+      "type": "general_conf",
+      "index": 0,
+      "value": {
+       "gateway_eui": "24E124FFFEF61E38",
+       "gateway_id": "24E124FFFEF61E38",
+       "radio_type": "sx1250",
+       "loriot_support": true,
+       "status": 1,
+       "data_retransmission": false,
+       "pending_data": 0,
+       "lns_type": 1,
+       "special_filter": true,
+       "net_id_mode": 0,
+       "net_id_list": [],
+       "join_eui_mode": 0,
+       "join_eui_list": [],
+       "dev_eui_mode": 0,
+       "dev_eui_list": [],
+       "mip_net_id_list": [],
+       "servs": [
+        {
+         "id": 0,
+         "serv_enabled": true,
+         "serv_addr": "localhost",
+         "serv_type": "ursalink",
+         "serv_port_up": 1700,
+         "serv_port_down": 1700,
+         "serv_mqtt_port": 1883,
+         "sync_freq_plan": false,
+         "connected": 1
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

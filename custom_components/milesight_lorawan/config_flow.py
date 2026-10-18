@@ -1,0 +1,1646 @@
+"""Config flow: gateway setup, device auto-discovery, manual add, options."""
+from __future__ import annotations
+
+import re
+import time
+from typing import Any
+
+try:  # Home Assistant 2026.x replaced voluptuous with probatio (same API)
+    import probatio as vol
+except ImportError:  # older Home Assistant
+    import voluptuous as vol
+
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    AreaSelector,
+    AreaSelectorConfig,
+    BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
+    LocationSelector,
+    LocationSelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
+
+from .const import (
+    CONF_ALERT_ACTION_ENTITY,
+    CONF_ALERT_ACTION_TITLE,
+    CONF_ALERT_BACKUP,
+    CONF_ALERT_CATEGORIES,
+    CONF_ALERT_DEDUPE_MIN,
+    CONF_ALERT_ESCALATE_MIN,
+    CONF_ALERT_PRIMARY,
+    CONF_ALERT_QUIET_END,
+    CONF_ALERT_QUIET_START,
+    CONF_ALERT_REPEAT_MIN,
+    CONF_ALERT_RESOLVED,
+    CONF_APP_KEY,
+    CONF_CHANNEL_MAP,
+    CONF_NS_APP_KEY,
+    CONF_NS_APPLICATION,
+    CONF_NS_FPORT,
+    CONF_NS_GATEWAY_EUI,
+    CONF_NS_PROFILE,
+    CONF_NS_REQUEST_TOPIC,
+    CONF_NS_RESPONSE_TOPIC,
+    CONF_REGISTER,
+    CONF_TANK_CAPACITY,
+    CONF_TANK_CONE,
+    CONF_TANK_DENSITY,
+    CONF_TANK_DIAMETER,
+    CONF_TANK_DROP_MIN,
+    CONF_TANK_DROP_PCT,
+    CONF_TANK_HEIGHT,
+    CONF_TANK_LENGTH,
+    CONF_TANK_LOW_PCT,
+    CONF_TANK_PROBE_OFFSET,
+    CONF_TANK_REFILL_PCT,
+    CONF_TANK_SHAPE,
+    CONF_TANK_WIDTH,
+    DEFAULT_NS_REQUEST_TOPIC,
+    DEFAULT_NS_RESPONSE_TOPIC,
+    CONF_AUTO_BACKFILL,
+    CONF_CO2_ALERT,
+    CONF_SITE_ADDRESS,
+    CONF_SITE_AREAS,
+    CONF_SITE_COMPANY,
+    CONF_SITE_CONTACT,
+    CONF_SITE_EMAIL,
+    CONF_SITE_LOGO,
+    CONF_SITE_OUTSIDE,
+    CONF_SITE_PHONE,
+    CONF_UPDATE_DASHBOARD,
+    DEFAULT_CO2_ALERT,
+    DEFAULT_SITE_LOGO,
+    CONF_CONFIRMED_DOWNLINKS,
+    CONF_DISPLAY_MAX_BYTES,
+    CONF_EXTRA_TOPICS,
+    CONF_GATEWAY_OFFLINE_MIN,
+    CONF_RETRIES,
+    DEFAULT_DISPLAY_MAX_BYTES,
+    DEFAULT_GATEWAY_OFFLINE_MIN,
+    DEFAULT_RETRIES,
+    CONF_METER_OFFSET,
+    CONF_METER_PPU,
+    CONF_METER_SOURCE,
+    CONF_METER_TYPE,
+    CONF_METER_UNIT,
+    METER_TYPES,
+    CONF_AREA,
+    CONF_BATTERY_LOW,
+    DEFAULT_BATTERY_LOW,
+    CONF_CLOSE_HOUR,
+    CONF_CO2_LIMIT,
+    CONF_INSTALL_HEIGHT_MM,
+    CONF_MAINS_VOLTAGE,
+    CONF_RUN_THRESHOLD_A,
+    CONF_DEVEUI,
+    CONF_DOWNLINK_FORMAT,
+    CONF_DOWNLINK_TOPIC,
+    CONF_EMPTY_GRACE_MIN,
+    CONF_ENTRY_TYPE,
+    CONF_LEFT_OPEN_MIN,
+    CONF_MAX_GAP_MIN,
+    CONF_MODEL,
+    CONF_OPEN_DAYS,
+    CONF_OPEN_HOUR,
+    CONF_PAYLOAD_ENCODING,
+    CONF_TOPIC,
+    DEFAULT_CLOSE_HOUR,
+    DEFAULT_DOWNLINK_TOPIC,
+    DOWNLINK_CHIRPSTACK,
+    DOWNLINK_MILESIGHT,
+    DEFAULT_CO2_LIMIT,
+    DEFAULT_EMPTY_GRACE_MIN,
+    DEFAULT_LEFT_OPEN_MIN,
+    DEFAULT_MAX_GAP_MIN,
+    DEFAULT_OPEN_DAYS,
+    DEFAULT_OPEN_HOUR,
+    DEFAULT_RUN_THRESHOLD_A,
+    DEFAULT_TOPIC,
+    DOMAIN,
+    ENCODING_BASE64,
+    ENCODING_HEX,
+    ENTRY_TYPE_DEVICE,
+    ENTRY_TYPE_HUB,
+    WEEKDAYS,
+)
+from .alerts import CATEGORIES, effective_categories
+from .channel_map import parse_channel_map
+from . import modbus_templates as _mt
+from . import modbus_config as _mc
+from .models import (MODELS, downlinks, entity_specs, families, load_channels, parse_bulk, pulse_capable,
+                     pump_capable, purposes_for, tank_source)
+from . import purposes as _purposes
+from .ns_api import DEFAULT_APP_KEY, DEFAULT_FPORT, valid_key
+from .const import (CONF_ALERT_CATEGORY_QUIET, CONF_ALERT_ROTA, CONF_ALERT_SNOOZE_MIN, CONF_ALERT_SUMMARY,
+                    CONF_ALERT_SUMMARY_DAY, CONF_ALERT_SUMMARY_HOUR)
+from .alerts import DAYS as _DAYS, RotaError, parse_category_quiet, parse_rota
+from .const import (CONF_LNS_APP_KEY, CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_JOIN_EUI, CONF_LNS_PORT,
+                    CONF_LNS_REGION, CONF_LNS_RX1_DELAY, DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
+from .tank import SHAPES, capacity_l, tank_config
+
+_DEVEUI_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+
+
+def _model_selector(order: list[str] | None = None) -> SelectSelector:
+    # discovery guesses first, then every model alphabetically (natural order: VS121 before VS1210)
+    def natural(k: str) -> list:
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", MODELS[k].label)]
+    keys = list(dict.fromkeys([k for k in (order or []) if k in MODELS] + sorted(MODELS, key=natural)))
+    return SelectSelector(SelectSelectorConfig(
+        options=[SelectOptionDict(value=k, label=MODELS[k].label) for k in keys],
+        mode=SelectSelectorMode.DROPDOWN,
+    ))
+
+
+def _encoding_selector() -> SelectSelector:
+    return SelectSelector(SelectSelectorConfig(
+        options=[SelectOptionDict(value=ENCODING_BASE64, label="Base64"),
+                 SelectOptionDict(value=ENCODING_HEX, label="Hex string")],
+        mode=SelectSelectorMode.DROPDOWN,
+    ))
+
+
+def _downlink_format_selector() -> SelectSelector:
+    return SelectSelector(SelectSelectorConfig(
+        options=[SelectOptionDict(value=DOWNLINK_MILESIGHT, label="Milesight gateway"),
+                 SelectOptionDict(value=DOWNLINK_CHIRPSTACK, label="ChirpStack v4")],
+        mode=SelectSelectorMode.DROPDOWN,
+    ))
+
+
+async def _local_ip(hass, target: str | None = None) -> str:
+    """Home Assistant's address as the gateway sees it (the interface facing the gateway)."""
+    try:
+        from homeassistant.components.network import async_get_source_ip
+        return await async_get_source_ip(hass, target_ip=target) if target else await async_get_source_ip(hass)
+    except Exception:  # noqa: BLE001 - fall back to the configured URL
+        try:
+            from urllib.parse import urlparse
+            from homeassistant.helpers.network import get_url
+            return urlparse(get_url(hass, allow_external=False)).hostname or "Home Assistant's IP address"
+        except Exception:  # noqa: BLE001
+            return "Home Assistant's IP address"
+
+
+def _hub_schema(opts: dict) -> dict:
+    return {
+        vol.Required(CONF_TOPIC, default=opts.get(CONF_TOPIC, DEFAULT_TOPIC)): TextSelector(),
+        vol.Required(CONF_PAYLOAD_ENCODING, default=opts.get(CONF_PAYLOAD_ENCODING, ENCODING_BASE64)):
+            _encoding_selector(),
+        vol.Required(CONF_DOWNLINK_TOPIC, default=opts.get(CONF_DOWNLINK_TOPIC, DEFAULT_DOWNLINK_TOPIC)): TextSelector(),
+        vol.Required(CONF_DOWNLINK_FORMAT, default=opts.get(CONF_DOWNLINK_FORMAT, DOWNLINK_MILESIGHT)):
+            _downlink_format_selector(),
+        vol.Optional(CONF_EXTRA_TOPICS, default=opts.get(CONF_EXTRA_TOPICS, "")): TextSelector(),
+        vol.Required(CONF_GATEWAY_OFFLINE_MIN, default=opts.get(CONF_GATEWAY_OFFLINE_MIN, DEFAULT_GATEWAY_OFFLINE_MIN)):
+            _int_box(2, 1440),
+    }
+
+
+def _schedule_dashboard(hass, entry: ConfigEntry, auto: bool = False) -> None:
+    """Build the dashboard once the entry has (possibly) reloaded with the new options and its sensors exist.
+    auto: leave a landing page edited by hand alone."""
+    from homeassistant.helpers.event import async_call_later
+
+    async def _run(_now) -> None:
+        from .dashboard import async_update_dashboard
+        try:
+            await async_update_dashboard(hass, entry, auto=auto)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("Could not create the building dashboard", exc_info=True)
+    async_call_later(hass, 20, _run)
+
+
+_SITE_KEYS = (CONF_SITE_COMPANY, CONF_SITE_ADDRESS, CONF_SITE_CONTACT, CONF_SITE_PHONE, CONF_SITE_EMAIL, CONF_SITE_LOGO,
+              CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT)
+
+
+PUMP_KEYS = ("pump_enabled", "pump_normal_a", "pump_dry_pct", "pump_overload_pct", "pump_max_starts",
+             "pump_power_factor", "pump_water_entity")
+PIVOT_KEYS = ("pivot_centre", "pivot_sector", "pivot_stall_min")
+IRRIGATION_KEYS = ("irr_weather", "irr_soil", "irr_target", "irr_base_minutes", "irr_rain_mm", "irr_rain_hours",
+                   "irr_rain_prob", "irr_frost_c")
+
+
+def _int_box(lo: int, hi: int) -> NumberSelector:
+    return NumberSelector(NumberSelectorConfig(min=lo, max=hi, step=1, mode=NumberSelectorMode.BOX))
+
+
+def _lns_hub(hass):
+    """The first gateway with the built-in network server switched on, or None."""
+    for hub in hass.data.get(DOMAIN, {}).get("hubs", {}).values():
+        if getattr(hub, "lns", None) is not None:
+            return hub
+    return None
+
+
+def _clean_key(text: str | None) -> str:
+    return re.sub(r"[^0-9a-fA-F]", "", text or "").lower()
+
+
+def _provisioning_hub(hass):
+    """The first gateway that can register devices (ns-api set up), or None."""
+    for hub in hass.data.get(DOMAIN, {}).get("hubs", {}).values():
+        if getattr(hub, "can_provision", False):
+            return hub
+    return None
+
+
+def _float_box(lo: float, hi: float, unit: str | None = None, step: Any = "any") -> NumberSelector:
+    """A number box. The unit is only passed when there is one: Home Assistant rejects unit_of_measurement=None,
+    and the whole form then fails with an empty 'Error' dialog."""
+    cfg = NumberSelectorConfig(min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX)
+    if unit:
+        cfg["unit_of_measurement"] = unit
+    return NumberSelector(cfg)
+
+
+def _purpose_selector(model: str | None = None, load_only: bool = False) -> SelectSelector:
+    """Purposes for the model (all when the model is not known yet), grouped by label group."""
+    items = purposes_for(model) if model else list(_purposes.PURPOSES.values())
+    if load_only:
+        items = [p for p in items if "load" in p.families and (p.key in _purposes.LOAD_ANALYTICS or p.key == "pump")]
+    opts = [{"value": "none", "label": "– not set –"}] + [
+        {"value": p.key, "label": f"{p.label}" + (f"  ·  {_purposes.GROUPS[p.group][0].split('· ')[1]}"
+                                                   if p.group else "")} for p in items]
+    return SelectSelector(SelectSelectorConfig(options=opts, mode=SelectSelectorMode.DROPDOWN))
+
+
+def _device_title(name: str | None, model: str | None, deveui: str) -> str:
+    return name or f"{model or 'Milesight'} {deveui[-4:].upper()}"
+
+
+async def _provision_many(hub, devices: list[dict]) -> str:
+    """Register devices on the gateway, four at a time. Returns a summary line for the result dialog."""
+    import asyncio
+    sem = asyncio.Semaphore(4)
+    added, existed, failed = 0, 0, []
+
+    async def one(dev: dict) -> None:
+        nonlocal added, existed
+        async with sem:
+            try:
+                r = await hub.async_provision(dev[CONF_DEVEUI], dev.get("name") or
+                                              _device_title(None, dev[CONF_MODEL], dev[CONF_DEVEUI]),
+                                              dev.get(CONF_APP_KEY))
+            except Exception as err:  # noqa: BLE001
+                failed.append(f"{dev[CONF_DEVEUI].upper()}: {err}")
+                return
+            if r == "exists":
+                existed += 1
+            else:
+                added += 1
+    await asyncio.gather(*(one(d) for d in devices))
+    text = f"\n\nGateway: {added} registered, {existed} already registered"
+    if failed:
+        text += f", {len(failed)} failed:\n" + "\n".join(f"- {f}" for f in failed[:10])
+    return text
+
+
+class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
+    VERSION = 1
+
+    def __init__(self) -> None:
+        self._disc: dict[str, Any] = {}
+        self._gw: dict[str, Any] = {}
+        self._gwcfg: dict[str, Any] = {}
+
+    def _hubs(self) -> list[ConfigEntry]:
+        return [e for e in self._async_current_entries() if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB]
+
+    # ------------------------------------------------------------ user entry
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if not self._hubs():
+            return await self.async_step_hub()
+        return self.async_show_menu(step_id="user", menu_options=["manual", "bulk", "hub"])
+
+    async def async_step_hub(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            topic = user_input[CONF_TOPIC].strip()
+            await self.async_set_unique_id(f"hub:{topic}")
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=f"Milesight gateway ({topic})",
+                data={CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, **user_input, CONF_TOPIC: topic},
+            )
+        return self.async_show_form(step_id="hub", data_schema=vol.Schema(_hub_schema({})))
+
+    async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders = {"error": ""}
+        if user_input is not None:
+            deveui = re.sub(r"[^0-9a-fA-F]", "", user_input[CONF_DEVEUI]).lower()
+            key = re.sub(r"\s", "", user_input.get(CONF_APP_KEY) or "")
+            if not _DEVEUI_RE.match(deveui):
+                errors[CONF_DEVEUI] = "invalid_deveui"
+            elif key and not valid_key(key):
+                errors[CONF_APP_KEY] = "invalid_app_key"
+            else:
+                await self.async_set_unique_id(deveui)
+                self._abort_if_unique_id_configured()
+                hub = _provisioning_hub(self.hass)
+                if hub is not None and user_input.get(CONF_REGISTER):
+                    try:
+                        await hub.async_provision(deveui, user_input.get("name") or
+                                                  _device_title(None, user_input[CONF_MODEL], deveui), key or None)
+                    except Exception as err:  # noqa: BLE001 - shown in the form
+                        errors["base"] = "provision_failed"
+                        placeholders["error"] = str(err)
+                if not errors:
+                    return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"),
+                                               user_input.get(CONF_AREA), user_input.get("purpose"),
+                                               app_key=key if (key and _lns_hub(self.hass) is not None) else None)
+        schema = {
+            vol.Required(CONF_DEVEUI, default=(user_input or {}).get(CONF_DEVEUI, "")): TextSelector(),
+            vol.Required(CONF_MODEL, default=(user_input or {}).get(CONF_MODEL, vol.UNDEFINED)): _model_selector(),
+            vol.Optional("name", description={"suggested_value": (user_input or {}).get("name")}): TextSelector(),
+            vol.Optional(CONF_AREA, description={"suggested_value": (user_input or {}).get(CONF_AREA)}): TextSelector(),
+            vol.Optional("purpose", description={"suggested_value": (user_input or {}).get("purpose")}):
+                _purpose_selector(),
+        }
+        hub = _provisioning_hub(self.hass)
+        if hub is not None:
+            schema[vol.Required(CONF_REGISTER, default=(user_input or {}).get(CONF_REGISTER, True))] = BooleanSelector()
+        if hub is not None or _lns_hub(self.hass) is not None:
+            key_now = (user_input or {}).get(CONF_APP_KEY) if user_input else (
+                (hub.ns_app_key if hub is not None else None) or DEFAULT_APP_KEY)
+            schema[vol.Optional(CONF_APP_KEY, description={"suggested_value": key_now})] = \
+                TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+        return self.async_show_form(step_id="manual", errors=errors, description_placeholders=placeholders,
+                                    data_schema=vol.Schema(schema))
+
+    async def async_step_bulk(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders = {"problems": ""}
+        if user_input is not None:
+            devices, problems = parse_bulk(user_input["devices"])
+            existing = {e.unique_id for e in self._async_current_entries()}
+            new = [d for d in devices if d[CONF_DEVEUI] not in existing]
+            if problems:
+                errors["devices"] = "bulk_invalid"
+                placeholders["problems"] = "\n".join(f"- {p}" for p in problems[:15])
+            elif not new:
+                errors["devices"] = "bulk_nothing_new"
+            else:
+                gateway = ""
+                hub = _provisioning_hub(self.hass)
+                if hub is not None and user_input.get(CONF_REGISTER):
+                    gateway = await _provision_many(hub, new)
+                for dev in new:
+                    dev = {k: v for k, v in dev.items() if k != CONF_APP_KEY}
+                    self.hass.async_create_task(self.hass.config_entries.flow.async_init(
+                        DOMAIN, context={"source": SOURCE_IMPORT}, data=dev))
+                return self.async_abort(reason="bulk_done", description_placeholders={
+                    "count": str(len(new)), "skipped": str(len(devices) - len(new)), "gateway": gateway})
+        schema = {vol.Required("devices", default=(user_input or {}).get("devices", "")):
+                  TextSelector(TextSelectorConfig(multiline=True))}
+        if _provisioning_hub(self.hass) is not None:
+            schema[vol.Required(CONF_REGISTER, default=(user_input or {}).get(CONF_REGISTER, True))] = BooleanSelector()
+        return self.async_show_form(step_id="bulk", errors=errors, description_placeholders=placeholders,
+                                    data_schema=vol.Schema(schema))
+
+    async def async_step_import(self, data: dict[str, Any]) -> ConfigFlowResult:
+        """One device from the bulk list."""
+        await self.async_set_unique_id(data[CONF_DEVEUI])
+        self._abort_if_unique_id_configured()
+        return self._create_device(data[CONF_DEVEUI], data[CONF_MODEL], data.get("name"), data.get(CONF_AREA),
+                                   data.get("purpose"))
+
+    # ------------------------------------------------------- gateway discovery
+    def _hub_objects(self) -> list[Any]:
+        return [h for e in self._hubs() if (h := getattr(e, "runtime_data", None)) is not None
+                and hasattr(h, "expect_gateway")]
+
+    async def async_step_dhcp(self, discovery_info: Any) -> ConfigFlowResult:
+        """A Milesight gateway joined the network (DHCP, MAC prefix 24:E1:24)."""
+        def _get(key: str) -> Any:
+            return discovery_info.get(key) if isinstance(discovery_info, dict) else getattr(discovery_info, key, None)
+        return await self._lan_gateway(_get("macaddress"), _get("ip"), _get("hostname"), "lan_dhcp")
+
+    async def _lan_gateway(self, mac: Any, ip: str | None, host: str | None, found: str,
+                           hub_entry_id: str | None = None) -> ConfigFlowResult:
+        from .gateway_discovery import is_milesight_mac, mac_to_eui, norm_hex
+        if not is_milesight_mac(mac):
+            return self.async_abort(reason="not_milesight_gateway")
+        eui = mac_to_eui(mac)
+        await self.async_set_unique_id(f"gateway:{eui}")
+        self._abort_if_unique_id_configured()
+        for hub in self._hub_objects():
+            for gid, g in hub.stats.gateways.items():          # already sending: just note where it is
+                if gid == eui or g.get("mac") == norm_hex(mac) or (ip and g.get("ip") == ip):
+                    g["ip"], g["mac"] = ip or g.get("ip"), norm_hex(mac)
+                    return self.async_abort(reason="already_configured")
+            if hub.gateway_known(eui):
+                return self.async_abort(reason="already_configured")
+        return await self._gateway_found({"eui": eui, "ip": ip, "mac": norm_hex(mac), "hostname": host,
+                                          "source": "network", "found": found, "hub_entry_id": hub_entry_id})
+
+    async def _gateway_found(self, gw: dict[str, Any]) -> ConfigFlowResult:
+        from .gateway_discovery import default_name
+        self._gw = gw
+        from .gateway_discovery import FOUND
+        how = {"lan_dhcp": "LAN", "lan_scan": "LAN", "semtech": "Semtech", "mqtt": "MQTT"}.get(gw.get("found"), "")
+        self.context["title_placeholders"] = {"name": default_name(gw["eui"], gw.get("model")),
+                                              "deveui": " · ".join(x for x in (how, gw.get("ip")) if x)
+                                              or gw["eui"].upper()}
+        gw["found_label"] = FOUND.get(gw.get("found"), "")
+        return await self.async_step_gateway_found()
+
+    async def async_step_gateway_found(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Name and area for a gateway; set up the built-in network server when there is none yet."""
+        from .const import (CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_PORT, CONF_LNS_REGION, CONF_LNS_RX1_DELAY,
+                            DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
+        from .gateway_discovery import default_name
+        gw = self._gw
+        hubs = self._hubs()
+        lns_hub = next((e for e in hubs if e.options.get(CONF_LNS_ENABLED)), None)
+        connected = gw.get("source") == "packets"
+        port = int((lns_hub.options.get(CONF_LNS_PORT) if lns_hub else None) or DEFAULT_LNS_PORT)
+        ha_ip = await _local_ip(self.hass, gw.get("ip"))
+        if user_input is not None:
+            info = {"name": (user_input.get("name") or "").strip() or default_name(gw["eui"], gw.get("model")),
+                    "area": (user_input.get(CONF_AREA) or "").strip() or None, "ip": gw.get("ip"),
+                    "mac": gw.get("mac"), "model": gw.get("model"), "found": gw.get("found")}
+            use_lns = bool(user_input.get("use_lns", lns_hub is not None or not hubs))
+            if user_input.get("auto_configure") and gw.get("ip"):
+                self._gw = {**gw, "_name": info["name"] if False else (user_input.get("name") or "").strip(),
+                            "_area": (user_input.get(CONF_AREA) or "").strip(), "_use_lns": use_lns}
+                return await self.async_step_gateway_configure()
+            if not hubs:
+                # first gateway on a new installation: the built-in network server, no MQTT broker needed
+                farm = int(gw["eui"][-4:], 16) % 511 + 1
+                return self.async_create_entry(
+                    title="Milesight LoRaWAN network",
+                    data={CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: "", CONF_PAYLOAD_ENCODING: ENCODING_BASE64,
+                          CONF_DOWNLINK_TOPIC: DEFAULT_DOWNLINK_TOPIC, CONF_DOWNLINK_FORMAT: DOWNLINK_MILESIGHT,
+                          CONF_EXTRA_TOPICS: "", CONF_GATEWAY_OFFLINE_MIN: DEFAULT_GATEWAY_OFFLINE_MIN},
+                    options={CONF_LNS_ENABLED: True, CONF_LNS_PORT: DEFAULT_LNS_PORT, CONF_LNS_REGION: "EU868",
+                             CONF_LNS_RX1_DELAY: DEFAULT_LNS_RX1_DELAY, CONF_LNS_FARM_ID: farm,
+                             "pending_gateways": {gw["eui"]: info}})
+            target = None
+            if gw.get("hub_entry_id"):
+                target = next((e for e in hubs if e.entry_id == gw["hub_entry_id"]), None)
+            target = target or lns_hub or hubs[0]
+            if use_lns and not target.options.get(CONF_LNS_ENABLED):
+                # switch the built-in network server on; the gateway is adopted after the reload
+                opts = {**target.options, CONF_LNS_ENABLED: True,
+                        CONF_LNS_PORT: target.options.get(CONF_LNS_PORT, DEFAULT_LNS_PORT),
+                        CONF_LNS_REGION: target.options.get(CONF_LNS_REGION, "EU868"),
+                        CONF_LNS_RX1_DELAY: target.options.get(CONF_LNS_RX1_DELAY, DEFAULT_LNS_RX1_DELAY),
+                        "pending_gateways": {**(target.options.get("pending_gateways") or {}), gw["eui"]: info}}
+                self.hass.config_entries.async_update_entry(target, options=opts)      # reloads the entry
+                status = "waiting"
+            else:
+                hub = getattr(target, "runtime_data", None)
+                status = hub.expect_gateway(gw["eui"], info) if hub is not None and hasattr(hub, "expect_gateway") \
+                    else "waiting"
+            return self.async_abort(reason=f"gateway_{status}", description_placeholders={
+                "name": info["name"], "ha_ip": ha_ip, "port": str(port), "gw_ip": gw.get("ip") or "the gateway"})
+        schema: dict[Any, Any] = {
+            vol.Optional("name", description={"suggested_value": default_name(gw["eui"], gw.get("model"))}):
+                TextSelector(),
+            vol.Optional(CONF_AREA): TextSelector(),
+        }
+        if hubs and lns_hub is None and not connected:
+            schema[vol.Required("use_lns", default=True)] = BooleanSelector()
+        if gw.get("ip") and not connected:
+            schema[vol.Required("auto_configure", default=False)] = BooleanSelector()
+        return self.async_show_form(
+            step_id="gateway_found" if not connected else "gateway_heard", data_schema=vol.Schema(schema),
+            description_placeholders={"eui": gw["eui"].upper(), "gw_ip": gw.get("ip") or "–", "ha_ip": ha_ip,
+                                      "port": str(port), "connection": gw.get("connection") or "LoRaWAN",
+                                      "found": gw.get("found_label") or "network"})
+
+    async def async_step_gateway_heard(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self.async_step_gateway_found(user_input)
+
+    async def async_step_gateway_reconfigure(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        """Configure a gateway Home Assistant already has (the 'Configure over LAN' button on its device page)."""
+        from .gateway_discovery import default_name, norm_hex
+        eui = norm_hex(discovery_info["gateway_id"])
+        hub_id = discovery_info.get("hub_entry_id")
+        g = {}
+        for e in self._hubs():
+            if e.entry_id == hub_id and getattr(e, "runtime_data", None) is not None:
+                g = e.runtime_data.stats.gateways.get(eui, {})
+        self._gw = {"eui": eui, "ip": discovery_info.get("ip") or g.get("ip"), "hub_entry_id": hub_id,
+                    "model": discovery_info.get("model") or g.get("model"), "found": g.get("found", "manual"),
+                    "_name": g.get("name") or default_name(eui, discovery_info.get("model")),
+                    "_area": g.get("area"), "_use_lns": True, "_known": True}
+        self.context["title_placeholders"] = {"name": self._gw["_name"], "deveui": self._gw.get("ip") or eui.upper()}
+        return await self.async_step_gateway_configure()
+
+    def _gw_configure_schema(self, gw: dict[str, Any], ha_ip: str, mode_default: str = "lns") -> dict:
+        schema: dict[Any, Any] = {}
+        if not gw.get("ip"):
+            schema[vol.Required("host")] = TextSelector()
+        schema.update({
+            vol.Required("username", default="admin"): TextSelector(),
+            vol.Required("password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Required("mode", default=mode_default): SelectSelector(SelectSelectorConfig(
+                options=["lns", "mqtt", "both"], translation_key="gateway_mode", mode=SelectSelectorMode.LIST)),
+            vol.Optional("band", default="EU868"): SelectSelector(SelectSelectorConfig(
+                options=["EU868", "US915", "AU915", "AS923", "IN865", "KR920"], mode=SelectSelectorMode.DROPDOWN)),
+        })
+        return schema
+
+    def _mqtt_defaults(self) -> dict[str, Any]:
+        """The broker login Home Assistant's own MQTT integration uses, to prefill the gateway's MQTT output."""
+        for e in self.hass.config_entries.async_entries("mqtt"):
+            d = {**e.data, **e.options}
+            if d.get("broker"):
+                return {"host": d.get("broker"), "port": d.get("port", 1883),
+                        "username": d.get("username") or "", "password": d.get("password") or ""}
+        return {}
+
+    async def _run_gateway_config(self, mode: str, mqtt_user: str | None = None,
+                                  mqtt_password: str | None = None) -> dict[str, str]:
+        """Do the configured work on the gateway. Returns {} on success, else {'base': error}."""
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+        from .gateway_api import GatewayClient, GatewayError
+        c = self._gwcfg
+        ha_ip = await _local_ip(self.hass, c["host"])
+        broker_ip = (self._mqtt_defaults().get("host") or ha_ip) if mode in ("mqtt", "both") else ha_ip
+        if broker_ip in ("localhost", "127.0.0.1", "core-mosquitto"):     # the gateway needs a reachable address
+            broker_ip = ha_ip
+        client = GatewayClient(async_get_clientsession(self.hass), c["host"], c["username"], c["password"])
+        try:
+            await client.login()
+            info = await client.async_read_info()
+            if mode in ("lns", "both"):
+                await client.async_point_at_home_assistant(ha_ip, band=c.get("band", "EU868"))
+            if mode in ("mqtt", "both"):
+                self._gw["_mqtt_topics"] = await client.async_setup_mqtt(broker_ip, mqtt_user, mqtt_password)
+        except GatewayError as err:
+            self.context["_gw_error"] = str(err)
+            msg = str(err).lower()
+            bad_login = "not accepted" in msg or "login failed" in msg
+            return {"base": "gateway_login" if bad_login else "gateway_api"}
+        self._gw["model"] = self._gw.get("model") or (info or {}).get("model")
+        return {}
+
+    async def _gateway_done(self, mode: str) -> ConfigFlowResult:
+        gw = self._gw
+        if gw.get("_known"):
+            hub = next((getattr(e, "runtime_data", None) for e in self._hubs()
+                        if e.entry_id == gw.get("hub_entry_id")), None)
+            if hub is not None and hasattr(hub, "expect_gateway"):
+                hub.expect_gateway(gw["eui"], {"name": gw.get("_name"), "ip": gw.get("ip"), "model": gw.get("model")})
+            return self.async_abort(reason="gateway_configured",
+                                    description_placeholders={"name": gw.get("_name") or gw["eui"].upper()})
+        return await self._finish_gateway(gw, mode in ("lns", "both"), mode)
+
+    async def async_step_gateway_configure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Log in to the gateway over the LAN and set it up: point its packet forwarder at Home Assistant (built-in
+        network server) and / or set up its embedded network server + MQTT – no visit to its web page."""
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+        from .gateway_api import GatewayClient, GatewayError
+        gw = self._gw
+        errors: dict[str, str] = {}
+        ha_ip = await _local_ip(self.hass, gw.get("ip"))
+        mode_default = "lns" if gw.get("_use_lns", True) else "mqtt"
+        if user_input is not None:
+            host = (user_input.get("host") or gw.get("ip") or "").strip()
+            if not host:
+                errors["base"] = "gateway_no_ip"
+            else:
+                gw["ip"] = host
+                mode = user_input.get("mode", mode_default)
+                self._gwcfg = {"host": host, "username": user_input["username"], "password": user_input["password"],
+                               "band": user_input.get("band", "EU868"), "mode": mode}
+                if mode in ("mqtt", "both"):
+                    return await self.async_step_gateway_mqtt()
+                errors = await self._run_gateway_config("lns")
+                if not errors:
+                    return await self._gateway_done("lns")
+        return self.async_show_form(step_id="gateway_configure",
+                                    data_schema=vol.Schema(self._gw_configure_schema(gw, ha_ip, mode_default)),
+                                    errors=errors,
+                                    description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
+                                                              "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
+                                                              "error": self.context.get("_gw_error", "")})
+
+    def _broker_for_gateway(self, d: dict[str, Any], ha_ip: str) -> str:
+        host = d.get("host") or ha_ip
+        return ha_ip if host in ("localhost", "127.0.0.1", "core-mosquitto", "") else host
+
+    async def async_step_gateway_mqtt(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """The broker login the gateway should use for its MQTT output – prefilled from Home Assistant's own MQTT."""
+        gw, errors = self._gw, {}
+        d = self._mqtt_defaults()
+        ha_ip = await _local_ip(self.hass, self._gwcfg.get("host"))
+        broker = self._broker_for_gateway(d, ha_ip)
+        if user_input is not None:
+            errors = await self._run_gateway_config(self._gwcfg["mode"],
+                                                    user_input.get("mqtt_user") or d.get("username") or None,
+                                                    user_input.get("mqtt_password") or d.get("password") or None)
+            if not errors:
+                return await self._gateway_done(self._gwcfg["mode"])
+        schema = {
+            vol.Optional("mqtt_user", description={"suggested_value": d.get("username") or ""}): TextSelector(),
+            vol.Optional("mqtt_password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+        }
+        return self.async_show_form(step_id="gateway_mqtt", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
+                                                              "broker": broker,
+                                                              "user": d.get("username") or "(none set)",
+                                                              "error": self.context.get("_gw_error", "")})
+
+    async def _finish_gateway(self, gw: dict[str, Any], use_lns: bool, mode: str) -> ConfigFlowResult:
+        """Create / update the hub entry and register the gateway, after it was configured over the LAN."""
+        from .const import (CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_PORT, CONF_LNS_REGION, CONF_LNS_RX1_DELAY,
+                            DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
+        from .gateway_discovery import default_name
+        info = {"name": gw.get("_name") or default_name(gw["eui"], gw.get("model")), "area": gw.get("_area") or None,
+                "ip": gw.get("ip"), "mac": gw.get("mac"), "model": gw.get("model"), "found": gw.get("found")}
+        hubs = self._hubs()
+        topics = gw.get("_mqtt_topics") or {}
+        want_lns = mode in ("lns", "both")
+        if not hubs:
+            if mode == "mqtt":
+                farm_opts: dict[str, Any] = {}
+                data = {CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: topics.get("topic", DEFAULT_TOPIC),
+                        CONF_PAYLOAD_ENCODING: ENCODING_BASE64,
+                        CONF_DOWNLINK_TOPIC: topics.get("downlink_topic", DEFAULT_DOWNLINK_TOPIC),
+                        CONF_DOWNLINK_FORMAT: DOWNLINK_MILESIGHT, CONF_EXTRA_TOPICS: topics.get("extra_topics", ""),
+                        CONF_GATEWAY_OFFLINE_MIN: DEFAULT_GATEWAY_OFFLINE_MIN,
+                        CONF_NS_REQUEST_TOPIC: topics.get("ns_request_topic", ""),
+                        CONF_NS_RESPONSE_TOPIC: topics.get("ns_response_topic", "")}
+                return self.async_create_entry(title=info["name"], data=data,
+                                               options={"pending_gateways": {gw["eui"]: info}})
+            farm = int(gw["eui"][-4:], 16) % 511 + 1
+            return self.async_create_entry(title="Milesight LoRaWAN network", data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_HUB, CONF_TOPIC: topics.get("topic", ""),
+                CONF_PAYLOAD_ENCODING: ENCODING_BASE64, CONF_DOWNLINK_TOPIC: DEFAULT_DOWNLINK_TOPIC,
+                CONF_DOWNLINK_FORMAT: DOWNLINK_MILESIGHT, CONF_EXTRA_TOPICS: "",
+                CONF_GATEWAY_OFFLINE_MIN: DEFAULT_GATEWAY_OFFLINE_MIN}, options={
+                CONF_LNS_ENABLED: True, CONF_LNS_PORT: DEFAULT_LNS_PORT, CONF_LNS_REGION: "EU868",
+                CONF_LNS_RX1_DELAY: DEFAULT_LNS_RX1_DELAY, CONF_LNS_FARM_ID: farm,
+                "pending_gateways": {gw["eui"]: info}})
+        target = next((e for e in hubs if e.entry_id == gw.get("hub_entry_id")), None) or hubs[0]
+        hub = getattr(target, "runtime_data", None)
+        if want_lns and not target.options.get(CONF_LNS_ENABLED):
+            opts = {**target.options, CONF_LNS_ENABLED: True,
+                    CONF_LNS_PORT: target.options.get(CONF_LNS_PORT, DEFAULT_LNS_PORT),
+                    CONF_LNS_REGION: target.options.get(CONF_LNS_REGION, "EU868"),
+                    CONF_LNS_RX1_DELAY: target.options.get(CONF_LNS_RX1_DELAY, DEFAULT_LNS_RX1_DELAY),
+                    "pending_gateways": {**(target.options.get("pending_gateways") or {}), gw["eui"]: info}}
+            self.hass.config_entries.async_update_entry(target, options=opts)
+        elif hub is not None and hasattr(hub, "expect_gateway"):
+            hub.expect_gateway(gw["eui"], info)
+        return self.async_abort(reason="gateway_configured", description_placeholders={"name": info["name"]})
+
+    # ------------------------------------------------------- auto-discovery
+    async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        if discovery_info.get("lan"):                    # the network scan found a Milesight gateway
+            return await self._lan_gateway(discovery_info.get("mac"), discovery_info.get("ip"), None, "lan_scan",
+                                           discovery_info.get("hub_entry_id"))
+        if discovery_info.get("gateway_id"):            # a gateway forwarded its first packet
+            eui = discovery_info["gateway_id"]
+            await self.async_set_unique_id(f"gateway:{eui}")
+            self._abort_if_unique_id_configured()
+            if any(h.gateway_known(eui) for h in self._hub_objects()):
+                return self.async_abort(reason="already_configured")
+            sem = "Semtech" in str(discovery_info.get("connection") or "")
+            return await self._gateway_found({"eui": eui, "ip": discovery_info.get("ip"), "source": "packets",
+                                              "found": "semtech" if sem else "mqtt",
+                                              "model": discovery_info.get("model"),
+                                              "hub_entry_id": discovery_info.get("hub_entry_id"),
+                                              "connection": discovery_info.get("connection")})
+        deveui = discovery_info[CONF_DEVEUI]
+        await self.async_set_unique_id(deveui)
+        self._abort_if_unique_id_configured()
+        self._disc = discovery_info
+        guess = discovery_info.get("guess")
+        self.context["title_placeholders"] = {
+            "name": _device_title(discovery_info.get("device_name"), guess, deveui),
+            "deveui": deveui.upper(),
+        }
+        return await self.async_step_confirm()
+
+    async def async_step_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        deveui = self._disc[CONF_DEVEUI]
+        guess = self._disc.get("guess")
+        errors: dict[str, str] = {}
+        lns = bool(self._disc.get("lns"))
+        if user_input is not None:
+            key = _clean_key(user_input.get(CONF_APP_KEY))
+            if key and len(key) != 32:
+                errors[CONF_APP_KEY] = "invalid_app_key"
+            else:
+                return self._create_device(deveui, user_input[CONF_MODEL], user_input.get("name"),
+                                           user_input.get(CONF_AREA), user_input.get("purpose"),
+                                           app_key=key or None, join_eui=self._disc.get("join_eui"))
+
+        candidates = self._disc.get("candidates") or []
+        schema = vol.Schema({
+            vol.Required(CONF_MODEL, default=guess or next(iter(MODELS))): _model_selector(candidates),
+            vol.Optional("name", default=_device_title(self._disc.get("device_name"), guess, deveui)): TextSelector(),
+            vol.Optional(CONF_AREA): TextSelector(),
+            vol.Optional("purpose"): _purpose_selector(),
+        })
+        if lns:
+            schema = schema.extend({vol.Optional(CONF_APP_KEY, description={"suggested_value": DEFAULT_APP_KEY}):
+                                    TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))})
+        return self.async_show_form(step_id="confirm_join" if lns else "confirm", data_schema=schema, errors=errors,
+                                    description_placeholders={
+            "deveui": deveui.upper(), "join_eui": (self._disc.get("join_eui") or "").upper(),
+            "guess": guess or "unknown",
+            "candidates": ", ".join(candidates) if candidates else "-",
+        })
+
+    async def async_step_confirm_join(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self.async_step_confirm(user_input)
+
+    def _create_device(self, deveui: str, model: str, name: str | None, area: str | None = None,
+                       purpose: str | None = None, app_key: str | None = None,
+                       join_eui: str | None = None) -> ConfigFlowResult:
+        data = {CONF_ENTRY_TYPE: ENTRY_TYPE_DEVICE, CONF_DEVEUI: deveui, CONF_MODEL: model}
+        if app_key:
+            data[CONF_LNS_APP_KEY] = app_key
+            if join_eui:
+                data[CONF_LNS_JOIN_EUI] = join_eui
+        if area:
+            data[CONF_AREA] = area.strip()
+        if purpose in _purposes.PURPOSES and _purposes.PURPOSES[purpose].families & families(model):
+            data["purpose"] = purpose
+        return self.async_create_entry(title=_device_title(name, model, deveui), data=data)
+
+    # ---------------------------------------------------------------- options
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return MilesightOptionsFlow()
+
+
+class MilesightOptionsFlow(OptionsFlow):
+    async def async_step_connection(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: MQTT topics, formats, gateway offline time."""
+        entry = self.config_entry
+        if user_input is not None:
+            return self.async_create_entry(data={**entry.options, **user_input})
+        opts = {**entry.data, **entry.options}
+        return self.async_show_form(step_id="connection", data_schema=vol.Schema(_hub_schema(opts)))
+
+    async def async_step_compliance(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: cold-chain compliance reports (PDF per fridge / cold room, weekly or monthly, by e-mail)."""
+        from .compliance_ha import (CONF_COMPLIANCE_ATTACH, CONF_COMPLIANCE_HOUR, CONF_COMPLIANCE_NOTIFY,
+                                    CONF_COMPLIANCE_SCHEDULE, DEFAULT_COMPLIANCE_HOUR, DEFAULT_COMPLIANCE_SCHEDULE,
+                                    cold_units)
+        entry = self.config_entry
+        o = entry.options
+        notify = sorted(f"notify.{n}" for n in self.hass.services.async_services().get("notify", {}))
+        if user_input is not None:
+            data = {**o, **user_input}
+            data[CONF_COMPLIANCE_NOTIFY] = user_input.get(CONF_COMPLIANCE_NOTIFY) or []
+            return self.async_create_entry(data=data)
+        cur = o.get(CONF_COMPLIANCE_NOTIFY) or []
+        cur = cur if isinstance(cur, list) else [x.strip() for x in str(cur).split(",") if x.strip()]
+        schema = {
+            vol.Required(CONF_COMPLIANCE_SCHEDULE, default=o.get(CONF_COMPLIANCE_SCHEDULE,
+                                                                 DEFAULT_COMPLIANCE_SCHEDULE)):
+                SelectSelector(SelectSelectorConfig(options=["off", "weekly", "monthly", "both"],
+                                                    translation_key="compliance_schedule",
+                                                    mode=SelectSelectorMode.LIST)),
+            vol.Optional(CONF_COMPLIANCE_NOTIFY, description={"suggested_value": cur}):
+                SelectSelector(SelectSelectorConfig(options=sorted(set(notify) | set(cur)), multiple=True,
+                                                    custom_value=True, mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required(CONF_COMPLIANCE_ATTACH, default=o.get(CONF_COMPLIANCE_ATTACH, True)): BooleanSelector(),
+            vol.Required(CONF_COMPLIANCE_HOUR, default=o.get(CONF_COMPLIANCE_HOUR, DEFAULT_COMPLIANCE_HOUR)):
+                _int_box(0, 23),
+        }
+        units = cold_units(self.hass)
+        return self.async_show_form(step_id="compliance", data_schema=vol.Schema(schema), description_placeholders={
+            "units": ", ".join(u["rt"].entry.title for u in units) or "none yet – set a temperature sensor's "
+                                                                      "purpose to Fridge / cold room or Freezer"})
+
+    async def async_step_site(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: site information for the banner and the Building dashboard."""
+        entry = self.config_entry
+        if user_input is not None:
+            update = bool(user_input.pop(CONF_UPDATE_DASHBOARD, False))
+            set_name = bool(user_input.pop("set_ha_name", False))
+            data = {k: v for k, v in entry.options.items() if k not in _SITE_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "", [])})
+            data[CONF_SITE_LOGO] = user_input.get(CONF_SITE_LOGO) or ""      # cleared logo stays cleared
+            company = (user_input.get(CONF_SITE_COMPANY) or "").strip()
+            if set_name and company:
+                try:
+                    await self.hass.config.async_update(location_name=company)   # the name top-left in Home Assistant
+                except Exception:  # noqa: BLE001
+                    pass
+            _schedule_dashboard(self.hass, entry, auto=not update)
+            return self.async_create_entry(data=data)
+        o = entry.options
+
+        def sv(key: str, default: Any = None) -> dict:
+            return {"suggested_value": o.get(key, default)}
+        schema = {
+            vol.Optional(CONF_SITE_COMPANY, description=sv(CONF_SITE_COMPANY)): TextSelector(),
+            vol.Optional(CONF_SITE_CONTACT, description=sv(CONF_SITE_CONTACT)):
+                EntitySelector(EntitySelectorConfig(domain="person")),
+            vol.Optional(CONF_SITE_ADDRESS, description=sv(CONF_SITE_ADDRESS)): TextSelector(),
+            vol.Optional(CONF_SITE_PHONE, description=sv(CONF_SITE_PHONE)):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.TEL)),
+            vol.Optional(CONF_SITE_EMAIL, description=sv(CONF_SITE_EMAIL)):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.EMAIL)),
+            vol.Optional(CONF_SITE_LOGO, description=sv(CONF_SITE_LOGO, DEFAULT_SITE_LOGO)): TextSelector(),
+            vol.Optional(CONF_SITE_AREAS, description=sv(CONF_SITE_AREAS, [])):
+                AreaSelector(AreaSelectorConfig(multiple=True)),
+            vol.Optional(CONF_SITE_OUTSIDE, description=sv(CONF_SITE_OUTSIDE)):
+                EntitySelector(EntitySelectorConfig(domain=["sensor", "weather"])),
+            vol.Required(CONF_CO2_ALERT, default=o.get(CONF_CO2_ALERT, DEFAULT_CO2_ALERT)): _int_box(600, 5000),
+            vol.Required("set_ha_name", default=False): BooleanSelector(),
+            vol.Required(CONF_UPDATE_DASHBOARD, default=False): BooleanSelector(),
+        }
+        hass_name = self.hass.config.location_name
+        return self.async_show_form(step_id="site", data_schema=vol.Schema(schema),
+                                    description_placeholders={"ha_name": hass_name or "Home"})
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        entry = self.config_entry
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+            return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "compliance", "irrigation",
+                                                                      "provisioning", "network_server",
+                                                                      "connection"])
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        sections = ((["purpose"] if purposes_for(model) else [])
+                    + (["channels", "channel_template"] if MODELS[model].dynamic else [])
+                    + (["tank"] if tank_source(model) else [])
+                    + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
+        if _lns_hub(self.hass) is not None or entry.data.get(CONF_LNS_APP_KEY):
+            sections.append("network_keys")
+        sections.append("location")
+        sections.append("settings_profile")
+        if sections:
+            return self.async_show_menu(step_id="init", menu_options=["general", *sections])
+        return await self.async_step_general()
+
+    async def async_step_location(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: where it is mounted (a fixed point on the map). Easiest on the phone: LoRaWAN commissioning →
+        walk test → 'Use my phone's location'."""
+        entry = self.config_entry
+        cur = entry.options.get("location") or {}
+        if user_input is not None:
+            opts = {k: v for k, v in entry.options.items() if k != "location"}
+            loc = user_input.get("location") or {}
+            if not user_input.get("clear") and isinstance(loc.get("latitude"), (int, float)):
+                opts["location"] = {"latitude": round(float(loc["latitude"]), 6),
+                                    "longitude": round(float(loc["longitude"]), 6),
+                                    "accuracy": None, "at": time.time(), "by": "options"}
+            return self.async_create_entry(data=opts)
+        home = {"latitude": self.hass.config.latitude, "longitude": self.hass.config.longitude}
+        default = {"latitude": cur["latitude"], "longitude": cur["longitude"]} if cur.get("latitude") is not None else home
+        schema = {vol.Optional("location", default=default): LocationSelector(LocationSelectorConfig(radius=False)),
+                  vol.Required("clear", default=False): BooleanSelector()}
+        return self.async_show_form(step_id="location", data_schema=vol.Schema(schema), description_placeholders={
+            "status": f"{cur['latitude']:.6f}, {cur['longitude']:.6f}" if cur.get("latitude") is not None else "not set"})
+
+    async def async_step_settings_profile(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: copy this device's set-up to others of the same model, save it as a profile, or load one."""
+        from . import maintenance_ha as _mh
+        from .profiles import describe
+        entry = self.config_entry
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        saved = {n: p for n, p in (await _mh.async_profiles(self.hass)).items() if p["model"] == model}
+        others = _mh.same_model_entries(self.hass, model, entry.entry_id)
+        errors: dict[str, str] = {}
+        placeholders = {"model": model, "result": "", "profiles": ", ".join(describe(p) for p in saved.values()) or "none"}
+        if user_input is not None:
+            channels, send = bool(user_input.get("include_channels", True)), bool(user_input.get("send_to_devices", True))
+            name = (user_input.get("save_as") or "").strip()
+            targets = [e for e in others if e.entry_id in (user_input.get("copy_to") or [])]
+            load = user_input.get("load_profile")
+            if not (name or targets or load or user_input.get("delete_profile")):
+                errors["base"] = "profile_nothing"
+            else:
+                done = []
+                if user_input.get("delete_profile"):
+                    await _mh.async_delete_profile(self.hass, user_input["delete_profile"])
+                    done.append(f"deleted '{user_input['delete_profile']}'")
+                prof = None
+                if name or targets:
+                    prof = await _mh.async_save_profile(self.hass, entry, name or f"{entry.title} ({model})")
+                    if name:
+                        done.append(f"saved as '{prof['name']}'")
+                    if not name:                      # a one-off copy: don't keep it in the list
+                        await _mh.async_delete_profile(self.hass, prof["name"])
+                for t in targets:
+                    r = await _mh.async_apply_profile(self.hass, prof, t, channels, send)
+                    done.append(f"{t.title}: {r['options']} options, {r['sent']} settings sent"
+                                + (f", {len(r['failed'])} failed" if r["failed"] else ""))
+                if load and load in saved:
+                    r = await _mh.async_apply_profile(self.hass, saved[load], entry, channels, send)
+                    done.append(f"this device ← '{load}': {r['options']} options, {r['sent']} settings sent")
+                    return self.async_abort(reason="profile_done", description_placeholders={"result": "; ".join(done)})
+                return self.async_create_entry(data=dict(entry.options)) if not done else self.async_abort(
+                    reason="profile_done", description_placeholders={"result": "; ".join(done)})
+        schema = {
+            vol.Optional("copy_to"): SelectSelector(SelectSelectorConfig(
+                options=[{"value": e.entry_id, "label": e.title} for e in others], multiple=True,
+                mode=SelectSelectorMode.LIST)) if others else TextSelector(),
+            vol.Optional("save_as"): TextSelector(),
+            vol.Optional("load_profile"): SelectSelector(SelectSelectorConfig(options=list(saved),
+                                                                                 mode=SelectSelectorMode.DROPDOWN)),
+            vol.Optional("delete_profile"): SelectSelector(SelectSelectorConfig(options=list(saved),
+                                                                                   mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required("include_channels", default=True): BooleanSelector(),
+            vol.Required("send_to_devices", default=True): BooleanSelector(),
+        }
+        if not others:
+            schema.pop(next(k for k in schema if k.schema == "copy_to"))
+        if not saved:
+            for key in ("load_profile", "delete_profile"):
+                schema.pop(next(k for k in schema if k.schema == key))
+        return self.async_show_form(step_id="settings_profile", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders=placeholders)
+
+    async def async_step_network_keys(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: AppKey (and optional JoinEUI) for the gateway's built-in network server."""
+        entry = self.config_entry
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            key, join = _clean_key(user_input.get(CONF_APP_KEY)), _clean_key(user_input.get(CONF_LNS_JOIN_EUI))
+            if key and len(key) != 32:
+                errors[CONF_APP_KEY] = "invalid_app_key"
+            elif join and len(join) != 16:
+                errors[CONF_LNS_JOIN_EUI] = "invalid_join_eui"
+            else:
+                data = {k: v for k, v in entry.data.items() if k not in (CONF_LNS_APP_KEY, CONF_LNS_JOIN_EUI)}
+                if key:
+                    data[CONF_LNS_APP_KEY] = key
+                    if join:
+                        data[CONF_LNS_JOIN_EUI] = join
+                self.hass.config_entries.async_update_entry(entry, data=data)
+                if user_input.get("forget_session"):
+                    for hub in self.hass.data.get(DOMAIN, {}).get("hubs", {}).values():
+                        if getattr(hub, "lns", None) is not None and hub.lns.server is not None:
+                            hub.lns.server.forget(entry.data[CONF_DEVEUI])
+                return self.async_create_entry(data=dict(entry.options))
+        lns = _lns_hub(self.hass)
+        info = lns.lns.server.session_info(entry.data[CONF_DEVEUI]) if lns and lns.lns.server else None
+        schema = {
+            vol.Optional(CONF_APP_KEY, description={"suggested_value": entry.data.get(CONF_LNS_APP_KEY)}):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Optional(CONF_LNS_JOIN_EUI, description={"suggested_value": entry.data.get(CONF_LNS_JOIN_EUI)}):
+                TextSelector(),
+            vol.Required("forget_session", default=False): BooleanSelector(),
+        }
+        status = (f"joined, DevAddr {info['dev_addr']}, frame {info['fcnt_up']}" if info and info.get("fcnt_up") is not None
+                  else "joined, no data yet" if info else "not joined")
+        return self.async_show_form(step_id="network_keys", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"status": status})
+
+    async def async_step_network_server(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: the built-in network server (gateways send their packet forwarder traffic to Home Assistant)."""
+        entry = self.config_entry
+        keys = (CONF_LNS_ENABLED, CONF_LNS_PORT, CONF_LNS_REGION, CONF_LNS_RX1_DELAY, CONF_LNS_FARM_ID)
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in keys}
+            data.update({k: (int(v) if k in (CONF_LNS_PORT, CONF_LNS_RX1_DELAY, CONF_LNS_FARM_ID) else v)
+                         for k, v in user_input.items() if v not in (None, "")})
+            return self.async_create_entry(data=data)
+        o = entry.options
+        farm = o.get(CONF_LNS_FARM_ID, int(entry.entry_id.encode().hex()[-6:], 16) % 511 + 1)
+        schema = {
+            vol.Required(CONF_LNS_ENABLED, default=o.get(CONF_LNS_ENABLED, False)): BooleanSelector(),
+            vol.Required(CONF_LNS_PORT, default=o.get(CONF_LNS_PORT, DEFAULT_LNS_PORT)): _int_box(1024, 65535),
+            vol.Required(CONF_LNS_REGION, default=o.get(CONF_LNS_REGION, "EU868")):
+                SelectSelector(SelectSelectorConfig(options=["EU868"], mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required(CONF_LNS_RX1_DELAY, default=o.get(CONF_LNS_RX1_DELAY, DEFAULT_LNS_RX1_DELAY)): _int_box(1, 15),
+            vol.Required(CONF_LNS_FARM_ID, default=farm): _int_box(0, 511),
+        }
+        return self.async_show_form(step_id="network_server", data_schema=vol.Schema(schema))
+
+    async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: model, offline time, battery, meters, door / occupancy / CO₂ settings …"""
+        entry = self.config_entry
+        if user_input is not None:
+            extra = {}
+            if CONF_RUN_THRESHOLD_A in user_input:
+                from .pump import run_threshold_setting
+                if float(user_input[CONF_RUN_THRESHOLD_A] or 0) != run_threshold_setting(dict(entry.options)):
+                    extra["run_threshold_set"] = True
+            return self.async_create_entry(data={**entry.options, **user_input, **extra})
+        opts = {**entry.data, **entry.options}
+        model = opts.get(CONF_MODEL, entry.data[CONF_MODEL])
+        features = MODELS[model].features
+        schema = {
+            vol.Required(CONF_MODEL, default=model): _model_selector(),
+            vol.Required(CONF_MAX_GAP_MIN, default=opts.get(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)): _int_box(5, 1440),
+        }
+        if pulse_capable(model):
+            schema[vol.Required(CONF_METER_TYPE, default=opts.get(CONF_METER_TYPE, "none"))] = SelectSelector(
+                SelectSelectorConfig(options=METER_TYPES, translation_key="meter_type"))
+            schema[vol.Optional(CONF_METER_UNIT, default=opts.get(CONF_METER_UNIT, "m³"))] = SelectSelector(
+                SelectSelectorConfig(options=["L", "m³", "gal", "ft³", "kWh", "Wh"]))
+            schema[vol.Optional(CONF_METER_PPU, default=opts.get(CONF_METER_PPU, 1))] = NumberSelector(
+                NumberSelectorConfig(min=0.0001, max=1_000_000, step="any", mode=NumberSelectorMode.BOX))
+            schema[vol.Optional(CONF_METER_OFFSET, default=opts.get(CONF_METER_OFFSET, 0))] = NumberSelector(
+                NumberSelectorConfig(min=0, max=100_000_000, step="any", mode=NumberSelectorMode.BOX))
+            schema[vol.Optional(CONF_METER_SOURCE, default=opts.get(CONF_METER_SOURCE, ""))] = TextSelector()
+        if downlinks(model):
+            schema[vol.Required(CONF_CONFIRMED_DOWNLINKS, default=opts.get(CONF_CONFIRMED_DOWNLINKS, False))] = \
+                BooleanSelector()
+            schema[vol.Required(CONF_RETRIES, default=opts.get(CONF_RETRIES, DEFAULT_RETRIES))] = _int_box(0, 5)
+        if "ds3604" in features:
+            schema[vol.Required(CONF_DISPLAY_MAX_BYTES, default=opts.get(CONF_DISPLAY_MAX_BYTES,
+                                                                         DEFAULT_DISPLAY_MAX_BYTES))] = _int_box(11, 242)
+        hist = downlinks(model).get("history") or {}
+        if hist.keys() & {"fetch", "fetch_since"}:
+            schema[vol.Required(CONF_AUTO_BACKFILL, default=opts.get(CONF_AUTO_BACKFILL, True))] = BooleanSelector()
+        if "battery" in {sp.key for sp in entity_specs(model)}:
+            schema[vol.Required(CONF_BATTERY_LOW, default=opts.get(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))] = _int_box(1, 99)
+        if "door" in features and opts.get("purpose") in (None, "", "none"):
+            schema[vol.Required(CONF_LEFT_OPEN_MIN, default=opts.get(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN))] = \
+                _int_box(1, 1440)
+        if "em400" in features and not tank_source(model):
+            schema[vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0))] = \
+                _int_box(0, 20000)
+        if "load" in features:
+            from .pump import run_threshold_setting
+            schema[vol.Required(CONF_RUN_THRESHOLD_A, default=run_threshold_setting(dict(entry.options)))] = \
+                NumberSelector(NumberSelectorConfig(min=0, max=5000, step=0.01, mode=NumberSelectorMode.BOX,
+                                                    unit_of_measurement="A"))
+            schema[vol.Required(CONF_MAINS_VOLTAGE, default=opts.get(CONF_MAINS_VOLTAGE, 0))] = _int_box(0, 1000)
+        if "co2high" in features:
+            schema[vol.Required(CONF_CO2_LIMIT, default=opts.get(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT))] = \
+                _int_box(400, 5000)
+        if "occupancy" in features:
+            schema.update({
+                vol.Required(CONF_EMPTY_GRACE_MIN, default=opts.get(CONF_EMPTY_GRACE_MIN, DEFAULT_EMPTY_GRACE_MIN)):
+                    _int_box(0, 60),
+                vol.Required(CONF_OPEN_HOUR, default=opts.get(CONF_OPEN_HOUR, DEFAULT_OPEN_HOUR)): _int_box(0, 23),
+                vol.Required(CONF_CLOSE_HOUR, default=opts.get(CONF_CLOSE_HOUR, DEFAULT_CLOSE_HOUR)): _int_box(1, 24),
+                vol.Required(CONF_OPEN_DAYS, default=opts.get(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)): SelectSelector(
+                    SelectSelectorConfig(options=WEEKDAYS, multiple=True, translation_key="weekday")),
+            })
+        return self.async_show_form(step_id="general", data_schema=vol.Schema(schema))
+
+    # ------------------------------------------------- controller channels
+    async def async_step_channels(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """UC controllers: name, unit and scale per Modbus register / analog input."""
+        entry = self.config_entry
+        errors: dict[str, str] = {}
+        rt = getattr(entry, "runtime_data", None)
+        raw = getattr(rt, "raw", {}) or {}
+        seen = sorted(k for k in raw if re.fullmatch(
+            r"(modbus_chn_\d+(?:_reg_\d+)?|adc_\d+|adv_\d+|analog_input_\d+|pt100_\d+|gpio_counter_\d+)", k))
+        placeholders = {"problems": "", "seen": ", ".join(f"{k} = {raw[k]}" for k in seen[:24]) or
+                        "none yet – channels appear after the controller's first report"}
+        if user_input is not None:
+            text = user_input.get(CONF_CHANNEL_MAP, "") or ""
+            _, problems = parse_channel_map(text)
+            if problems:
+                errors[CONF_CHANNEL_MAP] = "channel_map_invalid"
+                placeholders["problems"] = "\n\n" + "\n".join(f"- {p}" for p in problems[:15])
+            else:
+                return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: text})
+        current = (user_input or {}).get(CONF_CHANNEL_MAP, entry.options.get(CONF_CHANNEL_MAP, ""))
+        return self.async_show_form(step_id="channels", errors=errors, description_placeholders=placeholders,
+                                    data_schema=vol.Schema({
+                                        vol.Optional(CONF_CHANNEL_MAP, description={"suggested_value": current}):
+                                            TextSelector(TextSelectorConfig(multiline=True)),
+                                    }))
+
+    # ------------------------------------------------- RS485 sensor templates
+    async def async_step_channel_template(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Sensor templates on this controller: see what is applied, remove one, or apply a new one."""
+        entry = self.config_entry
+        applied = list(entry.options.get("channel_templates", []))
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            remove = [int(i) for i in user_input.get("remove") or []]
+            if remove:
+                if user_input.get("remove_from_device") and getattr(entry, "runtime_data", None) is not None:
+                    cmds = [c for i in remove for c in _mc.remove_commands(applied[i]["first"], applied[i]["last"])]
+                    try:
+                        await entry.runtime_data.async_modbus_push(cmds, label="remove template")
+                    except Exception as err:  # noqa: BLE001
+                        errors["base"] = "send_failed"
+                        self._send_error = str(err)
+            if remove and not errors:
+                text = entry.options.get(CONF_CHANNEL_MAP, "") or ""
+                for i in remove:
+                    a = applied[i]
+                    text = _mt.remove_from_map(text, a["first"], a["last"], a.get("title"),
+                                               getattr(_mt.TEMPLATES.get(a.get("template")), "name", None))
+                keep = [a for i, a in enumerate(applied) if i not in remove]
+                return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: text,
+                                                     "channel_templates": keep})
+            if not errors and user_input.get("edit") not in (None, ""):
+                a = applied[int(user_input["edit"])]
+                t = _mt.TEMPLATES.get(a.get("template"))
+                if t is not None:
+                    self._tpl = {"key": t.key, "edit": a, "defaults": _mt.applied_defaults(t, a)}
+                    return await self.async_step_channel_template_values()
+            if not errors and user_input.get("template"):
+                self._tpl = {"key": user_input["template"]}
+                return await self.async_step_channel_template_values()
+            if not errors:
+                errors["base"] = "template_nothing"
+        opts = [{"value": t.key, "label": t.name} for t in _mt.TEMPLATES.values()]
+        schema = {vol.Optional("template"): SelectSelector(SelectSelectorConfig(options=opts,
+                                                                               mode=SelectSelectorMode.LIST))}
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        if applied and _mc.can_push(model):
+            schema[vol.Required("remove_from_device", default=True)] = BooleanSelector()
+        if applied:
+            schema[vol.Optional("edit")] = SelectSelector(SelectSelectorConfig(
+                options=[{"value": str(i), "label": f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
+                                                   f" – channels {a['first']}–{a['last']}"}
+                         for i, a in enumerate(applied) if a.get("template") in _mt.TEMPLATES],
+                mode=SelectSelectorMode.LIST))
+            schema[vol.Optional("remove", default=[])] = SelectSelector(SelectSelectorConfig(
+                options=[{"value": str(i), "label": f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
+                                                   f" – channels {a['first']}–{a['last']}"}
+                         for i, a in enumerate(applied)], multiple=True, mode=SelectSelectorMode.LIST))
+        return self.async_show_form(step_id="channel_template", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"applied": _mt.describe_applied(applied),
+                                                              "error": ("\n\n⚠ " + self._send_error) if getattr(self, "_send_error", "") else ""})
+
+    def _next_free_channel(self) -> int:
+        from .channel_map import channel_key
+        used = set()
+        for line in (self.config_entry.options.get(CONF_CHANNEL_MAP) or "").splitlines():
+            head = line.split("#", 1)[0].replace("|", ";").replace("\t", ";").split(";", 1)[0].strip()
+            k = channel_key(head) if head else None
+            m = re.fullmatch(r"modbus_chn_(\d+)(?:_reg_\d+)?", k or "")
+            if m:
+                used.add(int(m[1]))
+        return max(used) + 1 if used else 1
+
+    async def async_step_channel_template_values(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        t = _mt.TEMPLATES[self._tpl["key"]]
+        limit = _mt.max_channels(self.config_entry.options.get(CONF_MODEL, self.config_entry.data[CONF_MODEL]))
+        errors: dict[str, str] = {}
+        placeholders = {"template": t.name, "notes": "\n".join(f"- {n}" for n in t.notes), "problems": "",
+                        "channels": str(limit), "defaults": str(len(t.defaults()))}
+        if user_input is not None:
+            rows, problems = _mt.plan(t.key, user_input.get("values") or [], int(user_input["first_channel"]),
+                                      int(user_input["slave_id"]), (user_input.get("prefix") or "").strip()
+                                      and f"{user_input['prefix'].strip()} ", max_channels=limit)
+            if problems:
+                errors["base"] = "template_invalid"
+                placeholders["problems"] = "\n\n" + "\n".join(f"- {p}" for p in problems)
+            else:
+                self._tpl.update(rows=rows, prefix=(user_input.get("prefix") or "").strip())
+                return await self.async_step_channel_template_confirm()
+        u = user_input or self._tpl.get("defaults") or {}
+        if self._tpl.get("edit"):
+            placeholders["template"] = f"Edit: {t.name}"
+        schema = {
+            vol.Required("values", default=u.get("values", t.defaults())): SelectSelector(SelectSelectorConfig(
+                options=[{"value": r.key, "label": (f"{r.group}: " if r.group else "") + f"{r.name}"
+                          + (f" ({r.unit})" if r.unit else "")
+                          + (f" – {r.note}" if r.note else "")} for r in t.regs],
+                multiple=True, mode=SelectSelectorMode.LIST)),
+            vol.Required("first_channel", default=u.get("first_channel", self._next_free_channel())):
+                _int_box(1, limit),
+            vol.Required("slave_id", default=u.get("slave_id", t.slave_id)): _int_box(1, 247),
+            vol.Optional("prefix", description={"suggested_value": u.get("prefix")}): TextSelector(),
+        }
+        return self.async_show_form(step_id="channel_template_values", data_schema=vol.Schema(schema),
+                                    errors=errors, description_placeholders=placeholders)
+
+    async def async_step_channel_template_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        entry = self.config_entry
+        t = _mt.TEMPLATES[self._tpl["key"]]
+        rows = self._tpl["rows"]
+        current = entry.options.get(CONF_CHANNEL_MAP, "") or ""
+        title = _mt.block_title(t, rows)
+        lo, hi = rows[0]["channel"], rows[-1]["channel"]
+        edited = self._tpl.get("edit")
+        overlap = [a for a in entry.options.get("channel_templates", [])
+                   if (a["first"] <= hi and a["last"] >= lo) or a == edited]
+        for a in overlap:                                # a template on these channels is replaced as a whole
+            current = _mt.remove_from_map(current, a["first"], a["last"], a.get("title"))
+        new_map = _mt.merge_map(current, rows, title)
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        push = _mc.can_push(model)
+        errors: dict[str, str] = {}
+        sent_before: dict[str, str] = {}
+        for a in overlap:                                # what the controller already has on these channels
+            if a.get("sent_to_device"):
+                sent_before.update(a.get("sent") or {})
+        new_ch = {r["channel"] for r in rows}
+        removed = [c for a in overlap for c in _mc.remove_commands(a["first"], a["last"])
+                   if int(c[0].rsplit("_", 1)[1]) not in new_ch]
+
+        def to_send(names: bool) -> list:
+            return removed + _mc.changed_commands(_mc.template_commands(rows, names=names), sent_before)
+        if user_input is not None and push and user_input.get("send_to_device") \
+                and getattr(entry, "runtime_data", None) is not None:
+            serial = None
+            if user_input.get("set_serial") and model in _mc.SERIAL_MODELS:
+                bits, parity, stop = _mc.parse_serial(t.serial)
+                serial = _mc.serial_cmd(t.baud, bits, stop, parity)
+            cmds = to_send(bool(user_input.get("send_names", True)))
+            try:
+                if cmds or serial:
+                    await entry.runtime_data.async_modbus_push(cmds, serial, 30 if user_input.get("fast") else 0,
+                                                               label=t.name)
+            except Exception as err:  # noqa: BLE001 - shown in the form
+                errors["base"] = "send_failed"
+                self._send_error = str(err)
+        if user_input is not None and not errors:
+            applied = [a for a in entry.options.get("channel_templates", []) if a not in overlap]
+            sent = bool(push and (user_input or {}).get("send_to_device"))
+            applied.append({"template": t.key, "first": lo, "last": hi, "slave_id": rows[0]["slave_id"],
+                            "title": title, "values": [r["name"] for r in rows],
+                            "keys": [r["key"] for r in rows], "prefix": self._tpl.get("prefix", ""),
+                            "sent_to_device": sent,
+                            "sent": {label: cmd.hex() for label, cmd in _mc.template_commands(
+                                rows, names=bool((user_input or {}).get("send_names", True)))} if sent else {}})
+            applied.sort(key=lambda a: a["first"])
+            return self.async_create_entry(data={**entry.options, CONF_CHANNEL_MAP: new_map,
+                                                 "channel_templates": applied})
+        _, problems = parse_channel_map(new_map)
+        bauds = {_mt.TEMPLATES[a["template"]].baud for a in entry.options.get("channel_templates", [])
+                 if a.get("template") in _mt.TEMPLATES} | {t.baud}
+        warn = ("\n\n⚠ The sensors on this controller default to different baud rates "
+                f"({', '.join(str(b) for b in sorted(bauds))}): set them all to one rate – see the notes."
+                if len(bauds) > 1 else "")
+        lines = "\n".join(r["line"] for r in rows)
+        schema: dict = {}
+        if push:
+            schema[vol.Required("send_to_device", default=True)] = BooleanSelector()
+            schema[vol.Required("send_names", default=True)] = BooleanSelector()
+            if model in _mc.SERIAL_MODELS:
+                schema[vol.Required("set_serial", default=True)] = BooleanSelector()
+            schema[vol.Required("fast", default=True)] = BooleanSelector()
+        return self.async_show_form(step_id="channel_template_confirm", data_schema=vol.Schema(schema),
+                                    errors=errors,
+                                    description_placeholders={
+                                        "toolbox": _mt.toolbox_table(t, rows) + warn,
+                                        "lines": lines,
+                                        "device": ("\n\n**This controller can be set up from here:** tick *Send to "
+                                                   "the controller* and the channels go to the device over LoRaWAN "
+                                                   f"({len(_mc.pack(to_send(True)))} downlinks"
+                                                   + (", only the channels that changed" if sent_before else "")
+                                                   + ", delivered one per uplink; each is confirmed when the device "
+                                                   "echoes it – see Command status). "
+                                                   + ("The RS485 port speed is sent too." if model in
+                                                      _mc.SERIAL_MODELS else
+                                                      f"Firmware v1 cannot set its RS485 port remotely – set "
+                                                      f"{t.baud} baud {t.serial} in ToolBox once."))
+                                        if push else "\n\nThe UC300 / UC50x cannot be set up over LoRaWAN – "
+                                                     "enter the channels in ToolBox.",
+                                        "error": ("\n\n⚠ " + self._send_error) if getattr(self, "_send_error", "") else "",
+                                        "replaces": ("\n\nThis replaces: " + "; ".join(
+                                            f"{_mt.TEMPLATES[a['template']].name if a['template'] in _mt.TEMPLATES else a['template']}"
+                                            f" (channels {a['first']}–{a['last']})" for a in overlap)) if overlap else "",
+                                        "problems": ("\n\n" + "\n".join(problems)) if problems else ""})
+
+    # ---------------------------------------------------------------- tank
+    async def async_step_tank(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Level / distance sensors: tank or silo shape and size → litres, usage, days left, refills, theft."""
+        entry = self.config_entry
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        src = tank_source(model)
+        errors: dict[str, str] = {}
+        placeholders = {"capacity": "–"}
+        o = {**entry.options, **(user_input or {})}
+        if user_input is not None:
+            cfg = tank_config(o)
+            shape = o.get(CONF_TANK_SHAPE, "none")
+            need = {"vertical_cylinder": (cfg.diameter_mm,), "horizontal_cylinder": (cfg.diameter_mm, cfg.length_mm),
+                    "rectangular": (cfg.length_mm, cfg.width_mm), "cone_bottom": (cfg.diameter_mm, cfg.cone_mm),
+                    "linear": (cfg.capacity_l,)}.get(shape, ())
+            if shape != "none" and (cfg.height_mm <= 0 or any(v <= 0 for v in need)):
+                errors["base"] = "tank_dimensions"
+            elif shape != "none" and src == "distance" and cfg.empty_distance_mm <= 0:
+                errors["install_height_mm"] = "tank_empty_distance"
+            else:
+                return self.async_create_entry(data={**entry.options, **user_input})
+        cfg = tank_config(o)
+        if cfg.enabled:
+            placeholders["capacity"] = f"{capacity_l(cfg):,.0f} L"
+
+        def num(key: str, default: float, lo: float, hi: float, unit: str | None = None) -> None:
+            schema[vol.Required(key, default=o.get(key, default))] = _float_box(lo, hi, unit)
+        schema: dict = {vol.Required(CONF_TANK_SHAPE, default=o.get(CONF_TANK_SHAPE, "none")): SelectSelector(
+            SelectSelectorConfig(options=list(SHAPES), translation_key="tank_shape"))}
+        if src == "distance":
+            num(CONF_INSTALL_HEIGHT_MM, 0, 0, 30000, "mm")
+        num(CONF_TANK_HEIGHT, 0, 0, 30000, "mm")
+        num(CONF_TANK_DIAMETER, 0, 0, 30000, "mm")
+        num(CONF_TANK_LENGTH, 0, 0, 50000, "mm")
+        num(CONF_TANK_WIDTH, 0, 0, 50000, "mm")
+        num(CONF_TANK_CONE, 0, 0, 30000, "mm")
+        num(CONF_TANK_CAPACITY, 0, 0, 10_000_000, "L")
+        if src == "depth":
+            num(CONF_TANK_PROBE_OFFSET, 0, 0, 30000, "mm")
+        num(CONF_TANK_DENSITY, 0, 0, 3000, "kg/m³")
+        num(CONF_TANK_LOW_PCT, 20, 0, 99, "%")
+        num(CONF_TANK_REFILL_PCT, 5, 1, 100, "%")
+        num(CONF_TANK_DROP_PCT, 0, 0, 100, "%")
+        num(CONF_TANK_DROP_MIN, 60, 5, 1440, "min")
+        return self.async_show_form(step_id="tank", errors=errors, description_placeholders=placeholders,
+                                    data_schema=vol.Schema(schema))
+
+    # ------------------------------------------------------------- purpose
+    async def async_step_purpose(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """What the device is fitted to (fridge, gate, pump, bin …) – sets labels, looks, defaults and alerts."""
+        entry = self.config_entry
+        model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        chans = load_channels(model)
+        keys = ["purpose"] + [f"purpose_{n}" for n in range(1, chans + 1)]
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in keys}
+            changed = (user_input.get("purpose") or "none") != \
+                (entry.options.get("purpose", entry.data.get("purpose")) or "none")
+            for k in keys:
+                data[k] = user_input.get(k) or "none"
+            if changed:                                    # a new purpose starts from its own defaults
+                data = {k: v for k, v in data.items() if not k.startswith("p_")}
+            self._pending = data
+            if _purposes.setting_fields(data.get("purpose"), families(model)):
+                return await self.async_step_purpose_settings()
+            return self.async_create_entry(data=data)
+        cur = entry.options.get("purpose", entry.data.get("purpose")) or "none"
+        schema = {vol.Required("purpose", default=cur): _purpose_selector(model)}
+        for n in range(1, chans + 1):
+            schema[vol.Required(f"purpose_{n}", default=entry.options.get(f"purpose_{n}") or "none")] = \
+                _purpose_selector(model, load_only=True)
+        return self.async_show_form(step_id="purpose", data_schema=vol.Schema(schema),
+                                    description_placeholders={"model": model})
+
+    async def async_step_purpose_settings(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        entry = self.config_entry
+        data = getattr(self, "_pending", None) or dict(entry.options)
+        model = data.get(CONF_MODEL, entry.data[CONF_MODEL])
+        purpose = data.get("purpose")
+        fields = _purposes.setting_fields(purpose, families(model))
+        if "run_w" in fields and "socket" not in MODELS[model].features:
+            fields.remove("run_w")
+        hours = "after_hours" in fields
+        if user_input is not None:
+            out = {k: v for k, v in data.items() if not k.startswith("p_")}
+            defaults = (_purposes.get(purpose).defaults if _purposes.get(purpose) else {})
+            for f in fields:
+                v = user_input.get(f"p_{f}")
+                if v not in (None, ""):
+                    out[f"p_{f}"] = v
+                elif f in defaults and f != "after_hours":
+                    out[f"p_{f}"] = "off"                  # cleared on purpose: no alarm for this
+            if hours:
+                for k in (CONF_OPEN_HOUR, CONF_CLOSE_HOUR, CONF_OPEN_DAYS):
+                    if k in user_input:
+                        out[k] = user_input[k]
+            return self.async_create_entry(data=out)
+        cfg = _purposes.settings(purpose, data)
+        units = {"temp_low": ("°C", -60, 150), "temp_high": ("°C", -60, 150), "temp_delay_min": ("min", 0, 1440),
+                 "temp_rise_day": ("°C", 0.5, 50), "left_open_min": ("min", 1, 1440), "max_run_h": ("h", 0, 168),
+                 "no_run_h": ("h", 0, 168), "service_h": ("h", 0, 100000), "run_w": ("W", 0, 10000),
+                 "bin_depth_mm": ("mm", 100, 5000), "full_pct": ("%", 10, 100),
+                 "empty_distance_mm": ("mm", 100, 20000), "rise_cm_h": ("cm/h", 0.5, 500),
+                 "co2_limit": ("ppm", 400, 5000), "clean_visits": ("visits", 1, 10000), "latch_min": ("min", 1, 1440)}
+        schema: dict = {}
+        for f in fields:
+            if f == "after_hours":
+                schema[vol.Required("p_after_hours", default=bool(cfg.get("after_hours", False)))] = BooleanSelector()
+                continue
+            unit, lo, hi = units[f]
+            schema[vol.Optional(f"p_{f}", description={"suggested_value": cfg.get(f)})] = _float_box(lo, hi, unit)
+        # (an emptied box is saved as 'off', so a default limit can be switched off)
+        if hours:
+            schema.update({
+                vol.Required(CONF_OPEN_HOUR, default=data.get(CONF_OPEN_HOUR, DEFAULT_OPEN_HOUR)): _int_box(0, 23),
+                vol.Required(CONF_CLOSE_HOUR, default=data.get(CONF_CLOSE_HOUR, DEFAULT_CLOSE_HOUR)): _int_box(1, 24),
+                vol.Required(CONF_OPEN_DAYS, default=data.get(CONF_OPEN_DAYS, DEFAULT_OPEN_DAYS)): SelectSelector(
+                    SelectSelectorConfig(options=WEEKDAYS, multiple=True, translation_key="weekday")),
+            })
+        p = _purposes.get(purpose)
+        return self.async_show_form(step_id="purpose_settings", data_schema=vol.Schema(schema),
+                                    description_placeholders={"purpose": p.label if p else "–"})
+
+    # ---------------------------------------------------------------- pump
+    async def async_step_pump(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Current clamps on a pump: run hours, starts per hour, dry-run / overload, water per kWh."""
+        entry = self.config_entry
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in PUMP_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+            return self.async_create_entry(data=data)
+        o = entry.options
+        schema = {
+            vol.Required("pump_enabled", default=o.get("pump_enabled", False)): BooleanSelector(),
+            vol.Required("pump_normal_a", default=o.get("pump_normal_a", 0)): _float_box(0, 5000, "A"),
+            vol.Required("pump_dry_pct", default=o.get("pump_dry_pct", 60)): _float_box(10, 99, "%"),
+            vol.Required("pump_overload_pct", default=o.get("pump_overload_pct", 125)): _float_box(101, 300, "%"),
+            vol.Required("pump_max_starts", default=o.get("pump_max_starts", 6)): _int_box(1, 60),
+            vol.Required("pump_power_factor", default=o.get("pump_power_factor", 0.85)): _float_box(0.3, 1),
+            vol.Optional("pump_water_entity", description={"suggested_value": o.get("pump_water_entity")}):
+                EntitySelector(EntitySelectorConfig(domain="sensor", device_class=["water", "volume"])),
+        }
+        return self.async_show_form(step_id="pump", data_schema=vol.Schema(schema))
+
+    # --------------------------------------------------------------- pivot
+    async def async_step_pivot(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """AT101 on a centre pivot's end tower: where the centre is, how big the round is, when it is stalled."""
+        entry = self.config_entry
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in PIVOT_KEYS}
+            if user_input.get("pivot_enabled"):
+                c = user_input.get("pivot_centre") or {}
+                data.update({"pivot_centre": {"latitude": c.get("latitude"), "longitude": c.get("longitude")},
+                             "pivot_sector": user_input.get("pivot_sector", 360),
+                             "pivot_stall_min": user_input.get("pivot_stall_min", 30)})
+            return self.async_create_entry(data=data)
+        o = entry.options
+        rt = getattr(entry, "runtime_data", None)
+        raw = getattr(rt, "raw", {}) or {}
+        centre = o.get("pivot_centre") or {"latitude": self.hass.config.latitude,
+                                           "longitude": self.hass.config.longitude}
+        schema = {
+            vol.Required("pivot_enabled", default=bool(o.get("pivot_centre"))): BooleanSelector(),
+            vol.Required("pivot_centre", default=centre): LocationSelector(LocationSelectorConfig(radius=False)),
+            vol.Required("pivot_sector", default=o.get("pivot_sector", 360)): _float_box(10, 360, "°"),
+            vol.Required("pivot_stall_min", default=o.get("pivot_stall_min", 30)): _int_box(5, 1440),
+        }
+        last = (f"{raw['latitude']:.6f}, {raw['longitude']:.6f}"
+                if isinstance(raw.get("latitude"), (int, float)) and isinstance(raw.get("longitude"), (int, float))
+                else "no fix yet")
+        return self.async_show_form(step_id="pivot", data_schema=vol.Schema(schema),
+                                    description_placeholders={"last_fix": last})
+
+    # ---------------------------------------------------------- irrigation
+    async def async_step_irrigation(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: weather forecast + soil moisture → irrigate or skip, frost warning the evening before."""
+        entry = self.config_entry
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in IRRIGATION_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "", [])})
+            return self.async_create_entry(data=data)
+        o = entry.options
+
+        def num(key: str, default: float, lo: float, hi: float, unit: str | None = None) -> None:
+            schema[vol.Required(key, default=o.get(key, default))] = _float_box(lo, hi, unit)
+        schema: dict = {
+            vol.Optional("irr_weather", description={"suggested_value": o.get("irr_weather")}):
+                EntitySelector(EntitySelectorConfig(domain="weather")),
+            vol.Optional("irr_soil", description={"suggested_value": o.get("irr_soil", [])}):
+                EntitySelector(EntitySelectorConfig(domain="sensor", multiple=True)),
+        }
+        num("irr_target", 30, 1, 100, "%")
+        num("irr_base_minutes", 60, 1, 1440, "min")
+        num("irr_rain_mm", 5, 0.1, 200, "mm")
+        num("irr_rain_hours", 24, 1, 72, "h")
+        num("irr_rain_prob", 60, 0, 100, "%")
+        num("irr_frost_c", 2, -10, 10, "°C")
+        return self.async_show_form(step_id="irrigation", data_schema=vol.Schema(schema))
+
+    # -------------------------------------------------- alert escalation
+    async def async_step_alerts(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: who gets alerts, when to escalate, quiet hours."""
+        entry = self.config_entry
+        keys = (CONF_ALERT_PRIMARY, CONF_ALERT_BACKUP, CONF_ALERT_ESCALATE_MIN, CONF_ALERT_REPEAT_MIN,
+                CONF_ALERT_QUIET_START, CONF_ALERT_QUIET_END, CONF_ALERT_DEDUPE_MIN, CONF_ALERT_RESOLVED,
+                CONF_ALERT_CATEGORIES, CONF_ALERT_ACTION_ENTITY, CONF_ALERT_ACTION_TITLE, CONF_ALERT_ROTA,
+                CONF_ALERT_CATEGORY_QUIET, CONF_ALERT_SNOOZE_MIN, CONF_ALERT_SUMMARY, CONF_ALERT_SUMMARY_DAY,
+                CONF_ALERT_SUMMARY_HOUR)
+        errors: dict[str, str] = {}
+        placeholders = {"error": ""}
+        if user_input is not None:
+            for key, parse in ((CONF_ALERT_ROTA, parse_rota), (CONF_ALERT_CATEGORY_QUIET, parse_category_quiet)):
+                try:
+                    parse(user_input.get(key))
+                except RotaError as err:
+                    errors[key] = "rota_invalid"
+                    placeholders["error"] = str(err)
+            if not errors:
+                data = {k: v for k, v in entry.options.items() if k not in keys}
+                data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+                data["alert_categories_known"] = list(CATEGORIES)      # categories added later start switched on
+                return self.async_create_entry(data=data)
+        o = entry.options
+        services = sorted(f"notify.{s}" for s in self.hass.services.async_services().get("notify", {})
+                          if s not in ("send_message",))
+        notify = SelectSelector(SelectSelectorConfig(options=services, multiple=True, custom_value=True,
+                                                     mode=SelectSelectorMode.DROPDOWN))
+
+        def sv(key: str, default: Any = None) -> dict:
+            return {"suggested_value": o.get(key, default)}
+        schema = {
+            vol.Optional(CONF_ALERT_PRIMARY, description=sv(CONF_ALERT_PRIMARY, [])): notify,
+            vol.Optional(CONF_ALERT_BACKUP, description=sv(CONF_ALERT_BACKUP, [])): notify,
+            vol.Required(CONF_ALERT_ESCALATE_MIN, default=o.get(CONF_ALERT_ESCALATE_MIN, 15)): _int_box(1, 1440),
+            vol.Required(CONF_ALERT_REPEAT_MIN, default=o.get(CONF_ALERT_REPEAT_MIN, 0)): _int_box(0, 1440),
+            vol.Optional(CONF_ALERT_QUIET_START, description=sv(CONF_ALERT_QUIET_START)): _int_box(0, 23),
+            vol.Optional(CONF_ALERT_QUIET_END, description=sv(CONF_ALERT_QUIET_END)): _int_box(0, 23),
+            vol.Required(CONF_ALERT_DEDUPE_MIN, default=o.get(CONF_ALERT_DEDUPE_MIN, 30)): _int_box(0, 1440),
+            vol.Required(CONF_ALERT_RESOLVED, default=o.get(CONF_ALERT_RESOLVED, True)): BooleanSelector(),
+            vol.Required(CONF_ALERT_CATEGORIES, default=list(effective_categories(dict(o)))):
+                SelectSelector(SelectSelectorConfig(options=list(CATEGORIES), multiple=True,
+                                                    translation_key="alert_category")),
+            vol.Optional(CONF_ALERT_ACTION_ENTITY, description=sv(CONF_ALERT_ACTION_ENTITY)):
+                EntitySelector(EntitySelectorConfig(domain=["switch", "script", "button", "input_boolean"])),
+            vol.Optional(CONF_ALERT_ACTION_TITLE, description=sv(CONF_ALERT_ACTION_TITLE, "Start pump")): TextSelector(),
+            vol.Optional(CONF_ALERT_ROTA, description=sv(CONF_ALERT_ROTA)): TextSelector(TextSelectorConfig(multiline=True)),
+            vol.Optional(CONF_ALERT_CATEGORY_QUIET, description=sv(CONF_ALERT_CATEGORY_QUIET)):
+                TextSelector(TextSelectorConfig(multiline=True)),
+            vol.Required(CONF_ALERT_SNOOZE_MIN, default=o.get(CONF_ALERT_SNOOZE_MIN, 60)): _int_box(5, 1440),
+            vol.Required(CONF_ALERT_SUMMARY, default=o.get(CONF_ALERT_SUMMARY, True)): BooleanSelector(),
+            vol.Required(CONF_ALERT_SUMMARY_DAY, default=o.get(CONF_ALERT_SUMMARY_DAY, "mon")):
+                SelectSelector(SelectSelectorConfig(options=list(_DAYS), translation_key="weekday",
+                                                    mode=SelectSelectorMode.DROPDOWN)),
+            vol.Required(CONF_ALERT_SUMMARY_HOUR, default=o.get(CONF_ALERT_SUMMARY_HOUR, 8)): _int_box(0, 23),
+        }
+        if user_input is not None:                     # keep what was typed when the form comes back with an error
+            schema = {(type(k)(k.schema, description={"suggested_value": user_input.get(k.schema)})
+                       if isinstance(k, vol.Optional) else k): v for k, v in schema.items()}
+        return self.async_show_form(step_id="alerts", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders=placeholders)
+
+    # ------------------------------------------------ gateway provisioning
+    async def async_step_provisioning(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: the ns-api request / response topics, tested by reading the gateway's device list."""
+        entry = self.config_entry
+        errors: dict[str, str] = {}
+        placeholders = {"error": ""}
+        o = entry.options
+        keys = (CONF_NS_REQUEST_TOPIC, CONF_NS_RESPONSE_TOPIC, CONF_NS_GATEWAY_EUI, CONF_NS_APP_KEY, CONF_NS_FPORT,
+                CONF_NS_APPLICATION, CONF_NS_PROFILE)
+        if user_input is not None:
+            req = (user_input.get(CONF_NS_REQUEST_TOPIC) or "").strip()
+            resp = (user_input.get(CONF_NS_RESPONSE_TOPIC) or "").strip()
+            key = re.sub(r"\s", "", user_input.get(CONF_NS_APP_KEY) or "")
+            if not req:                                    # switched off
+                return self.async_create_entry(data={k: v for k, v in o.items() if k not in keys})
+            if not resp or resp == req:
+                errors[CONF_NS_RESPONSE_TOPIC] = "ns_topics"
+            elif key and not valid_key(key):
+                errors[CONF_NS_APP_KEY] = "invalid_app_key"
+            else:
+                from .provisioning import NsApiClient
+                client = NsApiClient(self.hass, req, resp, (user_input.get(CONF_NS_GATEWAY_EUI) or "").strip())
+                try:
+                    overview = await client.async_overview()
+                except Exception as err:  # noqa: BLE001 - shown in the form
+                    errors["base"] = "ns_no_answer"
+                    placeholders["error"] = str(err)
+                else:
+                    self._ns = {**user_input, CONF_NS_REQUEST_TOPIC: req, CONF_NS_RESPONSE_TOPIC: resp,
+                                CONF_NS_APP_KEY: key or DEFAULT_APP_KEY, "_overview": overview}
+                    return await self.async_step_provisioning_target()
+                finally:
+                    await client.async_stop()
+        cur = {**o, **(user_input or {})}
+
+        def sv(key: str, default: Any = None) -> dict:
+            return {"suggested_value": cur.get(key, default)}
+        schema = {
+            vol.Optional(CONF_NS_REQUEST_TOPIC, description=sv(CONF_NS_REQUEST_TOPIC, DEFAULT_NS_REQUEST_TOPIC)):
+                TextSelector(),
+            vol.Optional(CONF_NS_RESPONSE_TOPIC, description=sv(CONF_NS_RESPONSE_TOPIC, DEFAULT_NS_RESPONSE_TOPIC)):
+                TextSelector(),
+            vol.Optional(CONF_NS_GATEWAY_EUI, description=sv(CONF_NS_GATEWAY_EUI)): TextSelector(),
+            vol.Optional(CONF_NS_APP_KEY, description=sv(CONF_NS_APP_KEY, DEFAULT_APP_KEY)):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Required(CONF_NS_FPORT, default=cur.get(CONF_NS_FPORT, DEFAULT_FPORT)): _int_box(1, 223),
+        }
+        return self.async_show_form(step_id="provisioning", errors=errors, description_placeholders=placeholders,
+                                    data_schema=vol.Schema(schema))
+
+    async def async_step_provisioning_target(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Pick the gateway application and device profile new devices are added to."""
+        entry = self.config_entry
+        ns = self._ns
+        ov = ns["_overview"]
+        if user_input is not None:
+            data = {**entry.options, **{k: v for k, v in ns.items() if not k.startswith("_")}, **user_input}
+            return self.async_create_entry(data=data)
+        apps = ov.get("applications") or {}
+        profiles = ov.get("profiles") or {}
+        default_profile = entry.options.get(CONF_NS_PROFILE) or next(
+            (pid for pid, name in profiles.items() if name.lower().replace("-", "").replace("_", "") == "classaotaa"),
+            next(iter(profiles), vol.UNDEFINED))
+        default_app = entry.options.get(CONF_NS_APPLICATION) or next(iter(apps), vol.UNDEFINED)
+
+        def sel(options: dict[str, str]) -> SelectSelector:
+            return SelectSelector(SelectSelectorConfig(
+                options=[SelectOptionDict(value=k, label=v) for k, v in options.items()], custom_value=True,
+                mode=SelectSelectorMode.DROPDOWN))
+        return self.async_show_form(step_id="provisioning_target", data_schema=vol.Schema({
+            vol.Required(CONF_NS_APPLICATION, default=default_app): sel(apps),
+            vol.Required(CONF_NS_PROFILE, default=default_profile): sel(profiles),
+        }), description_placeholders={"devices": str(len(ov.get("devices") or [])),
+                                      "apps": str(len(apps)), "profiles": str(len(profiles))})

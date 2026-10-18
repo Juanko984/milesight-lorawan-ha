@@ -1,0 +1,1358 @@
+{
+ "vs-series/vs121": {
+  "history_fn": "history_vs121",
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [
+   "people_count_all",
+   "region_count",
+   "region_<n>",
+   "people_in",
+   "people_out",
+   "people_count_max",
+   "region_<n>_count",
+   "<a-d>_to_<a-d>",
+   "people_total_in",
+   "people_total_out",
+   "dwell_time_avg",
+   "dwell_time_max",
+   "line_in",
+   "line_out"
+  ],
+  "note": "0x20 0xCE: ts u32 + type u8 + data (type 1-0x12 = one live channel each). Official encoder has no storage/retransmit/fetch commands; records arrive only if the device pushes them."
+ },
+ "vs-series/vs321": {
+  "history_fn": "history_vs321",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "keys": [
+   "people_count_all",
+   "region_<1-10>",
+   "region_<1-10>_enable"
+  ],
+  "note": "0x20 0xCE: ts + mode(0: people count u16 / 1: region mask u16 + occupancy bits u16)."
+ },
+ "vs-series/vs340": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "vs-series/vs341": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "vs-series/vs370": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "vs-series/vs132": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "vs-series/vs133": {
+  "history_fn": "history_vs133",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "line_<1-4>_total_in",
+   "line_<1-4>_total_out",
+   "line_<1-4>_in",
+   "line_<1-4>_out",
+   "line_<1-4>_child_total_in",
+   "line_<1-4>_child_total_out",
+   "line_<1-4>_child_in",
+   "line_<1-4>_child_out",
+   "people_total_in",
+   "people_total_out",
+   "people_in",
+   "people_out",
+   "region_<1-4>_count",
+   "region_<1-4>_child_count",
+   "region_<n>_dwell_time_avg",
+   "region_<n>_dwell_time_max",
+   "region_<n>_child_dwell_time_avg",
+   "region_<n>_child_dwell_time_max"
+  ],
+  "note": "official encoder has the fd6b/fd6c choice inverted (start+end gives fd6b start only, start only gives fd6c start 00000000); send fd6c start end for a range, fd6b start for 'since start'. 0x20 0xCE: ts + type + 4 B (9 B: line totals u32, line period in/out u16, region counts) or 3 B (8 B: region dwell avg/max). Line 1 also mapped to people_*."
+ },
+ "vs-series/vs135": {
+  "history_fn": "history_vs133",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "line_<1-4>_total_in",
+   "line_<1-4>_total_out",
+   "line_<1-4>_in",
+   "line_<1-4>_out",
+   "line_<1-4>_child_total_in",
+   "line_<1-4>_child_total_out",
+   "line_<1-4>_child_in",
+   "line_<1-4>_child_out",
+   "people_total_in",
+   "people_total_out",
+   "people_in",
+   "people_out",
+   "region_<1-4>_count",
+   "region_<1-4>_child_count",
+   "region_<n>_dwell_time_avg",
+   "region_<n>_dwell_time_max",
+   "region_<n>_child_dwell_time_avg",
+   "region_<n>_child_dwell_time_max"
+  ],
+  "note": "official encoder has the fd6b/fd6c choice inverted (start+end gives fd6b start only, start only gives fd6c start 00000000); send fd6c start end for a range, fd6b start for 'since start'. 0x20 0xCE: ts + type + 4 B (9 B: line totals u32, line period in/out u16, region counts) or 3 B (8 B: region dwell avg/max). Line 1 also mapped to people_*."
+ },
+ "vs-series/vs330": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "vs-series/vs350": {
+  "history_fn": "history_vs35x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "keys": [
+   "people_in",
+   "people_out",
+   "people_total_in",
+   "people_total_out"
+  ],
+  "note": "0x20 0xCE: ts + type(0: period in/out u16, 9 B; 1: + total in/out u16, 13 B). retransmit_interval ff6a00 u16 s, resend_interval ff6a01 u16 s."
+ },
+ "vs-series/vs351": {
+  "history_fn": "history_vs35x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "people_in",
+   "people_out",
+   "people_total_in",
+   "people_total_out"
+  ],
+  "note": "official encoder has the fd6b/fd6c choice inverted (start+end gives fd6b start only, start only gives fd6c start 00000000); send fd6c start end for a range, fd6b start for 'since start'. Record format as VS350."
+ },
+ "vs-series/vs360": {
+  "history_fn": "history_vs35x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "keys": [
+   "people_in",
+   "people_out",
+   "people_total_in",
+   "people_total_out"
+  ],
+  "note": "Record format as VS350."
+ },
+ "uc-series/uc11-t1": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "uc-series/uc11xx": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "uc-series/uc11-n1": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "uc-series/uc300": {
+  "history_fn": "history_uc300",
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [
+   "gpio_input_<1-4>",
+   "gpio_counter_<1-4>",
+   "gpio_output_<1-2>",
+   "pt100_<1-2>",
+   "adc_<1-2>[_max|_min|_avg]",
+   "adv_<1-2>[_max|_min|_avg]",
+   "modbus_chn_<1-32>"
+  ],
+  "note": "0x20 0xDC I/O record (ts + u16 channel mask + per-channel data) -> JS 'channel_history'; 0x20 0xDD Modbus record (ts + u32 mask + 5 B per channel) -> JS 'modbus_history'. Official decoder puts Modbus coil values outside the record (bug); we keep them in the record. Custom text channel (48 B) skipped. No encoder commands."
+ },
+ "uc-series/uc501": {
+  "history_fn": "history_uc50x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "gpio_input_<1-2>",
+   "gpio_output_<1-2>",
+   "gpio_counter_<1-2>",
+   "analog_input_<1-2>",
+   "modbus_chn_<1-16>"
+  ],
+  "note": "0x20 0xDC (22 B): ts + 2 x (gpio type + u32) + 2 x analog i32/1000; 0x20 0xDD: ts + u16 mask + 5 B per channel (u32 or float); 0x20 0xE0 SDI-12 text skipped. Fetch always uses fd6c (start only -> end 0). Official readUInt32LE is signed (we return unsigned)."
+ },
+ "uc-series/uc502": {
+  "history_fn": "history_uc50x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "gpio_input_<1-2>",
+   "gpio_output_<1-2>",
+   "gpio_counter_<1-2>",
+   "analog_input_<1-2>",
+   "modbus_chn_<1-16>"
+  ],
+  "note": "0x20 0xDC (22 B): ts + 2 x (gpio type + u32) + 2 x analog i32/1000; 0x20 0xDD: ts + u16 mask + 5 B per channel (u32 or float); 0x20 0xE0 SDI-12 text skipped. Fetch always uses fd6c (start only -> end 0). Official readUInt32LE is signed (we return unsigned)."
+ },
+ "uc-series/uc511": {
+  "history_fn": "history_uc51x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff27ff"
+  },
+  "keys": [
+   "valve_<1-2>",
+   "gpio_<1-2>",
+   "valve_<1-2>_pulse",
+   "pressure"
+  ],
+  "note": "0x20 0xCE (9 B): ts + flags (b0 valve, b1 mode counter, b2 gpio, b4 valve index) + pulse u32; 0x21 0xCE (6 B): ts + pipe pressure u16 kPa. Fetch always fd6c. clear_history is ff27ff here."
+ },
+ "uc-series/uc512": {
+  "history_fn": "history_uc51x",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff27ff"
+  },
+  "keys": [
+   "valve_<1-2>",
+   "gpio_<1-2>",
+   "valve_<1-2>_pulse",
+   "pressure"
+  ],
+  "note": "0x20 0xCE (9 B): ts + flags (b0 valve, b1 mode counter, b2 gpio, b4 valve index) + pulse u32; 0x21 0xCE (6 B): ts + pipe pressure u16 kPa. Fetch always fd6c. clear_history is ff27ff here."
+ },
+ "uc-series/uc521": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "uc-series/uc100": {
+  "history_fn": "history_uc100",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "modbus_chn_<n>"
+  ],
+  "note": "0x20 0xCE: ts + chn + data_def (sign b7, type b2-6, read ok b1) + 4 B value; read failures and 0x20 0xCD custom-message history are skipped. Undefined types 26-31: official decoder skips only 6 B (we skip the full 10 B)."
+ },
+ "uc-series/uc100-v2": {
+  "history_fn": "history_uc100_v2",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "stop": null,
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "modbus_chn_<n>",
+   "modbus_chn_<n>_reg_2"
+  ],
+  "note": "0x21 0xCE (23 B): ts + chn + def u16 (sign b15, type b9-14, read ok b8, reg count b6-7, alarm b4-5) + 2 x 8 B values. No stop_transmit in official encoder. Official readDoubleLE is wrong when bit 31 of the low word is set (we use struct). retransmit also via f90d<en><interval u16>."
+ },
+ "vs-series/vs373": {
+  "history_fn": "history_vs373",
+  "enable": null,
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "keys": [
+   "alarm_id",
+   "alarm_type",
+   "alarm_status",
+   "region_id"
+  ],
+  "note": "History = stored alarm events (0x20 0xCE: ts + alarm_id u16 + type + status + region), same fields as live 'events' entries (alarm_type/status are text). No history_enable command; fetch always uses fd6c (start only -> end 0)."
+ },
+ "ws-series/ws101": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws136": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws156": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws201": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws202": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws203": {
+  "history_fn": "history_ws203",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "occupancy",
+   "temperature",
+   "humidity"
+  ],
+  "note": "official encoder has the fd6b/fd6c choice inverted (start+end gives fd6b start only, start only gives fd6c start 00000000); send fd6c start end for a range, fd6b start for 'since start'. 0x20 0xCE: ts + report_type + occupancy + temperature i16/10 + humidity u8/2 (report_type dropped)."
+ },
+ "ws-series/ws301": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws302": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws303": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws501": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws502": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws503": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws501-eu": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws502-eu": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws501-cn": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws502-cn": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws503-cn": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws501-v4": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws502-v4": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws503-v4": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws513": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws515": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws513-v3": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder declares a history array but never fills it; no storage/fetch commands in the encoder."
+ },
+ "ws-series/ws515-v3": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder declares a history array but never fills it; no storage/fetch commands in the encoder."
+ },
+ "ws-series/ws523": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws525": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "ws-series/ws558": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "wt-series/wt101": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "wt-series/wt102": {
+  "history_fn": "history_wt102",
+  "enable": {
+   "on": {
+    "hex": "c50001"
+   },
+   "off": {
+    "hex": "c50000"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "c50101"
+   },
+   "off": {
+    "hex": "c50100"
+   }
+  },
+  "fetch": {
+   "prefix": "bb",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "ba",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "stop": {
+   "hex": "bc"
+  },
+  "clear": {
+   "hex": "bd"
+  },
+  "keys": [
+   "battery",
+   "temperature",
+   "target_temperature",
+   "valve_opening",
+   "target_valve_opening",
+   "motor_stroke",
+   "motor_position",
+   "battery_low_alarm",
+   "..."
+  ],
+  "note": "Command format: 0xED type(1) ts u32 opens a record; the following commands (same as live) until the next 0xED are its values (numeric/bool live keys kept). retransmission interval c502 u16 s, retrieval interval c503 u16 s."
+ },
+ "wt-series/wt201": {
+  "history_fn": "history_wt201",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "stop": {
+   "hex": "fd6dff"
+  },
+  "fetch": {
+   "prefix": "fd6c",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "fd6b",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "clear": {
+   "hex": "ff2701"
+  },
+  "keys": [
+   "temperature",
+   "target_temperature",
+   "system_status",
+   "fan_mode",
+   "fan_status",
+   "temperature_control_mode",
+   "temperature_control_status"
+  ],
+  "note": "official encoder has the fd6b/fd6c choice inverted (start+end gives fd6b start only, start only gives fd6c start 00000000); send fd6c start end for a range, fd6b start for 'since start'. 0x20 0xCE: ts + 2 packed u16 (fan/system/temperature 11 bit, mode/status/target 11 bit; value/10-100 \u00b0C)."
+ },
+ "wt-series/wt201-v2": {
+  "history_fn": "history_wt201_v2",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "fetch": null,
+  "stop": null,
+  "keys": [
+   "temperature",
+   "target_temperature",
+   "system_status",
+   "fan_mode",
+   "fan_status",
+   "temperature_control_mode",
+   "temperature_control_status",
+   "target_temperature_2",
+   "humidity"
+  ],
+  "note": "0x20 0xCE (13 B): ts + packed u16 + target i16/10 + target_2 i16/10 (0xFFFF = none) + temperature i16/10 + humidity u8/2. Official encoder has no fetch/stop/clear commands (WT201 v1 uses fd6c/fd6b/fd6dff; unverified for v2)."
+ },
+ "wt-series/wt211": {
+  "history_fn": "history_wt201_v2",
+  "enable": {
+   "on": {
+    "hex": "ff6801"
+   },
+   "off": {
+    "hex": "ff6800"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "ff6901"
+   },
+   "off": {
+    "hex": "ff6900"
+   }
+  },
+  "fetch": null,
+  "stop": null,
+  "keys": [
+   "temperature",
+   "target_temperature",
+   "system_status",
+   "fan_mode",
+   "fan_status",
+   "temperature_control_mode",
+   "temperature_control_status",
+   "target_temperature_2",
+   "humidity"
+  ],
+  "note": "0x20 0xCE (13 B): ts + packed u16 + target i16/10 + target_2 i16/10 (0xFFFF = none) + temperature i16/10 + humidity u8/2. Official encoder has no fetch/stop/clear commands (WT201 v1 uses fd6c/fd6b/fd6dff; unverified for v2)."
+ },
+ "wt-series/wt301": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "wt-series/wt302": {
+  "history_fn": null,
+  "fetch": null,
+  "enable": null,
+  "stop": null,
+  "keys": [],
+  "note": "Official decoder/encoder have no history records or data-storage commands."
+ },
+ "wt-series/wt303": {
+  "history_fn": null,
+  "enable": {
+   "on": {
+    "hex": "c50001"
+   },
+   "off": {
+    "hex": "c50000"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "c50101"
+   },
+   "off": {
+    "hex": "c50100"
+   }
+  },
+  "fetch": {
+   "prefix": "bb",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "ba",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "stop": {
+   "hex": "bc"
+  },
+  "clear": {
+   "hex": "bd"
+  },
+  "keys": [],
+  "note": "Encoder supports data storage / retrieval (same commands as WT102) but the official decoder and README have no history record (no 0xED); format unknown, so no parser."
+ },
+ "wt-series/wt304": {
+  "history_fn": null,
+  "enable": {
+   "on": {
+    "hex": "c50001"
+   },
+   "off": {
+    "hex": "c50000"
+   }
+  },
+  "retransmit": {
+   "on": {
+    "hex": "c50101"
+   },
+   "off": {
+    "hex": "c50100"
+   }
+  },
+  "fetch": {
+   "prefix": "bb",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "fetch_since": {
+   "prefix": "ba",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    }
+   ]
+  },
+  "stop": {
+   "hex": "bc"
+  },
+  "clear": {
+   "hex": "bd"
+  },
+  "keys": [],
+  "note": "Encoder supports data storage / retrieval (same commands as WT102) but the official decoder and README have no history record (no 0xED); format unknown, so no parser."
+ },
+ "wt-series/wt401": {
+  "history_fn": null,
+  "enable": null,
+  "fetch": {
+   "prefix": "ba",
+   "fields": [
+    {
+     "name": "start",
+     "value": "u32le"
+    },
+    {
+     "name": "end",
+     "value": "u32le"
+    }
+   ]
+  },
+  "stop": null,
+  "keys": [],
+  "note": "Encoder only has retrieve_historical_data_by_time_range (0xBA start end \u2014 note 0xBA, not 0xBB as on WT102/WT303); official decoder has no history record, so no parser."
+ }
+}

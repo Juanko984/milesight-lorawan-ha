@@ -1,0 +1,102 @@
+blueprint:
+  name: Milesight – DS3604 room sign
+  description: >
+    Keep DS3604 e-ink displays up to date with the room name, free / occupied and the current or next meeting
+    from a calendar. Blocks follow the template layout set in Milesight ToolBox (by default text 1 = room name,
+    text 2 = status, text 3 = meeting, QR code = booking link). Only blocks whose text changed are sent, so
+    the 15-minute check costs no battery when nothing changes.
+  domain: automation
+  source_url: https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/ds3604_room_status.yaml
+  input:
+    display:
+      name: Display(s)
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: milesight_lorawan
+              model: DS3604
+    room_name:
+      name: Room name
+      default: Meeting room
+      selector:
+        text: {}
+    calendar:
+      name: Calendar (optional)
+      description: Room calendar – shows the current or next meeting today.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: calendar
+    occupancy:
+      name: Occupancy sensor (optional)
+      description: e.g. a VS121 / VS350 / WS202 occupancy sensor. Without one, the calendar decides free / busy.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+    booking_url:
+      name: Booking link for the QR code (optional)
+      default: ""
+      selector:
+        text: {}
+    name_block:
+      name: Block for the room name
+      default: text_1
+      selector:
+        select:
+          options: [text_1, text_2, text_3, text_4, text_5, text_6, text_7, text_8, text_9, text_10]
+    status_block:
+      name: Block for free / occupied
+      default: text_2
+      selector:
+        select:
+          options: [text_1, text_2, text_3, text_4, text_5, text_6, text_7, text_8, text_9, text_10]
+    meeting_block:
+      name: Block for the meeting
+      default: text_3
+      selector:
+        select:
+          options: [text_1, text_2, text_3, text_4, text_5, text_6, text_7, text_8, text_9, text_10]
+mode: queued
+max: 5
+trigger:
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    minutes: "/15"
+  - trigger: state
+    entity_id: !input calendar
+  - trigger: state
+    entity_id: !input occupancy
+variables:
+  room: !input room_name
+  cal: !input calendar
+  occ: !input occupancy
+  url: !input booking_url
+  name_block: !input name_block
+  status_block: !input status_block
+  meeting_block: !input meeting_block
+  in_meeting: "{{ cal | length > 0 and is_state(cal, 'on') }}"
+  occupied: "{{ is_state(occ, 'on') if occ | length > 0 else in_meeting }}"
+  meeting: >-
+    {% set msg = state_attr(cal, 'message') if cal | length > 0 else none %}
+    {% if msg %}
+      {% set start = as_datetime(state_attr(cal, 'start_time')) %}
+      {% set end = as_datetime(state_attr(cal, 'end_time')) %}
+      {% if in_meeting %}{{ msg }} until {{ end.strftime('%H:%M') }}
+      {% elif start.date() == now().date() %}Next: {{ start.strftime('%H:%M') }} {{ msg }}
+      {% else %}No more meetings today{% endif %}
+    {% else %}No meetings today{% endif %}
+  content: >-
+    {% set c = {name_block: room, status_block: 'Occupied' if occupied else 'Free', meeting_block: meeting | trim} %}
+    {{ dict(c, qrcode=url) if url else c }}
+action:
+  - action: milesight_lorawan.display_content
+    data:
+      device_id: !input display
+      template: 1
+      show: true
+      content: "{{ content }}"

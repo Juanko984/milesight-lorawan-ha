@@ -1,0 +1,88 @@
+blueprint:
+  name: Milesight – irrigation / valve schedule
+  description: Open a UC511 / UC512 / UC521 valve (or switch a UC300 output) at set times for a set duration – the device closes it itself, so it also works if Home Assistant restarts. Optionally follows the gateway's forecast-aware irrigation advice (skip on rain, shorter when the soil is moist).
+  domain: automation
+  source_url: https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/valve_schedule.yaml
+  input:
+    device:
+      name: Controller
+      selector:
+        device:
+          integration: milesight_lorawan
+    output:
+      name: Output
+      description: valve_1, valve_2, valve_1_opening (UC521), gpio_output_1 (UC300)
+      default: valve_1
+      selector:
+        text: {}
+    action_name:
+      name: Command
+      description: open_for for UC511 / UC512 (seconds) and UC521 (minutes), on_for for UC300 (milliseconds)
+      default: open_for
+      selector:
+        select:
+          options: [open_for, on_for]
+    duration:
+      name: Duration (in the unit of the command)
+      default: 600
+      selector:
+        number: {min: 1, max: 86400, mode: box}
+    times:
+      name: Start times
+      selector:
+        time: {}
+    weekdays:
+      name: Days
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options: [mon, tue, wed, thu, fri, sat, sun]
+    skip_if:
+      name: Skip when this is on (e.g. rain sensor, optional)
+      default: []
+      selector:
+        entity:
+          multiple: true
+    advice:
+      name: Irrigation advice (optional)
+      description: The gateway's 'Irrigation advice' sensor (Configure → Irrigation and frost). Skips when it says skip (rain forecast, soil moist enough).
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: milesight_lorawan
+              domain: sensor
+    scale_duration:
+      name: Scale the duration with the advice
+      description: The duration above is for dry soil; it is shortened by the suggested minutes ÷ 'irrigation time for dry soil'.
+      default: true
+      selector:
+        boolean: {}
+mode: single
+trigger:
+  - trigger: time
+    at: !input times
+variables:
+  weekdays: !input weekdays
+  skip_if: !input skip_if
+  advice: !input advice
+  scale: !input scale_duration
+  base_duration: !input duration
+  run_duration: >-
+    {% set mins = state_attr(advice, 'minutes') if advice else none %}
+    {% set base = state_attr(advice, 'base_minutes') if advice else none %}
+    {% if scale and mins is number and base is number and base > 0 %}
+      {{ [1, (base_duration * mins / base) | round(0) | int] | max }}
+    {% else %}{{ base_duration }}{% endif %}
+condition:
+  - "{{ ['mon','tue','wed','thu','fri','sat','sun'][now().weekday()] in weekdays }}"
+  - "{{ skip_if | select('is_state', 'on') | list | count == 0 }}"
+  - "{{ not advice or not is_state(advice, 'skip') }}"
+action:
+  - action: milesight_lorawan.output_command
+    data:
+      device_id: !input device
+      output: !input output
+      action: !input action_name
+      value: "{{ run_duration | int }}"

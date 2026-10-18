@@ -1,0 +1,76 @@
+# Milesight LoRaWAN – building analytics dashboard
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# Works without editing: it finds every "<area> comfort" / "<area> occupancy" sensor the integration creates.
+# Areas come from the Home Assistant area of each device (set during onboarding or on the device page).
+# Installed by the integration, a "Live" view with gauges and graphs for each area is added in front.
+title: Building analytics
+views:
+  - title: Areas
+    path: areas
+    icon: mdi:texture-box
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Comfort per area
+            icon: mdi:emoticon-happy-outline
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set rows = states.sensor | selectattr('attributes.kind', 'defined')
+                 | selectattr('attributes.kind', 'eq', 'comfort') | selectattr('attributes.area', 'defined') | list %}
+              {% if not rows %}No area comfort sensors yet – assign devices with temperature / humidity / CO₂ to areas.{% else %}
+              {% for s in rows | sort(attribute='attributes.area') %}{% set v = s.state | int(-1) %}{% set a = s.attributes %}
+              **{{ a.area }}** · {{ '🟢' if v >= 80 else ('🟡' if v >= 50 else ('🔴' if v >= 0 else '⚪')) }} {{ v if v >= 0 else '–' }}{{ ' / 100' if v >= 0 else '' }}  
+              {{ [('🌡️ ' ~ a.temperature ~ ' °C') if a.temperature is not none, ('💧 ' ~ a.humidity ~ ' %') if a.humidity is not none, ('CO₂ ' ~ a.co2 ~ ' ppm') if a.co2 is not none] | select | join(' · ') or 'no readings yet' }}
+
+              {% endfor %}{% endif %}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Occupancy today
+            icon: mdi:account-clock
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set names = [] %}
+              {% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'defined') | list %}
+              {% set names = names or (rows | map(attribute='attributes.area') | unique | sort | list) %}
+              {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
+              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**{% if s.attributes.occupied_now %} · 🧑 {{ s.attributes.people_now if s.attributes.people_now is not none else 'occupied' }}{% elif s.attributes.occupied_now is not none %} · empty{% endif %}{% if s.state not in ('unknown', 'unavailable') %} · {{ s.state }} % today{% endif %}  
+              {% for h in range(6, 22) %}{% set p = s.attributes.hourly_today[h] %}{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}{% endfor %}
+
+              {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Occupancy yesterday
+            icon: mdi:account-clock-outline
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set names = [] %}
+              {% set rows = states.sensor | selectattr('attributes.hourly_yesterday', 'defined') | selectattr('attributes.area', 'defined') | list %}
+              {% set names = names or (rows | map(attribute='attributes.area') | unique | sort | list) %}
+              {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
+              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**  
+              {% for h in range(6, 22) %}{% set p = s.attributes.hourly_yesterday[h] %}{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}{% endfor %}
+
+              {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Utilisation today (opening hours)
+            icon: mdi:chart-donut
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set rows = states.sensor | selectattr('attributes.utilisation_today', 'defined') | list %}
+              {% if not rows %}No occupancy sensors yet.{% else %}
+              {% for s in rows | sort(attribute='attributes.area') %}{% set u = s.attributes.utilisation_today %}
+              **{{ s.attributes.area }}** · {% if u is none %}closed today / outside opening hours{% else %}{{ u }} %  
+              {% set n = (u / 10) | round(0, 'floor') | int %}{{ '🟦' * n }}{{ '⬜' * (10 - n) }}{% endif %}
+
+              {% endfor %}{% endif %}
