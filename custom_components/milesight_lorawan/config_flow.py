@@ -677,7 +677,12 @@ class MilesightOptionsFlow(OptionsFlow):
         """Device: model, offline time, battery, meters, door / occupancy / CO₂ settings …"""
         entry = self.config_entry
         if user_input is not None:
-            return self.async_create_entry(data={**entry.options, **user_input})
+            extra = {}
+            if CONF_RUN_THRESHOLD_A in user_input:
+                from .pump import run_threshold_setting
+                if float(user_input[CONF_RUN_THRESHOLD_A] or 0) != run_threshold_setting(dict(entry.options)):
+                    extra["run_threshold_set"] = True
+            return self.async_create_entry(data={**entry.options, **user_input, **extra})
         opts = {**entry.data, **entry.options}
         model = opts.get(CONF_MODEL, entry.data[CONF_MODEL])
         features = MODELS[model].features
@@ -714,8 +719,9 @@ class MilesightOptionsFlow(OptionsFlow):
             schema[vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0))] = \
                 _int_box(0, 20000)
         if "load" in features:
-            schema[vol.Required(CONF_RUN_THRESHOLD_A, default=opts.get(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))] = \
-                NumberSelector(NumberSelectorConfig(min=0, max=5000, step=0.1, mode=NumberSelectorMode.BOX,
+            from .pump import run_threshold_setting
+            schema[vol.Required(CONF_RUN_THRESHOLD_A, default=run_threshold_setting(dict(entry.options)))] = \
+                NumberSelector(NumberSelectorConfig(min=0, max=5000, step=0.01, mode=NumberSelectorMode.BOX,
                                                     unit_of_measurement="A"))
             schema[vol.Required(CONF_MAINS_VOLTAGE, default=opts.get(CONF_MAINS_VOLTAGE, 0))] = _int_box(0, 1000)
         if "co2high" in features:

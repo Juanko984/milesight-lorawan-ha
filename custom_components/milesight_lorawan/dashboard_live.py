@@ -31,8 +31,8 @@ def _g(card: dict | None, cols: int | str = HALF, rows: int | None = None) -> di
     return {**card, "grid_options": opts}
 
 
-def _slider(entity: str, name: str | None = None) -> dict:
-    card = {"type": "tile", "entity": entity, "features": [{"type": "numeric-input", "style": "slider"}]}
+def _slider(entity: str, name: str | None = None, style: str = "slider") -> dict:
+    card = {"type": "tile", "entity": entity, "features": [{"type": "numeric-input", "style": style}]}
     if name:
         card["name"] = name
     return _g(card, FULL)
@@ -58,7 +58,30 @@ def _gauge(entity: str | None, name: str, lo: float, hi: float, segments: list[t
         card["segments"] = [{"from": f, "color": c} for f, c in segments]
     if unit:
         card["unit"] = unit
-    return _g(card, cols)
+    return _g(safe_gauge(card), cols)
+
+
+def safe_gauge(card: dict) -> dict:
+    """A gauge only while its sensor has a number; until then a tile ('Unknown') instead of the gauge card's
+    'Entity is non-numeric' warning (no data yet, device offline, value not reported by this model)."""
+    e = card["entity"]
+    bad = ["unknown", "unavailable", ""]
+    return {"type": "vertical-stack", "cards": [
+        {"type": "conditional", "conditions": [{"condition": "state", "entity": e, "state_not": bad}], "card": card},
+        {"type": "conditional", "conditions": [{"condition": "state", "entity": e, "state": bad}],
+         "card": {"type": "tile", "entity": e, "name": card.get("name"), "vertical": True}}]}
+
+
+def gauge_of(card: dict | None) -> dict | None:
+    """The gauge inside a safe_gauge (or the card itself when it is a gauge)."""
+    if not card:
+        return None
+    if card.get("type") == "gauge":
+        return card
+    if card.get("type") == "vertical-stack":
+        inner = (card.get("cards") or [{}])[0].get("card") or {}
+        return inner if inner.get("type") == "gauge" else None
+    return None
 
 
 def _history(entities: list, title: str | None = None, hours: int = 24) -> dict | None:
@@ -89,7 +112,7 @@ def _setpoint_tiles(eid: Resolver, rt: Any, options: list[str]) -> list[dict]:
         if o in _sp.device_values(rt):
             e = _e(eid, rt, "number", _sp.key(o))
             if e:
-                out.append(_slider(e))
+                out.append(_slider(e, style="buttons" if _sp.DEVICE[o].box else "slider"))
     return out
 
 
@@ -426,7 +449,7 @@ def site_sections(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
                   rt.entry.title, "mdi:pump", THIRD) for rt in pumps], "mdi:pump"))
     cold = cold_chain_cards(eid, runtimes, hubs)
     if cold:
-        out.append(_section("Cold chain", [c for s in cold for c in s["cards"][1:] if c.get("type") == "gauge"],
+        out.append(_section("Cold chain", [c for s in cold for c in s["cards"][1:] if gauge_of(c)],
                             "mdi:snowflake-thermometer"))
     loads = [rt for rt in runtimes if getattr(rt, "loads", None)]
     if loads:

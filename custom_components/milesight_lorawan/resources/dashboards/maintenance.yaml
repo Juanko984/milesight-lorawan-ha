@@ -44,7 +44,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Offline more than 24 h
+            heading: Offline more than 24 h or never heard
             icon: mdi:access-point-network-off
           - type: markdown
             grid_options: {columns: full}
@@ -55,6 +55,12 @@ views:
               {% for d in off %}📴 **{{ d.name }}**{{ ' · ' ~ d.area if d.area else '' }} · {{ d.model }}  
               <small>silent for {{ (d.offline_hours / 24) | round(1) }} days · last seen {{ as_timestamp(d.last_seen) | timestamp_custom('%d %b %H:%M') if d.last_seen else 'never' }}{% if d.battery is not none %} · battery {{ d.battery }} %{% endif %}</small>
 
+              {% endfor %}{% endif %}
+              {% set never = devs | selectattr('last_seen', 'none') | list %}
+              {% if never %}
+
+              **Never heard since they were added ({{ never | count }})** – check the device is on, joined, and that its gateway application forwards to Home Assistant (MQTT):
+              {% for d in never %}❔ {{ d.name }} · {{ d.model }}{{ ' · ' ~ d.area if d.area else '' }}  
               {% endfor %}{% endif %}
       - type: grid
         cards:

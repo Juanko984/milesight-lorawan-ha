@@ -72,7 +72,7 @@ from . import purposes as _purposes
 from .models import contact_specs, families, load_channels, load_specs, purpose_specs, temp_specs
 from .usage import LoadTracker, TempWatch, Trend, bin_fill, water_level_cm
 from . import setpoints as _setpoints
-from .pump import PumpTracker, pump_config
+from .pump import PumpTracker, energy_from_ah, power_factor, pump_config, run_threshold
 from .tank import TankTracker, level_mm, tank_config, volume_l
 
 _LOGGER = logging.getLogger(__name__)
@@ -249,7 +249,7 @@ class DeviceRuntime:
                                       else self._opt(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN)) * 60,
                 )
         self.limits = {"co2": float(self.pcfg.get("co2_limit") or self._opt(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT)),
-                       "run_a": float(self._opt(CONF_RUN_THRESHOLD_A, DEFAULT_RUN_THRESHOLD_A))}
+                       "run_a": run_threshold(dict(self.entry.options))}
         if self.model.minmax_fields:
             self.minmax = MinMaxTracker(self.cal, trackers.get("minmax"))
         if self.tank_cfg is not None and self.tank_cfg.enabled:
@@ -1479,6 +1479,12 @@ class DeviceRuntime:
                 v[k.replace("current", "apparent_power")] = round(v[k] * volts)
             if "current_total" in v:
                 v["apparent_power"] = round(v["current_total"] * volts)
+            # no energy counter on the clamp: energy = cumulative current (Ah) × voltage × power factor
+            pf = power_factor(dict(self.entry.options))
+            for sfx in ("", "_1", "_2", "_3"):
+                ah = v.get(f"total_current{sfx}")
+                if isinstance(ah, (int, float)) and not isinstance(ah, bool) and f"energy{sfx}" not in self.raw:
+                    v[f"energy{sfx}"] = energy_from_ah(ah, volts, pf)
 
     def _data_to_save(self) -> dict[str, Any]:
         trackers: dict[str, Any] = {k: t.s for k, t in self.binary.items()}

@@ -724,7 +724,12 @@ def test_dashboard_config_and_templates():
     ppl = by_head["People"]["cards"]
     assert ppl[1]["entity"] == "sensor.p" and ppl[2]["state_content"] == ["people_now", "state"]
     air = by_head["Air quality"]["cards"]
-    co2 = next(c for c in air if c["type"] == "gauge" and c["name"] == "CO₂")
+    dl_ = _load("dashboard_live")
+    gauges = [dl_.gauge_of(c) for c in air if dl_.gauge_of(c)]
+    co2 = next(c for c in gauges if c["name"] == "CO₂")
+    stack = next(c for c in air if dl_.gauge_of(c) is co2)
+    assert stack["type"] == "vertical-stack" and stack["cards"][1]["card"]["type"] == "tile"      # no data → a tile
+    assert stack["cards"][0]["conditions"][0]["state_not"] == ["unknown", "unavailable", ""]
     assert co2["segments"][-1]["from"] == 1100 and co2["needle"] is True
     assert next(c for c in air if c["type"] == "history-graph")["entities"] == [{"entity": "sensor.br_co2",
                                                                                  "name": "Board room"}]
@@ -1957,12 +1962,30 @@ def test_maintenance_dashboard_renders():
     assert "**2 devices** · 🔋 1 batteries due in 90 days · 📴 1 offline > 24 h · 📶 0 weak signal" in out["summary"]
     assert "🟠 **Cold room** · Kitchen · 40 %" in out["Batteries"] and "replace by **2026-12-01** (45 days)" in out["Batteries"]
     assert "No forecast yet: Freezer" in out["Batteries"]
-    assert "📴 **Freezer**" in out["Offline more than 24 h"] and "1.3 days" in out["Offline more than 24 h"]
+    assert "📴 **Freezer**" in out["Offline more than 24 h or never heard"] and "1.3 days" in out["Offline more than 24 h or never heard"]
     assert "🟠 **Cold room**" in out["Weak or lossy devices"] and "best" not in out["Weak or lossy devices"].split("Freezer")[0][:0]
     assert "🟢 **UG65**" in out["Gateways"] and "120 packets" in out["Gateways"]
     assert "🔴 **Freezer** · EM300-TH" in out["All devices"] and "🔋 40 % (due 2026-12-01)" in out["All devices"]
     assert "⚠ mixed: 1.2 (1), 1.3 (1)" in out["Firmware"] and "Older than 1.3: Cold room" in out["Firmware"]
     assert "🔋 **Cold room**" in out["Service history"] and "Battery replaced · Juan" in out["Service history"]
+
+
+def test_run_threshold_and_ct_energy():
+    # 0 / the old stored default 0.5 = automatic: 30 % of the pump normal current, else 0.2 A
+    assert pmp.run_threshold({}) == 0.2 and pmp.run_threshold({"run_threshold_a": 0.5}) == 0.2
+    assert pmp.run_threshold({"run_threshold_a": 0.5, "pump_normal_a": 0.8}) == 0.24
+    assert pmp.run_threshold({"run_threshold_a": 0.5, "run_threshold_set": True, "pump_normal_a": 0.8}) == 0.5
+    assert pmp.run_threshold({"run_threshold_a": 2}) == 2 and pmp.run_threshold({"pump_normal_a": 0.1}) == 0.05
+    assert pmp.run_threshold_setting({"run_threshold_a": 0.5}) == 0 and pmp.run_threshold_setting({"run_threshold_a": 1.5}) == 1.5
+    assert pmp.power_factor({}) == 0.85 and pmp.power_factor({"pump_power_factor": 0.9}) == 0.9
+    assert pmp.power_factor({"power_factor": 0.95, "pump_power_factor": 0.9}) == 0.95 and pmp.power_factor({"power_factor": 3}) == 0.85
+    assert pmp.energy_from_ah(9521.81, 230, 0.85) == round(9521.81 * 230 * 0.85 / 1000, 3)
+    for k in ("pump_normal_a", "pump_max_starts", "mains_voltage", "run_threshold_a", "power_factor"):
+        assert spt.DEVICE[k].box and spt.DEVICE[k].config, k
+    assert not spt.DEVICE["tank_low_pct"].box
+    assert spt.extra_options("run_threshold_a") == {"run_threshold_set": True} and spt.extra_options("mains_voltage") == {}
+    assert spt.clamp(spt.DEVICE["pump_normal_a"], 0.49) == 0.49 and spt.clamp(spt.DEVICE["mains_voltage"], 230.4) == 230
+
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

@@ -20,6 +20,51 @@ class PumpConfig:
     volts: float = 0                 # mains voltage for that estimate
 
 
+LEGACY_RUN_A = 0.5            # the old fixed default; stored by every General form saved before 0.35
+AUTO_RUN_SHARE = 0.3          # auto: running from 30 % of the pump's normal current
+AUTO_RUN_A = 0.2              # auto without a normal current: 0.2 A (about 45 VA at 230 V)
+DEFAULT_PF = 0.85
+
+
+def _num(opts: dict[str, Any], key: str, default: float) -> float:
+    try:
+        v = opts.get(key, default)
+        return float(default if v in (None, "") else v)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def run_threshold_setting(opts: dict[str, Any]) -> float:
+    """The 'Running above' value as configured; 0 = automatic. The old default 0.5 A that older versions saved
+    without asking counts as automatic until someone sets a value."""
+    v = _num(opts, "run_threshold_a", 0)
+    if v == LEGACY_RUN_A and not opts.get("run_threshold_set"):
+        return 0.0
+    return max(0.0, v)
+
+
+def run_threshold(opts: dict[str, Any]) -> float:
+    """Effective running threshold in A: the configured value, else 30 % of the pump normal current (at least
+    0.05 A), else 0.2 A."""
+    v = run_threshold_setting(opts)
+    if v > 0:
+        return v
+    normal = _num(opts, "pump_normal_a", 0)
+    if normal > 0:
+        return max(0.05, round(normal * AUTO_RUN_SHARE, 2))
+    return AUTO_RUN_A
+
+
+def power_factor(opts: dict[str, Any]) -> float:
+    pf = _num(opts, "power_factor", _num(opts, "pump_power_factor", DEFAULT_PF))
+    return pf if 0 < pf <= 1 else DEFAULT_PF
+
+
+def energy_from_ah(total_ah: float, volts: float, pf: float) -> float:
+    """kWh from a clamp's cumulative current (Ah) at a fixed voltage and power factor."""
+    return round(total_ah * volts * pf / 1000, 3)
+
+
 def pump_config(opts: dict[str, Any], run_a: float) -> PumpConfig:
     def f(key: str, default: float) -> float:
         try:
@@ -30,7 +75,7 @@ def pump_config(opts: dict[str, Any], run_a: float) -> PumpConfig:
     return PumpConfig(enabled=bool(opts.get("pump_enabled", False)), run_a=run_a,
                       normal_a=f("pump_normal_a", 0), dry_pct=f("pump_dry_pct", 60),
                       overload_pct=f("pump_overload_pct", 125), max_starts_hour=int(f("pump_max_starts", 6)),
-                      power_factor=f("pump_power_factor", 0.85), volts=f("mains_voltage", 0))
+                      power_factor=power_factor(opts), volts=f("mains_voltage", 0))
 
 
 class PumpTracker:

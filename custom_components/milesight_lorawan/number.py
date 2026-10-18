@@ -28,7 +28,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
 
 def _save_option(hass: HomeAssistant, entry: ConfigEntry, option: str, value: float) -> None:
     """Write a setpoint into the entry's options (the entry reloads with it)."""
-    hass.config_entries.async_update_entry(entry, options={**entry.options, option: value})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, option: value,
+                                                           **_setpoints.extra_options(option)})
 
 
 class HubSetpoint(NumberEntity):
@@ -68,7 +69,9 @@ class MilesightNumber(MilesightEntity, NumberEntity):
         if spec.key.startswith("sp_"):
             sp = _setpoints.DEVICE[spec.key.removeprefix("sp_")]
             self._setpoint, self._command = sp, None
-            self._attr_mode = NumberMode.SLIDER
+            self._attr_mode = NumberMode.BOX if sp.box else NumberMode.SLIDER
+            if sp.config:
+                self._attr_entity_category = EntityCategory.CONFIG
             self._attr_native_min_value, self._attr_native_max_value = sp.min, sp.max
             self._attr_native_step = sp.step
             if sp.unit:

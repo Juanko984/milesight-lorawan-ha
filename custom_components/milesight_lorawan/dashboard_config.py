@@ -57,8 +57,10 @@ def _gauge(entity: str | None, name: str, lo: float, hi: float, segments: list[t
            columns: int = 6) -> dict | None:
     if not entity:
         return None
-    return {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True,
-            "segments": [{"from": f, "color": c} for f, c in segments], "grid_options": {"columns": columns}}
+    from .dashboard_live import safe_gauge
+    card = {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True,
+            "segments": [{"from": f, "color": c} for f, c in segments]}
+    return {**safe_gauge(card), "grid_options": {"columns": columns}}
 
 
 def _section(cards: list[dict | None], span: int | None = None) -> dict:
@@ -102,10 +104,8 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
     sections += [
         _section([
             {"type": "heading", "heading": "Overall health", "icon": "mdi:heart-pulse"},
-            {"type": "gauge", "entity": ctx.get("health"), "name": "Building health", "min": 0, "max": 100,
-             "needle": True, "segments": [{"from": 0, "color": RED}, {"from": 60, "color": YELLOW},
-                                          {"from": 80, "color": GREEN}], "grid_options": {"columns": "full"}}
-            if ctx.get("health") else None,
+            {**_gauge(ctx.get("health"), "Building health", 0, 100, [(0, RED), (60, YELLOW), (80, GREEN)]),
+             "grid_options": {"columns": "full"}} if ctx.get("health") else None,
             _tile(ctx.get("comfort"), "Comfort", "mdi:emoticon-happy-outline"),
             _tile(ctx.get("air_quality"), "Air quality", "mdi:air-filter"),
             _tile(ctx.get("systems"), "Systems", "mdi:router-network"),

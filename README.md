@@ -986,8 +986,11 @@ added up):
   and **Pump overload** above 125 % (blockage, seized bearing, low voltage). Two readings in a row are needed; a stop
   ends the alarm. *Normal running current*: type it in, or leave 0 and it is learned (median of the last 7 days'
   running readings, shown as *Pump normal current*).
-* **Pump energy today** from the clamp's energy counter, or estimated from current × *mains voltage* (Device
-  settings) × power factor.
+* **Running**: from *Running above* (Configuration). 0 = automatic: 30 % of the normal current when one is set,
+  otherwise 0.2 A.
+* **Pump energy today** from the clamp's energy counter. Clamps without one (CT101/CT103) get an *Energy* sensor
+  once you type a **Voltage** under Configuration: cumulative current (Ah) × voltage × **Power factor** (default
+  0.85).
 * Choose a **water meter** (e.g. an EM300-DI / UC pulse counter set up as a water meter) and you also get
   **Pumped today** and **Water per kWh** (m³/kWh) – a falling figure means a worn impeller or a dropping water table.
 
@@ -1095,6 +1098,8 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.35.0** | Voltage, power factor and running threshold fields for clamps; energy from Ah × V; typed-in pump settings. |
+| **0.34.2** | Gauges show a tile instead of "non-numeric" until data arrives; never-heard devices on Maintenance. |
 | **0.34.1** | Alert notifications: View on map / Open dashboard as a button (no jump on tap); phone location via the app's own tracking. |
 | **0.34.0** | Maintenance dashboard with tabs (Overview, Devices, Signal, Map) replaces Fleet and Signal; device location captured with the phone. |
 | **0.33.1** | Site landing page created reliably, named after the site, with a notification. |

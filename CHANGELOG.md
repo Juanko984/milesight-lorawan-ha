@@ -2,6 +2,28 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.35.0
+### Added
+- Current clamps (CT101/CT103/CT303/CT310…): **Voltage**, **Power factor** and **Running above** are now typed-in
+  fields under *Configuration* on the device page.
+- **Energy for clamps without an energy counter**: once a voltage is entered, *Energy* (kWh) is worked out from the
+  clamp's cumulative current: Ah × voltage × power factor (default 0.85). It counts up like a meter, so it works
+  in the HA Energy dashboard, and *Pump energy today* and *m³ per kWh* use it.
+### Changed
+- *Pump normal current* and *Pump max starts per hour* are typed-in boxes (under Configuration) instead of
+  sliders, with steps of 0.01 A.
+- **Running threshold is automatic by default**: 30 % of the pump normal current when one is set (0.8 A →
+  running from 0.24 A), otherwise 0.2 A. The old fixed 0.5 A that earlier versions saved without asking counts as
+  automatic; type a value into *Running above* to fix it.
+
+## 0.34.2
+### Fixed
+- Gauges on the farm, tank, cold-chain, energy, analytics and landing pages showed "Entity is non-numeric" while
+  their sensor had no value yet (device not heard yet, offline, or a value the model does not report). They now
+  show a small tile with the sensor's state until a number arrives, then the gauge.
+- Maintenance → Overview lists devices that were **never heard** since they were added, with what to check.
+- The *Network server* sensor keeps its capitals ("Gateway (Embedded NS)").
+
 ## 0.34.1
 ### Fixed
 - **Alert notifications**: tapping a notification no longer jumps to a dashboard (the app asked "Open URL?" and

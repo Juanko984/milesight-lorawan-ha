@@ -1205,7 +1205,7 @@ assert '"type": "map"' in flat and "device_tracker.0000000000a70101_location" in
 assert "sensor.0000000000a70101_pivot_radius" in flat and "number.0000000000a70101_sp_pivot_stall_min" in flat
 assert '"numeric-input"' in flat and "button.press" in flat
 pump_stack = next(c for c in farm if c["cards"][0]["heading"].startswith("Pump"))
-g = next(c for c in pump_stack["cards"] if c.get("type") == "gauge")
+g = next(dl.gauge_of(c) for c in pump_stack["cards"] if dl.gauge_of(c))
 assert g["segments"][1]["from"] == 6.0 and g["segments"][2]["from"] == 12.5          # dry 60 %, overload 125 % of 10 A
 piv = next(e for e in entries.items if e.data["deveui"] == "0000000000a70101").runtime_data
 assert piv.attrs["pivot_radius"]["latitude"] == piv.pivot_cfg.lat
@@ -1496,3 +1496,21 @@ RES.clear()
 asyncio.run(cws.ws_phone_location(types.SimpleNamespace(**{**vars(hass_l), "states": types.SimpleNamespace(
     async_all=lambda d: [], get=lambda e: None)}), conn, {"id": 2, "deveui": "00000000000c0001"}))
 print("phone location ok")
+
+
+# ---------------- 0.35: CT103 energy from voltage, automatic running threshold, typed-in setpoints ----------------
+import base64
+e_ct, rt = make_with("24e124746e359611", "CT103", {"pump_enabled": True, "pump_normal_a": 0.8, "run_threshold_a": 0.5,
+                                                    "mains_voltage": 230}, title="Farm pump")
+assert rt.limits["run_a"] == 0.24                                       # old stored 0.5 A = automatic
+send("24e124746e359611", base64.b64decode("A5d1hw4ABJgtAAln//8="))       # 0.45 A, 9521.81 Ah
+v = rt.values
+assert v["current"] == 0.45 and v["pump_running"] is True, v
+assert v["energy"] == round(9521.81 * 230 * 0.85 / 1000, 3) and v["apparent_power"] == 104, v
+sp = {s.key for s in rt.extra_specs() if s.platform == "number"}
+assert {"sp_mains_voltage", "sp_power_factor", "sp_run_threshold_a", "sp_pump_normal_a"} <= sp, sp
+assert v["sp_mains_voltage"] == 230 and v["sp_run_threshold_a"] == 0 and v["sp_power_factor"] == 0.85
+e_nv, rt2 = make_with("24e124746e359612", "CT103", {}, title="No voltage")
+send("24e124746e359612", base64.b64decode("A5d1hw4ABJgtAAln//8="))
+assert rt2.values.get("energy") is None and rt2.limits["run_a"] == 0.2
+print("ct103 energy ok")

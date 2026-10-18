@@ -936,7 +936,7 @@ def _common() -> list[EntitySpec]:
         EntitySpec("link_margin", "Link margin", unit="dB", state_class="measurement", icon="mdi:signal-distance-variant",
                    diagnostic=True, enabled_default=False),
         EntitySpec("gateway", "Gateway", kind="text", icon="mdi:router-wireless", diagnostic=True),
-        EntitySpec("network_server", "Network server", kind="label", icon="mdi:server-network", diagnostic=True),
+        EntitySpec("network_server", "Network server", kind="text", icon="mdi:server-network", diagnostic=True),
         EntitySpec("gateways_heard", "Gateways in range", state_class="measurement", icon="mdi:router-network",
                    diagnostic=True),
         EntitySpec("packet_loss_today", "Packet loss today", unit="%", state_class="measurement",
