@@ -181,23 +181,28 @@ class GatewayClient:
         self.info: dict[str, Any] = {}
 
     def _headers(self) -> dict[str, str]:
-        h = {"X-Requested-With": "XMLHttpRequest"}
+        # the gateway's web page posts a JSON string with a form content-type, and authorises with the JWT both as
+        # a Bearer header and a `token` cookie – reproduce both so it behaves exactly like the browser.
+        h = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01",
+             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
         if self.jwt:
             h["Authorization"] = f"Bearer {self.jwt}"
+            h["Cookie"] = f"token={self.jwt}"
         return h
 
     async def _json(self, method: str, path: str, payload: Any = None) -> Any:
         import asyncio
+        import json as _json
         url = path if path.startswith("http") else f"{self.base}{path}"
+        body = _json.dumps(payload) if payload is not None else None
         try:
-            async with self.session.request(method, url, json=payload, headers=self._headers(),
+            async with self.session.request(method, url, data=body, headers=self._headers(),
                                             timeout=__import__("aiohttp").ClientTimeout(total=self.timeout)) as resp:
                 text = await resp.text()
                 if resp.status == 401:
                     raise GatewayError("login expired")
                 if resp.status >= 400:
                     raise GatewayError(f"{method} {path} -> HTTP {resp.status}")
-                import json as _json
                 return _json.loads(text) if text.strip() else {}
         except asyncio.TimeoutError as err:
             raise GatewayError(f"{self.base} did not answer") from err

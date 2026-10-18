@@ -117,7 +117,10 @@ cf = importlib.import_module("milesight_lorawan.config_flow")
 
 class Entries:
     def __init__(self):
-        self.items, self.updated, self.reloaded = [], [], []
+        self.items, self.updated, self.reloaded, self.mqtt = [], [], [], []
+    def async_entries(self, domain=None):
+        if domain == "mqtt": return self.mqtt
+        return list(self.items)
 
     def async_update_entry(self, e, options):
         e.options = options
@@ -231,12 +234,17 @@ CALLS.clear()
 r = run(fl.async_step_gateway_configure({"username": "admin", "password": "pw", "mode": "lns", "band": "EU868"}))
 assert ("semtech", "192.168.1.20", "EU868") in CALLS and r["type"] == "create_entry"
 assert r["options"]["lns_enabled"] is True and "24e124fffefa2994" in r["options"]["pending_gateways"]
-# MQTT mode on a fresh install: creates an MQTT hub with the gateway's topics and ns-api request/response
-ents = Entries(); fl = make_flow(ents); run(fl.async_step_dhcp(dhcp))
+# MQTT mode on a fresh install: a second step collects the broker login (prefilled from HA's MQTT), then creates the hub
+ents = Entries()
+ents.mqtt.append(types.SimpleNamespace(data={"broker": "192.168.1.5", "port": 1883, "username": "hamqtt",
+                                             "password": "secret"}, options={}))
+fl = make_flow(ents); run(fl.async_step_dhcp(dhcp))
 run(fl.async_step_gateway_found({"name": "Depot", "auto_configure": True}))
 CALLS.clear()
 r = run(fl.async_step_gateway_configure({"username": "admin", "password": "pw", "mode": "mqtt"}))
-assert ("mqtt", "192.168.1.20", None) in CALLS and r["type"] == "create_entry"
+assert r["step_id"] == "gateway_mqtt" and r["placeholders"]["broker"] == "192.168.1.5" and r["placeholders"]["user"] == "hamqtt"
+r = run(fl.async_step_gateway_mqtt({}))     # accept the prefilled HA credentials
+assert ("mqtt", "192.168.1.5", "hamqtt") in CALLS and r["type"] == "create_entry"
 assert r["data"]["topic"] == "milesight/uplink/#" and r["data"]["ns_request_topic"] == "milesight/request"
 assert r["data"].get("lns_enabled") is None
 # wrong password -> error on the same step, nothing created
@@ -253,10 +261,11 @@ r = run(fl.async_step_gateway_reconfigure({"gateway_id": "24E124FFFEF61E38", "ip
 assert r["step_id"] == "gateway_configure" and r["placeholders"]["gw_ip"] == "192.168.1.230"
 CALLS.clear()
 r = run(fl.async_step_gateway_configure({"username": "admin", "password": "pw", "mode": "both"}))
+assert r["step_id"] == "gateway_mqtt"
+r = run(fl.async_step_gateway_mqtt({"mqtt_user": "u", "mqtt_password": "p"}))
 assert ("init", "192.168.1.230", "admin", "pw") in CALLS and ("semtech", "192.168.1.20", "EU868") in CALLS
-assert ("mqtt", "192.168.1.20", None) in CALLS
+assert ("mqtt", "192.168.1.20", "u") in CALLS
 assert r["type"] == "abort" and r["reason"] == "gateway_configured"
-assert not any(e.get("type") == "create_entry" for e in [r])   # nothing new created
 # a known gateway without a stored IP: the form asks for the host
 h.stats.gateways["24e124fffe00aa00"] = {"name": "UG67"}
 fl = make_flow(ents)

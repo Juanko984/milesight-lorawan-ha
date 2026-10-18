@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.39.3
+### Fixed
+- Configuring a gateway over the LAN failed with *gateway refused …*: the gateway expects its web calls as a
+  form-encoded JSON body and authorises with the login token as both a header and a cookie. The client now matches
+  the gateway's own web page exactly (verified against real UG56 / UG65 traffic).
+### Changed
+- The MQTT step now **prefills the broker login from Home Assistant's own MQTT integration** – leave it blank to
+  reuse it, so there is nothing to type for the common case.
+- Choosing *Semtech* no longer shows the MQTT fields: the MQTT broker login is asked on a second step, only when
+  *MQTT* or *Both* is selected.
+
 ## 0.39.2
 ### Added
 - **Configure over LAN** button on every gateway device: set a gateway up from its device page even when Home

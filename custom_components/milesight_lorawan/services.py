@@ -294,8 +294,14 @@ def async_register_services(hass: HomeAssistant) -> None:
                             else "semtech_already")
             topics = {}
             if call.data["mode"] in ("mqtt", "both"):
-                topics = await client.async_setup_mqtt(ha_ip, call.data.get("mqtt_user") or None,
-                                                       call.data.get("mqtt_password") or None)
+                mu, mp, broker = call.data.get("mqtt_user"), call.data.get("mqtt_password"), ha_ip
+                for e in hass.config_entries.async_entries("mqtt"):     # default to HA's own broker login
+                    md = {**e.data, **e.options}
+                    if md.get("broker"):
+                        mu = mu or md.get("username"); mp = mp or md.get("password")
+                        broker = md["broker"] if md["broker"] not in ("localhost", "127.0.0.1", "core-mosquitto") else ha_ip
+                        break
+                topics = await client.async_setup_mqtt(broker, mu or None, mp or None)
                 done.append("mqtt")
             if hub is not None and info.get("eui") and hasattr(hub, "expect_gateway"):
                 from .gateway_discovery import norm_hex

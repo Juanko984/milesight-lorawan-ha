@@ -317,6 +317,7 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._disc: dict[str, Any] = {}
         self._gw: dict[str, Any] = {}
+        self._gwcfg: dict[str, Any] = {}
 
     def _hubs(self) -> list[ConfigEntry]:
         return [e for e in self._async_current_entries() if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB]
@@ -554,10 +555,52 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                 options=["lns", "mqtt", "both"], translation_key="gateway_mode", mode=SelectSelectorMode.LIST)),
             vol.Optional("band", default="EU868"): SelectSelector(SelectSelectorConfig(
                 options=["EU868", "US915", "AU915", "AS923", "IN865", "KR920"], mode=SelectSelectorMode.DROPDOWN)),
-            vol.Optional("mqtt_user"): TextSelector(),
-            vol.Optional("mqtt_password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
         })
         return schema
+
+    def _mqtt_defaults(self) -> dict[str, Any]:
+        """The broker login Home Assistant's own MQTT integration uses, to prefill the gateway's MQTT output."""
+        for e in self.hass.config_entries.async_entries("mqtt"):
+            d = {**e.data, **e.options}
+            if d.get("broker"):
+                return {"host": d.get("broker"), "port": d.get("port", 1883),
+                        "username": d.get("username") or "", "password": d.get("password") or ""}
+        return {}
+
+    async def _run_gateway_config(self, mode: str, mqtt_user: str | None = None,
+                                  mqtt_password: str | None = None) -> dict[str, str]:
+        """Do the configured work on the gateway. Returns {} on success, else {'base': error}."""
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+        from .gateway_api import GatewayClient, GatewayError
+        c = self._gwcfg
+        ha_ip = await _local_ip(self.hass, c["host"])
+        broker_ip = (self._mqtt_defaults().get("host") or ha_ip) if mode in ("mqtt", "both") else ha_ip
+        if broker_ip in ("localhost", "127.0.0.1", "core-mosquitto"):     # the gateway needs a reachable address
+            broker_ip = ha_ip
+        client = GatewayClient(async_get_clientsession(self.hass), c["host"], c["username"], c["password"])
+        try:
+            await client.login()
+            info = await client.async_read_info()
+            if mode in ("lns", "both"):
+                await client.async_point_at_home_assistant(ha_ip, band=c.get("band", "EU868"))
+            if mode in ("mqtt", "both"):
+                self._gw["_mqtt_topics"] = await client.async_setup_mqtt(broker_ip, mqtt_user, mqtt_password)
+        except GatewayError as err:
+            self.context["_gw_error"] = str(err)
+            return {"base": "gateway_login" if ("password" in str(err) or "login" in str(err)) else "gateway_api"}
+        self._gw["model"] = self._gw.get("model") or (info or {}).get("model")
+        return {}
+
+    async def _gateway_done(self, mode: str) -> ConfigFlowResult:
+        gw = self._gw
+        if gw.get("_known"):
+            hub = next((getattr(e, "runtime_data", None) for e in self._hubs()
+                        if e.entry_id == gw.get("hub_entry_id")), None)
+            if hub is not None and hasattr(hub, "expect_gateway"):
+                hub.expect_gateway(gw["eui"], {"name": gw.get("_name"), "ip": gw.get("ip"), "model": gw.get("model")})
+            return self.async_abort(reason="gateway_configured",
+                                    description_placeholders={"name": gw.get("_name") or gw["eui"].upper()})
+        return await self._finish_gateway(gw, mode in ("lns", "both"), mode)
 
     async def async_step_gateway_configure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Log in to the gateway over the LAN and set it up: point its packet forwarder at Home Assistant (built-in
@@ -571,48 +614,42 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = (user_input.get("host") or gw.get("ip") or "").strip()
             if not host:
-                return self.async_show_form(step_id="gateway_configure", errors={"base": "gateway_no_ip"},
-                                            data_schema=vol.Schema(self._gw_configure_schema(gw, ha_ip)),
-                                            description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
-                                                                      "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
-                                                                      "error": ""})
-            gw["ip"] = host
-            client = GatewayClient(async_get_clientsession(self.hass), host,
-                                   user_input["username"], user_input["password"])
-            mode = user_input.get("mode", mode_default)
-            done = []
-            try:
-                await client.login()
-                info = await client.async_read_info()
-                if mode in ("lns", "both"):
-                    if await client.async_point_at_home_assistant(ha_ip, band=user_input.get("band", "EU868")):
-                        done.append("packet forwarder → Home Assistant")
-                    else:
-                        done.append("packet forwarder already set")
+                errors["base"] = "gateway_no_ip"
+            else:
+                gw["ip"] = host
+                mode = user_input.get("mode", mode_default)
+                self._gwcfg = {"host": host, "username": user_input["username"], "password": user_input["password"],
+                               "band": user_input.get("band", "EU868"), "mode": mode}
                 if mode in ("mqtt", "both"):
-                    topics = await client.async_setup_mqtt(ha_ip, user_input.get("mqtt_user") or None,
-                                                           user_input.get("mqtt_password") or None)
-                    done.append("application + MQTT")
-                    self._gw["_mqtt_topics"] = topics
-            except GatewayError as err:
-                errors["base"] = "gateway_login" if "password" in str(err) or "login" in str(err) else "gateway_api"
-                self.context["_gw_error"] = str(err)
-            if not errors:
-                self._gw["model"] = self._gw.get("model") or (info or {}).get("model")
-                if gw.get("_known"):
-                    hub = next((getattr(e, "runtime_data", None) for e in self._hubs()
-                                if e.entry_id == gw.get("hub_entry_id")), None)
-                    if hub is not None and hasattr(hub, "expect_gateway"):
-                        hub.expect_gateway(gw["eui"], {"name": gw.get("_name"), "ip": gw.get("ip"),
-                                                       "model": gw.get("model")})
-                    return self.async_abort(reason="gateway_configured",
-                                            description_placeholders={"name": gw.get("_name") or gw["eui"].upper()})
-                return await self._finish_gateway(gw, gw.get("_use_lns", True), mode)
+                    return await self.async_step_gateway_mqtt()
+                errors = await self._run_gateway_config("lns")
+                if not errors:
+                    return await self._gateway_done("lns")
         return self.async_show_form(step_id="gateway_configure",
                                     data_schema=vol.Schema(self._gw_configure_schema(gw, ha_ip, mode_default)),
                                     errors=errors,
                                     description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
                                                               "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
+                                                              "error": self.context.get("_gw_error", "")})
+
+    async def async_step_gateway_mqtt(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """The broker login the gateway should use for its MQTT output – prefilled from Home Assistant's own MQTT."""
+        gw, errors = self._gw, {}
+        d = self._mqtt_defaults()
+        if user_input is not None:
+            errors = await self._run_gateway_config(self._gwcfg["mode"],
+                                                    user_input.get("mqtt_user") or d.get("username") or None,
+                                                    user_input.get("mqtt_password") or d.get("password") or None)
+            if not errors:
+                return await self._gateway_done(self._gwcfg["mode"])
+        schema = {
+            vol.Optional("mqtt_user", description={"suggested_value": d.get("username") or ""}): TextSelector(),
+            vol.Optional("mqtt_password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+        }
+        return self.async_show_form(step_id="gateway_mqtt", data_schema=vol.Schema(schema), errors=errors,
+                                    description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
+                                                              "broker": d.get("host") or "Home Assistant",
+                                                              "user": d.get("username") or "(none set)",
                                                               "error": self.context.get("_gw_error", "")})
 
     async def _finish_gateway(self, gw: dict[str, Any], use_lns: bool, mode: str) -> ConfigFlowResult:
