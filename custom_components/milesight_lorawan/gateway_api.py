@@ -180,26 +180,30 @@ class GatewayClient:
         self.jwt: str | None = None
         self.info: dict[str, Any] = {}
 
-    def _headers(self, path: str) -> dict[str, str]:
+    def _headers(self, path: str, auth: str | None = None) -> dict[str, str]:
         # The gateway authenticates its whole web origin with HTTP Basic auth (admin:password); the browser sends it
         # on every request, so /islogin, /cgi and the login endpoint need it. The network-server REST endpoints
-        # (/api/... other than the login) are authorised with the JWT the login returns.
+        # (/api/... other than the login) are authorised with the JWT the login returns. `auth` forces one scheme
+        # ("basic" / "bearer") so a call can be retried with the other when a gateway's firmware disagrees.
         import base64
         h = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01",
              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
-        is_api = "/api/" in path and "internal/login" not in path
-        if is_api and self.jwt:
+        if auth is None:
+            is_api = "/api/" in path and "internal/login" not in path
+            auth = "bearer" if (is_api and self.jwt) else "basic"
+        if auth == "bearer" and self.jwt:
             h["Authorization"] = f"Bearer {self.jwt}"
         else:
             token = base64.b64encode(f"{self.username}:{self._password}".encode("utf-8")).decode("ascii")
             h["Authorization"] = f"Basic {token}"
         return h
 
-    async def _json(self, method: str, path: str, payload: Any = None, as_json: bool = False) -> Any:
+    async def _json(self, method: str, path: str, payload: Any = None, as_json: bool = False,
+                    auth: str | None = None) -> Any:
         import asyncio
         import json as _json
         url = path if path.startswith("http") else f"{self.base}{path}"
-        headers = self._headers(path)
+        headers = self._headers(path, auth)
         if as_json:                                        # some firmware wants a real JSON content-type
             headers["Content-Type"] = "application/json; charset=UTF-8"
         body = _json.dumps(payload) if payload is not None else None
@@ -211,7 +215,13 @@ class GatewayClient:
                     raise GatewayError("login expired")
                 if resp.status >= 400:
                     raise GatewayError(f"{method} {path} -> HTTP {resp.status}")
-                return _json.loads(text) if text.strip() else {}
+                if not text.strip():
+                    return {}
+                try:
+                    return _json.loads(text)
+                except ValueError as err:                  # an HTML login page instead of JSON = wrong auth / endpoint
+                    snippet = " ".join(text.split())[:80]
+                    raise GatewayError(f"{path} did not return JSON ({snippet!r})") from err
         except asyncio.TimeoutError as err:
             raise GatewayError(f"{self.base} did not answer") from err
         except OSError as err:
@@ -235,15 +245,51 @@ class GatewayClient:
                 last = "username or password not accepted"
         raise GatewayError(f"gateway login failed ({last})")
 
+    @staticmethod
+    def _cgi_ok(data: Any) -> bool:
+        if not isinstance(data, dict):
+            return False
+        status = data.get("status")
+        try:                                               # some firmware returns the status as a string ("0")
+            return status is None or int(status) == 0
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _cgi_reason(data: Any) -> str:
+        if not isinstance(data, dict):
+            return f"unexpected reply {str(data)[:60]!r}"
+        bits = [f"status={data.get('status')}"]
+        for key in ("msg", "message", "error", "errMsg", "info"):
+            if data.get(key):
+                bits.append(f"{key}={str(data[key])[:80]}")
+        res = data.get("result")
+        if isinstance(res, list) and res and isinstance(res[0], dict):
+            for key in ("error", "msg", "message"):
+                if res[0].get(key):
+                    bits.append(f"result.{key}={str(res[0][key])[:80]}")
+        return ", ".join(bits)
+
     async def _cgi(self, core: str, function: str, base: str, value: Any = None, index: int = 0) -> Any:
         v: dict[str, Any] = {"base": base}
         if value is not None:
             v["value"], v["index"] = value, index
         body = {"id": 1, "execute": 1, "core": core, "function": function, "values": [v]}
-        data = await self._json("POST", "/cgi", body)
-        if not isinstance(data, dict) or data.get("status") not in (0, None):
-            raise GatewayError(f"gateway refused {core}.{function} ({base})")
-        return data.get("result", [{}])[0] if data.get("result") else {}
+        # firmware disagrees on whether /cgi wants Basic (admin:password) or the login JWT: try Basic, then Bearer.
+        schemes = ["basic"] + (["bearer"] if self.jwt else [])
+        data: Any = None
+        last_err: GatewayError | None = None
+        for scheme in schemes:
+            try:
+                data = await self._json("POST", "/cgi", body, auth=scheme)
+            except GatewayError as err:
+                last_err = err
+                continue
+            if self._cgi_ok(data):
+                return data.get("result", [{}])[0] if data.get("result") else {}
+        if last_err is not None and data is None:
+            raise GatewayError(f"gateway refused {core}.{function} ({base}): {last_err}")
+        raise GatewayError(f"gateway refused {core}.{function} ({base}): {self._cgi_reason(data)}")
 
     async def async_read_info(self) -> dict[str, Any]:
         res = await self._cgi("yruo_status", "get", "summary")

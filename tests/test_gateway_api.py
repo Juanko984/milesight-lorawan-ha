@@ -63,4 +63,48 @@ async def main():
     api = [r for r in s.requests if "/urprofiles" in r["url"]][0]
     assert api["headers"]["Authorization"] == "Bearer JWT123", api["headers"]
     print("transport ok:", info["model"], "| semtech added | cgi=Basic api=Bearer")
+
+async def bearer_fallback():
+    # firmware that rejects /cgi under Basic auth but accepts it with the login JWT (Bearer)
+    class FallbackSession:
+        def __init__(self): self.requests = []
+        def request(self, method, url, data=None, headers=None, timeout=None):
+            self.requests.append({"url": url, "headers": headers})
+            if url.endswith("/api/internal/login"): return Resp({"jwt": "JWT123"})
+            if url.endswith("/cgi"):
+                auth = headers.get("Authorization", "")
+                if auth.startswith("Basic"):
+                    return Resp({"status": 1, "msg": "permission denied"})
+                body = json.loads(data)
+                if body["core"] == "yruo_status": return Resp(fix["summary_response"])
+                if body["core"] == "yruo_loragw": return Resp(fix["general_conf_response"])
+            return Resp({})
+    s = FallbackSession()
+    c = ga.GatewayClient(s, "192.168.1.230", "admin", "pw")
+    await c.login()
+    info = await c.async_read_info()
+    assert info["model"] == "UG56-L04EU-868M", info
+    cgis = [r for r in s.requests if r["url"].endswith("/cgi")]
+    assert cgis[0]["headers"]["Authorization"].startswith("Basic")   # tried Basic first
+    assert cgis[1]["headers"]["Authorization"] == "Bearer JWT123"    # fell back to Bearer
+    print("bearer fallback ok: /cgi recovered via JWT when Basic was refused")
+
+async def reason_surfaced():
+    # when the gateway refuses under every scheme, the error carries its actual reply
+    class DenySession:
+        def request(self, method, url, data=None, headers=None, timeout=None):
+            if url.endswith("/api/internal/login"): return Resp({"jwt": "JWT123"})
+            return Resp({"status": 1, "msg": "permission denied"})
+    c = ga.GatewayClient(DenySession(), "192.168.1.230", "admin", "pw")
+    await c.login()
+    try:
+        await c.async_read_info()
+    except ga.GatewayError as err:
+        assert "status=1" in str(err) and "permission denied" in str(err), err
+        print("reason surfaced ok:", err)
+        return
+    raise AssertionError("expected GatewayError")
+
 asyncio.run(main())
+asyncio.run(bearer_fallback())
+asyncio.run(reason_surfaced())
