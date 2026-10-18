@@ -18,7 +18,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         buttons: list = [UpdateDashboardButton(hass, entry), _HubButton(hass, entry, "acknowledge_alerts"),
                          _HubButton(hass, entry, "install_resources"), _HubButton(hass, entry, "alert_summary"),
                          _HubButton(hass, entry, "handover_report"), _HubButton(hass, entry, "compliance_week"),
-                         _HubButton(hass, entry, "compliance_month")]
+                         _HubButton(hass, entry, "compliance_month"), _HubButton(hass, entry, "scan_lan")]
         if getattr(hub, "ns", None) is not None:
             buttons.append(_HubButton(hass, entry, "sync_gateway"))
         async_add_entities(buttons)
@@ -91,7 +91,8 @@ class _HubButton(ButtonEntity):
              "alert_summary": ("Send alert summary", "mdi:email-newsletter"),
              "handover_report": ("Create handover report", "mdi:clipboard-check-outline"),
              "compliance_week": ("Cold-chain report: last week", "mdi:file-certificate-outline"),
-             "compliance_month": ("Cold-chain report: last month", "mdi:file-certificate")}
+             "compliance_month": ("Cold-chain report: last month", "mdi:file-certificate"),
+             "scan_lan": ("Scan network for gateways", "mdi:lan-pending")}
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str) -> None:
         from .building import hub_device
@@ -107,6 +108,17 @@ class _HubButton(ButtonEntity):
                 await hub.alerts.async_acknowledge(None, None)
             elif self.kind == "alert_summary":
                 await hub.alerts.async_send_summary()
+            elif self.kind == "scan_lan":
+                from homeassistant.components import persistent_notification
+                from .const import DOMAIN
+                out = await hub.async_scan_lan()
+                persistent_notification.async_create(
+                    self.hass, (f"{len(out['offered'])} new Milesight gateway(s) found – see Settings → Devices & "
+                                f"services → Discovered. " if out["offered"] else "No new Milesight gateways found. ")
+                    + (f"{len(out['known'])} known gateway(s) on the network." if out["known"] else
+                       "No known gateway answered on this network (a gateway on another subnet, or Home Assistant "
+                       "in Docker without host networking, cannot be seen)."),
+                    title="Milesight LoRaWAN: network scan", notification_id=f"{DOMAIN}_scan_lan")
             elif self.kind in ("compliance_week", "compliance_month"):
                 await hub.compliance.async_create(self.kind.removeprefix("compliance_"), send=True)
             elif self.kind == "handover_report":

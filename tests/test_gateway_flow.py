@@ -130,13 +130,15 @@ fl = make_flow(ents)
 r = run(fl.async_step_dhcp(dhcp))
 assert r["type"] == "form" and r["step_id"] == "gateway_found", r
 assert r["placeholders"]["ha_ip"] == "192.168.1.20" and r["placeholders"]["eui"] == "24E124FFFEFA2994"
-assert fl._uid == "gateway:24e124fffefa2994" and fl.context["title_placeholders"]["deveui"] == "192.168.1.50"
+assert fl._uid == "gateway:24e124fffefa2994" and fl.context["title_placeholders"]["deveui"] == "LAN · 192.168.1.50"
+assert r["placeholders"]["found"] == "LAN · DHCP"
 assert "use_lns" not in r["schema"].schema
 r = run(fl.async_step_gateway_found({"name": "Pump house", "area": "Farm"}))
 assert r["type"] == "create_entry" and r["data"]["entry_type"] == "hub" and r["data"]["topic"] == ""
 assert r["options"]["lns_enabled"] is True and r["options"]["lns_port"] == 1700
 pend = r["options"]["pending_gateways"]["24e124fffefa2994"]
 assert pend["name"] == "Pump house" and pend["area"] == "Farm" and pend["ip"] == "192.168.1.50"
+assert pend["found"] == "lan_dhcp"
 
 # 2. not a Milesight MAC
 assert run(make_flow(ents).async_step_dhcp(types.SimpleNamespace(ip="1.2.3.4", macaddress="aabbccddeeff",
@@ -187,4 +189,17 @@ r = run(fl.async_step_gateway_heard({"name": "Hill", "area": "North"}))
 assert r["reason"] == "gateway_waiting" and h.stats.expected["24e124fffe000999"]["area"] == "North"
 assert run(make_flow(ents).async_step_integration_discovery({"gateway_id": "24e124fffe000999"}))["reason"] == \
     "already_configured"
+# 5. the network scan found one; and a gateway already sending is not offered again, its address is noted
+fl = make_flow(ents)
+r = run(fl.async_step_integration_discovery({"lan": True, "mac": "24:e1:24:00:00:88", "ip": "192.168.1.88",
+                                             "hub_entry_id": "h1"}))
+assert r["step_id"] == "gateway_found" and r["placeholders"]["found"] == "LAN · network scan"
+h.stats.gateways["24e124fffe000042"] = {"name": "UG65_2"}
+r = run(make_flow(ents).async_step_dhcp(types.SimpleNamespace(ip="192.168.1.42", macaddress="24e124000042",
+                                                              hostname=None)))
+assert r["reason"] == "already_configured" and h.stats.gateways["24e124fffe000042"]["ip"] == "192.168.1.42"
+# first packet over Semtech: the card says so
+r = run(make_flow(ents).async_step_integration_discovery({"gateway_id": "24e124fffe000555", "ip": "10.0.0.5",
+                                                           "connection": "packet forwarder (Semtech UDP)"}))
+assert r["placeholders"]["found"] == "Semtech UDP · first packet"
 print("gateway flow ok")

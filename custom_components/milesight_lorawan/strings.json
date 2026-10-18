@@ -86,7 +86,7 @@
       },
       "gateway_found": {
         "title": "Milesight gateway found",
-        "description": "A Milesight gateway joined your network at **{gw_ip}** (gateway EUI {eui}).\n\nTo connect it, open the gateway's web page (http://{gw_ip}) → **Packet Forwarder → General → Multi-Destination → +**: type **Semtech**, server address **{ha_ip}**, port up and down **{port}**, enable, save. Home Assistant adopts it with the name and area below as soon as its first packet arrives – nothing else to type. Gateways prepared for this product are already set up and connect by themselves.",
+        "description": "A Milesight gateway was found on your network at **{gw_ip}** (found by: {found}; gateway EUI {eui}).\n\nTo connect it, open the gateway's web page (http://{gw_ip}) → **Packet Forwarder → General → Multi-Destination → +**: type **Semtech**, server address **{ha_ip}**, port up and down **{port}**, enable, save. Home Assistant adopts it with the name and area below as soon as its first packet arrives – nothing else to type. Gateways prepared for this product are already set up and connect by themselves.",
         "data": {
           "name": "Name",
           "area": "Area",
@@ -98,7 +98,7 @@
       },
       "gateway_heard": {
         "title": "New gateway sending to Home Assistant",
-        "description": "Gateway **{eui}** ({gw_ip}, {connection}) is forwarding packets to Home Assistant. Give it a name and an area to add it. Devices it hears then show up under Discovered.",
+        "description": "Gateway **{eui}** ({gw_ip}) is forwarding packets to Home Assistant over **{connection}** (found by: {found}). Give it a name and an area to add it. Devices it hears then show up under Discovered.",
         "data": {
           "name": "Name",
           "area": "Area"

@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.38.0
+### Added
+- **How each gateway is connected and was found**: gateway devices show the connection in their model line
+  (*LoRaWAN gateway · MQTT*, *· Semtech UDP*, *· MQTT + Semtech UDP*) and get a **Connection** sensor (diagnostic) –
+  *MQTT · gateway network server*, *MQTT · ChirpStack* or *Semtech UDP · Home Assistant network server* – with
+  *found via* (LAN · DHCP, LAN · network scan, QR code, Semtech UDP · first packet, MQTT · first uplink), IP and MAC
+  address, web page and first seen as attributes. Discovery cards say how the gateway was found
+  (e.g. *UG65 FA2994 (LAN · 192.168.1.50)*).
+- **Network scan for gateways**: 90 s after start, every 6 hours and with the new **Scan network for gateways**
+  button, Home Assistant looks for Milesight gateways on its network. Known gateways get their IP address and a
+  link to their web page; new ones are offered under *Discovered*. DHCP discovery alone only sees a gateway when it
+  asks for an address (after a restart or lease renewal), so gateways that were already running were missed.
+
 ## 0.37.0
 ### Added
 - **Gateway discovery on the network**: a Milesight gateway that joins the network (DHCP, MAC prefix 24:E1:24) is

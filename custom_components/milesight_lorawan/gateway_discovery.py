@@ -106,3 +106,44 @@ def match_expected(expected: dict[str, dict[str, Any]], gid: str, ip: str | None
         if len(hits) == 1:
             return hits[0]
     return None
+
+
+# how a gateway's data reaches Home Assistant (per network server of its uplinks) and how it was found
+CONNECTIONS = {"embedded": ("MQTT", "MQTT · gateway network server"),
+               "chirpstack": ("MQTT", "MQTT · ChirpStack"),
+               "built-in": ("Semtech UDP", "Semtech UDP · Home Assistant network server")}
+FOUND = {"lan_dhcp": "LAN · DHCP", "lan_scan": "LAN · network scan", "qr": "QR code",
+         "semtech": "Semtech UDP · first packet", "mqtt": "MQTT · first uplink", "traffic": "Traffic"}
+
+
+def connection_label(conns: list[str] | None, short: bool = False) -> str:
+    labels = []
+    for c in conns or []:
+        lab = CONNECTIONS.get(c, (c, c))[0 if short else 1]
+        if lab not in labels:
+            labels.append(lab)
+    return " + ".join(labels) if labels else ("–" if short else "Not heard yet")
+
+
+def found_label(found: str | None, ip: str | None = None) -> str:
+    lab = FOUND.get(found or "traffic", found or "Traffic")
+    return f"{lab} ({ip})" if ip and found in ("lan_dhcp", "lan_scan", "semtech") else lab
+
+
+def parse_arp(text: str) -> list[tuple[str, str]]:
+    """/proc/net/arp → [(ip, mac)] of complete entries."""
+    out = []
+    for line in (text or "").splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 4 and parts[2] == "0x2" and parts[3] != "00:00:00:00:00:00":
+            out.append((parts[0], parts[3].lower()))
+    return out
+
+
+def subnet_hosts(ip: str | None) -> list[str]:
+    """The /24 around Home Assistant's address (to wake the ARP table before reading it)."""
+    parts = (ip or "").split(".")
+    if len(parts) != 4 or not all(p.isdigit() for p in parts):
+        return []
+    base = ".".join(parts[:3])
+    return [f"{base}.{i}" for i in range(1, 255) if f"{base}.{i}" != ip]

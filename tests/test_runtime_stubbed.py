@@ -119,7 +119,7 @@ class FakeEntries:
 class FakeFlow:
     def __init__(self, entries): self.entries = entries
     def async_init(self, domain, context, data):
-        (GW_FLOWS if "gateway_id" in data else entries.flows).append(data); return None
+        (GW_FLOWS if ("gateway_id" in data or "lan" in data) else entries.flows).append(data); return None
     def async_progress_by_handler(self, d): return list(OPEN_FLOWS)
     def async_abort(self, flow_id): ABORTED.append(flow_id)
 GW_FLOWS, OPEN_FLOWS, ABORTED = [], [], []
@@ -1622,7 +1622,7 @@ sys.modules["homeassistant.helpers.area_registry"].async_get = lambda h: types.S
 assert hbl.expect_gateway("24e124fffefa2994", {"name": "Pump house gateway", "area": "Pump house"}) == "connected"
 g = hbl.stats.gateways["24e124fffefa2994"]
 assert g["approved"] and g["name"] == "Pump house gateway" and g["area"] == "Pump house" and "f1" in ABORTED
-assert dreg_calls[-1] == {"name": "Pump house gateway", "area_id": "area_pump_house"}
+assert dreg_calls[-1] == {"name": "Pump house gateway", "area_id": "area_pump_house", "configuration_url": "http://192.168.1.20"}, dreg_calls
 assert hbl.gateway_known("24e124fffefa2994")
 # a gateway announced by DHCP / QR before it sends: adopted from its first packet, by EUI or by IP
 n = len(GW_FLOWS)
@@ -1652,4 +1652,34 @@ async def _st():
         if not hn.gateway_known(eui): hn.stats.expected[eui] = dict(info)
 asyncio.run(_st())
 assert hn.stats.expected == {"24e124fffe0000aa": {"name": "Shed"}}
+# how gateways connect: MQTT uplinks (gateway network server) and Semtech packets (built-in network server)
+gwm = hb.stats.gateways["24e124fffef00001"]
+assert gwm["conn"] == ["embedded"] and gwm["found"] == "mqtt", gwm
+assert hbl.stats.gateways["24e124fffefa2994"]["conn"] == ["built-in"]
+hub_lns_entry.runtime_data = hbl
+conn = gwmod.GatewaySensor(hass, hub_lns_entry, "24e124fffe000778", "connection")
+assert conn.native_value == "Semtech UDP · Home Assistant network server"
+assert conn.extra_state_attributes["found_via"] == "Semtech UDP · first packet (192.168.1.77)" and conn.extra_state_attributes["web_page"] == "http://192.168.1.77"
+assert gwmod._gw_device(hub_lns_entry, "24e124fffe000778", g2)["model"] == "LoRaWAN gateway · Semtech UDP"
+# network scan: a known gateway gets its address, an unknown Milesight one is offered
+import builtins
+_open = builtins.open
+ARP = ("IP address HW type Flags HW address Mask Device\n"
+       "192.168.1.50 0x1 0x2 24:e1:24:f0:00:01 * eth0\n192.168.1.88 0x1 0x2 24:e1:24:00:00:88 * eth0\n"
+       "192.168.1.1 0x1 0x2 aa:bb:cc:dd:ee:ff * eth0\n")
+class _F:
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def read(self): return ARP
+builtins.open = lambda f, *a, **k: _F() if f == "/proc/net/arp" else _open(f, *a, **k)
+async def _exec(f, *a): return f(*a)
+hass.async_add_executor_job = _exec
+n = len(GW_FLOWS)
+try:
+    out = asyncio.run(hb.async_scan_lan(prime=False))
+finally:
+    builtins.open = _open
+assert out == {"known": ["24e124fffef00001"], "offered": ["24e124fffe000088"]}, out
+assert hb.stats.gateways["24e124fffef00001"]["ip"] == "192.168.1.50"
+assert GW_FLOWS[n:][-1:] == [{"lan": True, "mac": "24:e1:24:00:00:88", "ip": "192.168.1.88", "hub_entry_id": "h"}], GW_FLOWS[n:]
 print("gateway discovery ok")

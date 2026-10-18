@@ -303,13 +303,25 @@ class GatewayStats:
     def to_dict(self) -> dict[str, Any]:
         return {"day": self.day, "counts": self.counts, "gateways": self.gateways, "expected": self.expected}
 
+    def note_connection(self, gid: str, kind: str) -> bool:
+        """How this gateway's data arrives (embedded / chirpstack / built-in). True when new for it."""
+        g = self.gateways.get(gid)
+        if g is None or not kind:
+            return False
+        conns = g.setdefault("conn", [])
+        if kind in conns:
+            return False
+        conns.append(kind)
+        g.setdefault("found", {"built-in": "semtech"}.get(kind, "mqtt"))
+        return True
+
     def adopt(self, gid: str, info: dict[str, Any]) -> None:
         """A gateway the user confirmed: its name, area, address; it is no longer offered as new."""
         g = self.gateways.get(gid)
         if g is None:
             return
         g["approved"] = True
-        for k in ("name", "area", "ip", "mac", "model"):
+        for k in ("name", "area", "ip", "mac", "model", "found"):
             if info.get(k):
                 g[k] = info[k]
 

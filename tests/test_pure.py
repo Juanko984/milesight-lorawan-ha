@@ -2052,6 +2052,16 @@ def test_gateway_discovery():
     assert gd.match_expected(exp, "24E124FFFEFA2994", None) == "24e124fffefa2994"
     assert gd.match_expected(exp, "24e124fffefa2995", "192.168.1.50") == "24e124fffefa2994"   # Wi-Fi MAC, same IP
     assert gd.match_expected(exp, "0016c001ff10a235", "10.0.0.9") is None
+    assert gd.connection_label(["embedded"]) == "MQTT · gateway network server"
+    assert gd.connection_label(["embedded", "built-in"], short=True) == "MQTT + Semtech UDP" and gd.connection_label([]) == "Not heard yet"
+    assert gd.found_label("lan_scan", "192.168.1.5") == "LAN · network scan (192.168.1.5)" and gd.found_label(None) == "Traffic"
+    arp = ("IP address       HW type     Flags       HW address            Mask     Device\n"
+           "192.168.1.50     0x1         0x2         24:e1:24:fa:29:94     *        eth0\n"
+           "192.168.1.60     0x1         0x0         00:00:00:00:00:00     *        eth0\n"
+           "192.168.1.1      0x1         0x2         AA:BB:CC:00:11:22     *        eth0\n")
+    assert gd.parse_arp(arp) == [("192.168.1.50", "24:e1:24:fa:29:94"), ("192.168.1.1", "aa:bb:cc:00:11:22")]
+    hosts = gd.subnet_hosts("192.168.1.20")
+    assert len(hosts) == 253 and "192.168.1.20" not in hosts and hosts[0] == "192.168.1.1" and gd.subnet_hosts("x") == []
 
 
 if __name__ == "__main__":

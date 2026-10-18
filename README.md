@@ -658,6 +658,9 @@ other regions, duty-cycle enforcement on the gateway.
 
 Home Assistant finds Milesight gateways by itself, three ways:
 
+* **Network scan** – 90 s after start, every 6 hours and with **Scan network for gateways** (gateway entry), Home
+  Assistant looks for Milesight MAC addresses on its own network (/24). Needs Home Assistant on the host network
+  (Home Assistant OS, or Docker with host networking); gateways on another subnet are not seen.
 * **On the network** – a gateway plugged into the same network shows up under **Settings → Devices & services →
   Discovered** as *Milesight gateway found* (Home Assistant's DHCP discovery, Milesight MAC prefix 24:E1:24). Add it
   with a name and an area. On a new installation this also sets up the integration with the **built-in network
@@ -667,6 +670,9 @@ Home Assistant finds Milesight gateways by itself, three ways:
   MQTT) and is not known yet is offered as *New gateway sending to Home Assistant*.
 * **By QR code** – scan the gateway's label or your own sticker in **LoRaWAN commissioning** (gateway EUI, MAC
   address, JSON such as `{"gateway_eui": "24E124FFFEFA2994", "model": "UG65"}`, or labelled text).
+
+Every gateway device shows how it connects in its model line (*LoRaWAN gateway · MQTT* / *· Semtech UDP*) and in
+its **Connection** sensor, with how it was found, its IP / MAC address and a link to its web page.
 
 A gateway added before it sends is matched to its first packet by EUI (a Milesight gateway EUI is its MAC address
 with FFFE in the middle), or by IP address when it forwards with another interface's EUI. It is then named, put in
@@ -1159,6 +1165,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.38.0** | Gateway connection and "found via" shown; network scan for gateways. |
 | **0.37.0** | Gateway discovery: on the network (DHCP), from the first packet, by QR code; first gateway sets up the built-in network server. |
 | **0.36.0** | Cold storage dashboard (Overview, Units, Trends, Compliance); weekly / monthly compliance PDFs by e-mail; corrective actions; estimated power in W. |
 | **0.35.0** | Voltage, power factor and running threshold fields for clamps; energy from Ah × V; typed-in pump settings. |

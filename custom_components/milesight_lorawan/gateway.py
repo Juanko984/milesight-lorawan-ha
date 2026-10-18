@@ -39,6 +39,7 @@ GW_KINDS = {    # key -> (name, icon, unit, device_class, state_class, diagnosti
                  True),
     "cpu_temperature": ("CPU temperature", "mdi:thermometer", "°C", SensorDeviceClass.TEMPERATURE,
                         SensorStateClass.MEASUREMENT, True),
+    "connection": ("Connection", "mdi:lan-connect", None, None, None, True),
 }
 _STATS_KINDS = ("rx_today", "tx_today")          # only when the gateway publishes stats (ChirpStack)
 
@@ -119,10 +120,13 @@ class HubCounter(_Base, SensorEntity):
 
 
 def _gw_device(entry: ConfigEntry, gid: str, g: dict[str, Any]) -> DeviceInfo:
+    from .gateway_discovery import connection_label
     info = g.get("info") or {}
+    conn = connection_label(g.get("conn"), short=True)
+    model = info.get("model") or g.get("model") or "LoRaWAN gateway"
     return DeviceInfo(identifiers={(DOMAIN, f"gw_{gid}")}, name=g.get("name") or f"Gateway {gid}",
                       manufacturer=MANUFACTURER if info or gid.startswith("24e124") else None,
-                      model=info.get("model") or "LoRaWAN gateway", serial_number=info.get("sn") or gid.upper(),
+                      model=f"{model} · {conn}" if g.get("conn") else model, serial_number=info.get("sn") or gid.upper(),
                       sw_version=info.get("firmware_version"), hw_version=info.get("hardware_version"),
                       via_device=(DOMAIN, f"hub_{entry.entry_id}"), suggested_area=g.get("area"),
                       configuration_url=f"http://{g['ip']}" if g.get("ip") else None)
@@ -156,6 +160,9 @@ class GatewaySensor(_Base, SensorEntity):
             return dt_util.utc_from_timestamp(g["last_heard"]) if g.get("last_heard") else None
         if self.kind == "cpu_temperature":
             return _num((g.get("info") or {}).get("cpu_tempeture", (g.get("info") or {}).get("cpu_temperature")))
+        if self.kind == "connection":
+            from .gateway_discovery import connection_label
+            return connection_label(g.get("conn"))
         return g.get(self.kind)
 
     @property
@@ -169,6 +176,14 @@ class GatewaySensor(_Base, SensorEntity):
         if self.kind == "devices_today":
             names = {e.data.get("deveui"): e.title for e in self.hass.config_entries.async_entries(DOMAIN)}
             return {"devices": [names.get(d, d.upper()) for d in g.get("devices_today", [])]}
+        if self.kind == "connection":
+            from .gateway_discovery import found_label
+            return {"milesight_role": "gateway_connection", "gateway_id": self.gid.upper(),
+                    "found_via": found_label(g.get("found"), g.get("ip")), "network_servers": g.get("conn") or [],
+                    "ip_address": g.get("ip"), "mac_address": (g.get("mac") or "").upper() or None,
+                    "web_page": f"http://{g['ip']}" if g.get("ip") else None,
+                    "first_seen": dt_util.utc_from_timestamp(g["first_seen"]).isoformat() if g.get("first_seen") else None,
+                    "confirmed": bool(g.get("approved"))}
         return None
 
 

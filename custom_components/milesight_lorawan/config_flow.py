@@ -426,26 +426,37 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_dhcp(self, discovery_info: Any) -> ConfigFlowResult:
         """A Milesight gateway joined the network (DHCP, MAC prefix 24:E1:24)."""
-        from .gateway_discovery import is_milesight_mac, mac_to_eui
         def _get(key: str) -> Any:
             return discovery_info.get(key) if isinstance(discovery_info, dict) else getattr(discovery_info, key, None)
-        mac, ip, host = _get("macaddress"), _get("ip"), _get("hostname")
+        return await self._lan_gateway(_get("macaddress"), _get("ip"), _get("hostname"), "lan_dhcp")
+
+    async def _lan_gateway(self, mac: Any, ip: str | None, host: str | None, found: str,
+                           hub_entry_id: str | None = None) -> ConfigFlowResult:
+        from .gateway_discovery import is_milesight_mac, mac_to_eui, norm_hex
         if not is_milesight_mac(mac):
             return self.async_abort(reason="not_milesight_gateway")
         eui = mac_to_eui(mac)
         await self.async_set_unique_id(f"gateway:{eui}")
         self._abort_if_unique_id_configured()
         for hub in self._hub_objects():
-            if hub.gateway_known(eui) or any((g.get("ip") == ip and g.get("approved"))
-                                             for g in hub.stats.gateways.values()):
+            for gid, g in hub.stats.gateways.items():          # already sending: just note where it is
+                if gid == eui or g.get("mac") == norm_hex(mac) or (ip and g.get("ip") == ip):
+                    g["ip"], g["mac"] = ip or g.get("ip"), norm_hex(mac)
+                    return self.async_abort(reason="already_configured")
+            if hub.gateway_known(eui):
                 return self.async_abort(reason="already_configured")
-        return await self._gateway_found({"eui": eui, "ip": ip, "mac": mac, "hostname": host, "source": "network"})
+        return await self._gateway_found({"eui": eui, "ip": ip, "mac": norm_hex(mac), "hostname": host,
+                                          "source": "network", "found": found, "hub_entry_id": hub_entry_id})
 
     async def _gateway_found(self, gw: dict[str, Any]) -> ConfigFlowResult:
         from .gateway_discovery import default_name
         self._gw = gw
+        from .gateway_discovery import FOUND
+        how = {"lan_dhcp": "LAN", "lan_scan": "LAN", "semtech": "Semtech", "mqtt": "MQTT"}.get(gw.get("found"), "")
         self.context["title_placeholders"] = {"name": default_name(gw["eui"], gw.get("model")),
-                                              "deveui": gw.get("ip") or gw["eui"].upper()}
+                                              "deveui": " · ".join(x for x in (how, gw.get("ip")) if x)
+                                              or gw["eui"].upper()}
+        gw["found_label"] = FOUND.get(gw.get("found"), "")
         return await self.async_step_gateway_found()
 
     async def async_step_gateway_found(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -462,7 +473,7 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             info = {"name": (user_input.get("name") or "").strip() or default_name(gw["eui"], gw.get("model")),
                     "area": (user_input.get(CONF_AREA) or "").strip() or None, "ip": gw.get("ip"),
-                    "mac": gw.get("mac"), "model": gw.get("model")}
+                    "mac": gw.get("mac"), "model": gw.get("model"), "found": gw.get("found")}
             use_lns = bool(user_input.get("use_lns", lns_hub is not None or not hubs))
             if not hubs:
                 # first gateway on a new installation: the built-in network server, no MQTT broker needed
@@ -504,20 +515,26 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="gateway_found" if not connected else "gateway_heard", data_schema=vol.Schema(schema),
             description_placeholders={"eui": gw["eui"].upper(), "gw_ip": gw.get("ip") or "–", "ha_ip": ha_ip,
-                                      "port": str(port), "connection": gw.get("connection") or "LoRaWAN"})
+                                      "port": str(port), "connection": gw.get("connection") or "LoRaWAN",
+                                      "found": gw.get("found_label") or "network"})
 
     async def async_step_gateway_heard(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self.async_step_gateway_found(user_input)
 
     # ------------------------------------------------------- auto-discovery
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        if discovery_info.get("lan"):                    # the network scan found a Milesight gateway
+            return await self._lan_gateway(discovery_info.get("mac"), discovery_info.get("ip"), None, "lan_scan",
+                                           discovery_info.get("hub_entry_id"))
         if discovery_info.get("gateway_id"):            # a gateway forwarded its first packet
             eui = discovery_info["gateway_id"]
             await self.async_set_unique_id(f"gateway:{eui}")
             self._abort_if_unique_id_configured()
             if any(h.gateway_known(eui) for h in self._hub_objects()):
                 return self.async_abort(reason="already_configured")
+            sem = "Semtech" in str(discovery_info.get("connection") or "")
             return await self._gateway_found({"eui": eui, "ip": discovery_info.get("ip"), "source": "packets",
+                                              "found": "semtech" if sem else "mqtt",
                                               "model": discovery_info.get("model"),
                                               "hub_entry_id": discovery_info.get("hub_entry_id"),
                                               "connection": discovery_info.get("connection")})

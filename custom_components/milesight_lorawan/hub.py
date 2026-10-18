@@ -122,6 +122,9 @@ class Hub:
             self._unsubs.append(async_track_time_interval(self.hass, self._auto_sync, timedelta(hours=6)))
         await self.alerts.async_start()
         await self.irrigation.async_start()
+        from homeassistant.helpers.event import async_call_later as _later
+        self._unsubs.append(_later(self.hass, 90, lambda _n: self.hass.async_create_task(self.async_scan_lan())))
+        self._unsubs.append(async_track_time_interval(self.hass, self.async_scan_lan, timedelta(hours=6)))
         await self.compliance.async_start()
 
     async def async_stop(self) -> None:
@@ -233,6 +236,72 @@ class Hub:
             if (flow.get("context") or {}).get("unique_id") in ids:
                 self.hass.config_entries.flow.async_abort(flow["flow_id"])
 
+    async def async_scan_lan(self, _now: Any = None, prime: bool = True) -> dict[str, list[str]]:
+        """Look for Milesight gateways on the local network: wake the ARP table with one small UDP datagram to every
+        address of Home Assistant's /24, then read it. Known gateways get their IP / MAC (web page link); unknown
+        ones are offered under Discovered. Works where Home Assistant shares the host's network (Home Assistant
+        OS, Docker with host networking)."""
+        import asyncio
+        import socket
+        from .gateway_discovery import is_milesight_mac, mac_to_eui, parse_arp, subnet_hosts
+        try:
+            from homeassistant.components.network import async_get_source_ip
+            own = await async_get_source_ip(self.hass)
+        except Exception:  # noqa: BLE001
+            own = None
+
+        def _prime() -> None:
+            if not prime or not own:
+                return
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setblocking(False)
+            try:
+                for host in subnet_hosts(own):
+                    try:
+                        s.sendto(b"\x00", (host, 9))           # discard port: nothing answers, the ARP entry stays
+                    except OSError:
+                        pass
+            finally:
+                s.close()
+
+        def _read() -> str:
+            try:
+                with open("/proc/net/arp", encoding="ascii", errors="ignore") as f:
+                    return f.read()
+            except OSError:
+                return ""
+        await self.hass.async_add_executor_job(_prime)
+        if prime and own:
+            await asyncio.sleep(3)
+        found = [(ip, mac) for ip, mac in parse_arp(await self.hass.async_add_executor_job(_read)) if is_milesight_mac(mac)]
+        known, offered = [], []
+        for ip, mac in found:
+            eui = mac_to_eui(mac)
+            gid = eui if eui in self.stats.gateways else next(
+                (k for k, g in self.stats.gateways.items() if g.get("ip") == ip or g.get("mac") == mac.replace(":", "")),
+                None)
+            if gid is not None:
+                g = self.stats.gateways[gid]
+                changed = g.get("ip") != ip
+                g["ip"], g["mac"] = ip, g.get("mac") or mac.replace(":", "")
+                g.setdefault("found", "traffic")
+                g["lan_seen"] = time.time()
+                known.append(gid)
+                if changed:
+                    self._rename_gateway_device(gid, {})
+                    self._changed(force=True)
+                continue
+            if eui in self.stats.expected:
+                self.stats.expected[eui]["ip"] = ip
+                continue
+            offered.append(eui)
+            from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY
+            self.hass.async_create_task(self.hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                data={"lan": True, "mac": mac, "ip": ip, "hub_entry_id": self.entry.entry_id}))
+        self.store.async_delay_save(self.stats.to_dict, 5)
+        return {"known": known, "offered": offered}
+
     def gateway_known(self, eui: str) -> bool:
         """Confirmed or announced already."""
         return bool((self.stats.gateways.get(eui) or {}).get("approved")) or eui in self.stats.expected
@@ -265,6 +334,9 @@ class Hub:
         if dev is None:
             return
         kw: dict[str, Any] = {}
+        ip = (self.stats.gateways.get(gid) or {}).get("ip")
+        if ip and getattr(dev, "configuration_url", None) != f"http://{ip}":
+            kw["configuration_url"] = f"http://{ip}"
         if info.get("name") and not dev.name_by_user:
             kw["name"] = info["name"]
         if info.get("area") and not dev.area_id:
@@ -339,8 +411,14 @@ class Hub:
                               "error": "errors"}[kind], day)
             async_dispatcher_send(self.hass, SIGNAL_NOTIFY.format(note["deveui"]), note)
         elif kind == "gateway_info":
-            if self.stats.info(note["gateway_id"], ts, note["info"]):
-                new.append(note["gateway_id"])
+            gid = note["gateway_id"]
+            if self.stats.info(gid, ts, note["info"]):
+                new.append(gid)
+            if "Semtech" in str(note["info"].get("connection") or ""):
+                self.stats.note_connection(gid, "built-in")
+                g = self.stats.gateways.get(gid) or {}
+                if note["info"].get("ip") and not g.get("ip"):
+                    g["ip"] = note["info"]["ip"]
         elif kind == "gateway_stats":
             if self.stats.stats(note["gateway_id"], ts, day, note.get("rx_ok") or note.get("rx_received"),
                                 note.get("tx_emitted")):
@@ -370,8 +448,12 @@ class Hub:
                      and prev.raw == up.raw and abs(time.time() - prev.extra.get("_rx", 0)) < 30)
         up.extra["_rx"] = time.time()
         self.last_uplink[up.deveui] = up
-        self._changed(self.stats.uplink(self._day(up.extra["_rx"]), up.extra["_rx"], up.deveui, up.gateways,
-                                        duplicate))
+        new_gw = self.stats.uplink(self._day(up.extra["_rx"]), up.extra["_rx"], up.deveui, up.gateways, duplicate)
+        conn_changed = False
+        for rx in up.gateways or []:
+            if rx.get("id"):
+                conn_changed |= self.stats.note_connection(rx["id"], up.extra.get("network_server"))
+        self._changed(new_gw, force=conn_changed)
         async_dispatcher_send(self.hass, SIGNAL_HEARD, up, duplicate)      # commissioning walk test
 
         if self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, up.deveui):
