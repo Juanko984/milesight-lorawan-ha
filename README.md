@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-118-brightgreen.svg)
 
-**Current version: 0.39.1** · [Version history](#version-history)
+**Current version: 0.39.2** · [Version history](#version-history)
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -683,7 +683,8 @@ its area, linked to its web page (*Visit* on the device page) and a notification
 *Configure this gateway for me* and enter its admin login. Home Assistant logs in over the LAN and points the
 packet forwarder at itself (built-in network server), and / or sets up the gateway's embedded network server with an
 application and MQTT data transmission (broker and all topics, including the ns-api request/response topics for
-adding devices). Also the service `milesight_lorawan.configure_gateway`. The admin password is sent only to the
+adding devices). Also a **Configure over LAN** button on the gateway's device page (for gateways already added, which never show
+under Discovered), and the service `milesight_lorawan.configure_gateway`. The admin password is sent only to the
 gateway, encrypted the way its login page does, and is never stored. Supported on UG65 / UG67 / UG56 / UG63 with the
 web API.
 
@@ -1173,6 +1174,7 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.39.2** | *Configure over LAN* button on gateway devices. |
 | **0.39.1** | Configure the gateway from Home Assistant over the LAN (Semtech and/or embedded NS + MQTT); configure_gateway and forget_gateway services; delete a gateway from the device page. |
 | **0.38.0** | Gateway connection and "found via" shown; network scan for gateways. |
 | **0.37.0** | Gateway discovery: on the network (DHCP), from the first packet, by QR code; first gateway sets up the built-in network server. |

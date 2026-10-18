@@ -114,7 +114,8 @@
           "mode": "What to set up",
           "band": "Frequency plan",
           "mqtt_user": "MQTT username for the gateway",
-          "mqtt_password": "MQTT password for the gateway"
+          "mqtt_password": "MQTT password for the gateway",
+          "host": "Gateway IP address"
         },
         "data_description": {
           "mode": "Semtech points the gateway at Home Assistant's built-in network server. MQTT sets up the gateway's own network server and sends uplinks over the broker.",
@@ -129,7 +130,8 @@
       "invalid_app_key": "The AppKey must be 32 hex digits.",
       "provision_failed": "The gateway did not accept the device: {error}. Untick 'Also add it to the gateway' to add it to Home Assistant only.",
       "gateway_login": "The gateway rejected that username or password.",
-      "gateway_api": "Could not configure the gateway (see the message above)."
+      "gateway_api": "Could not configure the gateway (see the message above).",
+      "gateway_no_ip": "Enter the gateway's IP address."
     },
     "abort": {
       "already_configured": "This device or gateway is already set up.",

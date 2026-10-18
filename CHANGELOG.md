@@ -2,6 +2,12 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.39.2
+### Added
+- **Configure over LAN** button on every gateway device: set a gateway up from its device page even when Home
+  Assistant already has it (so it never appears under Discovered). Press it, enter the gateway's admin login and
+  what to set up (Semtech / MQTT / both). The gateway's IP is used when known, or you can type it in.
+
 ## 0.39.1
 ### Added
 - **Forget a gateway**: delete a gateway from the Home Assistant device page (a *Delete* option is now offered), or

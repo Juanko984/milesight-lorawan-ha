@@ -246,4 +246,23 @@ FakeClient.bad = True
 r = run(fl.async_step_gateway_configure({"username": "admin", "password": "bad", "mode": "lns"}))
 assert r["type"] == "form" and r["errors"]["base"] == "gateway_login"
 FakeClient.bad = False
+# 7. reconfigure a known gateway (the device-page button): no new entry, just configures it
+h.stats.gateways["24e124fffef61e38"] = {"name": "UG65", "ip": "192.168.1.230", "found": "mqtt"}
+fl = make_flow(ents)
+r = run(fl.async_step_gateway_reconfigure({"gateway_id": "24E124FFFEF61E38", "ip": "192.168.1.230", "hub_entry_id": "h1"}))
+assert r["step_id"] == "gateway_configure" and r["placeholders"]["gw_ip"] == "192.168.1.230"
+CALLS.clear()
+r = run(fl.async_step_gateway_configure({"username": "admin", "password": "pw", "mode": "both"}))
+assert ("init", "192.168.1.230", "admin", "pw") in CALLS and ("semtech", "192.168.1.20", "EU868") in CALLS
+assert ("mqtt", "192.168.1.20", None) in CALLS
+assert r["type"] == "abort" and r["reason"] == "gateway_configured"
+assert not any(e.get("type") == "create_entry" for e in [r])   # nothing new created
+# a known gateway without a stored IP: the form asks for the host
+h.stats.gateways["24e124fffe00aa00"] = {"name": "UG67"}
+fl = make_flow(ents)
+r = run(fl.async_step_gateway_reconfigure({"gateway_id": "24e124fffe00aa00", "hub_entry_id": "h1"}))
+assert "host" in r["schema"].schema
+CALLS.clear()
+r = run(fl.async_step_gateway_configure({"host": "192.168.1.99", "username": "admin", "password": "pw", "mode": "lns"}))
+assert ("init", "192.168.1.99", "admin", "pw") in CALLS and r["reason"] == "gateway_configured"
 print("gateway flow ok")

@@ -527,6 +527,38 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_gateway_heard(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self.async_step_gateway_found(user_input)
 
+    async def async_step_gateway_reconfigure(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        """Configure a gateway Home Assistant already has (the 'Configure over LAN' button on its device page)."""
+        from .gateway_discovery import default_name, norm_hex
+        eui = norm_hex(discovery_info["gateway_id"])
+        hub_id = discovery_info.get("hub_entry_id")
+        g = {}
+        for e in self._hubs():
+            if e.entry_id == hub_id and getattr(e, "runtime_data", None) is not None:
+                g = e.runtime_data.stats.gateways.get(eui, {})
+        self._gw = {"eui": eui, "ip": discovery_info.get("ip") or g.get("ip"), "hub_entry_id": hub_id,
+                    "model": discovery_info.get("model") or g.get("model"), "found": g.get("found", "manual"),
+                    "_name": g.get("name") or default_name(eui, discovery_info.get("model")),
+                    "_area": g.get("area"), "_use_lns": True, "_known": True}
+        self.context["title_placeholders"] = {"name": self._gw["_name"], "deveui": self._gw.get("ip") or eui.upper()}
+        return await self.async_step_gateway_configure()
+
+    def _gw_configure_schema(self, gw: dict[str, Any], ha_ip: str, mode_default: str = "lns") -> dict:
+        schema: dict[Any, Any] = {}
+        if not gw.get("ip"):
+            schema[vol.Required("host")] = TextSelector()
+        schema.update({
+            vol.Required("username", default="admin"): TextSelector(),
+            vol.Required("password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Required("mode", default=mode_default): SelectSelector(SelectSelectorConfig(
+                options=["lns", "mqtt", "both"], translation_key="gateway_mode", mode=SelectSelectorMode.LIST)),
+            vol.Optional("band", default="EU868"): SelectSelector(SelectSelectorConfig(
+                options=["EU868", "US915", "AU915", "AS923", "IN865", "KR920"], mode=SelectSelectorMode.DROPDOWN)),
+            vol.Optional("mqtt_user"): TextSelector(),
+            vol.Optional("mqtt_password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+        })
+        return schema
+
     async def async_step_gateway_configure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Log in to the gateway over the LAN and set it up: point its packet forwarder at Home Assistant (built-in
         network server) and / or set up its embedded network server + MQTT – no visit to its web page."""
@@ -537,7 +569,15 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
         ha_ip = await _local_ip(self.hass, gw.get("ip"))
         mode_default = "lns" if gw.get("_use_lns", True) else "mqtt"
         if user_input is not None:
-            client = GatewayClient(async_get_clientsession(self.hass), gw["ip"],
+            host = (user_input.get("host") or gw.get("ip") or "").strip()
+            if not host:
+                return self.async_show_form(step_id="gateway_configure", errors={"base": "gateway_no_ip"},
+                                            data_schema=vol.Schema(self._gw_configure_schema(gw, ha_ip)),
+                                            description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
+                                                                      "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
+                                                                      "error": ""})
+            gw["ip"] = host
+            client = GatewayClient(async_get_clientsession(self.hass), host,
                                    user_input["username"], user_input["password"])
             mode = user_input.get("mode", mode_default)
             done = []
@@ -559,18 +599,18 @@ class MilesightConfigFlow(ConfigFlow, domain=DOMAIN):
                 self.context["_gw_error"] = str(err)
             if not errors:
                 self._gw["model"] = self._gw.get("model") or (info or {}).get("model")
+                if gw.get("_known"):
+                    hub = next((getattr(e, "runtime_data", None) for e in self._hubs()
+                                if e.entry_id == gw.get("hub_entry_id")), None)
+                    if hub is not None and hasattr(hub, "expect_gateway"):
+                        hub.expect_gateway(gw["eui"], {"name": gw.get("_name"), "ip": gw.get("ip"),
+                                                       "model": gw.get("model")})
+                    return self.async_abort(reason="gateway_configured",
+                                            description_placeholders={"name": gw.get("_name") or gw["eui"].upper()})
                 return await self._finish_gateway(gw, gw.get("_use_lns", True), mode)
-        schema = {
-            vol.Required("username", default="admin"): TextSelector(),
-            vol.Required("password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
-            vol.Required("mode", default=mode_default): SelectSelector(SelectSelectorConfig(
-                options=["lns", "mqtt", "both"], translation_key="gateway_mode", mode=SelectSelectorMode.LIST)),
-            vol.Optional("band", default="EU868"): SelectSelector(SelectSelectorConfig(
-                options=["EU868", "US915", "AU915", "AS923", "IN865", "KR920"], mode=SelectSelectorMode.DROPDOWN)),
-            vol.Optional("mqtt_user"): TextSelector(),
-            vol.Optional("mqtt_password"): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
-        }
-        return self.async_show_form(step_id="gateway_configure", data_schema=vol.Schema(schema), errors=errors,
+        return self.async_show_form(step_id="gateway_configure",
+                                    data_schema=vol.Schema(self._gw_configure_schema(gw, ha_ip, mode_default)),
+                                    errors=errors,
                                     description_placeholders={"name": gw.get("_name") or gw["eui"].upper(),
                                                               "gw_ip": gw.get("ip") or "", "ha_ip": ha_ip,
                                                               "error": self.context.get("_gw_error", "")})

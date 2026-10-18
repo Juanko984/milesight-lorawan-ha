@@ -22,6 +22,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         if getattr(hub, "ns", None) is not None:
             buttons.append(_HubButton(hass, entry, "sync_gateway"))
         async_add_entities(buttons)
+        from .gateway import async_setup_gateway_entities
+        async_setup_gateway_entities(hass, entry, async_add_entities, "button")
         return
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return

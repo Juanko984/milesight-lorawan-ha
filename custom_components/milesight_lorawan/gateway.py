@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.components.button import ButtonEntity
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -221,6 +222,8 @@ class GatewayOnline(_Base, BinarySensorEntity):
 def _entities_for(hass: HomeAssistant, entry: ConfigEntry, gid: str, platform: str) -> list:
     if platform == "binary_sensor":
         return [GatewayOnline(hass, entry, gid)]
+    if platform == "button":
+        return [GatewayConfigureButton(hass, entry, gid)]
     g = _hub(entry).stats.gateways.get(gid, {})
     out = []
     for k in GW_KINDS:
@@ -238,6 +241,8 @@ def async_setup_gateway_entities(hass: HomeAssistant, entry: ConfigEntry, async_
         return
     if platform == "sensor":
         async_add_entities([HubCounter(hass, entry, k) for k in HUB_KINDS])
+    if platform in ("sensor", "binary_sensor", "button"):
+        pass
     added: set[str] = set()
 
     @callback
@@ -250,6 +255,28 @@ def async_setup_gateway_entities(hass: HomeAssistant, entry: ConfigEntry, async_
     for gid in list(hub.stats.gateways):
         _add(gid)
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_GATEWAY_NEW.format(entry.entry_id), _add))
+
+
+class GatewayConfigureButton(_Base, ButtonEntity):
+    """Configure this gateway over the LAN (point it at Home Assistant, set up its network server) – opens a form
+    for the gateway's admin login under Settings -> Devices & services."""
+
+    _attr_name = "Configure over LAN"
+    _attr_icon = "mdi:cog-transfer-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, gid: str) -> None:
+        super().__init__(hass, entry)
+        self.gid = gid
+        self._attr_unique_id = f"{entry.entry_id}_gw_{gid}_configure"
+        self._attr_device_info = _gw_device(entry, gid, _hub(entry).stats.gateways.get(gid, {}))
+
+    async def async_press(self) -> None:
+        g = (_hub(self.entry).stats.gateways.get(self.gid) or {}) if _hub(self.entry) else {}
+        await self.hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "gateway_reconfigure"},
+            data={"gateway_id": self.gid, "ip": g.get("ip"), "hub_entry_id": self.entry.entry_id,
+                  "model": (g.get("info") or {}).get("model") or g.get("model")})
 
 
 class GatewayDevicesSensor(_Base, SensorEntity):
