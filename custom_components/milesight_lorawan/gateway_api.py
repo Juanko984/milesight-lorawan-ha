@@ -178,19 +178,26 @@ class GatewayClient:
         self.username, self._password = username, password
         self.timeout = timeout
         self.jwt: str | None = None
+        self.cgi_cookie: str | None = None     # the router-OS web session (td cookie) that /cgi needs
         self.info: dict[str, Any] = {}
 
     def _headers(self, path: str, auth: str | None = None) -> dict[str, str]:
-        # The gateway authenticates its whole web origin with HTTP Basic auth (admin:password); the browser sends it
-        # on every request, so /islogin, /cgi and the login endpoint need it. The network-server REST endpoints
-        # (/api/... other than the login) are authorised with the JWT the login returns. `auth` forces one scheme
-        # ("basic" / "bearer") so a call can be retried with the other when a gateway's firmware disagrees.
+        # Two separate sessions on the gateway:
+        #  * The router OS (/cgi, the yruo_* calls) authenticates with a `td` session cookie set by the web login
+        #    (core 'user', function 'login'); the request itself carries no Authorization header.
+        #  * The embedded network server (/api/... other than the login) authorises with the JWT the login returns.
+        # `auth` forces one scheme ("none" / "basic" / "bearer") so a call can be retried with another when an older
+        # firmware disagrees. The td cookie is sent on every request once we have it (as the browser does).
         import base64
         h = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01",
              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+        if self.cgi_cookie:
+            h["Cookie"] = self.cgi_cookie
         if auth is None:
             is_api = "/api/" in path and "internal/login" not in path
-            auth = "bearer" if (is_api and self.jwt) else "basic"
+            auth = "bearer" if (is_api and self.jwt) else "none"
+        if auth == "none":
+            return h
         if auth == "bearer" and self.jwt:
             h["Authorization"] = f"Bearer {self.jwt}"
         else:
@@ -227,22 +234,54 @@ class GatewayClient:
         except OSError as err:
             raise GatewayError(f"cannot reach {self.base}: {err}") from err
 
+    async def _web_login(self) -> bool:
+        """Log in to the router OS: POST /cgi core 'user' function 'login' with the AES-encrypted password. On success
+        the gateway sets a `td` session cookie (returned both as Set-Cookie and in the body) that every /cgi call then
+        needs. Returns True when the session is established. Raises on a genuine wrong-password so we stop before the
+        firmware locks the account; returns False when the endpoint is absent (older firmware that uses another scheme).
+        """
+        enc = encrypt_password(self._password)
+        body = {"id": "1", "execute": 1, "core": "user", "function": "login",
+                "values": [{"username": self.username, "password": enc, "base": "web_login"}]}
+        try:
+            data = await self._json("POST", "/cgi", body, auth="none")
+        except GatewayError:
+            return False
+        if not isinstance(data, dict):
+            return False
+        res = data.get("result") or []
+        row = res[0] if res and isinstance(res[0], dict) else {}
+        if self._cgi_ok(data) and row.get("td"):
+            name = row.get("username") or self.username
+            self.cgi_cookie = f"loginname={name}; td={row['td']}"
+            return True
+        # a wrong password comes back as status -2 with a remaining-chance / lock-time hint
+        if isinstance(row, dict) and ("chance" in row or "locktime" in row or "lock_time" in row):
+            raise GatewayError("gateway login failed (username or password not accepted)")
+        return False
+
     async def login(self) -> None:
-        # the password transform and the login content-type have varied across gateway firmware, so try the known
-        # forms (encrypted / plain, form / json content-type) and keep the first that returns a token.
+        # Establish BOTH sessions: the router-OS web session (td cookie, for the yruo_* /cgi calls) and the embedded
+        # network-server JWT (for the /api/... REST calls). The password is AES-encrypted exactly as the login page
+        # does it. Keep attempts few so a genuinely wrong password cannot trip the account lock.
+        enc = encrypt_password(self._password)
+        got_cgi = await self._web_login()          # raises on a real wrong-password
         last = "no token returned"
-        for pw in (encrypt_password(self._password), self._password):
-            for as_json in (False, True):
-                try:
-                    data = await self._json("POST", "/api/internal/login",
-                                            {"username": self.username, "password": pw}, as_json=as_json)
-                except GatewayError as err:
-                    last = str(err)
-                    continue
-                if (data or {}).get("jwt"):
-                    self.jwt = data["jwt"]
-                    return
-                last = "username or password not accepted"
+        for auth in ("none", "basic"):
+            try:
+                data = await self._json("POST", "/api/internal/login",
+                                        {"username": self.username, "password": enc}, auth=auth)
+            except GatewayError as err:
+                last = str(err)
+                continue
+            if (data or {}).get("jwt"):
+                self.jwt = data["jwt"]
+                return
+            err_txt = (str((data or {}).get("error", "")) + str((data or {}).get("message", ""))).lower()
+            last = "username or password not accepted" if "password" in err_txt else "no token returned"
+        # the network-server login can be unavailable (NS disabled); the router session alone still lets /cgi work
+        if got_cgi:
+            return
         raise GatewayError(f"gateway login failed ({last})")
 
     @staticmethod
@@ -264,10 +303,13 @@ class GatewayClient:
             if data.get(key):
                 bits.append(f"{key}={str(data[key])[:80]}")
         res = data.get("result")
-        if isinstance(res, list) and res and isinstance(res[0], dict):
-            for key in ("error", "msg", "message"):
-                if res[0].get(key):
-                    bits.append(f"result.{key}={str(res[0][key])[:80]}")
+        if isinstance(res, list) and res:
+            if isinstance(res[0], dict):
+                for key in ("error", "msg", "message"):
+                    if res[0].get(key):
+                        bits.append(f"result.{key}={str(res[0][key])[:80]}")
+            else:                                          # e.g. [-32001, "Session not found"]
+                bits.append("result=" + ", ".join(str(x)[:60] for x in res[:3]))
         return ", ".join(bits)
 
     async def _cgi(self, core: str, function: str, base: str, value: Any = None, index: int = 0) -> Any:
@@ -275,8 +317,9 @@ class GatewayClient:
         if value is not None:
             v["value"], v["index"] = value, index
         body = {"id": 1, "execute": 1, "core": core, "function": function, "values": [v]}
-        # firmware disagrees on whether /cgi wants Basic (admin:password) or the login JWT: try Basic, then Bearer.
-        schemes = ["basic"] + (["bearer"] if self.jwt else [])
+        # firmware disagrees on how /cgi is authorised: current units use NO header (the server-side session from the
+        # login carries it), older ones wanted Basic (admin:password) or the login JWT. Try no-header first.
+        schemes = ["none", "basic"] + (["bearer"] if self.jwt else [])
         data: Any = None
         last_err: GatewayError | None = None
         for scheme in schemes:

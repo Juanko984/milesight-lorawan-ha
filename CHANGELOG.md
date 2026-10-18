@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.3
+### Fixed
+- **Gateway LAN configuration now works on UG65 firmware 60** ("gateway refused yruo_status.get (summary)" /
+  "Session not found"). The gateway has two separate logins: the router OS (`/cgi`, the `yruo_*` calls) uses a
+  `td` session cookie set by the web login (`core: user`, `function: login`, `base: web_login`), while the embedded
+  network server (`/api/...`) uses the JWT. The client now performs the router web login first, holds the `td`
+  session, and the v0.40.0 change that sent HTTP Basic auth on every request — which this firmware rejects as
+  "wrong password" — has been removed (Basic is kept only as a fall-back for older firmware). Verified end-to-end
+  against real UG65 (fw 60.0.0.50) traffic.
+- Gateway errors now include the gateway's actual reply, so a refusal is diagnosable instead of opaque.
+
+### Changed
+- The gateway login is bounded to very few attempts and the real request shape is tried first, so a wrong password
+  can no longer walk the account into its lockout.
+
 ## 0.40.1
 ### Fixed
 - A failed or interrupted reload could leave the gateway entry stuck ("Error unloading entry"): unload is now

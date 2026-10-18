@@ -25,6 +25,12 @@ class Session:
         if url.endswith("/api/internal/login"): return Resp({"jwt": "JWT123"})
         if url.endswith("/cgi"):
             body = json.loads(data)
+            if body["core"] == "user" and body["function"] == "login":
+                # the router web login: needs the encrypted password, issues the td session
+                assert body["values"][0]["base"] == "web_login"
+                return Resp({"status": 0, "result": [{"username": "admin", "td": "TESTTD", "ysrole": 4}]})
+            # every other /cgi call must carry the td session cookie
+            assert headers.get("Cookie") == "loginname=admin; td=TESTTD", headers
             if body["core"] == "yruo_status": return Resp(fix["summary_response"])
             if body["core"] == "yruo_loragw" and body["function"] == "get": return Resp(fix["general_conf_response"])
             if body["core"] == "yruo_loragw" and body["function"] == "set":
@@ -35,21 +41,20 @@ async def main():
     s = Session()
     c = ga.GatewayClient(s, "192.168.1.230", "admin", "pw")
     await c.login()
-    # the login must send a form-urlencoded JSON string body, and the password encrypted
-    lr = s.requests[0]
-    assert lr["headers"]["Content-Type"].startswith("application/x-www-form-urlencoded"), lr["headers"]
-    sent = json.loads(lr["data"]); assert sent["username"] == "admin" and ga.decrypt_password(sent["password"]) == "pw"
+    # login does the router web login (/cgi user.login) first: form body, encrypted password, no auth header
+    wl = s.requests[0]
+    assert wl["url"].endswith("/cgi") and wl["headers"]["Content-Type"].startswith("application/x-www-form-urlencoded")
+    wlb = json.loads(wl["data"])
+    assert wlb["core"] == "user" and wlb["function"] == "login"
+    assert ga.decrypt_password(wlb["values"][0]["password"]) == "pw"
+    assert "Authorization" not in wl["headers"], wl["headers"]
+    # it captured the td session and the network-server JWT
+    assert c.cgi_cookie == "loginname=admin; td=TESTTD", c.cgi_cookie
     assert c.jwt == "JWT123"
-    # after login the JWT rides as Bearer AND cookie
     info = await c.async_read_info()
-    import base64
-    basic = "Basic " + base64.b64encode(b"admin:pw").decode()
-    # /cgi is authorised by HTTP Basic auth (what the gateway's whole origin uses)
+    # /cgi carries the td cookie, not an Authorization header
     cgi = [r for r in s.requests if r["url"].endswith("/cgi")][-1]
-    assert cgi["headers"]["Authorization"] == basic, cgi["headers"]
-    # the login itself also uses Basic auth, not a token
-    login = [r for r in s.requests if r["url"].endswith("/internal/login")][0]
-    assert login["headers"]["Authorization"] == basic
+    assert "Authorization" not in cgi["headers"] and cgi["headers"]["Cookie"] == "loginname=admin; td=TESTTD"
     assert info["model"] == "UG56-L04EU-868M" and info["eui"] == "24E124FFFEF61E38", info
     # point at HA: reads general_conf (1 semtech added) and writes it back, keeping the embedded dest
     changed = await c.async_point_at_home_assistant("192.168.1.20")
@@ -62,20 +67,23 @@ async def main():
     await c.async_profiles()
     api = [r for r in s.requests if "/urprofiles" in r["url"]][0]
     assert api["headers"]["Authorization"] == "Bearer JWT123", api["headers"]
-    print("transport ok:", info["model"], "| semtech added | cgi=Basic api=Bearer")
+    print("transport ok:", info["model"], "| no-auth login+cgi | api=Bearer")
 
-async def bearer_fallback():
-    # firmware that rejects /cgi under Basic auth but accepts it with the login JWT (Bearer)
+async def basic_fallback():
+    # older firmware that rejects /cgi with no header but accepts HTTP Basic auth
+    import base64
+    basic = "Basic " + base64.b64encode(b"admin:pw").decode()
     class FallbackSession:
         def __init__(self): self.requests = []
         def request(self, method, url, data=None, headers=None, timeout=None):
-            self.requests.append({"url": url, "headers": headers})
+            self.requests.append({"url": url, "headers": headers, "data": data})
             if url.endswith("/api/internal/login"): return Resp({"jwt": "JWT123"})
             if url.endswith("/cgi"):
-                auth = headers.get("Authorization", "")
-                if auth.startswith("Basic"):
-                    return Resp({"status": 1, "msg": "permission denied"})
                 body = json.loads(data)
+                if body["core"] == "user" and body["function"] == "login":   # no web_login on this old firmware
+                    return Resp({"status": -2, "result": [-32001, "Session not found"]})
+                if headers.get("Authorization", "") != basic:        # no-header attempt is refused
+                    return Resp({"status": -2, "result": [-32001, "Session not found"]})
                 if body["core"] == "yruo_status": return Resp(fix["summary_response"])
                 if body["core"] == "yruo_loragw": return Resp(fix["general_conf_response"])
             return Resp({})
@@ -84,10 +92,11 @@ async def bearer_fallback():
     await c.login()
     info = await c.async_read_info()
     assert info["model"] == "UG56-L04EU-868M", info
-    cgis = [r for r in s.requests if r["url"].endswith("/cgi")]
-    assert cgis[0]["headers"]["Authorization"].startswith("Basic")   # tried Basic first
-    assert cgis[1]["headers"]["Authorization"] == "Bearer JWT123"    # fell back to Bearer
-    print("bearer fallback ok: /cgi recovered via JWT when Basic was refused")
+    # the yruo_status read tried no-header first, then fell back to Basic
+    status_cgis = [r for r in s.requests if r["url"].endswith("/cgi") and "yruo_status" in (r["data"] or "")]
+    assert "Authorization" not in status_cgis[0]["headers"]
+    assert status_cgis[1]["headers"]["Authorization"] == basic
+    print("basic fallback ok: /cgi recovered via Basic when no-header was refused")
 
 async def reason_surfaced():
     # when the gateway refuses under every scheme, the error carries its actual reply
@@ -106,5 +115,5 @@ async def reason_surfaced():
     raise AssertionError("expected GatewayError")
 
 asyncio.run(main())
-asyncio.run(bearer_fallback())
+asyncio.run(basic_fallback())
 asyncio.run(reason_surfaced())
