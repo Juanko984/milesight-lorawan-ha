@@ -59,6 +59,7 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
         for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_forget_gateway,
+                        ws_discovered, ws_ignore,
                         ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
@@ -225,6 +226,68 @@ def ws_forget_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "unknown", f"No gateway {eui.upper()} is known")
         return
     connection.send_result(msg["id"], {"forgotten": eui.upper(), "from": removed})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/discovered"})
+@websocket_api.require_admin
+@callback
+def ws_discovered(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Everything Home Assistant has auto-discovered but not yet set up — the same items shown under
+    Settings → Devices & services → Discovered — so the installer can add them from this panel."""
+    from .gateway_discovery import default_name, norm_hex
+    from .models import guess_from_name
+    mgr = hass.config_entries.flow
+    devices: list[dict] = []
+    gateways: list[dict] = []
+    for flow in list(getattr(mgr, "_progress", {}).values()):
+        if getattr(flow, "handler", None) != DOMAIN:
+            continue
+        ctx = getattr(flow, "context", {}) or {}
+        if ctx.get("source") not in ("integration_discovery", "dhcp"):
+            continue
+        raw = getattr(flow, "init_data", None)
+        d = raw if isinstance(raw, dict) else {}
+        if not d and raw is not None:                        # a dhcp DhcpServiceInfo object
+            d = {"lan": True, "ip": getattr(raw, "ip", None), "mac": getattr(raw, "macaddress", None)}
+        uid = ctx.get("unique_id") or ""
+        title = (ctx.get("title_placeholders") or {}).get("name")
+        fid = flow.flow_id
+        if uid.startswith("gateway:") or d.get("gateway_id") or d.get("lan"):
+            eui = norm_hex(uid.split(":", 1)[1]) if uid.startswith("gateway:") else norm_hex(str(d.get("gateway_id") or ""))
+            gateways.append({"flow_id": fid, "uid": uid or None, "eui": eui or None, "ip": d.get("ip"),
+                             "model": d.get("model"), "lan": bool(d.get("lan")),
+                             "name": title or (default_name(eui, d.get("model")) if eui else "Gateway")})
+        else:
+            deveui = norm_hex(str(d.get(CONF_DEVEUI) or uid))
+            if len(deveui) != 16:
+                continue
+            devices.append({"flow_id": fid, "uid": uid or None, "deveui": deveui,
+                            "name": d.get("device_name") or title or deveui.upper(),
+                            "model": d.get("guess") or guess_from_name(d.get("device_name") or "") or None})
+    devices.sort(key=lambda x: str(x["name"]).lower())
+    gateways.sort(key=lambda x: str(x["name"]).lower())
+    connection.send_result(msg["id"], {"devices": devices, "gateways": gateways})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/ignore",
+                                  vol.Required("flow_id"): str, vol.Optional("unique_id"): str})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_ignore(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Dismiss a discovered item from the panel (Home Assistant's 'Ignore')."""
+    uid = msg.get("unique_id")
+    if uid:
+        from homeassistant.config_entries import SOURCE_IGNORE
+        try:
+            await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_IGNORE, "unique_id": uid},
+                                                      data={"unique_id": uid, "title": uid})
+        except Exception:  # noqa: BLE001 - fall back to just closing the card
+            pass
+    try:
+        hass.config_entries.flow.async_abort(msg["flow_id"])
+    except Exception:  # noqa: BLE001 - already gone
+        pass
+    connection.send_result(msg["id"], {"ok": True})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/devices"})

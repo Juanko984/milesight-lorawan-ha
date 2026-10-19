@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.7
+### Added
+- **Discovered devices and gateways now appear in the commissioning panel.** The same items Home Assistant shows
+  under Settings → Devices & services → Discovered are now listed right where the installer works:
+  - **Add a device tab** → a *Discovered devices* list (heard but not set up), each with its guessed model and
+    **Add** / **Ignore** — Add opens the pre-filled device form so there's no need to leave the panel.
+  - **Gateways tab** → a *Discovered gateways* list (found on the network), each with its IP and **Configure** /
+    **Ignore** — Configure pre-fills the gateway IP so you just enter the admin login.
+
 ## 0.40.6
 ### Added
 - **Gateways tab in the commissioning panel.** The installer panel now manages gateways end to end, not just devices:

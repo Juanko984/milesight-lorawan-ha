@@ -40,6 +40,7 @@ class MilesightCommissioning extends HTMLElement {
     this._gwBusy = false;
     this._gwResult = null;
     this._gwEdit = null;
+    this._disc = { devices: [], gateways: [] };
   }
 
   set hass(h) {
@@ -48,6 +49,7 @@ class MilesightCommissioning extends HTMLElement {
     if (first) {
       this._render();
       this._loadDevices();
+      this._loadDiscovered();
       this._ticker = setInterval(() => this._updateAgo(), 1000);
     } else {
       const menu = this.shadowRoot.querySelector("ha-menu-button");
@@ -119,6 +121,7 @@ class MilesightCommissioning extends HTMLElement {
       this._gwResult = `${gw.model || "Gateway"}${gw.eui ? ` (${gw.eui})` : ""} configured — ${steps.join(" · ") || "logged in"}. It shows as connected with its first packet.`;
       this._gwForm = { username: "admin", mode: "both", band: "EU868" };
       await this._loadGateways();
+      this._loadDiscovered();
     } catch (e) { this._gwBusy = false; this._error(e); }
   }
 
@@ -126,6 +129,56 @@ class MilesightCommissioning extends HTMLElement {
     if (!window.confirm(`Forget gateway ${String(eui).toUpperCase()}? It can be added again by configuring it.`)) return;
     try { await this._ws({ type: "forget_gateway", eui }); this._info("Gateway forgotten."); await this._loadGateways(); }
     catch (e) { this._error(e); }
+  }
+
+  // ------------------------------------------------------------------ discovered (auto-found, not set up yet)
+  async _loadDiscovered() {
+    try {
+      const r = await this._ws({ type: "discovered" });
+      this._disc = { devices: r.devices || [], gateways: r.gateways || [] };
+    } catch (e) { /* non-fatal: discovery is a convenience */ }
+    if (this._tab === "add" || this._tab === "gw") this._render();
+  }
+
+  async _ignore(flowId, uid) {
+    try { await this._ws({ type: "ignore", flow_id: flowId, unique_id: uid || undefined }); await this._loadDiscovered(); }
+    catch (e) { this._error(e); }
+  }
+
+  _configureDiscovered(ip, eui) {
+    this._gwEdit = null;
+    this._gwForm = { ...(this._gwForm || {}), host: ip || "", username: (this._gwForm || {}).username || "admin",
+                     mode: (this._gwForm || {}).mode || "both", band: (this._gwForm || {}).band || "EU868" };
+    this._msg = null; this._gwResult = null; this._render();
+    const el = this.shadowRoot.getElementById("gw-host"); if (el) el.focus();
+  }
+
+  _renderDiscoveredDevices() {
+    const list = this._disc.devices || [];
+    if (!list.length) return "";
+    const rows = list.map((d) => `<tr>
+      <td>${esc(d.name)}</td>
+      <td class="muted">${esc((d.deveui || "").toUpperCase())}</td>
+      <td>${d.model ? esc(d.model) : `<span class="muted">pick model</span>`}</td>
+      <td><div class="row" style="gap:6px"><button class="primary" data-disc-dev="${esc(d.deveui)}">Add</button><button data-disc-ign="${esc(d.flow_id)}" data-uid="${esc(d.uid || "")}">Ignore</button></div></td></tr>`).join("");
+    return `<div class="card scroll">
+      <h2>Discovered devices</h2>
+      <p class="hint">Devices the gateway hears that aren't set up yet — add them here, no need to open Settings.</p>
+      <table><tr><th>Name</th><th>DevEUI</th><th>Model</th><th></th></tr>${rows}</table></div>`;
+  }
+
+  _renderDiscoveredGateways() {
+    const list = this._disc.gateways || [];
+    if (!list.length) return "";
+    const rows = list.map((g) => `<tr>
+      <td>${esc(g.name)}</td>
+      <td>${g.ip ? esc(g.ip) : `<span class="muted">—</span>`}</td>
+      <td class="muted">${g.lan ? "LAN" : "packets"}</td>
+      <td><div class="row" style="gap:6px"><button class="primary" data-disc-gw-ip="${esc(g.ip || "")}" data-disc-gw-eui="${esc(g.eui || "")}">Configure</button><button data-disc-ign="${esc(g.flow_id)}" data-uid="${esc(g.uid || "")}">Ignore</button></div></td></tr>`).join("");
+    return `<div class="card scroll">
+      <h2>Discovered gateways</h2>
+      <p class="hint">Gateways found on the network that aren't set up yet. Configure one to point it at Home Assistant.</p>
+      <table><tr><th>Name</th><th>IP</th><th>Found by</th><th></th></tr>${rows}</table></div>`;
   }
 
   // ------------------------------------------------------------------ scanning
@@ -269,6 +322,7 @@ class MilesightCommissioning extends HTMLElement {
       this._parsed = null;
       this._info(`${r.name} added${r.gateway === "added" ? " and registered on the gateway" : r.gateway === "exists" ? " (already on the gateway)" : ""}. Switch it on – then start the walk test.`);
       await this._loadDevices();
+      this._loadDiscovered();
     } catch (e) { this._busy = false; this._error(e); }
   }
 
@@ -486,6 +540,7 @@ class MilesightCommissioning extends HTMLElement {
         <h2>Gateways</h2>
         <table><tr><th>Name</th><th>EUI</th><th>IP</th><th>Model</th><th>Status</th><th>Today</th><th></th></tr>${list}</table>
       </div>
+      ${this._renderDiscoveredGateways()}
       <div class="card">
         <h2>${this._gwEdit ? "Update gateway settings" : "Add / configure a gateway"}</h2>
         <p class="hint">Home Assistant logs into the gateway over your network and sets it up — no need to open the gateway's own web page. The admin password is sent only to the gateway and never stored.</p>
@@ -546,7 +601,7 @@ class MilesightCommissioning extends HTMLElement {
           <textarea id="manual" placeholder="24E124136D058239">${esc(this._manual || "")}</textarea></label>
         <div class="row"><button id="b-read">Use this</button></div>
       </div>`;
-    if (!p) return scanners + this._renderRecent();
+    if (!p) return this._renderDiscoveredDevices() + scanners + this._renderRecent();
     const f = this._form || {};
     const chosen = f.model ?? p.model;
     const models = p.models.map((m) => `<option value="${m.value}" ${m.value === chosen ? "selected" : ""}>${esc(m.label)}</option>`).join("");
@@ -637,8 +692,8 @@ class MilesightCommissioning extends HTMLElement {
   _bind() {
     const $ = (id) => this.shadowRoot.getElementById(id);
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
-    on("t-add", "click", () => { this._tab = "add"; this._msg = null; this._render(); });
-    on("t-gw", "click", () => { this._tab = "gw"; this._msg = null; this._stopCamera(); this._loadGateways(); this._render(); });
+    on("t-add", "click", () => { this._tab = "add"; this._msg = null; this._loadDiscovered(); this._render(); });
+    on("t-gw", "click", () => { this._tab = "gw"; this._msg = null; this._stopCamera(); this._loadGateways(); this._loadDiscovered(); this._render(); });
     on("t-walk", "click", () => { this._tab = "walk"; this._msg = null; this._stopCamera(); this._loadDevices(); this._render(); });
     on("b-gw-cfg", "click", () => this._configureGateway());
     on("b-gw-cancel", "click", () => { this._gwEdit = null; this._gwForm = { username: "admin", mode: "both", band: "EU868" }; this._msg = null; this._render(); });
@@ -646,6 +701,9 @@ class MilesightCommissioning extends HTMLElement {
     for (const [id, key] of [["gw-host", "host"], ["gw-user", "username"], ["gw-pass", "password"], ["gw-band", "band"], ["gw-muser", "mqtt_user"], ["gw-mpass", "mqtt_password"]]) {
       on(id, id === "gw-band" ? "change" : "input", (e) => { this._gwForm = { ...(this._gwForm || {}), [key]: e.target.value }; });
     }
+    this.shadowRoot.querySelectorAll("[data-disc-dev]").forEach((b) => b.addEventListener("click", () => this._gotText(b.getAttribute("data-disc-dev"))));
+    this.shadowRoot.querySelectorAll("[data-disc-gw-ip]").forEach((b) => b.addEventListener("click", () => this._configureDiscovered(b.getAttribute("data-disc-gw-ip"), b.getAttribute("data-disc-gw-eui"))));
+    this.shadowRoot.querySelectorAll("[data-disc-ign]").forEach((b) => b.addEventListener("click", () => this._ignore(b.getAttribute("data-disc-ign"), b.getAttribute("data-uid"))));
     this.shadowRoot.querySelectorAll("[data-gw-forget]").forEach((b) => b.addEventListener("click", () => this._forgetGateway(b.getAttribute("data-gw-forget"))));
     this.shadowRoot.querySelectorAll("[data-gw-cfg]").forEach((b) => b.addEventListener("click", () => {
       this._gwEdit = b.getAttribute("data-gw-cfg");
