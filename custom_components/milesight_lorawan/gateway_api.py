@@ -358,3 +358,51 @@ class GatewayClient:
 
     async def async_profiles(self) -> list[dict[str, Any]]:
         return (await self._json("GET", "/api/urprofiles?limit=999") or {}).get("result", [])
+
+
+async def run_gateway_config(hass: Any, host: str, username: str, password: str, mode: str = "lns",
+                             band: str = "EU868", mqtt_user: str | None = None,
+                             mqtt_password: str | None = None) -> dict[str, Any]:
+    """Configure one gateway over the LAN exactly as the config flow / service does, and adopt it into the hub:
+    log in, optionally point the Semtech packet forwarder at Home Assistant, and optionally set up the embedded
+    network server's MQTT application. Shared by the configure_gateway service and the commissioning panel so both
+    use the one verified path. Returns {gateway, done, home_assistant_ip, topics}. Raises GatewayError on failure.
+    """
+    from urllib.parse import urlparse
+
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    from homeassistant.helpers.network import get_url
+
+    try:
+        from homeassistant.components.network import async_get_source_ip
+        ha_ip = await async_get_source_ip(hass, target_ip=host)
+    except Exception:  # noqa: BLE001 - fall back to the configured URL's host
+        ha_ip = urlparse(get_url(hass, allow_external=False)).hostname
+
+    client = GatewayClient(async_get_clientsession(hass), host, username, password)
+    done: list[str] = []
+    await client.login()
+    info = await client.async_read_info()
+    if mode in ("lns", "both"):
+        done.append("semtech" if await client.async_point_at_home_assistant(ha_ip, band=band) else "semtech_already")
+    topics: dict[str, Any] = {}
+    if mode in ("mqtt", "both"):
+        mu, mp, broker = mqtt_user, mqtt_password, ha_ip
+        for e in hass.config_entries.async_entries("mqtt"):     # default to Home Assistant's own broker login
+            md = {**e.data, **e.options}
+            if md.get("broker"):
+                mu = mu or md.get("username")
+                mp = mp or md.get("password")
+                broker = md["broker"] if md["broker"] not in ("localhost", "127.0.0.1", "core-mosquitto") else ha_ip
+                break
+        topics = await client.async_setup_mqtt(broker, mu or None, mp or None)
+        done.append("mqtt")
+    # adopt the gateway into the hub so it shows up and is tracked
+    from .const import DOMAIN
+    hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
+    hub = hubs[0] if hubs else None
+    if hub is not None and info.get("eui") and hasattr(hub, "expect_gateway"):
+        from .gateway_discovery import norm_hex
+        hub.expect_gateway(norm_hex(info["eui"]),
+                           {"name": info.get("model"), "ip": host, "model": info.get("model")})
+    return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics}

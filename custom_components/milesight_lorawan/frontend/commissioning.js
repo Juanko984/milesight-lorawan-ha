@@ -35,6 +35,11 @@ class MilesightCommissioning extends HTMLElement {
     this._busy = false;
     this._ticker = null;
     this._rendered = false;
+    this._gateways = [];
+    this._gwForm = { username: "admin", mode: "both", band: "EU868" };
+    this._gwBusy = false;
+    this._gwResult = null;
+    this._gwEdit = null;
   }
 
   set hass(h) {
@@ -81,6 +86,47 @@ class MilesightCommissioning extends HTMLElement {
 
   _error(e) { this._msg = { kind: "error", text: e?.message || String(e) }; this._render(); }
   _info(text) { this._msg = { kind: "success", text }; this._render(); }
+
+  // ------------------------------------------------------------------ gateways
+  async _loadGateways() {
+    try {
+      const r = await this._ws({ type: "gateways" });
+      this._gateways = r.gateways || []; this._gwHasMqtt = r.has_mqtt;
+    } catch (e) { this._error(e); }
+    if (this._tab === "gw") this._render();
+  }
+
+  async _configureGateway() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const host = ($("gw-host").value || "").trim();
+    const password = $("gw-pass").value;
+    if (!host) { this._error("Enter the gateway's IP address."); return; }
+    if (!password) { this._error("Enter the gateway's admin password."); return; }
+    const data = { type: "configure_gateway", host, username: ($("gw-user").value || "").trim() || "admin",
+                   password, mode: $("gw-mode").value, band: $("gw-band").value };
+    const mu = $("gw-muser"), mp = $("gw-mpass");
+    if (mu && mu.value.trim()) data.mqtt_user = mu.value.trim();
+    if (mp && mp.value) data.mqtt_password = mp.value;
+    this._gwBusy = true; this._msg = null; this._gwResult = null; this._render();
+    try {
+      const r = await this._ws(data);
+      this._gwBusy = false; this._gwEdit = null;
+      const done = r.done || [], steps = [];
+      if (done.includes("semtech")) steps.push(`Semtech pointed at Home Assistant (${r.home_assistant_ip})`);
+      else if (done.includes("semtech_already")) steps.push("Semtech already pointed at Home Assistant");
+      if (done.includes("mqtt")) steps.push("MQTT application set up");
+      const gw = r.gateway || {};
+      this._gwResult = `${gw.model || "Gateway"}${gw.eui ? ` (${gw.eui})` : ""} configured — ${steps.join(" · ") || "logged in"}. It shows as connected with its first packet.`;
+      this._gwForm = { username: "admin", mode: "both", band: "EU868" };
+      await this._loadGateways();
+    } catch (e) { this._gwBusy = false; this._error(e); }
+  }
+
+  async _forgetGateway(eui) {
+    if (!window.confirm(`Forget gateway ${String(eui).toUpperCase()}? It can be added again by configuring it.`)) return;
+    try { await this._ws({ type: "forget_gateway", eui }); this._info("Gateway forgotten."); await this._loadGateways(); }
+    catch (e) { this._error(e); }
+  }
 
   // ------------------------------------------------------------------ scanning
   get _ext() { return this._hass?.auth?.external; }
@@ -389,9 +435,10 @@ class MilesightCommissioning extends HTMLElement {
       <header><ha-menu-button></ha-menu-button><span>LoRaWAN commissioning</span></header>
       <div class="tabs">
         <button id="t-add" class="${tab === "add" ? "on" : ""}">1 · Add a device</button>
-        <button id="t-walk" class="${tab === "walk" ? "on" : ""}">2 · Walk test</button>
+        <button id="t-gw" class="${tab === "gw" ? "on" : ""}">2 · Gateways</button>
+        <button id="t-walk" class="${tab === "walk" ? "on" : ""}">3 · Walk test</button>
       </div>
-      <main>${msg}${tab === "add" ? this._renderAdd() : this._renderWalk()}</main>`;
+      <main>${msg}${tab === "add" ? this._renderAdd() : tab === "gw" ? this._renderGateways() : this._renderWalk()}</main>`;
     const menu = this.shadowRoot.querySelector("ha-menu-button");
     if (menu) { menu.hass = h; menu.narrow = this._narrow; }
     this._bind();
@@ -414,6 +461,54 @@ class MilesightCommissioning extends HTMLElement {
         : r.lns ? `${r.name} is added and connects by itself when it is prepared for Home Assistant. Otherwise set its packet forwarder (Semtech) to ${r.ha_ip}, port ${r.port}. It shows as connected with its first packet.`
                 : `${r.name} is added. It shows as connected when the first uplink it forwards arrives over MQTT.`);
     } catch (e) { this._busy = false; this._error(e); }
+  }
+
+  _renderGateways() {
+    const f = this._gwForm || {};
+    const mode = f.mode || "both";
+    const showMqtt = mode === "mqtt" || mode === "both";
+    const bands = ["EU868", "US915", "AU915", "AS923", "IN865", "KR920"];
+    const list = (this._gateways || []).length ? this._gateways.map((g) => {
+      const color = g.online === true ? "var(--success-color,#43a047)" : g.online === false ? "var(--error-color,#db4437)" : "var(--disabled-text-color,#999)";
+      const status = g.online === true ? "Online" : g.online === false ? "Offline" : "Waiting";
+      return `<tr>
+        <td><span class="dot" style="background:${color}"></span>${esc(g.name)}</td>
+        <td class="muted">${esc((g.eui || "").toUpperCase())}</td>
+        <td>${g.ip ? esc(g.ip) : "–"}</td>
+        <td>${g.model ? esc(g.model) : "–"}${g.firmware ? ` <span class="muted">fw ${esc(g.firmware)}</span>` : ""}</td>
+        <td>${status}${g.connection ? ` <span class="muted">· ${esc(g.connection)}</span>` : ""}</td>
+        <td>${g.packets_today || 0}</td>
+        <td><div class="row" style="gap:6px"><button data-gw-cfg="${esc(g.eui)}" data-gw-ip="${esc(g.ip || "")}">Settings</button><button data-gw-forget="${esc(g.eui)}">Forget</button></div></td></tr>`;
+    }).join("") : `<tr><td colspan="7" class="muted">No gateways yet — configure one below.</td></tr>`;
+    const result = this._gwResult ? `<div class="msg success">${esc(this._gwResult)}</div>` : "";
+    return `
+      <div class="card scroll">
+        <h2>Gateways</h2>
+        <table><tr><th>Name</th><th>EUI</th><th>IP</th><th>Model</th><th>Status</th><th>Today</th><th></th></tr>${list}</table>
+      </div>
+      <div class="card">
+        <h2>${this._gwEdit ? "Update gateway settings" : "Add / configure a gateway"}</h2>
+        <p class="hint">Home Assistant logs into the gateway over your network and sets it up — no need to open the gateway's own web page. The admin password is sent only to the gateway and never stored.</p>
+        ${result}
+        <div class="row">
+          <label>Gateway IP<input id="gw-host" value="${esc(f.host || "")}" placeholder="192.168.1.230"></label>
+          <label>Admin user<input id="gw-user" value="${esc(f.username || "admin")}"></label>
+          <label>Admin password<input id="gw-pass" type="password" value="${esc(f.password || "")}" autocomplete="off"></label>
+        </div>
+        <div class="row">
+          <label>What to set up<select id="gw-mode">
+            <option value="both" ${mode === "both" ? "selected" : ""}>Semtech + MQTT (recommended)</option>
+            <option value="lns" ${mode === "lns" ? "selected" : ""}>Semtech only (point at Home Assistant)</option>
+            <option value="mqtt" ${mode === "mqtt" ? "selected" : ""}>MQTT application only</option>
+          </select></label>
+          <label>Frequency band<select id="gw-band">${bands.map((b) => `<option ${b === (f.band || "EU868") ? "selected" : ""}>${b}</option>`).join("")}</select></label>
+        </div>
+        ${showMqtt ? `<div class="row">
+          <label>MQTT user <span class="muted">(blank = Home Assistant's own)</span><input id="gw-muser" value="${esc(f.mqtt_user || "")}" autocomplete="off"></label>
+          <label>MQTT password<input id="gw-mpass" type="password" value="${esc(f.mqtt_password || "")}" autocomplete="off"></label>
+        </div>` : ""}
+        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : (this._gwEdit ? "Re-apply settings" : "Configure gateway")}</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
+      </div>`;
   }
 
   _renderGateway() {
@@ -543,7 +638,20 @@ class MilesightCommissioning extends HTMLElement {
     const $ = (id) => this.shadowRoot.getElementById(id);
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
     on("t-add", "click", () => { this._tab = "add"; this._msg = null; this._render(); });
+    on("t-gw", "click", () => { this._tab = "gw"; this._msg = null; this._stopCamera(); this._loadGateways(); this._render(); });
     on("t-walk", "click", () => { this._tab = "walk"; this._msg = null; this._stopCamera(); this._loadDevices(); this._render(); });
+    on("b-gw-cfg", "click", () => this._configureGateway());
+    on("b-gw-cancel", "click", () => { this._gwEdit = null; this._gwForm = { username: "admin", mode: "both", band: "EU868" }; this._msg = null; this._render(); });
+    on("gw-mode", "change", (e) => { this._gwForm = { ...(this._gwForm || {}), mode: e.target.value }; this._render(); });
+    for (const [id, key] of [["gw-host", "host"], ["gw-user", "username"], ["gw-pass", "password"], ["gw-band", "band"], ["gw-muser", "mqtt_user"], ["gw-mpass", "mqtt_password"]]) {
+      on(id, id === "gw-band" ? "change" : "input", (e) => { this._gwForm = { ...(this._gwForm || {}), [key]: e.target.value }; });
+    }
+    this.shadowRoot.querySelectorAll("[data-gw-forget]").forEach((b) => b.addEventListener("click", () => this._forgetGateway(b.getAttribute("data-gw-forget"))));
+    this.shadowRoot.querySelectorAll("[data-gw-cfg]").forEach((b) => b.addEventListener("click", () => {
+      this._gwEdit = b.getAttribute("data-gw-cfg");
+      this._gwForm = { ...(this._gwForm || {}), host: b.getAttribute("data-gw-ip") || "", username: (this._gwForm || {}).username || "admin", mode: (this._gwForm || {}).mode || "both", band: (this._gwForm || {}).band || "EU868" };
+      this._msg = null; this._gwResult = null; this._render();
+    }));
     on("b-app", "click", () => this._scanWithApp());
     on("b-cam", "click", () => (this._camera ? (this._stopCamera(), this._render()) : this._startCamera()));
     on("b-photo", "click", () => $("file").click());

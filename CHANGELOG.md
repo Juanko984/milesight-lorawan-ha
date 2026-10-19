@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.6
+### Added
+- **Gateways tab in the commissioning panel.** The installer panel now manages gateways end to end, not just devices:
+  - **Add & configure a gateway over the LAN** — enter the gateway IP and admin login, pick *Semtech + MQTT*,
+    *Semtech only* or *MQTT only* and the frequency band, and Home Assistant logs in and sets it up (points the
+    Semtech packet forwarder at HA and/or creates the network-server MQTT application) with nothing touched on the
+    gateway's own web page. MQTT credentials default to Home Assistant's own broker.
+  - **A live list of gateways** with online status, IP, model, firmware, connection type and packets today.
+  - **Update settings / re-apply** (e.g. after Home Assistant's IP changes) and **Forget** per gateway.
+  - The admin password is sent only to the gateway and is never stored or logged.
+### Changed
+- The gateway LAN configuration used by the panel, the `configure_gateway` service and the config flow now share one
+  verified helper (`run_gateway_config`), so all three behave identically.
+
 ## 0.40.5
 ### Changed
 - Maintenance release — version bump to publish a clean HACS release. No functional changes since 0.40.4; the gateway

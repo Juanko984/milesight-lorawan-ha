@@ -58,7 +58,8 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             hass.http.register_static_path(STATIC_URL, str(FRONTEND), True)
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
-        for handler in (ws_parse, ws_add_gateway, ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
+        for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_forget_gateway,
+                        ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
     if not data.get("commissioning_panel"):
@@ -146,6 +147,84 @@ async def ws_add_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {
         "status": status, "name": name, "lns": lns, "ha_ip": await _local_ip(hass),
         "port": int(hub.entry.options.get(CONF_LNS_PORT) or DEFAULT_LNS_PORT)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/gateways"})
+@websocket_api.require_admin
+@callback
+def ws_gateways(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Every gateway Home Assistant knows — heard or just announced — with live status, for the Gateways tab."""
+    from .const import CONF_GATEWAY_OFFLINE_MIN, DEFAULT_GATEWAY_OFFLINE_MIN
+    now = time.time()
+    out: dict[str, dict] = {}
+    ha_ip = None
+    for hub in _hubs(hass):
+        offline_s = float(hub.entry.options.get(CONF_GATEWAY_OFFLINE_MIN, DEFAULT_GATEWAY_OFFLINE_MIN)) * 60
+        st = getattr(hub, "stats", None)
+        if st is None:
+            continue
+        for gid, g in st.gateways.items():
+            info = g.get("info") or {}
+            out[gid] = {
+                "eui": gid, "name": g.get("name") or gid, "area": g.get("area"), "ip": g.get("ip") or info.get("ip"),
+                "model": g.get("model") or info.get("model"), "firmware": info.get("firmware"),
+                "online": st.online(gid, now, offline_s), "last_heard": g.get("last_heard"),
+                "packets_today": g.get("packets_today", 0), "connection": g.get("found") or (g.get("conn") or [None])[0],
+                "approved": bool(g.get("approved")), "heard": True}
+        for gid, g in st.expected.items():
+            if gid not in out:
+                out[gid] = {"eui": gid, "name": g.get("name") or gid, "area": g.get("area"), "ip": g.get("ip"),
+                            "model": g.get("model"), "firmware": None, "online": None, "last_heard": None,
+                            "packets_today": 0, "connection": None, "approved": False, "heard": False}
+    has_mqtt = any(e.state == e.state.LOADED if hasattr(e.state, "LOADED") else True
+                   for e in hass.config_entries.async_entries("mqtt"))
+    connection.send_result(msg["id"], {
+        "gateways": sorted(out.values(), key=lambda x: str(x["name"]).lower()), "now": now,
+        "ha_mqtt": bool(hass.config_entries.async_entries("mqtt")), "has_mqtt": has_mqtt})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/commission/configure_gateway", vol.Required("host"): str,
+    vol.Optional("username", default="admin"): str, vol.Required("password"): str,
+    vol.Optional("mode", default="both"): str, vol.Optional("band", default="EU868"): str,
+    vol.Optional("mqtt_user"): str, vol.Optional("mqtt_password"): str,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_configure_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Configure a gateway over the LAN from the panel: log in, point Semtech at HA and/or set up its MQTT
+    application. The admin password is sent only to the gateway and never stored or logged."""
+    from .gateway_api import GatewayError, run_gateway_config
+    if msg["mode"] not in ("lns", "mqtt", "both"):
+        connection.send_error(msg["id"], "invalid", "mode must be lns, mqtt or both")
+        return
+    if not _hubs(hass):
+        connection.send_error(msg["id"], "no_hub", "Set up Milesight LoRaWAN first")
+        return
+    try:
+        out = await run_gateway_config(hass, msg["host"].strip(), msg["username"], msg["password"],
+                                       mode=msg["mode"], band=msg["band"],
+                                       mqtt_user=msg.get("mqtt_user"), mqtt_password=msg.get("mqtt_password"))
+    except GatewayError as err:
+        connection.send_error(msg["id"], "gateway", str(err))
+        return
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "error", str(err))
+        return
+    connection.send_result(msg["id"], out)
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/forget_gateway", vol.Required("eui"): str})
+@websocket_api.require_admin
+@callback
+def ws_forget_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
+    from .gateway_discovery import norm_hex
+    eui = norm_hex(msg["eui"])
+    removed = [h.entry.title for h in _hubs(hass) if hasattr(h, "forget_gateway") and h.forget_gateway(eui)]
+    if not removed:
+        connection.send_error(msg["id"], "unknown", f"No gateway {eui.upper()} is known")
+        return
+    connection.send_result(msg["id"], {"forgotten": eui.upper(), "from": removed})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/devices"})
