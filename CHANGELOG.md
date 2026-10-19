@@ -2,6 +2,12 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.5
+### Changed
+- Maintenance release — version bump to publish a clean HACS release. No functional changes since 0.40.4; the gateway
+  LAN flow (router login, Semtech, and the network-server MQTT application) remains verified end-to-end against a
+  real UG65 (firmware 60.0.0.50).
+
 ## 0.40.4
 ### Changed
 - Removed dead, conflicting gateway device-registration helpers (`pick_profile`, `device_body`, `async_add_device`
