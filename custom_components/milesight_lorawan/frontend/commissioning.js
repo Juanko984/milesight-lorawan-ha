@@ -315,9 +315,10 @@ class MilesightCommissioning extends HTMLElement {
     for (const id of ["file", "file2"]) { const el = this.shadowRoot.getElementById(id); if (el) el.value = ""; }
   }
 
-  async _gotText(text) {
+  async _gotText(text, fromDiscovered = false) {
     try {
       this._msg = null;
+      this._fromDiscovered = fromDiscovered;
       const r = await this._ws({ type: "parse", text });
       if (r.gateway) { this._gateway = r.gateway; this._parsed = null; this._form = {}; this._manual = ""; this._render(); return; }
       if (!r.deveui) { this._error(`The code was read ("${text.slice(0, 60)}") but holds no DevEUI. Type it in below.`); return; }
@@ -331,7 +332,7 @@ class MilesightCommissioning extends HTMLElement {
     const data = { type: "add", deveui: $("f-deveui").value, model: $("f-model").value, name: $("f-name").value,
                    area: $("f-area").value, register: !!$("f-register")?.checked };
     if ($("f-purpose")?.value) data.purpose = $("f-purpose").value;
-    if ($("f-hub")?.value) data.hub = $("f-hub").value;
+    if ($("f-gw")?.value) data.gateway = $("f-gw").value;
     if ($("f-key").value.trim()) data.app_key = $("f-key").value.trim();
     if (!data.model) { this._error("Pick the model."); return; }
     this._busy = true; this._render();
@@ -649,14 +650,16 @@ class MilesightCommissioning extends HTMLElement {
           if (!regs.length) return `<p class="hint">Gateway registration is not set up (gateway → Configure → Add devices to the gateway) – add the device on the gateway yourself.</p>`;
           const cb = `<label style="flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--primary-text-color)">
             <input type="checkbox" id="f-register" ${f.register === false ? "" : "checked"} style="width:20px;height:20px"> Also register it on the gateway</label>`;
-          let sel;
-          if (regs.length > 1) {
-            sel = `<label>On which network server<select id="f-hub">${regs.map((r) => `<option value="${esc(r.hub)}" ${r.hub === f.hub ? "selected" : ""}>${esc(r.name)}${r.eui ? " · " + esc(r.eui) : ""}</option>`).join("")}</select></label>`;
+          let sel = "";
+          if (regs.length > 1 && !this._fromDiscovered) {
+            // a new device added by hand: let the installer choose which gateway's embedded server it lives on
+            const chosen = f.gw || (regs[0] && regs[0].eui) || "";
+            sel = `<label>On which gateway<select id="f-gw">${regs.map((r) => `<option value="${esc(r.eui || "")}" ${(r.eui || "") === chosen ? "selected" : ""}>${esc(r.name)}${r.eui ? " · " + esc(r.eui) : ""}</option>`).join("")}</select></label>
+              <p class="hint">The device is registered on this gateway's embedded network server. Pick the gateway whose coverage area the device sits in.</p>`;
+          } else if (regs.length > 1 && this._fromDiscovered) {
+            sel = `<p class="hint">Registered on the gateway that heard it.</p>`;
           } else {
-            const covers = (regs[0] && regs[0].covers) || [];
-            sel = covers.length
-              ? `<p class="hint">Covered by ${covers.length === 1 ? "" : "both gateways: "}${covers.map(esc).join(", ")} – a registered device is heard by ${covers.length === 1 ? "it" : "all of them"} automatically.</p>`
-              : "";
+            sel = `<p class="hint">Registered on ${esc(regs[0].name)}.</p>`;
           }
           return cb + sel;
         })()}
@@ -736,7 +739,7 @@ class MilesightCommissioning extends HTMLElement {
     for (const [id, key] of [["gw-host", "host"], ["gw-user", "username"], ["gw-pass", "password"], ["gw-band", "band"], ["gw-muser", "mqtt_user"], ["gw-mpass", "mqtt_password"]]) {
       on(id, id === "gw-band" ? "change" : "input", (e) => { this._gwForm = { ...(this._gwForm || {}), [key]: e.target.value }; });
     }
-    this.shadowRoot.querySelectorAll("[data-disc-dev]").forEach((b) => b.addEventListener("click", () => this._gotText(b.getAttribute("data-disc-dev"))));
+    this.shadowRoot.querySelectorAll("[data-disc-dev]").forEach((b) => b.addEventListener("click", () => this._gotText(b.getAttribute("data-disc-dev"), true)));
     this.shadowRoot.querySelectorAll("[data-disc-gw-ip]").forEach((b) => b.addEventListener("click", () => this._configureDiscovered(b.getAttribute("data-disc-gw-ip"), b.getAttribute("data-disc-gw-eui"))));
     this.shadowRoot.querySelectorAll("[data-disc-ign]").forEach((b) => b.addEventListener("click", () => this._ignore(b.getAttribute("data-disc-ign"), b.getAttribute("data-uid"))));
     this.shadowRoot.querySelectorAll("[data-gw-forget]").forEach((b) => b.addEventListener("click", () => this._forgetGateway(b.getAttribute("data-gw-forget"))));
@@ -757,8 +760,8 @@ class MilesightCommissioning extends HTMLElement {
     on("manual", "input", (e) => { this._manual = e.target.value; });
     for (const [id, key, prop] of [["f-deveui", "deveui", "value"], ["f-model", "model", "value"], ["f-name", "name", "value"],
                                    ["f-area", "area", "value"], ["f-key", "key", "value"], ["f-register", "register", "checked"],
-                                   ["f-purpose", "purpose", "value"], ["f-hub", "hub", "value"]]) {
-      on(id, ["f-model", "f-register", "f-purpose", "f-hub"].includes(id) ? "change" : "input", (e) => {
+                                   ["f-purpose", "purpose", "value"], ["f-gw", "gw", "value"]]) {
+      on(id, ["f-model", "f-register", "f-purpose", "f-gw"].includes(id) ? "change" : "input", (e) => {
         this._form = { ...(this._form || {}), [key]: e.target[prop] };
         if (id === "f-model") this._render();            // the purposes depend on the model
       });

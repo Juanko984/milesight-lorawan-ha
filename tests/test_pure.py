@@ -2093,6 +2093,13 @@ def test_gateway_api():
     assert m["uplinkTopic"] == "milesight/uplink" and m["downlinkTopic"] == "milesight/downlink"
     assert m["requestTopic"] == "milesight/request" and m["responseTopic"] == "milesight/response"
     assert m["useAuth"] is True and m["username"] == "home" and m["host"] == "192.168.1.174"
+    # a per-gateway management channel keeps the shared data topics but gives request/response their own prefix,
+    # so a device can be registered on THIS gateway's embedded network server specifically
+    mg = ga.mqtt_integration("7", "192.168.1.174", 1883, "home", "pw", "milesight",
+                             ns_prefix="milesight/ns/24e124fffefa2994")
+    assert mg["uplinkTopic"] == "milesight/uplink"              # data still shared
+    assert mg["requestTopic"] == "milesight/ns/24e124fffefa2994/request"
+    assert mg["responseTopic"] == "milesight/ns/24e124fffefa2994/response"
     t = ga.ha_topics("milesight")
     assert t["topic"] == "milesight/uplink/#" and t["downlink_topic"] == "milesight/downlink/{deveui}"
     assert t["ns_request_topic"] == "milesight/request"

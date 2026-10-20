@@ -108,10 +108,17 @@ def application_body(name: str, service_profile_id: str, description: str = "", 
 
 
 def mqtt_integration(app_id: str, host: str, port: int, username: str | None, password: str | None,
-                     prefix: str = "milesight", ack: bool = True, join: bool = True) -> dict[str, Any]:
+                     prefix: str = "milesight", ack: bool = True, join: bool = True,
+                     ns_prefix: str | None = None) -> dict[str, Any]:
     """The application's MQTT data-transmission output. Topics match what the integration subscribes to; the device
-    EUI is inside every payload, so no $deveui is needed in the topic."""
+    EUI is inside every payload, so no $deveui is needed in the topic.
+
+    The data topics (uplink / downlink / join / ack / error) use `prefix`, shared by every gateway so one uplink
+    pipeline serves them all. The network-server management topics (request / response) use `ns_prefix` when given,
+    so Home Assistant can address this one gateway's embedded network server on its own channel and register a
+    device on it specifically; without `ns_prefix` they fall back to `prefix` (the original shared behaviour)."""
     p = prefix.rstrip("/")
+    nsp = (ns_prefix or prefix).rstrip("/")
     return {
         "id": str(app_id), "host": host, "port": int(port), "mode": 0, "TLSMode": 0, "useTLS": False,
         "useAuth": bool(username), "username": username or "", "password": password or "",
@@ -122,8 +129,8 @@ def mqtt_integration(app_id: str, host: str, port: int, username: str | None, pa
         "ackTopic": f"{p}/ack" if ack else "", "ackQoS": 0, "ackRetain": False,
         "joinTopic": f"{p}/join" if join else "", "joinQoS": 0, "joinRetain": False,
         "errorTopic": f"{p}/error", "errorQoS": 0, "errorRetain": False,
-        "requestTopic": f"{p}/request", "requestQoS": 0,
-        "responseTopic": f"{p}/response", "responseQoS": 0, "responseRetain": False,
+        "requestTopic": f"{nsp}/request", "requestQoS": 0,
+        "responseTopic": f"{nsp}/response", "responseQoS": 0, "responseRetain": False,
         "mcDownlinkTopic": "", "mcDownlinkQoS": 0,
         "customData": "{\n    \"devEUI\": \"%devEUI%\"\n}",
         "lastWillEnable": False, "lastWillTopic": "", "lastWillQoS": 0, "lastWillRetain": False, "lastWillPayload": "",
@@ -340,7 +347,8 @@ class GatewayClient:
 
     # ---- embedded network server: application + MQTT so uplinks reach Home Assistant over the broker
     async def async_setup_mqtt(self, broker_ip: str, mqtt_user: str | None, mqtt_password: str | None,
-                               prefix: str = "milesight", app_name: str = "Home Assistant") -> dict[str, Any]:
+                               prefix: str = "milesight", app_name: str = "Home Assistant",
+                               ns_prefix: str | None = None) -> dict[str, Any]:
         apps = (await self._json("GET", "/api/urapplications?limit=999") or {}).get("result", [])
         existing = next((a for a in apps if a.get("name") == app_name), None)
         if existing is not None:
@@ -353,8 +361,11 @@ class GatewayClient:
                                        application_body(app_name, svc, "Milesight LoRaWAN for Home Assistant"))
             app_id = str(created["id"])
         await self._json("POST", f"/api/urapplications/{app_id}/integrations/mqtt",
-                         mqtt_integration(app_id, broker_ip, 1883, mqtt_user, mqtt_password, prefix))
-        return {"application_id": app_id, "service_profile_id": svc, **ha_topics(prefix)}
+                         mqtt_integration(app_id, broker_ip, 1883, mqtt_user, mqtt_password, prefix,
+                                          ns_prefix=ns_prefix))
+        nsp = (ns_prefix or prefix).rstrip("/")
+        return {"application_id": app_id, "service_profile_id": svc, **ha_topics(prefix),
+                "ns_request_topic": f"{nsp}/request", "ns_response_topic": f"{nsp}/response"}
 
     async def async_profiles(self) -> list[dict[str, Any]]:
         return (await self._json("GET", "/api/urprofiles?limit=999") or {}).get("result", [])
@@ -430,10 +441,12 @@ async def run_gateway_config(hass: Any, host: str, username: str, password: str,
     except Exception:  # noqa: BLE001 - fall back to the configured URL's host
         ha_ip = urlparse(get_url(hass, allow_external=False)).hostname
 
+    from .gateway_discovery import norm_hex
     client = GatewayClient(async_get_clientsession(hass), host, username, password)
     done: list[str] = []
     await client.login()
     info = await client.async_read_info()
+    gw_eui = norm_hex(info.get("eui") or "")
     if mode in ("lns", "both"):
         done.append("semtech" if await client.async_point_at_home_assistant(ha_ip, band=band) else "semtech_already")
     topics: dict[str, Any] = {}
@@ -446,20 +459,25 @@ async def run_gateway_config(hass: Any, host: str, username: str, password: str,
                 mp = mp or md.get("password")
                 broker = md["broker"] if md["broker"] not in ("localhost", "127.0.0.1", "core-mosquitto") else ha_ip
                 break
-        topics = await client.async_setup_mqtt(broker, mu or None, mp or None)
+        # a per-gateway management channel so Home Assistant can register a device on THIS gateway's embedded
+        # network server specifically (data still shares the one "milesight/..." uplink pipeline)
+        ns_prefix = f"milesight/ns/{gw_eui}" if gw_eui else None
+        topics = await client.async_setup_mqtt(broker, mu or None, mp or None, ns_prefix=ns_prefix)
         done.append("mqtt")
     # adopt the gateway into the hub so it shows up and is tracked
     from .const import DOMAIN
     hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
     hub = hubs[0] if hubs else None
-    if hub is not None and info.get("eui") and hasattr(hub, "expect_gateway"):
-        from .gateway_discovery import norm_hex
-        hub.expect_gateway(norm_hex(info["eui"]),
-                           {"name": info.get("model"), "ip": host, "model": info.get("model")})
+    if hub is not None and gw_eui and hasattr(hub, "expect_gateway"):
+        hub.expect_gateway(gw_eui, {"name": info.get("model"), "ip": host, "model": info.get("model")})
         # record the paths we just set up so the connection label is right away (not only after the first uplink
         # on each path arrives): Semtech → HA network server = "built-in", the gateway's own MQTT = "embedded".
         kinds = (["built-in"] if any(d in done for d in ("semtech", "semtech_already")) else []) \
             + (["embedded"] if "mqtt" in done else [])
         if kinds and hasattr(hub, "mark_connections"):
-            hub.mark_connections(norm_hex(info["eui"]), kinds)
+            hub.mark_connections(gw_eui, kinds)
+        # record this gateway's own management channel so a device can be registered on IT specifically
+        if "mqtt" in done and topics.get("ns_request_topic") and hasattr(hub, "mark_ns"):
+            hub.mark_ns(gw_eui, {"request": topics["ns_request_topic"], "response": topics["ns_response_topic"],
+                                 "application": topics.get("application_id")})
     return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics}

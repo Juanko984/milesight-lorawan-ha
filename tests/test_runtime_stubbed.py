@@ -847,6 +847,8 @@ async def _prov():
         assert "no answer" in str(err)
     else:
         raise AssertionError("expected a timeout")
+    # async_provision_on a gateway with no management channel of its own falls back to the hub-wide server
+    assert await hb.async_provision_on("24e124fffef00000", "24e124136d000009", "Tank 9") == "added"
     await c.async_stop()
 asyncio.run(_prov())
 print("provisioning ok")

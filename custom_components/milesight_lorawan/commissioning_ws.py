@@ -48,22 +48,29 @@ def _norm(deveui: str) -> str:
 
 
 def _reg_gateways(hass: HomeAssistant) -> list[dict]:
-    """The hubs (network servers) that can register a device, each labelled by its network-server gateway and
-    carrying the names of the gateways it hears. The panel shows a picker only when there is more than one
-    network server; with one network server it instead names the gateways that will cover the device, because
-    they share one topic namespace and a registered device is heard by all of them."""
+    """Every gateway a device can be registered on by its embedded network server, so the Add screen can let the
+    installer pick one when more than one exists. A gateway is a target once its own management channel is set up
+    (gateway → Configure → Add devices to the gateway, which gives it its own request/response topics); the
+    config-flow gateway is always a target via the hub-wide network-server connection."""
     from .const import CONF_NS_GATEWAY_EUI
-    out = []
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
     for h in _hubs(hass):
-        if not getattr(h, "can_provision", False):
-            continue
-        opts = {**h.entry.data, **h.entry.options}
-        eui = str(opts.get(CONF_NS_GATEWAY_EUI) or "").lower()
         st = getattr(h, "stats", None)
-        g = (st.gateways.get(eui) if st and eui else None) or {}
-        covers = sorted({str(gg.get("name") or gid) for gid, gg in (st.gateways.items() if st else [])})
-        out.append({"hub": h.entry.entry_id, "name": g.get("name") or h.entry.title,
-                    "eui": eui.upper() or None, "covers": covers})
+        for eui, g in (st.gateways.items() if st else []):
+            ns = g.get("ns") or {}
+            if ns.get("request") and ns.get("response"):
+                out.append({"hub": h.entry.entry_id, "eui": eui.upper(),
+                            "name": g.get("name") or eui.upper(), "embedded": True})
+                seen.add((h.entry.entry_id, eui))
+        if getattr(h, "can_provision", False):          # the config-flow gateway, via the hub-wide connection
+            opts = {**h.entry.data, **h.entry.options}
+            eui = str(opts.get(CONF_NS_GATEWAY_EUI) or "").lower()
+            if (h.entry.entry_id, eui) not in seen:
+                g = (st.gateways.get(eui) if st and eui else None) or {}
+                out.append({"hub": h.entry.entry_id, "eui": eui.upper() or None,
+                            "name": g.get("name") or h.entry.title, "embedded": True})
+                seen.add((h.entry.entry_id, eui))
     return out
 
 
@@ -372,7 +379,7 @@ def ws_devices(hass: HomeAssistant, connection, msg: dict) -> None:
     vol.Required("type"): f"{DOMAIN}/commission/add",
     vol.Required("deveui"): str, vol.Required("model"): str, vol.Optional("name"): str,
     vol.Optional("area"): str, vol.Optional("app_key"): str, vol.Optional("register", default=True): bool,
-    vol.Optional("purpose"): str, vol.Optional("hub"): str,
+    vol.Optional("purpose"): str, vol.Optional("hub"): str, vol.Optional("gateway"): str,
 })
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -388,11 +395,22 @@ async def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
     name = (msg.get("name") or "").strip() or f"{msg['model']} {deveui[-4:].upper()}"
     gateway = None
     if msg.get("register"):
-        provis = [h for h in _hubs(hass) if getattr(h, "can_provision", False)]
-        hub = next((h for h in provis if h.entry.entry_id == msg.get("hub")), None) or (provis[0] if provis else None)
+        from .gateway_discovery import norm_hex
+        gw_eui = norm_hex(msg.get("gateway") or "")
+        provis = [h for h in _hubs(hass) if getattr(h, "can_provision", False)
+                  or (getattr(h, "registerable_gateways", None) and h.registerable_gateways())]
+        hub = None
+        if gw_eui:                                      # the hub that owns the chosen gateway
+            hub = next((h for h in _hubs(hass) if getattr(h, "stats", None)
+                        and gw_eui in h.stats.gateways), None)
+        hub = hub or next((h for h in provis if h.entry.entry_id == msg.get("hub")), None) \
+            or (provis[0] if provis else None)
         if hub is not None:
             try:
-                gateway = await hub.async_provision(deveui, name, key)
+                if gw_eui and hasattr(hub, "async_provision_on"):
+                    gateway = await hub.async_provision_on(gw_eui, deveui, name, key)
+                else:
+                    gateway = await hub.async_provision(deveui, name, key)
             except Exception as err:  # noqa: BLE001
                 connection.send_error(msg["id"], "gateway", f"The gateway did not accept the device: {err}")
                 return

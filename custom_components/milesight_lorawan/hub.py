@@ -158,6 +158,57 @@ class Hub:
         async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
         return result
 
+    def registerable_gateways(self) -> list[tuple[str, dict]]:
+        """Gateways that have their own embedded-network-server management channel set up, so a device can be
+        registered on that gateway specifically. (eui, gateway-record) pairs."""
+        out = []
+        for eui, g in self.stats.gateways.items():
+            ns = g.get("ns") or {}
+            if ns.get("request") and ns.get("response"):
+                out.append((eui, g))
+        return out
+
+    async def async_provision_on(self, eui: str, deveui: str, name: str | None = None,
+                                 app_key: str | None = None, profile: str | None = None) -> str:
+        """Register a device on ONE specific gateway's embedded network server (its own request/response channel),
+        rather than the hub-wide default. 'added' or 'exists'. Falls back to the hub-wide ns when this gateway is
+        the configured one and has no per-gateway channel yet."""
+        from .gateway_discovery import norm_hex
+        from .provisioning import NsApiClient
+        eui = norm_hex(eui)
+        g = self.stats.gateways.get(eui)
+        ns = (g or {}).get("ns") or {}
+        if not (ns.get("request") and ns.get("response")):
+            if self.can_provision:            # no per-gateway channel: use the hub-wide ns (the config-flow gateway)
+                return await self.async_provision(deveui, name, app_key, profile)
+            raise ValueError("this gateway is not set up for device registration yet – Configure it "
+                             "(Add devices to the gateway) first")
+        client = NsApiClient(self.hass, ns["request"], ns["response"], eui)
+        try:
+            app, prof = ns.get("application"), profile or ns.get("profile")
+            if not (app and prof):            # learn the gateway's application / device profile once, then cache
+                ov = await client.async_overview()
+                apps, profs = ov.get("applications") or {}, ov.get("profiles") or {}
+                app = app or next((aid for aid, nm in apps.items() if nm == "Home Assistant"), None) \
+                    or next(iter(apps), None)
+                prof = prof or next(iter(profs), None)
+                if not (app and prof):
+                    raise ValueError("the gateway has no application or device profile to register into yet")
+                ns["application"], ns["profile"] = str(app), str(prof)
+                if g is not None:
+                    g["ns"] = ns
+                    self.store.async_delay_save(self.stats.to_dict, 1)
+            result = await client.async_add_device(deveui, name or deveui.upper(), str(app), str(prof),
+                                                    app_key or self.ns_app_key, self.ns_fport)
+        finally:
+            await client.async_stop()
+        self.gateway_devices.setdefault("devices", [])
+        if not any(d["deveui"] == deveui.lower() for d in self.gateway_devices["devices"]):
+            self.gateway_devices["devices"].append({"deveui": deveui.lower(), "name": name, "active": None,
+                                                    "last_seen": None, "application_id": str(ns.get("application"))})
+        async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
+        return result
+
     async def _auto_sync(self, _now: Any = None) -> None:
         try:
             await self.async_sync_devices(discover=False)
@@ -349,6 +400,28 @@ class Hub:
             self.store.async_delay_save(self.stats.to_dict, 1)
             self._changed(force=True)
         return changed
+
+    def mark_ns(self, eui: str, ns: dict[str, Any]) -> bool:
+        """Record a gateway's own embedded-network-server management channel (request / response topics and,
+        when known, the application and device profile a new device is added to), so Home Assistant can register
+        a device on this gateway specifically. Merges, so a later refresh that omits application/profile keeps the
+        learned ones."""
+        from .gateway_discovery import norm_hex
+        eui = norm_hex(eui)
+        g = self.stats.gateways.get(eui) or self.stats.expected.get(eui)
+        if g is None:
+            return False
+        cur = dict(g.get("ns") or {})
+        for k in ("request", "response", "application", "profile"):
+            v = ns.get(k)
+            if v:
+                cur[k] = v
+        if cur == g.get("ns"):
+            return False
+        g["ns"] = cur
+        self.store.async_delay_save(self.stats.to_dict, 1)
+        self._changed(force=True)
+        return True
 
     def gateway_known(self, eui: str) -> bool:
         """Confirmed or announced already."""

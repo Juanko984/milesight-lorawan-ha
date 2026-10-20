@@ -97,10 +97,12 @@ class FakeClient:
         if self.bad: raise _GwErr("gateway login failed (username or password not accepted)")
     async def async_read_info(self): return {"model": "UG65", "eui": "24e124fffefa2994"}
     async def async_point_at_home_assistant(self, ip, band="EU868", port=1700): CALLS.append(("semtech", ip, band)); return True
-    async def async_setup_mqtt(self, ip, u, pw, prefix="milesight", app_name="Home Assistant"):
-        CALLS.append(("mqtt", ip, u)); return {"topic": "milesight/uplink/#", "downlink_topic": "milesight/downlink/{deveui}",
-            "extra_topics": "milesight/ack, milesight/join, milesight/gateway", "ns_request_topic": "milesight/request",
-            "ns_response_topic": "milesight/response"}
+    async def async_setup_mqtt(self, ip, u, pw, prefix="milesight", app_name="Home Assistant", ns_prefix=None):
+        CALLS.append(("mqtt", ip, u))
+        nsp = (ns_prefix or prefix).rstrip("/")
+        return {"topic": "milesight/uplink/#", "downlink_topic": "milesight/downlink/{deveui}",
+            "extra_topics": "milesight/ack, milesight/join, milesight/gateway", "application_id": "7",
+            "ns_request_topic": f"{nsp}/request", "ns_response_topic": f"{nsp}/response"}
 FakeClient.bad = False
 class _GwErr(Exception): pass
 

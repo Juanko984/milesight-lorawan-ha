@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.42.0
+- **Register a new device on a specific gateway's embedded network server.** When you add a device by hand
+  (scan or type it in) and more than one gateway has its embedded MQTT server set up, the Add screen now shows
+  an **"On which gateway"** picker, and the device is registered on that gateway's own network server only.
+  - Each gateway configured for MQTT now gets its **own ns-api management channel** (`milesight/ns/<eui>/request`
+    and `/response`) while the data pipeline stays shared (`milesight/uplink`), so Home Assistant can address one
+    gateway's embedded server without the add-device request going to every gateway at once (which previously
+    risked duplicate OTAA joins).
+  - **Discovered** devices are unaffected: they register on the gateway that heard them, with no picker — the
+    picker is only for a new device you add by hand.
+  - Existing gateways get their per-gateway channel the next time you run **Configure → Add devices to the
+    gateway** in the panel. The config-flow gateway remains a registration target via the hub-wide connection.
+- Only the embedded-MQTT path is affected. The Semtech path is unchanged: there, all gateways feed Home
+  Assistant's built-in network server and a device is registered once and heard by every gateway.
+
 ## 0.41.1
 - **Add-a-device screen now names the gateways that will cover a device.** The per-network-server picker only
   appears when there is more than one network server set up; with a single network server (the usual case) the
