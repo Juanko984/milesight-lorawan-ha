@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.11
+### Changed
+- The Gateways tab's status column now shows the real **connection paths** (e.g. "Semtech UDP + MQTT") instead of
+  the raw discovery code ("lan_dhcp"), so a Configure or Refresh is reflected there. Gateways not heard yet show how
+  they were found.
+
+## 0.40.10
+### Added
+- **"Refresh from gateway"** in the Gateways tab: logs into the gateway and reads its *actual* configuration — the
+  Semtech destinations and the MQTT application — then sets the connection label authoritatively from that
+  (`Semtech UDP`, `MQTT`, or both), without changing anything on the gateway. Use it to reconcile a gateway whose
+  label is stale, or that was set up outside the panel. The admin password is sent only to the gateway and never stored.
+
 ## 0.40.9
 ### Fixed
 - **A gateway's connection label now reflects what was configured, not only what has been heard.** Configuring a

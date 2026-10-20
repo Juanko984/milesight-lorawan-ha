@@ -320,22 +320,31 @@ class Hub:
             self._changed(force=True)
         return had
 
-    def mark_connections(self, eui: str, kinds: list[str]) -> bool:
-        """Record how a gateway reaches Home Assistant (e.g. after the panel configures it): 'built-in' for the
-        Semtech → HA network server, 'embedded' for the gateway's own MQTT. This makes the connection label show
-        'Semtech UDP + MQTT' as soon as it is set up, instead of only after the first uplink on each path arrives."""
+    def mark_connections(self, eui: str, kinds: list[str], replace: bool = False) -> bool:
+        """Record how a gateway reaches Home Assistant: 'built-in' for the Semtech → HA network server, 'embedded'
+        for the gateway's own MQTT. Used after the panel configures a gateway (so the label shows 'Semtech UDP +
+        MQTT' right away, not only after the first uplink on each path), and — with replace=True — after a refresh
+        that re-reads the gateway's real config, to set the label authoritatively."""
         from .gateway_discovery import norm_hex
         eui = norm_hex(eui)
         g = self.stats.gateways.get(eui) or self.stats.expected.get(eui)
         if g is None:
             return False
-        conns = g.setdefault("conn", [])
         changed = False
-        for k in kinds:
-            if k and k not in conns:
-                conns.append(k)
-                g.setdefault("found", {"built-in": "semtech"}.get(k, "mqtt"))
+        if replace:
+            new = list(dict.fromkeys(k for k in kinds if k))
+            if new != g.get("conn"):
+                g["conn"] = new
+                if new:
+                    g.setdefault("found", {"built-in": "semtech"}.get(new[0], "mqtt"))
                 changed = True
+        else:
+            conns = g.setdefault("conn", [])
+            for k in kinds:
+                if k and k not in conns:
+                    conns.append(k)
+                    g.setdefault("found", {"built-in": "semtech"}.get(k, "mqtt"))
+                    changed = True
         if changed:
             self.store.async_delay_save(self.stats.to_dict, 1)
             self._changed(force=True)

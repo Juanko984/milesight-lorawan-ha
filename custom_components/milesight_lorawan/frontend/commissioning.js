@@ -125,6 +125,25 @@ class MilesightCommissioning extends HTMLElement {
     } catch (e) { this._gwBusy = false; this._error(e); }
   }
 
+  async _refreshGateway() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const host = ($("gw-host").value || "").trim();
+    const password = $("gw-pass").value;
+    if (!host) { this._error("Enter the gateway's IP address."); return; }
+    if (!password) { this._error("Enter the gateway's admin password to read its settings."); return; }
+    this._gwBusy = true; this._msg = null; this._gwResult = null; this._render();
+    try {
+      const r = await this._ws({ type: "refresh_gateway", host, username: ($("gw-user").value || "").trim() || "admin", password });
+      this._gwBusy = false;
+      const paths = [];
+      if (r.semtech) paths.push("Semtech → Home Assistant");
+      if (r.mqtt) paths.push("MQTT application → Home Assistant");
+      const gw = r.gateway || {};
+      this._gwResult = `${gw.model || "Gateway"}${gw.eui ? ` (${gw.eui})` : ""}: ${paths.length ? paths.join(" · ") : "no Home Assistant forwarding configured"}. Label updated.`;
+      await this._loadGateways();
+    } catch (e) { this._gwBusy = false; this._error(e); }
+  }
+
   async _forgetGateway(eui) {
     if (!window.confirm(`Forget gateway ${String(eui).toUpperCase()}? It can be added again by configuring it.`)) return;
     try { await this._ws({ type: "forget_gateway", eui }); this._info("Gateway forgotten."); await this._loadGateways(); }
@@ -563,7 +582,8 @@ class MilesightCommissioning extends HTMLElement {
           <label>MQTT user <span class="muted">(blank = Home Assistant's own)</span><input id="gw-muser" value="${esc(f.mqtt_user || "")}" autocomplete="off"></label>
           <label>MQTT password<input id="gw-mpass" type="password" value="${esc(f.mqtt_password || "")}" autocomplete="off"></label>
         </div>` : ""}
-        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : (this._gwEdit ? "Re-apply settings" : "Configure gateway")}</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
+        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : (this._gwEdit ? "Re-apply settings" : "Configure gateway")}</button><button id="b-gw-refresh" ${this._gwBusy ? "disabled" : ""}>Refresh from gateway</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
+        <p class="hint">"Refresh from gateway" logs in and reads the gateway's real settings to correct its Semtech / MQTT label without changing anything.</p>
       </div>`;
   }
 
@@ -702,6 +722,7 @@ class MilesightCommissioning extends HTMLElement {
     on("t-gw", "click", () => { this._tab = "gw"; this._msg = null; this._stopCamera(); this._loadGateways(); this._loadDiscovered(); this._render(); });
     on("t-walk", "click", () => { this._tab = "walk"; this._msg = null; this._stopCamera(); this._loadDevices(); this._render(); });
     on("b-gw-cfg", "click", () => this._configureGateway());
+    on("b-gw-refresh", "click", () => this._refreshGateway());
     on("b-gw-cancel", "click", () => { this._gwEdit = null; this._gwForm = { username: "admin", mode: "both", band: "EU868" }; this._msg = null; this._render(); });
     on("gw-mode", "change", (e) => { this._gwForm = { ...(this._gwForm || {}), mode: e.target.value }; this._render(); });
     for (const [id, key] of [["gw-host", "host"], ["gw-user", "username"], ["gw-pass", "password"], ["gw-band", "band"], ["gw-muser", "mqtt_user"], ["gw-mpass", "mqtt_password"]]) {

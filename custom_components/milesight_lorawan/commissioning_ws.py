@@ -74,8 +74,8 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             hass.http.register_static_path(STATIC_URL, str(FRONTEND), True)
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
-        for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_forget_gateway,
-                        ws_discovered, ws_ignore,
+        for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_refresh_gateway,
+                        ws_forget_gateway, ws_discovered, ws_ignore,
                         ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
@@ -173,6 +173,7 @@ async def ws_add_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
 def ws_gateways(hass: HomeAssistant, connection, msg: dict) -> None:
     """Every gateway Home Assistant knows — heard or just announced — with live status, for the Gateways tab."""
     from .const import CONF_GATEWAY_OFFLINE_MIN, DEFAULT_GATEWAY_OFFLINE_MIN
+    from .gateway_discovery import connection_label, found_label
     now = time.time()
     out: dict[str, dict] = {}
     ha_ip = None
@@ -187,8 +188,10 @@ def ws_gateways(hass: HomeAssistant, connection, msg: dict) -> None:
                 "eui": gid, "name": g.get("name") or gid, "area": g.get("area"), "ip": g.get("ip") or info.get("ip"),
                 "model": g.get("model") or info.get("model"), "firmware": info.get("firmware"),
                 "online": st.online(gid, now, offline_s), "last_heard": g.get("last_heard"),
-                "packets_today": g.get("packets_today", 0), "connection": g.get("found") or (g.get("conn") or [None])[0],
-                "approved": bool(g.get("approved")), "heard": True}
+                "packets_today": g.get("packets_today", 0),
+                "connection": connection_label(g.get("conn"), short=True) if g.get("conn")
+                else (found_label(g.get("found")) if g.get("found") else None),
+                "found": g.get("found"), "approved": bool(g.get("approved")), "heard": True}
         for gid, g in st.expected.items():
             if gid not in out:
                 out[gid] = {"eui": gid, "name": g.get("name") or gid, "area": g.get("area"), "ip": g.get("ip"),
@@ -229,6 +232,34 @@ async def ws_configure_gateway(hass: HomeAssistant, connection, msg: dict) -> No
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "error", str(err))
         return
+    connection.send_result(msg["id"], out)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/commission/refresh_gateway", vol.Required("host"): str,
+    vol.Optional("username", default="admin"): str, vol.Required("password"): str,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_refresh_gateway(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Log into a gateway and set its connection label from what is actually configured (Semtech + MQTT),
+    reconciling the saved state with the gateway's real config. The admin password is never stored."""
+    from .gateway_api import GatewayError, read_gateway_connections
+    from .gateway_discovery import norm_hex
+    try:
+        out = await read_gateway_connections(hass, msg["host"].strip(), msg["username"], msg["password"])
+    except GatewayError as err:
+        connection.send_error(msg["id"], "gateway", str(err))
+        return
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "error", str(err))
+        return
+    eui = norm_hex((out.get("gateway") or {}).get("eui") or "")
+    kinds = (["built-in"] if out.get("semtech") else []) + (["embedded"] if out.get("mqtt") else [])
+    if eui:
+        for h in _hubs(hass):
+            if hasattr(h, "mark_connections"):
+                h.mark_connections(eui, kinds, replace=True)
     connection.send_result(msg["id"], out)
 
 

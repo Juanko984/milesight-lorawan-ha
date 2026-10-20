@@ -359,6 +359,57 @@ class GatewayClient:
     async def async_profiles(self) -> list[dict[str, Any]]:
         return (await self._json("GET", "/api/urprofiles?limit=999") or {}).get("result", [])
 
+    async def async_read_connections(self, ha_ip: str, broker: str) -> dict[str, bool]:
+        """What the gateway actually forwards to Home Assistant right now: whether its Semtech packet forwarder
+        points at HA, and whether any of its applications has an MQTT integration to HA's broker."""
+        semtech = False
+        try:
+            gw = await self._cgi("yruo_loragw", "get", "general_conf")
+            conf = next((it["value"] for it in gw.get("get", []) if it.get("type") == "general_conf"), {})
+            semtech = has_semtech(conf, ha_ip)
+        except GatewayError:
+            pass
+        mqtt = False
+        try:
+            apps = (await self._json("GET", "/api/urapplications?limit=999") or {}).get("result", [])
+            for a in apps:
+                try:
+                    integ = await self._json("GET", f"/api/urapplications/{a['id']}/integrations/mqtt")
+                except GatewayError:
+                    continue
+                host = str((integ or {}).get("host") or "")
+                if host and host in (ha_ip, broker):
+                    mqtt = True
+                    break
+        except GatewayError:
+            pass
+        return {"semtech": semtech, "mqtt": mqtt}
+
+
+async def read_gateway_connections(hass: Any, host: str, username: str, password: str) -> dict[str, Any]:
+    """Log into a gateway and read what is actually configured, to reconcile its connection label with reality.
+    Returns {gateway, semtech, mqtt, home_assistant_ip}. Raises GatewayError on failure."""
+    from urllib.parse import urlparse
+
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    from homeassistant.helpers.network import get_url
+    try:
+        from homeassistant.components.network import async_get_source_ip
+        ha_ip = await async_get_source_ip(hass, target_ip=host)
+    except Exception:  # noqa: BLE001
+        ha_ip = urlparse(get_url(hass, allow_external=False)).hostname
+    broker = ha_ip
+    for e in hass.config_entries.async_entries("mqtt"):
+        md = {**e.data, **e.options}
+        if md.get("broker"):
+            broker = md["broker"] if md["broker"] not in ("localhost", "127.0.0.1", "core-mosquitto") else ha_ip
+            break
+    client = GatewayClient(async_get_clientsession(hass), host, username, password)
+    await client.login()
+    info = await client.async_read_info()
+    conns = await client.async_read_connections(ha_ip, broker)
+    return {"gateway": info, "home_assistant_ip": ha_ip, **conns}
+
 
 async def run_gateway_config(hass: Any, host: str, username: str, password: str, mode: str = "lns",
                              band: str = "EU868", mqtt_user: str | None = None,
