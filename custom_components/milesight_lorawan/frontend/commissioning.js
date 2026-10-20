@@ -583,7 +583,7 @@ class MilesightCommissioning extends HTMLElement {
           <label>MQTT user <span class="muted">(blank = Home Assistant's own)</span><input id="gw-muser" value="${esc(f.mqtt_user || "")}" autocomplete="off"></label>
           <label>MQTT password<input id="gw-mpass" type="password" value="${esc(f.mqtt_password || "")}" autocomplete="off"></label>
         </div>` : ""}
-        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : (this._gwEdit ? "Re-apply settings" : "Configure gateway")}</button><button id="b-gw-refresh" ${this._gwBusy ? "disabled" : ""}>Refresh from gateway</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
+        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : "Configure gateway"}</button><button id="b-gw-refresh" ${this._gwBusy ? "disabled" : ""}>Refresh from gateway</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
         <p class="hint">"Refresh from gateway" logs in and reads the gateway's real settings to correct its Semtech / MQTT label without changing anything.</p>
       </div>`;
   }

@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.42.2
+- **Clearer button label.** The gateway setup button is now "Configure gateway" for both a new and an
+  already-added gateway (it previously read "Re-apply settings" when editing one, which didn't match the
+  "Configure" wording used elsewhere).
+
+## 0.42.1
+- **Fix `POST …/integrations/mqtt → HTTP 409` when re-configuring a gateway.** A gateway whose application
+  already had an MQTT integration (e.g. it was set up before on the old shared topics) rejected a second POST
+  with 409. Configure now updates the existing integration in place (PUT) instead of trying to create another,
+  so moving a gateway onto its per-gateway `milesight/ns/<eui>/…` topics works on gateways that were already
+  configured.
+
 ## 0.42.0
 - **Register a new device on a specific gateway's embedded network server.** When you add a device by hand
   (scan or type it in) and more than one gateway has its embedded MQTT server set up, the Add screen now shows

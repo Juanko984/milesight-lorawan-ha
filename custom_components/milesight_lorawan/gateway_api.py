@@ -360,9 +360,22 @@ class GatewayClient:
             created = await self._json("POST", "/api/urapplications",
                                        application_body(app_name, svc, "Milesight LoRaWAN for Home Assistant"))
             app_id = str(created["id"])
-        await self._json("POST", f"/api/urapplications/{app_id}/integrations/mqtt",
-                         mqtt_integration(app_id, broker_ip, 1883, mqtt_user, mqtt_password, prefix,
-                                          ns_prefix=ns_prefix))
+        # the gateway CREATEs an application's MQTT integration with POST and UPDATEs it with PUT. An application
+        # that already has one (e.g. it was configured before, on the old shared topics) answers POST with HTTP 409,
+        # so update it in place instead of trying to create a second one.
+        mqtt_path = f"/api/urapplications/{app_id}/integrations/mqtt"
+        body = mqtt_integration(app_id, broker_ip, 1883, mqtt_user, mqtt_password, prefix, ns_prefix=ns_prefix)
+        try:
+            has_integ = bool(await self._json("GET", mqtt_path))
+        except GatewayError:
+            has_integ = False
+        try:
+            await self._json("PUT" if has_integ else "POST", mqtt_path, body)
+        except GatewayError as err:
+            if not has_integ and "409" in str(err):          # it existed after all: update it
+                await self._json("PUT", mqtt_path, body)
+            else:
+                raise
         nsp = (ns_prefix or prefix).rstrip("/")
         return {"application_id": app_id, "service_profile_id": svc, **ha_topics(prefix),
                 "ns_request_topic": f"{nsp}/request", "ns_response_topic": f"{nsp}/response"}
