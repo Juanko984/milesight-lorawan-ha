@@ -2,6 +2,29 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.41.0
+Milestone release consolidating the gateway and commissioning work since 0.40.0.
+
+### Highlights
+- **Zero-touch gateway configuration over the LAN, verified on real hardware (UG65 fw 60, UG56):** Home Assistant
+  logs into the gateway and sets it up — points the Semtech packet forwarder at HA and/or creates the embedded
+  network-server MQTT application — with nothing touched on the gateway's own web page. The firmware-specific login
+  (router web session for `/cgi`, JWT for the REST API) is handled automatically.
+- **Commissioning panel — Gateways tab:** add & configure, a live gateway list with status, **Refresh from gateway**
+  (reads the real Semtech/MQTT config and sets the connection label authoritatively), re-apply settings, and forget.
+- **Discovered devices & gateways in the panel:** the items Home Assistant auto-discovers now appear in the panel
+  with Add / Configure / Ignore, so an installer never has to leave the screen.
+- **Choose which gateway to register a device on** when more than one is set up for provisioning.
+- Connection labels reflect what was configured (not only what has been heard), and the Gateways tab shows the real
+  connection paths ("Semtech UDP + MQTT").
+
+### Fixed
+- Integration going red after a reload (an unload callback returned a Task on HA/Python 3.14).
+- Gateway device-list attributes trimmed under the recorder's 16 KB limit.
+- Removed dead/conflicting gateway device-registration helpers that used the wrong profile key.
+
+(See 0.40.1–0.40.11 below for the detailed per-release notes.)
+
 ## 0.40.11
 ### Changed
 - The Gateways tab's status column now shows the real **connection paths** (e.g. "Semtech UDP + MQTT") instead of
