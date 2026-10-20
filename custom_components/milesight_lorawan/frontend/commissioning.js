@@ -649,7 +649,15 @@ class MilesightCommissioning extends HTMLElement {
           if (!regs.length) return `<p class="hint">Gateway registration is not set up (gateway → Configure → Add devices to the gateway) – add the device on the gateway yourself.</p>`;
           const cb = `<label style="flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--primary-text-color)">
             <input type="checkbox" id="f-register" ${f.register === false ? "" : "checked"} style="width:20px;height:20px"> Also register it on the gateway</label>`;
-          const sel = regs.length > 1 ? `<label>On which gateway<select id="f-hub">${regs.map((r) => `<option value="${esc(r.hub)}" ${r.hub === f.hub ? "selected" : ""}>${esc(r.name)}${r.eui ? " · " + esc(r.eui) : ""}</option>`).join("")}</select></label>` : "";
+          let sel;
+          if (regs.length > 1) {
+            sel = `<label>On which network server<select id="f-hub">${regs.map((r) => `<option value="${esc(r.hub)}" ${r.hub === f.hub ? "selected" : ""}>${esc(r.name)}${r.eui ? " · " + esc(r.eui) : ""}</option>`).join("")}</select></label>`;
+          } else {
+            const covers = (regs[0] && regs[0].covers) || [];
+            sel = covers.length
+              ? `<p class="hint">Covered by ${covers.length === 1 ? "" : "both gateways: "}${covers.map(esc).join(", ")} – a registered device is heard by ${covers.length === 1 ? "it" : "all of them"} automatically.</p>`
+              : "";
+          }
           return cb + sel;
         })()}
         <div class="row"><button class="primary" id="b-add" ${this._busy ? "disabled" : ""}>${this._busy ? "Adding…" : "Add device"}</button><button id="b-again">Cancel</button></div>`}

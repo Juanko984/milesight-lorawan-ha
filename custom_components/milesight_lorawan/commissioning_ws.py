@@ -48,8 +48,10 @@ def _norm(deveui: str) -> str:
 
 
 def _reg_gateways(hass: HomeAssistant) -> list[dict]:
-    """The hubs that can register a device on their gateway, each labelled by that gateway's name, so the panel
-    can let the installer pick which gateway when there is more than one."""
+    """The hubs (network servers) that can register a device, each labelled by its network-server gateway and
+    carrying the names of the gateways it hears. The panel shows a picker only when there is more than one
+    network server; with one network server it instead names the gateways that will cover the device, because
+    they share one topic namespace and a registered device is heard by all of them."""
     from .const import CONF_NS_GATEWAY_EUI
     out = []
     for h in _hubs(hass):
@@ -57,9 +59,11 @@ def _reg_gateways(hass: HomeAssistant) -> list[dict]:
             continue
         opts = {**h.entry.data, **h.entry.options}
         eui = str(opts.get(CONF_NS_GATEWAY_EUI) or "").lower()
-        g = (getattr(h, "stats", None).gateways.get(eui) if getattr(h, "stats", None) and eui else None) or {}
+        st = getattr(h, "stats", None)
+        g = (st.gateways.get(eui) if st and eui else None) or {}
+        covers = sorted({str(gg.get("name") or gid) for gid, gg in (st.gateways.items() if st else [])})
         out.append({"hub": h.entry.entry_id, "name": g.get("name") or h.entry.title,
-                    "eui": eui.upper() or None})
+                    "eui": eui.upper() or None, "covers": covers})
     return out
 
 

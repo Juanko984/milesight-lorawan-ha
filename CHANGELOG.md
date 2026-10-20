@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.41.1
+- **Add-a-device screen now names the gateways that will cover a device.** The per-network-server picker only
+  appears when there is more than one network server set up; with a single network server (the usual case) the
+  two gateways share one topic namespace and feed one network server, so a registered device is heard by both
+  automatically. The screen now says so — e.g. "Covered by both gateways: Local Gateway, UG65 …" — instead of
+  showing nothing. (The "On which gateway" dropdown was correctly hidden before; it is for multiple independent
+  networks, not multiple gateways on one network.)
+
 ## 0.41.0
 Milestone release consolidating the gateway and commissioning work since 0.40.0.
 
