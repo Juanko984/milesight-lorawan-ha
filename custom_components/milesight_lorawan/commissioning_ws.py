@@ -47,6 +47,22 @@ def _norm(deveui: str) -> str:
     return "".join(ch for ch in str(deveui).lower() if ch in "0123456789abcdef")
 
 
+def _reg_gateways(hass: HomeAssistant) -> list[dict]:
+    """The hubs that can register a device on their gateway, each labelled by that gateway's name, so the panel
+    can let the installer pick which gateway when there is more than one."""
+    from .const import CONF_NS_GATEWAY_EUI
+    out = []
+    for h in _hubs(hass):
+        if not getattr(h, "can_provision", False):
+            continue
+        opts = {**h.entry.data, **h.entry.options}
+        eui = str(opts.get(CONF_NS_GATEWAY_EUI) or "").lower()
+        g = (getattr(h, "stats", None).gateways.get(eui) if getattr(h, "stats", None) and eui else None) or {}
+        out.append({"hub": h.entry.entry_id, "name": g.get("name") or h.entry.title,
+                    "eui": eui.upper() or None})
+    return out
+
+
 async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
     """Static files, sidebar panel and websocket commands (once)."""
     data = hass.data.setdefault(DOMAIN, {"hubs": {}})
@@ -108,11 +124,12 @@ def ws_parse(hass: HomeAssistant, connection, msg: dict) -> None:
             p["model"] = p["model"] or best or guess_from_name(up.device_name)
             p["heard"] = True
     entry = hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, deveui) if deveui else None
+    reg_gateways = _reg_gateways(hass)
     connection.send_result(msg["id"], {
         **{k: v for k, v in p.items() if k != "app_key"}, "has_app_key": bool(p.get("app_key")),
         "app_key": p.get("app_key"), "candidates": candidates, "exists": entry is not None,
         "existing_name": entry.title if entry else None,
-        "can_register": any(getattr(h, "can_provision", False) for h in _hubs(hass)),
+        "can_register": bool(reg_gateways), "reg_gateways": reg_gateways,
         "models": sorted(({"value": k, "label": m.label} for k, m in MODELS.items()), key=lambda x: x["label"]),
         "families": {k: sorted(families(k)) for k in MODELS},
         "purposes": [{"value": pp.key, "families": sorted(pp.families),
@@ -320,7 +337,7 @@ def ws_devices(hass: HomeAssistant, connection, msg: dict) -> None:
     vol.Required("type"): f"{DOMAIN}/commission/add",
     vol.Required("deveui"): str, vol.Required("model"): str, vol.Optional("name"): str,
     vol.Optional("area"): str, vol.Optional("app_key"): str, vol.Optional("register", default=True): bool,
-    vol.Optional("purpose"): str,
+    vol.Optional("purpose"): str, vol.Optional("hub"): str,
 })
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -336,7 +353,8 @@ async def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
     name = (msg.get("name") or "").strip() or f"{msg['model']} {deveui[-4:].upper()}"
     gateway = None
     if msg.get("register"):
-        hub = next((h for h in _hubs(hass) if getattr(h, "can_provision", False)), None)
+        provis = [h for h in _hubs(hass) if getattr(h, "can_provision", False)]
+        hub = next((h for h in provis if h.entry.entry_id == msg.get("hub")), None) or (provis[0] if provis else None)
         if hub is not None:
             try:
                 gateway = await hub.async_provision(deveui, name, key)

@@ -405,4 +405,10 @@ async def run_gateway_config(hass: Any, host: str, username: str, password: str,
         from .gateway_discovery import norm_hex
         hub.expect_gateway(norm_hex(info["eui"]),
                            {"name": info.get("model"), "ip": host, "model": info.get("model")})
+        # record the paths we just set up so the connection label is right away (not only after the first uplink
+        # on each path arrives): Semtech → HA network server = "built-in", the gateway's own MQTT = "embedded".
+        kinds = (["built-in"] if any(d in done for d in ("semtech", "semtech_already")) else []) \
+            + (["embedded"] if "mqtt" in done else [])
+        if kinds and hasattr(hub, "mark_connections"):
+            hub.mark_connections(norm_hex(info["eui"]), kinds)
     return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics}

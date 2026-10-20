@@ -320,6 +320,27 @@ class Hub:
             self._changed(force=True)
         return had
 
+    def mark_connections(self, eui: str, kinds: list[str]) -> bool:
+        """Record how a gateway reaches Home Assistant (e.g. after the panel configures it): 'built-in' for the
+        Semtech → HA network server, 'embedded' for the gateway's own MQTT. This makes the connection label show
+        'Semtech UDP + MQTT' as soon as it is set up, instead of only after the first uplink on each path arrives."""
+        from .gateway_discovery import norm_hex
+        eui = norm_hex(eui)
+        g = self.stats.gateways.get(eui) or self.stats.expected.get(eui)
+        if g is None:
+            return False
+        conns = g.setdefault("conn", [])
+        changed = False
+        for k in kinds:
+            if k and k not in conns:
+                conns.append(k)
+                g.setdefault("found", {"built-in": "semtech"}.get(k, "mqtt"))
+                changed = True
+        if changed:
+            self.store.async_delay_save(self.stats.to_dict, 1)
+            self._changed(force=True)
+        return changed
+
     def gateway_known(self, eui: str) -> bool:
         """Confirmed or announced already."""
         return bool((self.stats.gateways.get(eui) or {}).get("approved")) or eui in self.stats.expected

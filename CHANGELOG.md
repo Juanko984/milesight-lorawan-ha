@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.40.9
+### Fixed
+- **A gateway's connection label now reflects what was configured, not only what has been heard.** Configuring a
+  gateway (Semtech + MQTT) from the panel now records both paths immediately, so it shows "Semtech UDP + MQTT"
+  right away instead of only "Semtech UDP" until the first MQTT uplink happens to arrive. (Re-run **Configure** on
+  an already-set-up gateway to correct its label.)
+
+## 0.40.8
+### Fixed
+- **Add a device → "register on the gateway" now lets you choose which gateway** when more than one is set up for
+  provisioning. Previously it silently used the first one. The New-device form shows an "On which gateway" picker
+  (labelled by gateway name) whenever there are two or more; with a single gateway it's unchanged.
+
 ## 0.40.7
 ### Added
 - **Discovered devices and gateways now appear in the commissioning panel.** The same items Home Assistant shows

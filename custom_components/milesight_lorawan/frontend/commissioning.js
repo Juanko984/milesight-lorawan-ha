@@ -312,6 +312,7 @@ class MilesightCommissioning extends HTMLElement {
     const data = { type: "add", deveui: $("f-deveui").value, model: $("f-model").value, name: $("f-name").value,
                    area: $("f-area").value, register: !!$("f-register")?.checked };
     if ($("f-purpose")?.value) data.purpose = $("f-purpose").value;
+    if ($("f-hub")?.value) data.hub = $("f-hub").value;
     if ($("f-key").value.trim()) data.app_key = $("f-key").value.trim();
     if (!data.model) { this._error("Pick the model."); return; }
     this._busy = true; this._render();
@@ -623,9 +624,14 @@ class MilesightCommissioning extends HTMLElement {
         </div>
         <label>AppKey ${p.has_app_key ? "(from the code)" : "(empty = the gateway's default key)"}
           <input id="f-key" type="password" value="${esc(f.key ?? (p.app_key || ""))}" autocomplete="off"></label>
-        ${p.can_register ? `<label style="flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--primary-text-color)">
-          <input type="checkbox" id="f-register" ${f.register === false ? "" : "checked"} style="width:20px;height:20px"> Also register it on the gateway</label>`
-          : `<p class="hint">Gateway registration is not set up (gateway → Configure → Add devices to the gateway) – add the device on the gateway yourself.</p>`}
+        ${(() => {
+          const regs = p.reg_gateways || [];
+          if (!regs.length) return `<p class="hint">Gateway registration is not set up (gateway → Configure → Add devices to the gateway) – add the device on the gateway yourself.</p>`;
+          const cb = `<label style="flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--primary-text-color)">
+            <input type="checkbox" id="f-register" ${f.register === false ? "" : "checked"} style="width:20px;height:20px"> Also register it on the gateway</label>`;
+          const sel = regs.length > 1 ? `<label>On which gateway<select id="f-hub">${regs.map((r) => `<option value="${esc(r.hub)}" ${r.hub === f.hub ? "selected" : ""}>${esc(r.name)}${r.eui ? " · " + esc(r.eui) : ""}</option>`).join("")}</select></label>` : "";
+          return cb + sel;
+        })()}
         <div class="row"><button class="primary" id="b-add" ${this._busy ? "disabled" : ""}>${this._busy ? "Adding…" : "Add device"}</button><button id="b-again">Cancel</button></div>`}
       </div>`;
   }
@@ -722,8 +728,8 @@ class MilesightCommissioning extends HTMLElement {
     on("manual", "input", (e) => { this._manual = e.target.value; });
     for (const [id, key, prop] of [["f-deveui", "deveui", "value"], ["f-model", "model", "value"], ["f-name", "name", "value"],
                                    ["f-area", "area", "value"], ["f-key", "key", "value"], ["f-register", "register", "checked"],
-                                   ["f-purpose", "purpose", "value"]]) {
-      on(id, ["f-model", "f-register", "f-purpose"].includes(id) ? "change" : "input", (e) => {
+                                   ["f-purpose", "purpose", "value"], ["f-hub", "hub", "value"]]) {
+      on(id, ["f-model", "f-register", "f-purpose", "f-hub"].includes(id) ? "change" : "input", (e) => {
         this._form = { ...(this._form || {}), [key]: e.target[prop] };
         if (id === "f-model") this._render();            // the purposes depend on the model
       });
