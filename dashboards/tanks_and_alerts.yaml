@@ -28,6 +28,9 @@ views:
           - type: heading
             heading: Tanks and silos
             icon: mdi:storage-tank
+          - type: custom:milesight-level-card
+            title: false
+            grid_options: {columns: full}
           - type: markdown
             grid_options: {columns: full}
             content: |

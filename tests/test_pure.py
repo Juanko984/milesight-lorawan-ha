@@ -1965,7 +1965,11 @@ def test_maintenance_dashboard_renders():
     assert "📴 **Freezer**" in out["Offline more than 24 h or never heard"] and "1.3 days" in out["Offline more than 24 h or never heard"]
     assert "🟠 **Cold room**" in out["Weak or lossy devices"] and "best" not in out["Weak or lossy devices"].split("Freezer")[0][:0]
     assert "🟢 **UG65**" in out["Gateways"] and "120 packets" in out["Gateways"]
-    assert "🔴 **Freezer** · EM300-TH" in out["All devices"] and "🔋 40 % (due 2026-12-01)" in out["All devices"]
+    # "All devices" is now the custom table card (milesight-table-card), not markdown
+    all_dev = next(s for v in cfg["views"] for s in v["sections"]
+                   if any(c.get("heading") == "All devices" for c in s["cards"]))
+    tbl = next(c for c in all_dev["cards"] if c["type"] == "custom:milesight-table-card")
+    assert tbl["preset"] == "devices"
     assert "⚠ mixed: 1.2 (1), 1.3 (1)" in out["Firmware"] and "Older than 1.3: Cold room" in out["Firmware"]
     assert "🔋 **Cold room**" in out["Service history"] and "Battery replaced · Juan" in out["Service history"]
 
@@ -2103,6 +2107,13 @@ def test_gateway_api():
     t = ga.ha_topics("milesight")
     assert t["topic"] == "milesight/uplink/#" and t["downlink_topic"] == "milesight/downlink/{deveui}"
     assert t["ns_request_topic"] == "milesight/request"
+    # the bundled Lovelace cards ship and register all four custom elements
+    import pathlib as _pl
+    cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
+    for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
+                 "milesight-level-card", "milesight-table-card"):
+        assert f'customElements.define(tag' in cards and _tag in cards, _tag
+    assert "window.customCards" in cards
     # gateway timezone label → IANA name (for setting the clock in the gateway's own zone)
     assert ga._gateway_tz_iana("UTC+2 Africa/Johannesburg") == "Africa/Johannesburg"
     assert ga._gateway_tz_iana("UTC Europe/London") == "Europe/London"

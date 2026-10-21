@@ -2,6 +2,39 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.47.0
+- **New table card with issue highlighting** (`milesight-table-card`). A compact, sortable device table that
+  **faintly tints a whole row** when something's wrong — red for offline, amber for low battery — and **emphasises
+  individual cells** past their threshold (weak RSSI/SNR, high spreading factor, packet loss), so problems jump out
+  at a glance. Works in light and dark, with an optional "only show issues" mode. Ships a `devices` preset (columns
+  + thresholds for the Milesight device shape); columns and rules are fully overridable.
+- **Maintenance dashboard "All devices" is now this table** instead of a text list.
+- Fixed: the **Tanks dashboard** animated-level grid (added in 0.46.0) is now actually wired into the shipped
+  dashboard — the earlier change had been reverted by the resource-sync step before release.
+
+## 0.46.0
+- **Visual config editors for every card.** Adding a Milesight card now shows a proper form — entity pickers,
+  dropdowns (vessel shape, contents), number boxes and toggles — instead of hand-edited YAML.
+- **The Level card has an auto mode.** With no `entity` set it finds every tank/silo device on the site and draws
+  a responsive grid of animated vessels (shape and colour per device, low/critical states). The shipped **Tanks &
+  alerts** dashboard now shows this grid above the existing text summary — the emoji fill bar is replaced by real
+  animated vessels, still with zero entity IDs to configure.
+
+## 0.45.0
+- **Four self-contained Lovelace cards**, shipped with the integration and auto-loaded — no HACS, no ApexCharts,
+  no manual resource. They appear in the dashboard "Add card" picker as "Milesight …" and theme themselves to
+  the user's dashboard (light and dark):
+  - **Milesight Gateway** (`milesight-gateway-card`) — online, packets today, devices heard, connection path,
+    location and clock.
+  - **Milesight Device** (`milesight-device-card`) — battery ring, signal bars (RSSI quality), online + last-seen,
+    the headline reading and an inline trend sparkline. Finds the device's battery/signal siblings automatically.
+  - **Milesight Trend** (`milesight-trend-card`) — a lightweight SVG line/area chart over history for any sensor.
+  - **Milesight Level** (`milesight-level-card`) — an animated fill that takes the shape of the vessel from the
+    device's purpose: tank, silo, dam or waste bin, with a moving liquid surface, low-level colour states, and
+    volume / capacity / days-left read from the sensor's attributes.
+  Point a card at an entity and it fills in the rest; the cards also work with any Home Assistant entity, not
+  only Milesight ones.
+
 ## 0.44.1
 - **Configure now also sets the gateway clock.** Since "Configure gateway" is already logged in, it now pushes
   Home Assistant's time to the gateway as part of the same run (reported as "clock set from Home Assistant"). So

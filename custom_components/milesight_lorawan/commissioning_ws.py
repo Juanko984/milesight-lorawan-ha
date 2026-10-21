@@ -83,6 +83,13 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             await hass.http.async_register_static_paths([StaticPathConfig(STATIC_URL, str(FRONTEND), True)])
         except ImportError:          # Home Assistant before 2024.7
             hass.http.register_static_path(STATIC_URL, str(FRONTEND), True)
+        # auto-load the bundled Lovelace cards on every dashboard (no manual resource, no HACS): the file
+        # self-registers milesight-gateway/device/trend/level-card and adds them to the card picker.
+        try:
+            from homeassistant.components.frontend import add_extra_js_url
+            add_extra_js_url(hass, f"{STATIC_URL}/milesight-cards.js?v={version}")
+        except Exception:  # noqa: BLE001 - cards are a convenience; never block setup
+            _LOGGER.debug("Could not register the Milesight Lovelace cards", exc_info=True)
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
         for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_refresh_gateway,

@@ -105,17 +105,12 @@ views:
           - type: heading
             heading: All devices
             icon: mdi:access-point-network
-          - type: markdown
+          # A sortable table that faintly tints a row red when a device is offline and amber when its battery is
+          # low, and emphasises any cell past its threshold (weak RSSI/SNR, high spreading factor, packet loss).
+          - type: custom:milesight-table-card
+            preset: devices
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set icon = {'excellent': '🟢', 'good': '🟢', 'fair': '🟠', 'poor': '🔴'} %}
-              {% if not devs %}No devices yet.{% endif %}
-              {% for d in devs | sort(attribute='name') %}{{ '🟢' if d.online else '🔴' }} **{{ d.name }}** · {{ d.model }}{{ ' · ' ~ d.area if d.area else '' }}{{ ' · ' ~ d.purpose if d.purpose else '' }}  
-              <small>{% if d.battery is not none %}🔋 {{ d.battery }} %{% if d.battery_replace_by %} (due {{ d.battery_replace_by }}){% endif %} · {% endif %}{{ icon.get(d.signal, '⚪') }} {{ d.signal or 'no signal data' }}{% if d.rssi is not none %} · {{ d.rssi }} dBm / {{ d.snr }} dB · SF{{ d.sf }}{% endif %}{% if d.gateways_heard %} · {{ d.gateways_heard }} gw{% endif %}{% if d.packet_loss %} · {{ d.packet_loss }} % lost{% endif %}  
-              {{ d.network_server or '' }}{% if d.firmware %} · fw {{ d.firmware }}{% endif %}{% if d.command %} · last command {{ d.command }}{% endif %} · last seen {{ as_timestamp(d.last_seen) | timestamp_custom('%d %b %H:%M') if d.last_seen else 'never' }}{% if d.latitude is not none and d.latitude is defined %} · 📍{% endif %}</small>
-
-              {% endfor %}
   - title: Signal
     path: signal
     icon: mdi:signal
