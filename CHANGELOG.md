@@ -2,6 +2,26 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.44.1
+- **Configure now also sets the gateway clock.** Since "Configure gateway" is already logged in, it now pushes
+  Home Assistant's time to the gateway as part of the same run (reported as "clock set from Home Assistant"). So
+  every gateway setup/re-apply keeps the clock right — the closest to hands-off off-grid timekeeping without
+  storing the admin password. Refresh stays read-only and does not touch the clock. The standalone "Sync clock
+  from Home Assistant" button remains for on-demand use.
+
+## 0.44.0
+- **Sync the gateway clock from Home Assistant (off-grid time source).** A new "Sync clock from Home Assistant"
+  button on a gateway's Settings sets the gateway's time to Home Assistant's current time, in the gateway's own
+  timezone. For off-grid sites with no internet NTP, Home Assistant is the time source — no NTP server needed.
+  Verified on UG65 fw60 (`yruo_system` set `time`, `set_type` 2). The admin password is used only for that login
+  and never stored, so the sync is a deliberate action rather than an automatic background job.
+
+## 0.43.0
+- **Gateway location, stored in Home Assistant.** Each gateway's Settings now has a Latitude / Longitude field
+  (with "Use Home Assistant's location" to fill it from HA's own coordinates). It's saved in Home Assistant, not
+  on the gateway, so it works on every model regardless of whether the gateway firmware has a location field. The
+  coordinates show in the Gateways list and are available for maps and coverage.
+
 ## 0.42.2
 - **Clearer button label.** The gateway setup button is now "Configure gateway" for both a new and an
   already-added gateway (it previously read "Re-apply settings" when editing one, which didn't match the

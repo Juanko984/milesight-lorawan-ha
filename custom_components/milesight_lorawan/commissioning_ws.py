@@ -86,7 +86,7 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
         data["commissioning_static"] = True
     if not data.get("commissioning_ws"):
         for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_refresh_gateway,
-                        ws_forget_gateway, ws_discovered, ws_ignore,
+                        ws_set_gateway_location, ws_sync_gateway_time, ws_forget_gateway, ws_discovered, ws_ignore,
                         ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         data["commissioning_ws"] = True
@@ -202,12 +202,14 @@ def ws_gateways(hass: HomeAssistant, connection, msg: dict) -> None:
                 "packets_today": g.get("packets_today", 0),
                 "connection": connection_label(g.get("conn"), short=True) if g.get("conn")
                 else (found_label(g.get("found")) if g.get("found") else None),
-                "found": g.get("found"), "approved": bool(g.get("approved")), "heard": True}
+                "found": g.get("found"), "approved": bool(g.get("approved")), "heard": True,
+                "location": g.get("location")}
         for gid, g in st.expected.items():
             if gid not in out:
                 out[gid] = {"eui": gid, "name": g.get("name") or gid, "area": g.get("area"), "ip": g.get("ip"),
                             "model": g.get("model"), "firmware": None, "online": None, "last_heard": None,
-                            "packets_today": 0, "connection": None, "approved": False, "heard": False}
+                            "packets_today": 0, "connection": None, "approved": False, "heard": False,
+                            "location": g.get("location")}
     has_mqtt = any(e.state == e.state.LOADED if hasattr(e.state, "LOADED") else True
                    for e in hass.config_entries.async_entries("mqtt"))
     connection.send_result(msg["id"], {
@@ -271,6 +273,54 @@ async def ws_refresh_gateway(hass: HomeAssistant, connection, msg: dict) -> None
         for h in _hubs(hass):
             if hasattr(h, "mark_connections"):
                 h.mark_connections(eui, kinds, replace=True)
+    connection.send_result(msg["id"], out)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/commission/set_gateway_location", vol.Required("eui"): str,
+    vol.Optional("lat"): vol.Any(None, float, int), vol.Optional("lon"): vol.Any(None, float, int),
+    vol.Optional("alt"): vol.Any(None, float, int),
+})
+@websocket_api.require_admin
+@callback
+def ws_set_gateway_location(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Save a gateway's physical location in Home Assistant (not on the gateway). lat/lon omitted clears it."""
+    from .gateway_discovery import norm_hex
+    eui = norm_hex(msg["eui"])
+    lat, lon = msg.get("lat"), msg.get("lon")
+    if lat is not None and not -90 <= lat <= 90:
+        connection.send_error(msg["id"], "invalid", "Latitude must be between -90 and 90")
+        return
+    if lon is not None and not -180 <= lon <= 180:
+        connection.send_error(msg["id"], "invalid", "Longitude must be between -180 and 180")
+        return
+    hub = next((h for h in _hubs(hass) if getattr(h, "stats", None)
+                and (eui in h.stats.gateways or eui in h.stats.expected)), None)
+    if hub is None or not hasattr(hub, "set_gateway_location"):
+        connection.send_error(msg["id"], "not_found", "Unknown gateway")
+        return
+    hub.set_gateway_location(eui, lat, lon, msg.get("alt"))
+    connection.send_result(msg["id"], {"ok": True, "location": (lat is not None and lon is not None)
+                                       and {"lat": lat, "lon": lon} or None})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/commission/sync_gateway_time", vol.Required("host"): str,
+    vol.Optional("username", default="admin"): str, vol.Required("password"): str,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sync_gateway_time(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Push Home Assistant's current time onto the gateway's clock (off-grid time source). Password not stored."""
+    from .gateway_api import GatewayError, sync_gateway_time
+    try:
+        out = await sync_gateway_time(hass, msg["host"].strip(), msg["username"], msg["password"])
+    except GatewayError as err:
+        connection.send_error(msg["id"], "gateway", str(err))
+        return
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "error", str(err))
+        return
     connection.send_result(msg["id"], out)
 
 

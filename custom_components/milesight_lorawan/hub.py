@@ -423,6 +423,30 @@ class Hub:
         self._changed(force=True)
         return True
 
+    def set_gateway_location(self, eui: str, lat: float | None, lon: float | None,
+                             alt: float | None = None) -> bool:
+        """Record a gateway's physical location in Home Assistant (not on the gateway – many models have no
+        location field). Pass lat/lon None to clear it. Stored on the gateway record and persisted."""
+        from .gateway_discovery import norm_hex
+        eui = norm_hex(eui)
+        g = self.stats.gateways.get(eui) or self.stats.expected.get(eui)
+        if g is None:
+            return False
+        if lat is None or lon is None:
+            if "location" not in g:
+                return False
+            g.pop("location", None)
+        else:
+            loc = {"lat": round(float(lat), 6), "lon": round(float(lon), 6)}
+            if alt is not None:
+                loc["alt"] = round(float(alt), 1)
+            if g.get("location") == loc:
+                return False
+            g["location"] = loc
+        self.store.async_delay_save(self.stats.to_dict, 1)
+        self._changed(force=True)
+        return True
+
     def gateway_known(self, eui: str) -> bool:
         """Confirmed or announced already."""
         return bool((self.stats.gateways.get(eui) or {}).get("approved")) or eui in self.stats.expected

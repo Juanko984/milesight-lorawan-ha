@@ -383,6 +383,44 @@ class GatewayClient:
     async def async_profiles(self) -> list[dict[str, Any]]:
         return (await self._json("GET", "/api/urprofiles?limit=999") or {}).get("result", [])
 
+    # ---- system clock: read, and set manually (set_type 2) so Home Assistant can be the time source off-grid
+    async def async_read_time(self) -> dict[str, Any]:
+        res = await self._cgi("yruo_system", "get", "time")
+        for item in res.get("get", []):
+            if item.get("type") == "time":
+                return item.get("value") or {}
+        return {}
+
+    async def async_set_time(self, when_local: Any, timezone: str | None = None) -> None:
+        """Set the gateway's clock to an absolute time (set_type 2 = set by hand). `when_local` is a datetime
+        already expressed in the gateway's own timezone. Verified on UG65 fw60."""
+        value: dict[str, Any] = {
+            "set_type": 2, "set_date": when_local.strftime("%Y.%m.%d-%H:%M:%S"),
+            "set_time_hour": when_local.strftime("%H"), "set_time_minute": when_local.strftime("%M"),
+            "set_time_second": when_local.strftime("%S")}
+        if timezone:
+            value["timezone"] = timezone
+        await self._cgi("yruo_system", "set", "time", value=value, index=0)
+
+    async def async_push_time(self) -> dict[str, Any]:
+        """Set the gateway's clock to Home Assistant's current time, in the gateway's own timezone, on the
+        already-logged-in client. Returns {before, after, timezone, pushed}."""
+        from homeassistant.util import dt as dt_util
+        cur = await self.async_read_time()
+        tz_label = str(cur.get("timezone") or "")
+        iana = _gateway_tz_iana(tz_label)
+        when = dt_util.now()                                   # Home Assistant's local time (tz-aware)
+        if iana:
+            try:
+                from zoneinfo import ZoneInfo
+                when = dt_util.utcnow().replace(tzinfo=dt_util.UTC).astimezone(ZoneInfo(iana))
+            except Exception:  # noqa: BLE001 - unknown zone: fall back to HA local time
+                when = dt_util.now()
+        await self.async_set_time(when)
+        after = await self.async_read_time()
+        return {"before": cur.get("current_time"), "after": after.get("current_time"),
+                "timezone": tz_label, "pushed": when.strftime("%Y-%m-%d %H:%M:%S")}
+
     async def async_read_connections(self, ha_ip: str, broker: str) -> dict[str, bool]:
         """What the gateway actually forwards to Home Assistant right now: whether its Semtech packet forwarder
         points at HA, and whether any of its applications has an MQTT integration to HA's broker."""
@@ -435,6 +473,24 @@ async def read_gateway_connections(hass: Any, host: str, username: str, password
     return {"gateway": info, "home_assistant_ip": ha_ip, **conns}
 
 
+def _gateway_tz_iana(tz_label: str) -> str | None:
+    """The IANA name out of a gateway timezone label like 'UTC+2 Africa/Johannesburg'."""
+    parts = (tz_label or "").split(" ", 1)
+    return parts[1].strip() if len(parts) == 2 and "/" in parts[1] else None
+
+
+async def sync_gateway_time(hass: Any, host: str, username: str, password: str) -> dict[str, Any]:
+    """Push Home Assistant's current time onto the gateway's clock. For off-grid sites with no internet NTP:
+    Home Assistant is the time source. The time is sent in the gateway's own timezone. The admin password is
+    used only for this login and never stored. Returns {gateway, before, after, timezone, pushed}."""
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    client = GatewayClient(async_get_clientsession(hass), host, username, password)
+    await client.login()
+    info = await client.async_read_info()
+    out = await client.async_push_time()
+    return {"gateway": info, **out}
+
+
 async def run_gateway_config(hass: Any, host: str, username: str, password: str, mode: str = "lns",
                              band: str = "EU868", mqtt_user: str | None = None,
                              mqtt_password: str | None = None) -> dict[str, Any]:
@@ -477,6 +533,14 @@ async def run_gateway_config(hass: Any, host: str, username: str, password: str,
         ns_prefix = f"milesight/ns/{gw_eui}" if gw_eui else None
         topics = await client.async_setup_mqtt(broker, mu or None, mp or None, ns_prefix=ns_prefix)
         done.append("mqtt")
+    # we are logged in anyway: set the gateway's clock to Home Assistant's time, so every Configure also keeps it
+    # right (the off-grid time source). Best-effort – a clock failure must not fail the whole setup.
+    time_out: dict[str, Any] | None = None
+    try:
+        time_out = await client.async_push_time()
+        done.append("time")
+    except Exception:  # noqa: BLE001 - older firmware may not expose yruo_system/time
+        pass
     # adopt the gateway into the hub so it shows up and is tracked
     from .const import DOMAIN
     hubs = list(hass.data.get(DOMAIN, {}).get("hubs", {}).values())
@@ -493,4 +557,4 @@ async def run_gateway_config(hass: Any, host: str, username: str, password: str,
         if "mqtt" in done and topics.get("ns_request_topic") and hasattr(hub, "mark_ns"):
             hub.mark_ns(gw_eui, {"request": topics["ns_request_topic"], "response": topics["ns_response_topic"],
                                  "application": topics.get("application_id")})
-    return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics}
+    return {"gateway": info, "done": done, "home_assistant_ip": ha_ip, "topics": topics, "time": time_out}

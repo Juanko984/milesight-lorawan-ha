@@ -117,6 +117,7 @@ class MilesightCommissioning extends HTMLElement {
       if (done.includes("semtech")) steps.push(`Semtech pointed at Home Assistant (${r.home_assistant_ip})`);
       else if (done.includes("semtech_already")) steps.push("Semtech already pointed at Home Assistant");
       if (done.includes("mqtt")) steps.push("MQTT application set up");
+      if (done.includes("time")) steps.push("clock set from Home Assistant");
       const gw = r.gateway || {};
       this._gwResult = `${gw.model || "Gateway"}${gw.eui ? ` (${gw.eui})` : ""} configured — ${steps.join(" · ") || "logged in"}. It shows as connected with its first packet.`;
       this._gwForm = { username: "admin", mode: "both", band: "EU868" };
@@ -144,10 +145,43 @@ class MilesightCommissioning extends HTMLElement {
     } catch (e) { this._gwBusy = false; this._error(e); }
   }
 
+  async _syncGatewayTime() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const host = ($("gw-host").value || "").trim();
+    const password = $("gw-pass").value;
+    if (!host) { this._error("Enter the gateway's IP address."); return; }
+    if (!password) { this._error("Enter the gateway's admin password to set its clock."); return; }
+    this._gwBusy = true; this._msg = null; this._gwResult = null; this._render();
+    try {
+      const r = await this._ws({ type: "sync_gateway_time", host, username: ($("gw-user").value || "").trim() || "admin", password });
+      this._gwBusy = false;
+      this._gwResult = `Clock set from Home Assistant${r.timezone ? ` (${r.timezone})` : ""}: ${r.before || "?"} → ${r.after || r.pushed}.`;
+      await this._loadGateways();
+    } catch (e) { this._gwBusy = false; this._error(e); }
+  }
+
   async _forgetGateway(eui) {
     if (!window.confirm(`Forget gateway ${String(eui).toUpperCase()}? It can be added again by configuring it.`)) return;
     try { await this._ws({ type: "forget_gateway", eui }); this._info("Gateway forgotten."); await this._loadGateways(); }
     catch (e) { this._error(e); }
+  }
+
+  async _saveGatewayLocation(clear = false) {
+    const f = this._gwForm || {};
+    const eui = this._gwEdit;
+    if (!eui) return;
+    let lat = null, lon = null;
+    if (!clear) {
+      lat = parseFloat(f.lat); lon = parseFloat(f.lon);
+      if (Number.isNaN(lat) || Number.isNaN(lon)) { this._error("Enter a valid latitude and longitude, or press Clear."); return; }
+    }
+    try {
+      await this._ws({ type: "set_gateway_location", eui, lat, lon });
+      if (clear) this._gwForm = { ...(this._gwForm || {}), lat: "", lon: "" };
+      this._gwResult = clear ? "Location cleared." : "Location saved in Home Assistant.";
+      await this._loadGateways();
+      this._render();
+    } catch (e) { this._error(e); }
   }
 
   // ------------------------------------------------------------------ discovered (auto-found, not set up yet)
@@ -550,7 +584,7 @@ class MilesightCommissioning extends HTMLElement {
         <td><span class="dot" style="background:${color}"></span>${esc(g.name)}</td>
         <td class="muted">${esc((g.eui || "").toUpperCase())}</td>
         <td>${g.ip ? esc(g.ip) : "–"}</td>
-        <td>${g.model ? esc(g.model) : "–"}${g.firmware ? ` <span class="muted">fw ${esc(g.firmware)}</span>` : ""}</td>
+        <td>${g.model ? esc(g.model) : "–"}${g.firmware ? ` <span class="muted">fw ${esc(g.firmware)}</span>` : ""}${g.location ? ` <span class="muted" title="Location saved in Home Assistant">· 📍 ${esc(g.location.lat)}, ${esc(g.location.lon)}</span>` : ""}</td>
         <td>${status}${g.connection ? ` <span class="muted">· ${esc(g.connection)}</span>` : ""}</td>
         <td>${g.packets_today || 0}</td>
         <td><div class="row" style="gap:6px"><button data-gw-cfg="${esc(g.eui)}" data-gw-ip="${esc(g.ip || "")}">Settings</button><button data-gw-forget="${esc(g.eui)}">Forget</button></div></td></tr>`;
@@ -583,8 +617,16 @@ class MilesightCommissioning extends HTMLElement {
           <label>MQTT user <span class="muted">(blank = Home Assistant's own)</span><input id="gw-muser" value="${esc(f.mqtt_user || "")}" autocomplete="off"></label>
           <label>MQTT password<input id="gw-mpass" type="password" value="${esc(f.mqtt_password || "")}" autocomplete="off"></label>
         </div>` : ""}
-        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : "Configure gateway"}</button><button id="b-gw-refresh" ${this._gwBusy ? "disabled" : ""}>Refresh from gateway</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
-        <p class="hint">"Refresh from gateway" logs in and reads the gateway's real settings to correct its Semtech / MQTT label without changing anything.</p>
+        <div class="row"><button class="primary" id="b-gw-cfg" ${this._gwBusy ? "disabled" : ""}>${this._gwBusy ? "Configuring…" : "Configure gateway"}</button><button id="b-gw-refresh" ${this._gwBusy ? "disabled" : ""}>Refresh from gateway</button><button id="b-gw-time" ${this._gwBusy ? "disabled" : ""}>Sync clock from Home Assistant</button>${this._gwEdit ? `<button id="b-gw-cancel">Cancel</button>` : ""}</div>
+        <p class="hint">"Refresh from gateway" reads the gateway's real settings to correct its Semtech / MQTT label without changing anything. "Sync clock" sets the gateway's time to Home Assistant's — the off-grid time source when there is no internet NTP.</p>
+        ${this._gwEdit ? `<hr style="border:none;border-top:1px solid var(--divider-color);opacity:.5;margin:16px 0">
+          <h3 style="margin:0 0 4px;font-size:16px">Location (saved in Home Assistant)</h3>
+          <p class="hint">Where this gateway physically sits. Stored in Home Assistant, not on the gateway — so it works on every model. Used for maps and coverage.</p>
+          <div class="row">
+            <label>Latitude<input id="gw-lat" value="${esc(f.lat ?? "")}" placeholder="e.g. 51.5074"></label>
+            <label>Longitude<input id="gw-lon" value="${esc(f.lon ?? "")}" placeholder="e.g. -0.1278"></label>
+          </div>
+          <div class="row"><button class="primary" id="b-gw-loc">Save location</button><button id="b-gw-loc-ha">Use Home Assistant's location</button>${(f.lat != null && f.lat !== "") ? `<button id="b-gw-loc-clear">Clear</button>` : ""}</div>` : ""}
       </div>`;
   }
 
@@ -744,10 +786,25 @@ class MilesightCommissioning extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-disc-ign]").forEach((b) => b.addEventListener("click", () => this._ignore(b.getAttribute("data-disc-ign"), b.getAttribute("data-uid"))));
     this.shadowRoot.querySelectorAll("[data-gw-forget]").forEach((b) => b.addEventListener("click", () => this._forgetGateway(b.getAttribute("data-gw-forget"))));
     this.shadowRoot.querySelectorAll("[data-gw-cfg]").forEach((b) => b.addEventListener("click", () => {
-      this._gwEdit = b.getAttribute("data-gw-cfg");
-      this._gwForm = { ...(this._gwForm || {}), host: b.getAttribute("data-gw-ip") || "", username: (this._gwForm || {}).username || "admin", mode: (this._gwForm || {}).mode || "both", band: (this._gwForm || {}).band || "EU868" };
+      const eui = b.getAttribute("data-gw-cfg");
+      this._gwEdit = eui;
+      const g = (this._gateways || []).find((x) => (x.eui || "").toLowerCase() === (eui || "").toLowerCase());
+      const loc = g && g.location;
+      this._gwForm = { ...(this._gwForm || {}), host: b.getAttribute("data-gw-ip") || "", username: (this._gwForm || {}).username || "admin", mode: (this._gwForm || {}).mode || "both", band: (this._gwForm || {}).band || "EU868",
+        lat: loc ? String(loc.lat) : "", lon: loc ? String(loc.lon) : "" };
       this._msg = null; this._gwResult = null; this._render();
     }));
+    on("b-gw-time", "click", () => this._syncGatewayTime());
+    on("b-gw-loc", "click", () => this._saveGatewayLocation());
+    on("b-gw-loc-clear", "click", () => this._saveGatewayLocation(true));
+    on("b-gw-loc-ha", "click", () => {
+      const c = this._hass && this._hass.config;
+      if (!c || c.latitude == null || c.longitude == null) { this._error("Home Assistant has no location set (Settings → System → General)."); return; }
+      this._gwForm = { ...(this._gwForm || {}), lat: String(c.latitude), lon: String(c.longitude) };
+      this._render();
+    });
+    on("gw-lat", "input", (e) => { this._gwForm = { ...(this._gwForm || {}), lat: e.target.value }; });
+    on("gw-lon", "input", (e) => { this._gwForm = { ...(this._gwForm || {}), lon: e.target.value }; });
     on("b-app", "click", () => this._scanWithApp());
     on("b-cam", "click", () => (this._camera ? (this._stopCamera(), this._render()) : this._startCamera()));
     on("b-photo", "click", () => $("file").click());

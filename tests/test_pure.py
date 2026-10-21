@@ -2103,6 +2103,10 @@ def test_gateway_api():
     t = ga.ha_topics("milesight")
     assert t["topic"] == "milesight/uplink/#" and t["downlink_topic"] == "milesight/downlink/{deveui}"
     assert t["ns_request_topic"] == "milesight/request"
+    # gateway timezone label → IANA name (for setting the clock in the gateway's own zone)
+    assert ga._gateway_tz_iana("UTC+2 Africa/Johannesburg") == "Africa/Johannesburg"
+    assert ga._gateway_tz_iana("UTC Europe/London") == "Europe/London"
+    assert ga._gateway_tz_iana("") is None and ga._gateway_tz_iana("UTC+2") is None
     # application body matches the gateway's own create call shape
     a = ga.application_body("Home Assistant", "f6f7d81d-647f-4c7f-8409-3e5218c0c523")
     assert set(a) >= set(k for k in fix["app_body"] if k != "id") and a["serviceProfileID"] == fix["app_body"]["serviceProfileID"]
