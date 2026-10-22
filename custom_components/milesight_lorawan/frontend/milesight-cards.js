@@ -80,7 +80,38 @@
     svg{display:block}
     .lbl{font-size:11px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.04em}
     .val{font-size:15px;color:var(--ms-ink);font-weight:600}
+    .es{display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;padding:26px 18px;color:var(--ms-ink2)}
+    .es ha-icon{--mdc-icon-size:34px;color:var(--ms-ink2);opacity:.55}
+    .es.warn ha-icon{color:var(--ms-warn);opacity:1}
+    .es.ok ha-icon{color:var(--ms-good);opacity:1}
+    .es .et{font-size:15px;font-weight:600;color:var(--ms-ink)}
+    .es .eh{font-size:13px;max-width:340px;line-height:1.4}
+    .es .ea{margin-top:4px;font:inherit;font-size:13px;color:var(--ms-accent);background:none;border:1px solid var(--ms-line);
+      border-radius:9px;padding:7px 14px;cursor:pointer}
+    .es .ea:hover{border-color:var(--ms-accent)}
+    .warnbar{display:flex;align-items:center;gap:9px;margin-bottom:10px;padding:9px 12px;border-radius:9px;font-size:13px;
+      background:color-mix(in srgb,var(--ms-bad) 11%,transparent);color:var(--ms-bad);box-shadow:inset 3px 0 0 var(--ms-bad)}
+    .warnbar.warn{background:color-mix(in srgb,var(--ms-warn) 12%,transparent);color:var(--ms-warn);box-shadow:inset 3px 0 0 var(--ms-warn)}
   `;
+  function navigate(path) {
+    history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+  }
+  function emptyState(o) {
+    o = o || {};
+    return h("div", { class: "es " + (o.tone || "") }, [
+      o.icon ? h("ha-icon", { icon: o.icon }) : null,
+      h("div", { class: "et" }, o.title || "Nothing here yet"),
+      o.hint ? h("div", { class: "eh" }, o.hint) : null,
+      o.action ? h("button", { class: "ea", onclick: o.action.onClick }, o.action.label) : null,
+    ]);
+  }
+  // normalise a preset's `empty` (string or object) into emptyState options
+  function emptyOpts(empty, fallbackIcon) {
+    if (!empty) return { icon: fallbackIcon, title: "Nothing here yet" };
+    if (typeof empty === "string") return { icon: fallbackIcon, title: empty };
+    return { icon: empty.icon || fallbackIcon, ...empty };
+  }
 
   class Base extends HTMLElement {
     constructor() { super(); this.attachShadow({ mode: "open" }); this._cfg = {}; }
@@ -99,8 +130,12 @@
     getCardSize() { return 3; }
     _st(id) { return (this._hass && id && this._hass.states[id]) || null; }
     _card(body) {
-      const card = h("ha-card");
       const style = h("style"); style.textContent = BASE_CSS + (this._css || "");
+      if (this._cfg && this._cfg.bare) {                   // chrome-less: for nesting inside the device panel
+        const wrap = h("div", { style: { display: "block" } }); wrap.appendChild(style); wrap.appendChild(body);
+        this.shadowRoot.replaceChildren(wrap); return wrap;
+      }
+      const card = h("ha-card");
       card.appendChild(style); card.appendChild(body);
       this.shadowRoot.replaceChildren(card);
       return card;
@@ -224,6 +259,18 @@
     const tmp = document.createElement("div"); tmp.innerHTML = markup.trim();
     return tmp.firstChild;
   }
+  function batteryRingSvg(bat, size) {
+    size = size || 46;
+    const R = 15, C = 2 * Math.PI * R, p = bat == null ? 0 : clamp(bat, 0, 100);
+    const col = bat == null ? "var(--ms-ink2)" : bat <= 10 ? "var(--ms-bad)" : bat <= 25 ? "var(--ms-warn)" : "var(--ms-good)";
+    return svgNS(`<svg width="${size}" height="${size}" viewBox="0 0 40 40">
+      <circle cx="20" cy="20" r="${R}" fill="none" stroke="var(--ms-line)" stroke-width="4"/>
+      <circle cx="20" cy="20" r="${R}" fill="none" stroke="${col}" stroke-width="4" stroke-linecap="round"
+        stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p / 100)}" transform="rotate(-90 20 20)" style="transition:stroke-dashoffset .6s ease"/>
+      <text x="20" y="21" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ms-ink)">${bat == null ? "—" : Math.round(bat)}</text>
+      <text x="20" y="30" text-anchor="middle" font-size="6" fill="var(--ms-ink2)">%</text></svg>`);
+  }
+  const signalBarsSvg = (rssi) => svgNS(sigSvg(rssiBars(rssi)));
 
   // ================================================================ mini trend (SVG sparkline / area)
   class TrendCard extends Base {
@@ -336,7 +383,9 @@
       const cfg = this._cfg;
       if (!cfg.entity) {                                    // auto mode: a vessel per discovered tank
         const items = this._discover();
-        if (!items.length) return this._card(h("div", { class: "wrap muted" }, cfg.empty || "No tanks or silos yet."));
+        if (!items.length) return this._card(h("div", { class: "wrap" }, emptyState(emptyOpts(cfg.empty || {
+          icon: "mdi:storage-tank-outline", title: "No tanks or silos yet",
+          hint: "Open a level sensor (EM500-UDL, WTS …) → Configure → Tank or silo." }, "mdi:storage-tank-outline"))));
         const cells = items.map(({ id, st }) => {
           const m = this._model(st, cfg);
           const chipC = m.state === "bad" ? "var(--ms-bad)" : m.state === "warn" ? "var(--ms-warn)" : "var(--ms-good)";
@@ -498,6 +547,10 @@
       row: [{ when: { field: "online", eq: false }, level: "bad" },
             { when: { field: "battery_low", truthy: true }, level: "warn" }],
       issue: (r) => r.online === false ? "offline" : r.battery_low ? "low battery" : null,
+      empty: { icon: "mdi:access-point-network", title: "No devices yet",
+        hint: "Add devices in Settings → Devices & services → Discovered, or register them on the gateway." },
+      allStale: (rows) => rows.length && rows.every((r) => r.online === false)
+        ? "Every device is offline — check the gateway and its network link." : null,
     },
     offline: {
       role: "fleet_total", path: "devices", title: "Offline",
@@ -512,7 +565,9 @@
         { key: "battery", label: "Batt", unit: "%", align: "right", warn: { lt: 25 }, bad: { lt: 15 } },
       ],
       row: [{ when: { field: "online", eq: false }, level: "bad" }],
-      issue: () => "offline", empty: "All devices online ✅",
+      issue: () => "offline",
+      empty: { tone: "ok", icon: "mdi:check-circle-outline", title: "All devices reporting",
+        hint: "Every device has been heard in the last 24 hours." },
     },
     weak: {
       role: "fleet_total", path: "devices", title: "Weak or lossy",
@@ -529,7 +584,8 @@
       row: [{ when: { field: "signal", in: ["poor", "bad", "very_poor"] }, level: "bad" },
             { when: { field: "signal", eq: "fair" }, level: "warn" }],
       issue: (r) => ["poor", "bad", "very_poor"].includes(r.signal) ? "weak signal" : (r.signal === "fair" ? "fair signal" : null),
-      empty: "All devices have a good link ✅",
+      empty: { tone: "ok", icon: "mdi:check-circle-outline", title: "Good signal everywhere",
+        hint: "No weak or lossy links." },
     },
     firmware: {
       role: "fleet_total", path: "devices", title: "Firmware",
@@ -547,7 +603,88 @@
         { key: "versions", label: "Firmware", fmt: (v, r) => r.none ? "not reported yet" : (r.mixed ? `mixed: ${v}` : `all on ${v}`) },
       ],
       row: [{ when: { field: "mixed", truthy: true }, level: "warn" }],
-      issue: (r) => r.mixed ? "mixed versions" : null, empty: "No devices yet.",
+      issue: (r) => r.mixed ? "mixed versions" : null,
+      empty: { icon: "mdi:chip", title: "No devices yet" },
+    },
+    // ---- per-device role tables (one entity per row, from its attributes) ----
+    cold_chain: {
+      source: "entities", role: "cold_chain", title: "Fridges & freezers",
+      columns: [
+        { key: "device", label: "Unit", grow: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "temperature", label: "Now", align: "right", fmt: (v) => v == null ? "—" : `${v} °C` },
+        { key: "low", label: "Allowed", align: "right", fmt: (v, r) => `${r.low ?? "–"}…${r.high ?? "–"} °C` },
+        { key: "min_today", label: "Min / Max", align: "right", fmt: (v, r) => `${r.min_today ?? "–"} / ${r.max_today ?? "–"}` },
+        { key: "_state", label: "Out today", align: "right", fmt: (v, r) => `${v == null || v === "unknown" ? 0 : v} min${r.excursions_today ? ` (${r.excursions_today}×)` : ""}` },
+        { key: "door_open", label: "Door", fmt: (v) => v == null ? "—" : (v ? "open" : "closed") },
+      ],
+      row: [{ when: { field: "alarm", truthy: true }, level: "bad" }],
+      issue: (r) => r.alarm ? "out of range" : null,
+      empty: { icon: "mdi:fridge-outline", title: "No fridge or freezer probes",
+        hint: "Open a temperature sensor → Configure → Purpose → Fridge / cold room or Freezer." },
+    },
+    compressors: {
+      source: "entities", role: "load", group: "cold_chain", title: "Compressors",
+      columns: [
+        { key: "device", label: "Compressor", grow: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "running", label: "Now", fmt: (v) => v ? "Running" : "Off" },
+        { key: "duty_today", label: "Duty today", align: "right", unit: "%" },
+        { key: "duty_24h", label: "Duty 24 h", align: "right", unit: "%" },
+        { key: "starts_today", label: "Starts", align: "right" },
+      ],
+      row: [{ when: { field: "ran_too_long", truthy: true }, level: "bad" }, { when: { field: "not_running", truthy: true }, level: "bad" }],
+      issue: (r) => (r.ran_too_long || r.not_running) ? "check compressor" : null,
+      empty: { icon: "mdi:heat-pump-outline", title: "No compressor clamps",
+        hint: "Fit a CT clamp on the fridge → Configure → Purpose → Fridge / cold room." },
+    },
+    loads: {
+      source: "entities", role: "load", title: "Loads",
+      columns: [
+        { key: "device", label: "Load", grow: true },
+        { key: "purpose_label", label: "What", muted: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "running", label: "Now", fmt: (v) => v ? "On" : "Off" },
+        { key: "_state", label: "Run today", align: "right", fmt: (v) => `${v == null ? "–" : v} h` },
+        { key: "duty_24h", label: "Duty 24 h", align: "right", unit: "%" },
+        { key: "starts_today", label: "Starts", align: "right" },
+      ],
+      row: [{ when: { field: "ran_too_long", truthy: true }, level: "bad" }, { when: { field: "not_running", truthy: true }, level: "bad" },
+            { when: { field: "after_hours", truthy: true }, level: "warn" }, { when: { field: "service_due", truthy: true }, level: "warn" }],
+      issue: (r) => (r.ran_too_long || r.not_running) ? "check load" : (r.after_hours ? "after hours" : (r.service_due ? "service due" : null)),
+      empty: { icon: "mdi:lightning-bolt", title: "No loads yet",
+        hint: "Fit a CT clamp or smart socket → Configure → Purpose (AC, lighting, geyser …)." },
+    },
+    pumps: {
+      source: "entities", role: "pump", title: "Pumps",
+      columns: [
+        { key: "device", label: "Pump", grow: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "running", label: "Now", fmt: (v) => v ? "Running" : "Off" },
+        { key: "current", label: "Current", align: "right", unit: "A" },
+        { key: "normal_current", label: "Normal", align: "right", fmt: (v) => v == null ? "learning" : `${v} A` },
+        { key: "starts_last_hour", label: "Starts/h", align: "right" },
+        { key: "_state", label: "Run h", align: "right" },
+      ],
+      row: [{ when: { field: "dry_run", truthy: true }, level: "bad" }, { when: { field: "overload", truthy: true }, level: "bad" },
+            { when: { field: "short_cycling", truthy: true }, level: "warn" }],
+      issue: (r) => r.dry_run ? "dry-run" : (r.overload ? "overload" : (r.short_cycling ? "short-cycling" : null)),
+      empty: { icon: "mdi:pump", title: "No pumps yet",
+        hint: "Open a current clamp (CT101 / CT103 …) → Configure → Purpose → Pump." },
+    },
+    pivots: {
+      source: "entities", role: "pivot", title: "Centre pivots",
+      columns: [
+        { key: "device", label: "Pivot", grow: true },
+        { key: "status", label: "Status" },
+        { key: "angle", label: "Angle", align: "right", fmt: (v) => v == null ? "—" : `${Math.round(v)}°` },
+        { key: "speed", label: "Speed", align: "right", unit: "%" },
+        { key: "finish_in_h", label: "Finishes in", align: "right", fmt: (v) => v == null ? "—" : `${Math.round(v * 10) / 10} h` },
+      ],
+      row: [{ when: { field: "status", in: ["stalled", "fault", "stuck", "stopped"] }, level: "bad" }],
+      issue: (r) => ["stalled", "fault", "stuck", "stopped"].includes(r.status) ? r.status : null,
+      empty: { icon: "mdi:rotate-right", title: "No centre pivots",
+        hint: "Open the AT101 on the end tower → Configure → Centre pivot." },
     },
   };
   function fmtTime(iso) {
@@ -568,23 +705,44 @@
     }
     _rows() {
       const p = this._pre(), path = this._cfg.path || p.path || "devices";
-      let src = null;
-      if (this._cfg.entity) src = this._st(this._cfg.entity);
-      else { const ids = this._watch(); src = ids.length ? this._st(ids[0]) : null; }
-      let rows = Array.isArray(this._cfg.rows) ? this._cfg.rows
-        : ((src && Array.isArray(src.attributes[path])) ? src.attributes[path] : []);
+      let rows;
+      if (Array.isArray(this._cfg.rows)) {
+        rows = this._cfg.rows;
+      } else if (p.source === "entities") {
+        // one row per entity carrying this milesight_role (optionally filtered by `group`), from its attributes
+        const S = this._hass.states, reg = this._hass.entities || {}, dom = (p.domain || "sensor") + ".";
+        const role = this._cfg.role || p.role, grp = p.group;
+        rows = [];
+        for (const id in S) {
+          if (!id.startsWith(dom)) continue;
+          const a = S[id].attributes;
+          if (a.milesight_role !== role || (grp && a.group !== grp)) continue;
+          rows.push({ ...a, _state: S[id].state, entity_id: id, device_id: reg[id] && reg[id].device_id });
+        }
+      } else {
+        let src = this._cfg.entity ? this._st(this._cfg.entity) : null;
+        if (!src) { const ids = this._watch(); src = ids.length ? this._st(ids[0]) : null; }
+        rows = (src && Array.isArray(src.attributes[path])) ? src.attributes[path] : [];
+      }
       if (p.transform) rows = p.transform(rows);
       if (p.filter) rows = rows.filter(p.filter);
       return rows;
     }
     _openRow(r) {
-      if (r.device_id) {
+      if (!r.device_id && !r.entity_id) return;
+      if (this._cfg.link === "more-info") {
         const reg = this._hass.entities || {};
-        const ent = Object.keys(reg).find((e) => reg[e].device_id === r.device_id);
+        const ent = r.entity_id || (r.device_id && Object.keys(reg).find((e) => reg[e].device_id === r.device_id));
         if (ent) return fireMoreInfo(this, ent);
-        history.pushState(null, "", "/config/devices/device/" + r.device_id);
-        window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
-      } else if (r.entity_id) fireMoreInfo(this, r.entity_id);
+        if (r.device_id) { history.pushState(null, "", "/config/devices/device/" + r.device_id); window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true })); }
+        return;
+      }
+      // default: route to the per-device page (a "device" view in the same dashboard)
+      const view = this._cfg.device_view || "device";
+      const base = location.pathname.replace(/\/[^/]*$/, "/" + view);
+      const q = r.device_id ? "device=" + encodeURIComponent(r.device_id) : "entity=" + encodeURIComponent(r.entity_id);
+      history.pushState(null, "", base + "?" + q);
+      window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
     }
     setConfig(cfg) {
       this._cfg = cfg || {};
@@ -714,12 +872,22 @@
         if (clickable) tr.onclick = () => this._openRow(r);
         return tr;
       });
-      const table = rows.length
-        ? h("div", { class: "cw" }, [h("table", {}, [h("thead", {}, head), h("tbody", {}, body)])])
-        : h("div", { class: "empty" }, q ? "Nothing matches your filter." : (cfg.empty || "No devices yet."));
+      // a "data not arriving" warning: every row present but all offline/stale — a safety signal, not setup guidance
+      const staleMsg = (!q && p.allStale) ? p.allStale(rows) : null;
+      const warnbar = staleMsg ? h("div", { class: "warnbar" },
+        [h("ha-icon", { icon: "mdi:alert" }), h("span", {}, staleMsg)]) : null;
+      let table;
+      if (rows.length) {
+        table = h("div", { class: "cw" }, [h("table", {}, [h("thead", {}, head), h("tbody", {}, body)])]);
+      } else if (q) {
+        table = emptyState({ icon: "mdi:magnify", title: "Nothing matches your filter",
+          action: { label: "Clear filter", onClick: () => { this._q = ""; this._render(); } } });
+      } else {
+        table = emptyState(emptyOpts(cfg.empty || p.empty, "mdi:table-search"));
+      }
       this._card(h("div", { class: "wrap" }, [
         title === false ? null : h("p", { class: "title", style: { marginBottom: "8px" } }, title || "Devices"),
-        toolbar, table,
+        toolbar, warnbar, table,
       ]));
       if (this._focusSearch && searchInput) {              // keep the caret in the filter box while typing
         const el = this.shadowRoot.querySelector(".search");
@@ -741,6 +909,19 @@
     const [x0, y0] = gpolar(cx, cy, r, start), [x1, y1] = gpolar(cx, cy, r, start + sweep);
     return `M${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 ${Math.abs(sweep) > 180 ? 1 : 0} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
   }
+  function niceStep(range, target) {
+    const raw = (range || 1) / (target || 6), mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+    return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+  }
+  function niceTicks(mn, mx, target) {
+    const step = niceStep(mx - mn, target), out = [];
+    for (let v = Math.ceil(mn / step - 1e-9) * step; v <= mx + 1e-9; v += step) out.push(Math.round(v / step) * step);
+    return { ticks: out, step };
+  }
+  function fmtTick(v) {
+    const r = Math.round(v * 100) / 100;
+    return Math.abs(r) >= 1000 ? r.toLocaleString() : String(r);
+  }
   const gColorName = { good: "var(--ms-good)", warn: "var(--ms-warn)", bad: "var(--ms-bad)", accent: "var(--ms-accent)",
     green: "var(--ms-good)", yellow: "var(--ms-warn)", amber: "var(--ms-warn)", red: "var(--ms-bad)" };
   const gResolve = (c) => gColorName[c] || c || "var(--ms-accent)";
@@ -758,7 +939,7 @@
     _types() { return (this._cfg.types || ["arc", "semicircle", "ring", "bar"]).filter((t) => GTYPES[t]); }
     _tkey() { const c = this._cfg; return "msGaugeType:" + (c.entity || "") + ":" + (c.title || c.name || ""); }
     _loadType() {
-      let t = this._cfg.type || "arc";
+      let t = this._cfg.shape || "arc";
       try { const s = localStorage.getItem(this._tkey()); if (s && GTYPES[s]) t = s; } catch (e) { /* private */ }
       return GTYPES[t] ? t : "arc";
     }
@@ -805,30 +986,78 @@
         .gt{font:inherit;font-size:12px;color:var(--ms-ink2);background:none;border:none;border-radius:999px;padding:4px 11px;cursor:pointer}
         .gt.on{background:var(--ms-accent);color:#fff}
         .gtrack{fill:none;stroke:var(--ms-line)}
+        .gzone{fill:none;stroke-linecap:butt;stroke-opacity:.5}
         .gfill{fill:none;stroke-linecap:round;transition:stroke-dashoffset .9s cubic-bezier(.25,.1,.25,1),stroke .4s}
-        .gneedle{transition:transform .9s cubic-bezier(.25,.1,.25,1)}
+        .gneedle,.gmark{transition:transform .9s cubic-bezier(.25,.1,.25,1)}
         .gbarfill{transition:width .9s cubic-bezier(.25,.1,.25,1),fill .4s}
+        .gbarmark{transition:transform .9s cubic-bezier(.25,.1,.25,1)}
       `;
       const click = () => fireMoreInfo(this, cfg.entity);
+      const vv = this._vals(), segs = vv.segs, mn = vv.mn, mx = vv.mx, zoned = segs.length > 0;
       let svg;
       if (spec.bar) {
-        svg = svgNS(`<svg class="gsvg" width="100%" height="76" viewBox="0 0 200 76" onclick="void 0">
+        const bx = (val) => 12 + 176 * clamp((val - mn) / ((mx - mn) || 1), 0, 1);
+        const zoneRects = zoned ? segs.map((s, i) => {
+          const from = Math.max(mn, s.from), to = i + 1 < segs.length ? segs[i + 1].from : mx;
+          if (to <= from) return "";
+          return `<rect x="${bx(from).toFixed(1)}" y="40" width="${(bx(to) - bx(from)).toFixed(1)}" height="12" fill="${s.color}" fill-opacity="0.5"/>`;
+        }).join("") : "";
+        svg = svgNS(`<svg class="gsvg" width="100%" height="76" viewBox="0 0 200 76">
           <text class="gval" x="100" y="26" text-anchor="middle" font-size="26" data-val>–</text>
           <rect class="gtrack" x="12" y="40" width="176" height="12" rx="6" stroke-width="0" fill="var(--ms-line)"/>
-          <rect class="gbarfill" x="12" y="40" width="0" height="12" rx="6" data-fill/>
+          ${zoneRects}
+          ${zoned ? `<g class="gbarmark" data-marker style="transform:translateX(0px)"><rect x="10" y="35" width="4" height="22" rx="2" fill="var(--ms-ink)"/></g>`
+            : `<rect class="gbarfill" x="12" y="40" width="0" height="12" rx="6" data-fill/>`}
           <text class="gsub" x="12" y="68" font-size="10" data-min>0</text>
           <text class="gsub" x="188" y="68" text-anchor="end" font-size="10" data-max>100</text>
         </svg>`);
       } else {
         const ring = t === "ring", half = t === "semicircle";
-        const cx = 100, cy = half ? 96 : 100, r = 74;
+        const showTicks = cfg.ticks !== false && !ring;      // scale labels for arc / half only
+        const cx = 100, cy = half ? 96 : 100, r = ring ? 74 : showTicks ? 60 : 74, sw = ring ? 11 : 12;
         const track = garc(cx, cy, r, spec.start, spec.sweep);
         const valY = ring ? cy + 2 : half ? cy + 30 : cy + 42;    // clear of the needle/pivot
         const vbH = half ? 140 : ring ? 200 : 182;
-        svg = svgNS(`<svg class="gsvg" width="${ring ? 172 : 200}" height="${half ? 118 : ring ? 172 : 158}"
-            viewBox="0 0 200 ${vbH}">
-          <path class="gtrack" d="${track}" stroke-width="${ring ? 11 : 12}"/>
-          <path class="gfill" d="${track}" stroke-width="${ring ? 11 : 12}" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" data-fill/>
+        const ang = (val) => spec.start + clamp((val - mn) / ((mx - mn) || 1), 0, 1) * spec.sweep;
+        let ticksSvg = "";
+        if (showTicks) {
+          const nt = niceTicks(mn, mx, cfg.tick_count || 6), rt0 = r + sw / 2 + 2, rl = rt0 + 7 + 9;
+          const minor = nt.step / (cfg.minor || 5), parts = [];
+          // labels at the nice ticks, plus the two endpoints when they are not right next to a tick
+          const labels = nt.ticks.slice();
+          if (Math.abs(mn - (nt.ticks[0] ?? mn)) > nt.step * 0.35) labels.unshift(mn);
+          if (Math.abs(mx - (nt.ticks[nt.ticks.length - 1] ?? mx)) > nt.step * 0.35) labels.push(mx);
+          const isLabel = (val) => labels.some((l) => Math.abs(l - val) < minor * 0.5);
+          for (let val = mn; val <= mx + 1e-9; val += minor) {
+            const maj = isLabel(val) || Math.abs(val / nt.step - Math.round(val / nt.step)) < 1e-6;
+            const a = ang(val), [x0, y0] = gpolar(cx, cy, rt0, a), [x1, y1] = gpolar(cx, cy, rt0 + (maj ? 7 : 4), a);
+            parts.push(`<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="var(--ms-ink2)" stroke-width="${maj ? 1.4 : 0.8}" stroke-opacity="${maj ? 0.75 : 0.4}"/>`);
+          }
+          for (const val of labels) {
+            const a = ang(val), [lx, ly] = gpolar(cx, cy, rl, a);
+            const anchor = lx > cx + 2 ? "start" : lx < cx - 2 ? "end" : "middle";
+            parts.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="central" font-size="9" fill="var(--ms-ink2)">${fmtTick(val)}</text>`);
+          }
+          ticksSvg = parts.join("");
+        }
+        const zoneArcs = zoned ? segs.map((s, i) => {
+          const from = Math.max(mn, s.from), to = i + 1 < segs.length ? segs[i + 1].from : mx;
+          if (to <= from) return "";
+          const a0 = ang(from), a1 = ang(to);
+          return `<path class="gzone" d="${garc(cx, cy, r, a0, a1 - a0)}" stroke="${s.color}" stroke-width="${sw}"/>`;
+        }).join("") : "";
+        // ring with zones shows a marker dot; arc/half show the needle
+        const marker = (ring && zoned)
+          ? `<g class="gmark" data-marker style="transform-origin:${cx}px ${cy}px"><circle cx="${cx}" cy="${cy - r}" r="6" fill="var(--ms-surface)" stroke="var(--ms-ink)" stroke-width="2.5"/></g>`
+          : "";
+        const vbx = showTicks ? (half ? "-10 -4 220 148" : "-12 -8 224 196") : `0 0 200 ${vbH}`;
+        svg = svgNS(`<svg class="gsvg" width="${showTicks ? (half ? 220 : 212) : ring ? 172 : 200}" height="${half ? (showTicks ? 118 : 118) : ring ? 172 : showTicks ? 168 : 158}"
+            viewBox="${vbx}">
+          <path class="gtrack" d="${track}" stroke-width="${sw}"/>
+          ${ticksSvg}
+          ${zoneArcs}
+          ${zoned ? "" : `<path class="gfill" d="${track}" stroke-width="${sw}" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" data-fill/>`}
+          ${marker}
           ${spec.needle ? `<g class="gneedle" data-needle style="transform-origin:${cx}px ${cy}px">
             <line x1="${cx}" y1="${cy + 6}" x2="${cx}" y2="${cy - r + 14}" stroke="var(--ms-ink)" stroke-width="2.6" stroke-linecap="round"/>
             <circle cx="${cx}" cy="${cy}" r="4" fill="var(--ms-ink)"/></g>` : ""}
@@ -845,7 +1074,8 @@
       this._g = {
         val: svg.querySelector("[data-val]"), unit: svg.querySelector("[data-unit]"),
         fill: svg.querySelector("[data-fill]"), needle: svg.querySelector("[data-needle]"),
-        min: svg.querySelector("[data-min]"), max: svg.querySelector("[data-max]"), spec,
+        marker: svg.querySelector("[data-marker]"), min: svg.querySelector("[data-min]"),
+        max: svg.querySelector("[data-max]"), spec,
       };
       this._built = true;
       // first paint: let the empty state render, then animate to the value next frame
@@ -859,13 +1089,463 @@
       if (g.unit) g.unit.textContent = unit || "";
       if (spec.bar) {
         if (g.fill) { g.fill.setAttribute("width", (176 * pct / 100).toFixed(1)); g.fill.setAttribute("fill", col); }
+        if (g.marker) g.marker.style.transform = `translateX(${(176 * pct / 100).toFixed(1)}px)`;
         if (g.min) g.min.textContent = mn; if (g.max) g.max.textContent = mx;
         if (g.val && unit) g.val.textContent = vt + " " + unit;
       } else {
         if (g.fill) { g.fill.setAttribute("stroke", col); g.fill.style.strokeDashoffset = String(100 - pct); }
-        if (g.needle) g.needle.style.transform = `rotate(${(spec.start + spec.sweep * pct / 100).toFixed(1)}deg)`;
+        const ang = (spec.start + spec.sweep * pct / 100).toFixed(1);
+        if (g.needle) g.needle.style.transform = `rotate(${ang}deg)`;
+        if (g.marker) g.marker.style.transform = `rotate(${ang}deg)`;
       }
       this._lastSig = (this._st(this._cfg.entity) || {}).state + "@" + (this._st(this._cfg.entity) || {}).last_changed;
+    }
+  }
+
+  // ================================================================ device panel (per-device page, by type)
+  class DevicePanel extends Base {
+    static getStubConfig() { return {}; }
+    connectedCallback() { this._loc = () => { if (this._urlMode) this._render(); }; window.addEventListener("location-changed", this._loc); }
+    disconnectedCallback() { if (this._loc) window.removeEventListener("location-changed", this._loc); }
+    _resolve() {
+      const cfg = this._cfg, S = this._hass.states, reg = this._hass.entities || {};
+      let deviceId = cfg.device, anchor = cfg.entity;
+      this._urlMode = !deviceId && !anchor;
+      if (this._urlMode) {
+        try { const q = new URLSearchParams(location.search); deviceId = q.get("device"); anchor = anchor || q.get("entity"); } catch (e) { /* */ }
+      }
+      if (!deviceId && anchor && reg[anchor]) deviceId = reg[anchor].device_id;
+      const ents = deviceId ? Object.keys(reg).filter((e) => reg[e].device_id === deviceId && S[e]) : (anchor && S[anchor] ? [anchor] : []);
+      return { deviceId, ents };
+    }
+    _watch() { try { return this._resolve().ents; } catch (e) { return null; } }
+    _classify(ents) {
+      const S = this._hass.states;
+      const dc = (c) => ents.find((e) => S[e].attributes.device_class === c);
+      const nm = (re) => ents.find((e) => re.test(e) || re.test(String(S[e].attributes.friendly_name || "")));
+      const unit = (u) => ents.find((e) => S[e].attributes.unit_of_measurement === u);
+      const level = ents.find((e) => S[e].attributes.milesight_role === "tank" || S[e].attributes.fill != null)
+        || (nm(/level|fill|volume/i) && unit("%") ? ents.find((e) => /level|fill|volume/i.test(String(S[e].attributes.friendly_name || e)) && S[e].attributes.unit_of_measurement === "%") : null);
+      const co2 = dc("carbon_dioxide") || unit("ppm");
+      const temp = dc("temperature"), hum = dc("humidity"), battery = dc("battery");
+      const signal = dc("signal_strength") || nm(/rssi/i);
+      const current = dc("current");
+      const running = ents.find((e) => e.startsWith("binary_sensor.") && (["running", "power", "moving"].includes(S[e].attributes.device_class) || /run|motor|pump/i.test(String(S[e].attributes.friendly_name || ""))));
+      let type = "generic", primary = null;
+      if (level) { type = "tank"; primary = level; }
+      else if (co2) { type = "air"; primary = co2; }
+      else if (current || running) { type = "pump"; primary = current || temp; }
+      else if (temp) { type = "climate"; primary = temp; }
+      else { primary = ents.find((e) => num(S[e].state) != null && S[e].attributes.unit_of_measurement && !["battery", "signal_strength"].includes(S[e].attributes.device_class)); }
+      return { type, primary, level, co2, temp, hum, battery, signal, current, running };
+    }
+    _tile(e, click) {
+      const st = this._st(e); if (!st) return null;
+      const a = st.attributes;
+      return h("div", { class: "mtile click", onclick: () => fireMoreInfo(this, e) }, [
+        h("div", { class: "lbl", style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, esc(a.friendly_name || e)),
+        h("div", { class: "row", style: { alignItems: "baseline", gap: "3px" } }, [
+          h("span", { class: "val" }, esc(st.state)), a.unit_of_measurement ? h("span", { class: "unit" }, esc(a.unit_of_measurement)) : null,
+        ]),
+      ]);
+    }
+    _sub(tag, cfg) { const el = h(tag); el.setConfig({ ...cfg, bare: true }); el.hass = this._hass; return el; }
+    _climateGauge(tempId) {
+      const a = this._st(tempId).attributes;
+      const lo = num(a.alarm_low), hi = num(a.alarm_high);
+      const g = { entity: tempId, shape: "arc", switchable: false };
+      if (lo == null && hi == null) {                       // no thresholds known: neutral gauge
+        g.min = this._cfg.min != null ? this._cfg.min : -10;
+        g.max = this._cfg.max != null ? this._cfg.max : 40; g.color = "accent"; return g;
+      }
+      const lowB = lo != null ? lo : hi - 10, highB = hi != null ? hi : lo + 10, span = (highB - lowB) || 10;
+      const mn = num(a.min_today), mx = num(a.max_today);
+      g.min = Math.floor(Math.min(lowB - span * 0.4, mn != null ? mn : lowB));
+      g.max = Math.ceil(Math.max(highB + span * 0.4, mx != null ? mx : highB));
+      const segs = [{ from: g.min, color: lo != null ? "bad" : "good" }];   // too cold below the low alarm
+      if (lo != null) segs.push({ from: lo, color: "good" });
+      if (hi != null) segs.push({ from: hi, color: "bad" });                 // too warm above the high alarm
+      g.segments = segs; return g;
+    }
+    _control(e) {
+      const st = this._st(e); if (!st) return null;
+      const a = st.attributes, dom = e.split(".")[0];
+      if (dom === "button") return h("button", { class: "act", onclick: () => this._hass.callService("button", "press", { entity_id: e }) }, esc(a.friendly_name || e));
+      if (dom === "switch") { const on = String(st.state) === "on";
+        return h("button", { class: "act" + (on ? " on" : ""), onclick: () => this._hass.callService("switch", "toggle", { entity_id: e }) }, `${a.friendly_name || e} · ${on ? "On" : "Off"}`); }
+      return h("button", { class: "act", onclick: () => fireMoreInfo(this, e) }, esc(a.friendly_name || e));
+    }
+    _alerts(ents) {
+      const S = this._hass.states, out = [];
+      const warnDC = new Set(["problem", "safety", "smoke", "gas", "moisture", "tamper", "heat", "cold"]);
+      for (const e of ents) {
+        const st = S[e], a = st.attributes;
+        if (e.startsWith("binary_sensor.") && String(st.state) === "on" && warnDC.has(a.device_class))
+          out.push({ level: "bad", text: a.friendly_name || e });
+        if (a.sudden_drop === true) out.push({ level: "bad", text: (a.device || a.friendly_name || e) + ": sudden drop" });
+        else if (a.low === true || a.battery_low === true) out.push({ level: "warn", text: (a.friendly_name || e) + (a.low ? ": low level" : ": low battery") });
+        if (a.alarm_low != null && num(st.state) != null && (num(st.state) < a.alarm_low || (a.alarm_high != null && num(st.state) > a.alarm_high)))
+          out.push({ level: "bad", text: (a.friendly_name || e) + " out of range" });
+      }
+      return out.slice(0, 4);
+    }
+    async _loadLog(deviceId, ents) {
+      if (this._logFor === deviceId) return;
+      this._logFor = deviceId; this._log = null;
+      try {
+        const start = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+        const r = await this._hass.callWS({ type: "logbook/get_events", start_time: start, entity_ids: ents });
+        this._log = (Array.isArray(r) ? r : []).slice(-14).reverse();
+      } catch (e) { this._log = []; }
+      this._render();
+    }
+    _render() {
+      if (!this._hass) return;
+      const { deviceId, ents } = this._resolve();
+      this._css = `
+        .dp{padding:0}
+        .dhead{display:flex;align-items:center;gap:14px;padding:16px 18px 12px;border-bottom:1px solid var(--ms-line)}
+        .dhead .nm{font-size:20px;font-weight:680;color:var(--ms-ink);line-height:1.1}
+        .dhead .meta{font-size:12.5px;color:var(--ms-ink2);margin-top:3px}
+        .spacer{flex:1}
+        .stat{display:flex;align-items:center;gap:12px}
+        .sect{padding:14px 18px;border-bottom:1px solid var(--ms-line)}
+        .sect:last-child{border-bottom:none}
+        .sh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:0 0 10px}
+        .cols{display:grid;grid-template-columns:1.1fr 1fr;gap:16px}
+        @media (max-width:560px){.cols{grid-template-columns:1fr}}
+        .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+        .mtile{border:1px solid var(--ms-line);border-radius:10px;padding:9px 11px}
+        .back{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ms-ink2);cursor:pointer;margin-bottom:8px}
+        .back:hover{color:var(--ms-accent)}
+        .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--ms-line);color:var(--ms-ink2)}
+        .hero{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+        .alerts{display:flex;flex-wrap:wrap;gap:8px}
+        .achip{display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:7px 12px;border-radius:9px}
+        .achip.bad{background:color-mix(in srgb,var(--ms-bad) 12%,transparent);color:var(--ms-bad);box-shadow:inset 3px 0 0 var(--ms-bad)}
+        .achip.warn{background:color-mix(in srgb,var(--ms-warn) 13%,transparent);color:var(--ms-warn);box-shadow:inset 3px 0 0 var(--ms-warn)}
+        .acts{display:flex;flex-wrap:wrap;gap:8px}
+        .act{font:inherit;font-size:13px;color:var(--ms-ink);background:none;border:1px solid var(--ms-line);border-radius:9px;padding:8px 13px;cursor:pointer}
+        .act:hover{border-color:var(--ms-accent);color:var(--ms-accent)}
+        .act.on{border-color:var(--ms-good);color:var(--ms-good)}
+        .tl{list-style:none;margin:0;padding:0}
+        .tl li{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--ms-line);font-size:13px}
+        .tl li:last-child{border-bottom:none}
+        .tl .tlw{color:var(--ms-ink2);white-space:nowrap;flex:0 0 auto;font-size:12px}
+        .tl .tlm{color:var(--ms-ink)}
+      `;
+      if (!ents.length) {
+        return this._card(h("div", { class: "dp" }, [emptyState(this._urlMode
+          ? { icon: "mdi:gesture-tap", title: "No device selected",
+              hint: "Pick a device from one of the tables to open its page here." }
+          : { icon: "mdi:devices", title: "No device set",
+              hint: "Set a device or entity on this card." })]));
+      }
+      const S = this._hass.states, dev = (this._hass.devices || {})[deviceId] || {};
+      const info = this._classify(ents);
+      const prim = info.primary ? this._st(info.primary) : null;
+      const name = this._cfg.name || dev.name_by_user || dev.name || (prim && prim.attributes.friendly_name) || deviceId || "Device";
+      const area = dev.area_id && this._hass.areas && this._hass.areas[dev.area_id] ? this._hass.areas[dev.area_id].name : null;
+      const model = dev.model || (prim && prim.attributes.model);
+      const online = prim ? !["unavailable", "unknown", "off", "offline"].includes(String(prim.state).toLowerCase()) : null;
+      const bat = info.battery ? num(this._st(info.battery).state) : null;
+      const rssi = info.signal ? num(this._st(info.signal).state) : null;
+
+      // header
+      const head = h("div", { class: "dhead" }, [
+        h("div", {}, [
+          this._urlMode ? h("div", { class: "back", onclick: () => history.back() }, ["← Back"]) : null,
+          h("div", { class: "nm" }, esc(name)),
+          h("div", { class: "meta" }, [model ? esc(model) : "", model && area ? " · " : "", area ? esc(area) : ""].join("")),
+        ]),
+        h("div", { class: "spacer" }),
+        h("div", { class: "stat" }, [
+          online == null ? null : h("span", { class: "pill" }, [h("span", { class: "dot", style: { background: online ? "var(--ms-good)" : "var(--ms-bad)" } }), online ? "Online" : "Offline"]),
+          rssi != null ? signalBarsSvg(rssi) : null,
+          bat != null ? batteryRingSvg(bat, 42) : null,
+        ]),
+      ]);
+
+      // hero (type-specific)
+      let hero = null;
+      if (info.type === "tank" && info.level) hero = this._sub("milesight-level-card", { entity: info.level });
+      else if (info.type === "air" && info.co2) {
+        const a = this._st(info.co2).attributes;
+        hero = h("div", { class: "hero" }, [
+          this._sub("milesight-gauge-card", { entity: info.co2, min: 400, max: 2000, shape: "arc", switchable: false,
+            segments: [{ from: 400, color: "good" }, { from: 800, color: "warn" }, { from: 1200, color: "bad" }] }),
+          info.temp || info.hum ? h("div", { class: "tiles", style: { flex: "1", minWidth: "140px" } },
+            [info.temp, info.hum].filter(Boolean).map((e) => this._tile(e))) : null,
+        ]);
+      } else if (info.type === "climate" && info.temp) {
+        hero = h("div", { class: "hero" }, [
+          this._sub("milesight-gauge-card", this._climateGauge(info.temp)),
+          info.hum ? h("div", { class: "tiles", style: { flex: "1", minWidth: "140px" } }, [this._tile(info.hum)]) : null,
+        ]);
+      } else if (info.type === "pump") {
+        const run = info.running ? this._st(info.running) : null;
+        const runOn = run ? ["on", "true", "running"].includes(String(run.state).toLowerCase()) : null;
+        hero = h("div", { class: "hero" }, [
+          h("div", { style: { textAlign: "center", minWidth: "120px" } }, [
+            h("div", { class: "big", style: { color: runOn ? "var(--ms-good)" : "var(--ms-ink)" } }, runOn == null ? "—" : runOn ? "Running" : "Idle"),
+            h("div", { class: "sub" }, "status"),
+          ]),
+          info.current ? this._sub("milesight-gauge-card", { entity: info.current, min: 0, max: this._cfg.max != null ? this._cfg.max : 20, shape: "semicircle", switchable: false, name: "Current" }) : null,
+        ]);
+      } else if (info.primary) {
+        const a = this._st(info.primary).attributes;
+        hero = this._sub("milesight-gauge-card", { entity: info.primary, min: 0, max: num(a.max) != null ? num(a.max) : 100, shape: "arc", switchable: false });
+      }
+
+      // trend of the primary metric
+      const trend = info.primary ? this._sub("milesight-trend-card", { entity: info.primary, hours: this._cfg.hours || 24 }) : null;
+
+      // secondary metric tiles (numeric entities not already shown)
+      const shown = new Set([info.primary, info.battery, info.signal, info.hum, info.temp && info.type === "air" ? info.temp : null].filter(Boolean));
+      const metrics = ents.filter((e) => e.startsWith("sensor.") && num(S[e].state) != null && !shown.has(e)
+        && !["battery", "signal_strength"].includes(S[e].attributes.device_class) && S[e].attributes.unit_of_measurement);
+      const controls = ents.filter((e) => /^(switch|button|number|select)\./.test(e));
+      const alerts = this._alerts(ents);
+      if (deviceId) this._loadLog(deviceId, ents);          // one-shot per device
+      const tl = this._logFor === deviceId ? (this._log || []) : [];
+
+      // walk-test quick action
+      const walk = h("button", { class: "act", onclick: () => {
+        history.pushState(null, "", "/milesight-commissioning");
+        window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+      } }, "↦ Walk test");
+
+      const card = this._card(h("div", { class: "dp" }, [
+        head,
+        alerts.length ? h("div", { class: "sect" }, [h("div", { class: "alerts" },
+          alerts.map((al) => h("div", { class: "achip " + al.level }, [h("span", {}, al.level === "bad" ? "⛔" : "⚠"), esc(al.text)])))]) : null,
+        hero ? h("div", { class: "sect" }, [hero]) : null,
+        (trend || metrics.length) ? h("div", { class: "sect" }, [h("div", { class: "cols" }, [
+          trend ? h("div", {}, [h("p", { class: "sh" }, "Trend"), trend]) : null,
+          metrics.length ? h("div", {}, [h("p", { class: "sh" }, "Readings"), h("div", { class: "tiles" }, metrics.map((e) => this._tile(e)))]) : null,
+        ])]) : null,
+        h("div", { class: "sect" }, [h("p", { class: "sh" }, "Controls"),
+          h("div", { class: "acts" }, controls.map((e) => this._control(e)).concat([walk]))]),
+        tl.length ? h("div", { class: "sect" }, [h("p", { class: "sh" }, "Activity"),
+          h("ul", { class: "tl" }, tl.map((ev) => h("li", {}, [
+            h("span", { class: "tlw" }, ago(typeof ev.when === "number" ? (ev.when < 1e12 ? ev.when * 1000 : ev.when) : ev.when)),
+            h("span", { class: "tlm" }, esc((ev.name ? ev.name + ": " : "") + (ev.message || ev.state || ""))),
+          ])))]) : null,
+      ]));
+      return card;
+    }
+  }
+
+  // ================================================================ page header (site · page · health strip)
+  class PageHeader extends Base {
+    static getStubConfig() { return { title: "Overview" }; }
+    _findRole(role) {
+      const S = this._hass.states;
+      for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === role) return id;
+      return null;
+    }
+    _watch() {
+      return [this._findRole("fleet_total"), this._findRole("net_gateways_online"), this._findRole("alerts_open")].filter(Boolean);
+    }
+    _site() {
+      if (this._cfg.site) return this._cfg.site;
+      const S = this._hass.states;
+      for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role && (a.company || a.site)) return a.company || a.site; }
+      return (this._hass.config && this._hass.config.location_name) || "";
+    }
+    _stats() {
+      if (this._cfg.stats === false) return [];
+      const S = this._hass.states, out = [];
+      const fleet = this._findRole("fleet_total");
+      if (fleet) { const d = S[fleet].attributes.devices || [], on = d.filter((x) => x.online).length;
+        out.push({ icon: "mdi:access-point-network", value: `${on}/${d.length}`, label: "online", entity: fleet, level: on < d.length ? "warn" : "good" }); }
+      const gw = this._findRole("net_gateways_online");
+      if (gw) { const g = S[gw].attributes.gateways || [], on = g.filter((x) => x.online).length;
+        out.push({ icon: "mdi:router-wireless", value: `${on}/${g.length}`, label: g.length === 1 ? "gateway" : "gateways", entity: gw, level: on < g.length ? "bad" : "good" }); }
+      const al = this._findRole("alerts_open");
+      if (al) { const a = S[al].attributes.alerts || [], crit = a.some((x) => x.severity === "critical");
+        out.push({ icon: "mdi:bell", value: String(a.length), label: a.length === 1 ? "alert" : "alerts", entity: al, level: a.length ? (crit ? "bad" : "warn") : "good" }); }
+      return out;
+    }
+    // sibling Milesight dashboards in the sidebar, so the pages feel like one app (site landing pages first)
+    _pages() {
+      const panels = (this._hass && this._hass.panels) || {};
+      const order = ["maintenance", "tanks", "analytics", "farm", "cold-chain", "energy"];
+      const list = [];
+      for (const key in panels) {
+        const p = panels[key] || {}, url = p.url_path || key;
+        const site = url.indexOf("building-") === 0, ms = url.indexOf("milesight-") === 0;
+        if (!site && !ms) continue;
+        const ord = site ? -1 : ((order.indexOf(url.slice("milesight-".length)) + 1) || 99);
+        list.push({ url, title: p.title || url, site, ord,
+          icon: p.icon || (site ? "mdi:home-outline" : "mdi:view-dashboard") });
+      }
+      list.sort((a, b) => a.ord - b.ord || a.title.localeCompare(b.title));
+      return list;
+    }
+    _render() {
+      if (!this._hass) return;
+      const cfg = this._cfg;
+      const site = this._site(), stats = this._stats();
+      const accent = cfg.color ? gResolve(cfg.color) : "var(--ms-accent)";
+      this._css = `
+        .ph{display:flex;align-items:center;gap:15px;padding:15px 18px;flex-wrap:wrap}
+        .phi{flex:0 0 auto;width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;
+          background:color-mix(in srgb, ${accent} 16%, transparent);color:${accent}}
+        .phi ha-icon{--mdc-icon-size:26px}
+        .pht{min-width:0;flex:1 1 auto}
+        .eye{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ms-ink2);font-weight:600}
+        .h1{font-size:21px;font-weight:700;color:var(--ms-ink);line-height:1.1;margin:1px 0 0}
+        .sub{font-size:13px;color:var(--ms-ink2);margin-top:2px}
+        .phs{display:flex;gap:8px;flex-wrap:wrap}
+        .stat{display:flex;align-items:center;gap:8px;border:1px solid var(--ms-line);border-radius:11px;padding:7px 12px;cursor:pointer}
+        .stat:hover{border-color:${accent}}
+        .stat ha-icon{--mdc-icon-size:18px;color:var(--ms-ink2)}
+        .stat.good ha-icon{color:var(--ms-good)} .stat.warn ha-icon{color:var(--ms-warn)} .stat.bad ha-icon{color:var(--ms-bad)}
+        .sv{font-size:15px;font-weight:700;color:var(--ms-ink);line-height:1}
+        .sl{font-size:11px;color:var(--ms-ink2);line-height:1.1}
+        @media (max-width:520px){.ph{gap:12px}.phs{width:100%}}
+        .phnav{display:flex;gap:5px;flex-wrap:wrap;padding:0 14px 11px}
+        .navlink{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ms-ink2);
+          text-decoration:none;cursor:pointer;padding:6px 11px;border-radius:9px;border:1px solid transparent;white-space:nowrap}
+        .navlink:hover{color:var(--ms-ink);background:color-mix(in srgb, var(--ms-ink) 5%, transparent)}
+        .navlink.cur{color:${accent};background:color-mix(in srgb, ${accent} 12%, transparent);font-weight:600}
+        .navlink ha-icon{--mdc-icon-size:16px}
+        .phnav.scroll{flex-wrap:nowrap;overflow-x:auto}
+      `;
+      const statEl = (s) => h("div", { class: "stat " + (s.level || ""), onclick: () => s.entity && fireMoreInfo(this, s.entity) }, [
+        h("ha-icon", { icon: s.icon }), h("div", {}, [h("div", { class: "sv" }, esc(s.value)), h("div", { class: "sl" }, esc(s.label))]),
+      ]);
+      const pages = cfg.nav === false ? [] : this._pages();
+      const cur = (location.pathname.split("/")[1] || "");
+      const navEl = pages.length > 1 ? h("div", { class: "phnav" }, pages.map((pg) =>
+        h("a", { class: "navlink" + (pg.url === cur ? " cur" : ""), href: "/" + pg.url,
+          onclick: (e) => { e.preventDefault(); navigate("/" + pg.url); } },
+          [h("ha-icon", { icon: pg.icon }), esc(pg.title)]))) : null;
+      this._card(h("div", {}, [
+        h("div", { class: "ph" }, [
+          h("div", { class: "phi" }, [h("ha-icon", { icon: cfg.icon || "mdi:view-dashboard" })]),
+          h("div", { class: "pht" }, [
+            site ? h("div", { class: "eye" }, esc(site)) : null,
+            h("div", { class: "h1" }, esc(cfg.title || "Overview")),
+            cfg.subtitle ? h("div", { class: "sub" }, esc(cfg.subtitle)) : null,
+          ]),
+          stats.length ? h("div", { class: "phs" }, stats.map(statEl)) : null,
+        ]),
+        navEl,
+      ]));
+    }
+  }
+
+  // ================================================================ first-run onboarding checklist
+  // A live setup guide for a brand-new install. Each step reads the real state, so it ticks itself off as
+  // the system comes up, and the whole card hides once the essentials are in place. A step that turns red
+  // (devices added but silent) keeps the card visible even after it was dismissed — on a farm, silent
+  // sensors are a safety issue, not a cosmetic one.
+  const OB_PURPOSE_ROLES = ["cold_chain", "load", "pump", "pivot", "irrigation", "mains", "tank",
+    "frost", "climate", "air", "energy", "hvac", "people", "comfort", "level"];
+  class OnboardingCard extends Base {
+    static getStubConfig() { return {}; }
+    _watch() { return null; }                              // re-render on every update (not animated; must catch first data)
+    _dkey() { return "msOnboardingDismissed"; }
+    _dismissed() { try { return localStorage.getItem(this._dkey()) === "1"; } catch (e) { return false; } }
+    _dismiss() { try { localStorage.setItem(this._dkey(), "1"); } catch (e) { /* private */ } this._render(); }
+    _steps() {
+      const S = this._hass.states;
+      const find = (role) => { for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === role) return S[id]; return null; };
+      const gw = find("net_gateways_online"), gws = gw ? (gw.attributes.gateways || []) : [];
+      const gwOn = gws.filter((x) => x.online).length;
+      const fleet = find("fleet_total"), devs = fleet ? (fleet.attributes.devices || []) : [];
+      const on = devs.filter((x) => x.online).length;
+      let purposed = 0;
+      for (const id in S) { const r = S[id].attributes.milesight_role; if (r && OB_PURPOSE_ROLES.indexOf(r) >= 0) purposed++; }
+      const toInt = this._cfg.setup_path || "/config/integrations/integration/milesight_lorawan";
+      const go = (p) => () => navigate(p);
+      return [
+        { key: "gateway", title: "Gateway online",
+          state: gwOn > 0 ? "good" : (gws.length ? "warn" : "pending"),
+          hint: gwOn > 0 ? `${gwOn} gateway${gwOn > 1 ? "s" : ""} connected and listening.`
+            : (gws.length ? "A gateway is set up but offline — check its power and network uplink."
+              : "Add your Milesight gateway in Settings → Devices & services."),
+          action: gwOn > 0 ? null : { label: gws.length ? "Check gateway" : "Add gateway", onClick: go(toInt) } },
+        { key: "devices", title: "Devices added",
+          state: devs.length ? "good" : "pending",
+          hint: devs.length ? `${devs.length} device${devs.length > 1 ? "s" : ""} on the gateway.`
+            : "Pair your sensors to the gateway, then add them from Settings → Devices & services → Discovered.",
+          action: devs.length ? null : { label: "Add devices", onClick: go(toInt) } },
+        { key: "data", title: "Data arriving",
+          state: on > 0 ? "good" : (devs.length ? "bad" : "pending"),
+          hint: on > 0 ? `${on} of ${devs.length} device${devs.length > 1 ? "s" : ""} reporting.`
+            : (devs.length ? "Devices are added but none are reporting — check the gateway link and the sensors' batteries. Until this clears, readings on your dashboards are stale."
+              : "Appears once your first device sends an uplink."),
+          action: (devs.length && on === 0) ? { label: "Open Maintenance", onClick: go("/milesight-maintenance/overview") } : null },
+        { key: "purposes", title: "Purposes assigned",
+          state: purposed > 0 ? "good" : "pending",
+          hint: purposed > 0 ? `${purposed} sensor${purposed > 1 ? "s" : ""} tagged — your dashboards are tailored to the site.`
+            : "Open a device → Configure → Purpose (tank, pump, fridge, pivot …) to unlock the matching dashboards and safety alerts.",
+          action: purposed > 0 ? null : { label: "Assign purposes", onClick: go(toInt) } },
+      ];
+    }
+    _render() {
+      if (!this._hass) return;
+      const steps = this._steps();
+      const done = steps.filter((s) => s.state === "good").length;
+      const allDone = done === steps.length;
+      const hasBad = steps.some((s) => s.state === "bad");
+      if (allDone || (this._dismissed() && !hasBad)) { this.style.display = "none"; this.shadowRoot.replaceChildren(); return; }
+      this.style.display = "";
+      this._css = `
+        .ob{padding:16px 18px}
+        .obh{display:flex;align-items:center;gap:12px;margin-bottom:13px}
+        .obic{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+          background:color-mix(in srgb, var(--ms-accent) 15%, transparent);color:var(--ms-accent)}
+        .obic ha-icon{--mdc-icon-size:23px}
+        .obt{font-size:17px;font-weight:700;color:var(--ms-ink);line-height:1.15}
+        .obsub{font-size:12.5px;color:var(--ms-ink2);margin-top:1px}
+        .obbar{height:6px;border-radius:4px;background:color-mix(in srgb, var(--ms-ink) 10%, transparent);overflow:hidden;margin-bottom:6px}
+        .obbar > i{display:block;height:100%;border-radius:4px;background:var(--ms-good);transition:width .4s ease}
+        .step{display:flex;gap:12px;align-items:flex-start;padding:11px 2px}
+        .step + .step{border-top:1px solid var(--ms-line)}
+        .stico{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-top:1px}
+        .stico ha-icon{--mdc-icon-size:18px}
+        .step.good .stico{color:var(--ms-good);background:color-mix(in srgb, var(--ms-good) 14%, transparent)}
+        .step.warn .stico{color:var(--ms-warn);background:color-mix(in srgb, var(--ms-warn) 15%, transparent)}
+        .step.bad .stico{color:var(--ms-bad);background:color-mix(in srgb, var(--ms-bad) 14%, transparent)}
+        .step.pending .stico{color:var(--ms-ink2);background:color-mix(in srgb, var(--ms-ink) 8%, transparent)}
+        .stbody{flex:1 1 auto;min-width:0}
+        .stt{font-size:14px;font-weight:600;color:var(--ms-ink)}
+        .step.pending .stt{color:var(--ms-ink2)}
+        .sth{font-size:12.5px;color:var(--ms-ink2);line-height:1.4;margin-top:2px}
+        .sta{margin-top:7px;font:inherit;font-size:12.5px;color:var(--ms-accent);background:none;
+          border:1px solid var(--ms-line);border-radius:8px;padding:6px 12px;cursor:pointer}
+        .sta:hover{border-color:var(--ms-accent)}
+        .obf{display:flex;justify-content:flex-end;margin-top:8px}
+        .obdismiss{font:inherit;font-size:12px;color:var(--ms-ink2);background:none;border:none;cursor:pointer}
+        .obdismiss:hover{color:var(--ms-ink);text-decoration:underline}
+      `;
+      const icons = { good: "mdi:check", warn: "mdi:alert", bad: "mdi:alert-octagon", pending: "mdi:circle-small" };
+      const stepEl = (s) => h("div", { class: "step " + s.state }, [
+        h("div", { class: "stico" }, [h("ha-icon", { icon: icons[s.state] || "mdi:circle-small" })]),
+        h("div", { class: "stbody" }, [
+          h("div", { class: "stt" }, esc(s.title)),
+          h("div", { class: "sth" }, esc(s.hint)),
+          s.action ? h("button", { class: "sta", onclick: s.action.onClick }, s.action.label) : null,
+        ]),
+      ]);
+      this._card(h("div", { class: "ob" }, [
+        h("div", { class: "obh" }, [
+          h("div", { class: "obic" }, [h("ha-icon", { icon: "mdi:rocket-launch-outline" })]),
+          h("div", {}, [
+            h("div", { class: "obt" }, this._cfg.title || "Set up your Milesight system"),
+            h("div", { class: "obsub" }, `${done} of ${steps.length} done`),
+          ]),
+        ]),
+        h("div", { class: "obbar" }, [h("i", { style: { width: Math.round(done / steps.length * 100) + "%" } })]),
+        h("div", { class: "steps" }, steps.map(stepEl)),
+        h("div", { class: "obf" }, [
+          h("button", { class: "obdismiss", onclick: () => this._dismiss() }, "Hide this checklist"),
+        ]),
+      ]));
     }
   }
 
@@ -885,7 +1565,7 @@
         entity: "Entity", name: "Name (optional)", battery: "Battery entity (optional)",
         signal: "Signal entity (optional)", hours: "History window (hours)", sparkline: "Show sparkline",
         color: "Line colour (optional)", shape: "Vessel shape", purpose: "Purpose (optional)",
-        liquid: "Contents (optional)", low: "Low-level alarm (%)",
+        liquid: "Contents (optional)", low: "Low-level alarm (%)", shape: "Gauge style",
       }[s.name] || s.name);
       if (!this._form) {
         this._form = form;
@@ -916,21 +1596,30 @@
     "milesight-table-card": [
       { name: "preset", selector: { select: { mode: "dropdown", options: [
         { value: "devices", label: "Devices" }, { value: "offline", label: "Offline" },
-        { value: "weak", label: "Weak / lossy" }, { value: "firmware", label: "Firmware" }] } } },
+        { value: "weak", label: "Weak / lossy" }, { value: "firmware", label: "Firmware" },
+        { value: "cold_chain", label: "Fridges & freezers" }, { value: "compressors", label: "Compressors" },
+        { value: "loads", label: "Loads" }, { value: "pumps", label: "Pumps" },
+        { value: "pivots", label: "Centre pivots" }] } } },
       { name: "entity", selector: ENTITY_SEL }, { name: "title", selector: { text: {} } },
       { name: "only_issues", selector: { boolean: {} } }, { name: "search", selector: { boolean: {} } }],
     "milesight-gauge-card": [sel.entity, sel.name,
-      { name: "type", selector: { select: { mode: "dropdown", options: [
+      { name: "shape", selector: { select: { mode: "dropdown", options: [
         { value: "arc", label: "Arc" }, { value: "semicircle", label: "Half" },
         { value: "ring", label: "Ring" }, { value: "bar", label: "Bar" }] } } },
       { name: "min", selector: { number: { mode: "box" } } }, { name: "max", selector: { number: { mode: "box" } } },
       { name: "unit", selector: { text: {} } }, { name: "switchable", selector: { boolean: {} } }],
+    "milesight-device-panel": [{ name: "device", selector: { device: {} } }, sel.entity, sel.name, sel.hours],
+    "milesight-page-header": [{ name: "title", selector: { text: {} } }, { name: "subtitle", selector: { text: {} } },
+      { name: "icon", selector: { icon: {} } }, { name: "site", selector: { text: {} } },
+      { name: "stats", selector: { boolean: {} } }, { name: "nav", selector: { boolean: {} } }],
+    "milesight-onboarding": [{ name: "title", selector: { text: {} } }],
   };
 
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
-        GAUGE_TAG = "milesight-gauge-card";
+        GAUGE_TAG = "milesight-gauge-card", PANEL_TAG = "milesight-device-panel", HEADER_TAG = "milesight-page-header",
+        ONBOARD_TAG = "milesight-onboarding";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -938,6 +1627,9 @@
     [LVL_TAG, LevelCard, "Milesight Level", "Animated tank / silo / dam / bin fill, by purpose"],
     [TBL_TAG, TableCard, "Milesight Table", "Device/status table that faintly highlights rows and cells with issues"],
     [GAUGE_TAG, GaugeCard, "Milesight Gauge", "Animated gauge for any value — arc, half, ring or bar, switchable live"],
+    [PANEL_TAG, DevicePanel, "Milesight Device Page", "A per-device page laid out by device type (tank/climate/air/pump)"],
+    [HEADER_TAG, PageHeader, "Milesight Page Header", "A page masthead: site, title, subtitle and a live health strip"],
+    [ONBOARD_TAG, OnboardingCard, "Milesight Onboarding", "First-run setup checklist that ticks itself off and hides once set up"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

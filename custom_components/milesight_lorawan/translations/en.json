@@ -202,6 +202,7 @@
           "site_areas": "Areas on the dashboard",
           "site_outside_sensor": "Outside temperature (optional)",
           "co2_alert": "CO₂ alert above (ppm)",
+          "classic_gauges": "Use Home Assistant's built-in gauges (classic look)",
           "update_dashboard": "Regenerate the site landing page now (replaces your edits)",
           "set_ha_name": "Use the company name as Home Assistant's name (top-left)"
         },

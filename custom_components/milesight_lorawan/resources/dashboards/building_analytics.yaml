@@ -12,6 +12,13 @@ views:
     max_columns: 3
     sections:
       - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            title: Analytics
+            subtitle: Comfort and occupancy trends
+            icon: mdi:chart-box-outline
+      - type: grid
         cards:
           - type: heading
             heading: Comfort per area

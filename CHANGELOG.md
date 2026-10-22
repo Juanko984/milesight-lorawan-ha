@@ -2,6 +2,86 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.56.0
+- **First-run onboarding checklist.** A new `milesight-onboarding` card guides a brand-new install through
+  setup with a live, self-checking list — **gateway online, devices added, data arriving, purposes assigned** —
+  each step reading the real state and ticking itself off as the system comes up. The whole card hides once the
+  system is set up, so it never clutters an established site. It leads both the site landing page and the
+  always-present Maintenance dashboard, so a fresh install sees it even before the landing page is generated.
+  - Production-minded: the **"data arriving"** step turns **red** when devices are added but none are reporting
+    (silent sensors are a safety risk on a farm, not a cosmetic issue) and the card stays visible in that state
+    even after it was dismissed. Steps link straight to the integration/device pages that fix them.
+- **Cross-page navigation in the header.** The page header now shows a navigation strip linking every Milesight
+  dashboard in the sidebar (and the site landing page), with the current page highlighted, so the generated
+  pages feel like one app. It discovers the pages itself from the sidebar; set `nav: false` to hide the strip.
+- **Polished empty states across the cards.** Tables, the level card and the device page now show a clear,
+  icon-led empty state that distinguishes **"not set up yet"** (actionable guidance — which sensor to add and
+  where to assign its purpose) from **"data not arriving"**. In particular, a device table whose rows are all
+  offline now shows a red **safety banner** ("Every device is offline — check the gateway and its network link")
+  above the data, so an all-quiet fleet reads as a warning rather than a normal-looking table.
+
+## 0.55.0
+- **The remaining dashboards rebuilt with the card system.** Cold chain, Energy and Farm no longer use plain
+  markdown tables — they now use the highlighting table card, so a problem row tints red/amber with an icon, cells
+  past a threshold stand out, and each table has filtering, CSV export, sorting and click-through to the device,
+  like the rest of the app.
+  - New table presets: **cold_chain** (fridges/freezers — now, allowed range, min/max, time out of range, door),
+    **compressors**, **loads** (energy), **pumps** and **pivots**.
+  - The table card gained an **entities-by-role** data source, so it can tabulate one row per device from the
+    device sensors directly (not only from a single aggregate sensor).
+  - Irrigation/frost and mains stay as status alerts (the right form for them); per-unit history logs stay as a
+    drill-down beneath the tables.
+
+## 0.54.0
+- **A consistent page header on every generated dashboard.** New `milesight-page-header` card gives each page a
+  masthead: the site name, the page title and a one-line description of what the page is for, plus a live health
+  strip — **devices online, gateways online, open alerts** — so "is everything OK?" is answered at the top of
+  every page. It derives those figures itself (no entity IDs to set) and themes to light/dark.
+- Deployed to all six shipped dashboards — **Maintenance, Tanks & Alerts, Farm, Cold chain, Energy, Analytics** —
+  each with a fitting title, subtitle and icon. The site landing page keeps its richer banner; the device page
+  keeps its own device header; so every page now reads as part of one product.
+
+## 0.53.0
+- **Gauge scale labels.** Arc and half gauges now draw a tick scale with value labels around the dial (with the
+  min/max endpoints labelled), like a classic instrument — so you can read the value against the zones at a
+  glance. On by default for arc/half; set `ticks: false` to hide, `tick_count:` to change density. The compact
+  gauges in the generated dashboards keep ticks off to stay tidy.
+- **Classic-gauge fallback.** A new **"Use Home Assistant's built-in gauges"** option (gateway → Configure → site
+  info) makes the generated dashboards emit the built-in `gauge` instead of the custom card — a safety switch if
+  the custom cards ever don't load. (The custom cards auto-load and Home Assistant upgrades them once the bundle
+  registers, so this is rarely needed.)
+
+## 0.52.0
+- **Gauge zones drawn on the track.** The gauge now paints its severity bands as coloured arcs on the dial —
+  a green safe zone with amber/red danger zones — *behind* the needle (a value marker on the ring and bar),
+  so you can see how close a reading is to its limits even when it's fine. Plain gauges (no severity) keep the
+  single progress fill.
+- **The gauge card now replaces the built-in gauges in the generated dashboards** (building analytics, the Live
+  views, cold-chain temperature), so they get the zone bands, animation and light/dark theming automatically.
+- Fixed a config clash: the gauge style is now set with **`shape:`** (arc / semicircle / ring / bar) instead of
+  `type:`, which Lovelace reserves for the card type — so the style is settable from YAML and the editor, not
+  only the live switcher.
+
+## 0.51.0
+- **Device page: threshold-aware gauge, real controls, and an activity timeline.**
+  - **Cold-chain / climate gauge** now colours itself by the device's own temperature alarm band — green in range,
+    red when too cold or too warm — and sizes its scale around the thresholds. (The temperature entity now exposes
+    `alarm_low` / `alarm_high` / `min_today` / `max_today`.)
+  - **Controls** are now real actions: a button entity presses, a switch toggles (showing On/Off), plus a quick
+    **Walk test** link to the commissioning panel.
+  - **Alerts** show as chips at the top of the page (out-of-range, low level/battery, problem sensors).
+  - **Activity** timeline lists the device's recent events from the Home Assistant logbook.
+
+## 0.50.0
+- **Per-device page.** Clicking a device in any table now opens a dedicated, designed **device page** laid out
+  by device type: a header (name, model · area, online, signal, battery), a type-specific **hero** (a tank's
+  animated vessel, a probe's temperature gauge, an air sensor's CO₂ gauge, a pump's run-state + current gauge),
+  a **trend** of the key metric, a tidy grid of the device's other **readings**, and any **controls**. It's a new
+  self-contained card (`milesight-device-panel`) that reads the device from the page URL, shown in a new
+  **Device** sub-view (with a back button) on the maintenance dashboard.
+  - The device cards gained a chrome-less **bare mode** so they compose cleanly inside the page.
+  - Table rows route to this page by default; set `link: more-info` on a table to keep the old dialog behaviour.
+
 ## 0.49.0
 - **Table card: filter box, CSV export, remembered sort.** Tables with more than a few rows get a live **Filter**
   box; any table offers a **⭳ CSV** download of the current (filtered + sorted) rows; and the column sort you pick

@@ -684,6 +684,13 @@ class DeviceRuntime:
                 self.attrs["temp_out_today"]["in_range_7d"] = v["temp_in_range_7d"]
             self.attrs["temp_alarm"] = {"since": (self.tempw.s["alarm"] or {}).get("since"),
                                         "peak": (self.tempw.s["alarm"] or {}).get("peak")}
+            # expose the alarm band on the temperature entity itself, so a gauge can draw green/amber/red zones
+            band = {"alarm_low": self.pcfg.get("temp_low"), "alarm_high": self.pcfg.get("temp_high"),
+                    "min_today": self.tempw.s["min"], "max_today": self.tempw.s["max"]}
+            band = {k: val for k, val in band.items() if val is not None}
+            for _tk in ("temperature", "temperature_1"):
+                if band:
+                    self.attrs[_tk] = {**(self.attrs.get(_tk) or {}), **band}
         if self._pkey == "mains":
             v["mains_outage"] = self.meta.get("_zero_n", 0) >= 2
             self.attrs["mains_outage"] = {"milesight_role": "mains", "device": self.entry.title,

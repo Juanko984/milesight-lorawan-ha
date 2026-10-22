@@ -15,6 +15,13 @@ from . import setpoints as _sp
 
 Resolver = Callable[[str, str], "str | None"]
 RED, AMBER, GREEN, BLUE, GREY = "#db4437", "#ffa600", "#43a047", "#039be5", "#9e9e9e"
+_CLASSIC = False
+
+
+def set_classic(value: bool) -> None:
+    """Use built-in `gauge` cards instead of the custom milesight gauge (user fallback)."""
+    global _CLASSIC
+    _CLASSIC = bool(value)
 FULL, HALF, THIRD = 12, 6, 4
 
 
@@ -53,7 +60,11 @@ def _gauge(entity: str | None, name: str, lo: float, hi: float, segments: list[t
            unit: str | None = None, cols: int = HALF) -> dict | None:
     if not entity:
         return None
-    card: dict[str, Any] = {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True}
+    if _CLASSIC:
+        card = {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True}
+    else:
+        card = {"type": "custom:milesight-gauge-card", "entity": entity, "name": name,
+                "min": lo, "max": hi, "shape": "arc", "switchable": False, "ticks": False, "needle": True}
     if segments:
         card["segments"] = [{"from": f, "color": c} for f, c in segments]
     if unit:
@@ -76,11 +87,12 @@ def gauge_of(card: dict | None) -> dict | None:
     """The gauge inside a safe_gauge (or the card itself when it is a gauge)."""
     if not card:
         return None
-    if card.get("type") == "gauge":
+    _GAUGES = ("gauge", "custom:milesight-gauge-card")
+    if card.get("type") in _GAUGES:
         return card
     if card.get("type") == "vertical-stack":
         inner = (card.get("cards") or [{}])[0].get("card") or {}
-        return inner if inner.get("type") == "gauge" else None
+        return inner if inner.get("type") in _GAUGES else None
     return None
 
 

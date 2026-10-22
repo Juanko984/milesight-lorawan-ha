@@ -32,6 +32,7 @@ CONF_SITE_AREAS = "site_areas"               # area ids, dashboard order
 CONF_SITE_OUTSIDE = "site_outside_sensor"    # optional outside temperature sensor for the badge
 CONF_CO2_ALERT = "co2_alert"
 CONF_UPDATE_DASHBOARD = "update_dashboard"   # form-only: regenerate the Building dashboard on submit
+CONF_CLASSIC_GAUGES = "classic_gauges"       # use Home Assistant's built-in gauge instead of the milesight gauge card
 DEFAULT_SITE_LOGO = "/local/logo.png"
 DEFAULT_CO2_ALERT = 1200
 # Gateway provisioning (Milesight ns-api over MQTT)

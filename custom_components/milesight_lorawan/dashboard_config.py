@@ -53,13 +53,28 @@ def _tile(entity: str | None, name: str, icon: str | None = None, columns: int =
     return card
 
 
+_CLASSIC = False
+
+
+def set_classic(value: bool) -> None:
+    """Emit built-in `gauge` cards instead of the custom milesight gauge (a fallback the user can turn on)."""
+    global _CLASSIC
+    _CLASSIC = bool(value)
+
+
 def _gauge(entity: str | None, name: str, lo: float, hi: float, segments: list[tuple[float, str]],
            columns: int = 6) -> dict | None:
     if not entity:
         return None
     from .dashboard_live import safe_gauge
-    card = {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True,
-            "segments": [{"from": f, "color": c} for f, c in segments]}
+    seg = [{"from": f, "color": c} for f, c in segments]
+    if _CLASSIC:                                          # fall back to the built-in gauge card
+        card = {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True, "segments": seg}
+    else:
+        # the integration's own gauge card: draws the severity zones on the track (green/amber/red bands) behind the
+        # needle, animates, and themes to light/dark. `needle` is kept for backwards tests; the card ignores it.
+        card = {"type": "custom:milesight-gauge-card", "entity": entity, "name": name, "min": lo, "max": hi,
+                "shape": "arc", "switchable": False, "ticks": False, "needle": True, "segments": seg}
     return {**safe_gauge(card), "grid_options": {"columns": columns}}
 
 
@@ -83,6 +98,7 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
     """ctx: title, site, health, comfort, air_quality, systems, people, alerts, open_alerts, avg{measure: id},
     devices_online, battery_low, gateways_online, uplinks, outside, co2_alert, areas[{name, icon, comfort,
     occupancy, co2, temperature}], nav[(title, url, icon)], live[sections from dashboard_live.site_sections]."""
+    set_classic(ctx.get("classic_gauges", False))
     avg = ctx.get("avg", {})
     co2_alert = ctx.get("co2_alert", 1200)
     areas = ctx.get("areas", [])
@@ -95,8 +111,10 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
     ) if b and b.get("entity")]
 
     sections = [
-        _section([{"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}}],
-                 span=4),
+        _section([
+            {"type": "custom:milesight-onboarding", "grid_options": {"columns": "full"}},
+            {"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}},
+        ], span=4),
     ]
     if ctx.get("nav"):
         sections.append(_section([{"type": "heading", "heading": "Dashboards", "icon": "mdi:view-dashboard"}]

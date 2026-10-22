@@ -11,6 +11,13 @@ views:
     max_columns: 3
     sections:
       - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            title: Tanks & Alerts
+            subtitle: Levels, usage and open alerts
+            icon: mdi:storage-tank
+      - type: grid
         cards:
           - type: heading
             heading: Open alerts

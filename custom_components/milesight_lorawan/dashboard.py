@@ -87,8 +87,12 @@ def build_context(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
                       "comfort": find("sensor", f"{eid}_area_{slug}_comfort"),
                       "occupancy": find("sensor", f"{eid}_area_{slug}_occupancy"), "co2": co2})
     ctx["areas"] = areas
+    from .const import CONF_CLASSIC_GAUGES
+    classic = bool({**entry.data, **entry.options}.get(CONF_CLASSIC_GAUGES, False))
+    ctx["classic_gauges"] = classic
     try:                          # tanks, irrigation, pivots, pumps, cold chain and energy at a glance
-        from .dashboard_live import site_sections
+        from .dashboard_live import set_classic, site_sections
+        set_classic(classic)
         runtimes = sorted((rt for e in hass.config_entries.async_entries(DOMAIN)
                            if hasattr(rt := getattr(e, "runtime_data", None), "deveui")),
                           key=lambda r: r.entry.title.lower())

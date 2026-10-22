@@ -736,6 +736,13 @@ def test_dashboard_config_and_templates():
     assert by_head["Board room"]["cards"][1]["state_content"] == ["state", "temperature", "humidity", "co2"]
     assert all(c.get("entity") is None or c["entity"] for s_ in secs for c in s_["cards"])   # no empty entities
     json.dumps(cfg)                                                                          # storable
+    # gauges use the custom card by default; the 'classic_gauges' option falls back to the built-in gauge
+    assert co2["type"] == "custom:milesight-gauge-card" and co2["shape"] == "arc"
+    dc_ = _load("dashboard_config")
+    dc_.set_classic(True)
+    g2 = dc_._gauge("sensor.x", "T", 0, 100, [(0, "var(--success-color)")])
+    dc_.set_classic(False)
+    assert dl_.gauge_of(g2)["type"] == "gauge"
 
     env = jinja2.Environment()
     env.filters["select"] = lambda xs: [x for x in xs if x]
@@ -744,13 +751,16 @@ def test_dashboard_config_and_templates():
             "status": "2 items need attention"}
     class Now:
         def strftime(self, f): return "Wednesday 15 October 2026 · 14:32"
-    banner = env.from_string(secs[0]["cards"][0]["content"]).render(
+    # the first section leads with the self-hiding onboarding checklist, then the banner markdown
+    assert secs[0]["cards"][0]["type"] == "custom:milesight-onboarding"
+    banner_card = next(c for c in secs[0]["cards"] if "content" in c)
+    banner = env.from_string(banner_card["content"]).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme Facilities", now=Now)
     assert "<h2>Acme Facilities</h2>" in banner and "Head office · 1 Main Rd, Cape Town" in banner
     assert "Facilities: Sam Smith · +27 21 000 0000 · <a href=\"mailto:fm@example.com\">" in banner
     assert '<ha-alert alert-type="warning">2 items need attention</ha-alert>' in banner
     site.update(contact=None, phone=None, email=None, alerts=0, logo=None)
-    banner = env.from_string(secs[0]["cards"][0]["content"]).render(
+    banner = env.from_string(banner_card["content"]).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme", now=Now)
     assert "Facilities" not in banner and "<img" not in banner and "All systems normal" in banner
     md = by_head["Needs attention"]["cards"][2]["content"]
@@ -1542,8 +1552,13 @@ def test_bundled_dashboard_templates_render():
     assert "closed today / outside opening hours" in out["building_analytics:Utilisation today (opening hours)"]
     assert "🟦🟦🟦⬜⬜⬜⬜⬜⬜⬜ **34 %**" in out["tanks_and_alerts:Tanks and silos"]
     assert 'title="Pump dry-run"' in out["tanks_and_alerts:Open alerts"]
-    assert "**DRY-RUN**" in out["farm:Pumps"] and "finishes in 3.2 h" in out["farm:Centre pivots"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
+    # Pumps and Centre pivots are now table cards (pumps / pivots presets), not markdown lists
+    def _farm_preset(head):
+        sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / "farm.yaml").read_text(encoding="utf-8"))["views"]
+                   for s in v["sections"] if any(c.get("heading") == head for c in s["cards"]))
+        return next(c for c in sec["cards"] if c["type"] == "custom:milesight-table-card")["preset"]
+    assert _farm_preset("Pumps") == "pumps" and _farm_preset("Centre pivots") == "pivots"
 
 
 # ---------------------------------------------------------------- built-in network server (lns/)
@@ -1949,7 +1964,8 @@ def test_maintenance_dashboard_renders():
     cfg = yaml.safe_load((PKG.parents[1] / "dashboards" / "maintenance.yaml").read_text(encoding="utf-8"))
     gws = [{"name": "UG65", "online": True, "packets_today": 120, "devices_today": 9}]
     states.sensor.append(S(state="1", attributes={"milesight_role": "net_gateways_online", "gateways": gws}))
-    assert [v["path"] for v in cfg["views"]] == ["maintenance", "devices", "signal"]
+    assert [v["path"] for v in cfg["views"]] == ["maintenance", "devices", "signal", "device"]
+    assert next(v for v in cfg["views"] if v["path"] == "device").get("subview") is True
     out = {}
     for view in cfg["views"]:
         for sec in view["sections"]:
@@ -2112,9 +2128,19 @@ def test_gateway_api():
     import pathlib as _pl
     cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
     for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
-                 "milesight-level-card", "milesight-table-card", "milesight-gauge-card"):
+                 "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
+                 "milesight-page-header", "milesight-onboarding"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
+    # shared empty-state + all-offline safety warning helpers are present
+    assert "function emptyState" in cards and "function emptyOpts" in cards and "allStale" in cards
+    # cross-page navigation in the page header
+    assert "_pages()" in cards and "location-changed" in cards
+    # every shipped dashboard carries the page header
+    import pathlib as _pl2
+    dash_dir = _pl2.Path(ga.__file__).parent / "resources" / "dashboards"
+    for _dp in dash_dir.glob("*.yaml"):
+        assert "custom:milesight-page-header" in _dp.read_text(encoding="utf-8"), _dp.name
     # gateway timezone label → IANA name (for setting the clock in the gateway's own zone)
     assert ga._gateway_tz_iana("UTC+2 Africa/Johannesburg") == "Africa/Johannesburg"
     assert ga._gateway_tz_iana("UTC Europe/London") == "Europe/London"

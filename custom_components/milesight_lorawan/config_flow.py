@@ -70,6 +70,7 @@ from .const import (
     DEFAULT_NS_REQUEST_TOPIC,
     DEFAULT_NS_RESPONSE_TOPIC,
     CONF_AUTO_BACKFILL,
+    CONF_CLASSIC_GAUGES,
     CONF_CO2_ALERT,
     CONF_SITE_ADDRESS,
     CONF_SITE_AREAS,
@@ -864,6 +865,7 @@ class MilesightOptionsFlow(OptionsFlow):
             vol.Optional(CONF_SITE_OUTSIDE, description=sv(CONF_SITE_OUTSIDE)):
                 EntitySelector(EntitySelectorConfig(domain=["sensor", "weather"])),
             vol.Required(CONF_CO2_ALERT, default=o.get(CONF_CO2_ALERT, DEFAULT_CO2_ALERT)): _int_box(600, 5000),
+            vol.Required(CONF_CLASSIC_GAUGES, default=o.get(CONF_CLASSIC_GAUGES, False)): BooleanSelector(),
             vol.Required("set_ha_name", default=False): BooleanSelector(),
             vol.Required(CONF_UPDATE_DASHBOARD, default=False): BooleanSelector(),
         }

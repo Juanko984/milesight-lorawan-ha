@@ -13,6 +13,15 @@ views:
       - type: grid
         column_span: 3
         cards:
+          # First-run setup checklist – hides itself once the gateway, devices, data and purposes are in place.
+          - type: custom:milesight-onboarding
+          - type: custom:milesight-page-header
+            title: Maintenance
+            subtitle: Device health, signal and firmware across your fleet
+            icon: mdi:wrench-clock
+      - type: grid
+        column_span: 3
+        cards:
           - type: markdown
             grid_options: {columns: full}
             content: |
@@ -128,3 +137,15 @@ views:
             grid_options: {columns: full}
             content: |
               <small>Move the device or gateway, add an antenna or a second gateway. Run a walk test from *LoRaWAN commissioning*. Link margin = SNR above what the spreading factor needs.</small>
+  # Per-device page: opened when you click a device in the tables above (a sub-view, so it has a back button and
+  # no tab of its own). The panel reads ?device=<id> from the URL and lays itself out by the device's type.
+  - title: Device
+    path: device
+    subview: true
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:milesight-device-panel
