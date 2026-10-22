@@ -499,7 +499,62 @@
             { when: { field: "battery_low", truthy: true }, level: "warn" }],
       issue: (r) => r.online === false ? "offline" : r.battery_low ? "low battery" : null,
     },
+    offline: {
+      role: "fleet_total", path: "devices", title: "Offline",
+      filter: (r) => (num(r.offline_hours) != null && num(r.offline_hours) >= 24) || !r.last_seen,
+      columns: [
+        { key: "name", label: "Device", grow: true },
+        { key: "model", label: "Model", muted: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "offline_hours", label: "Silent", align: "right",
+          fmt: (v) => v == null ? "—" : (v >= 24 ? `${(v / 24).toFixed(1)} d` : `${Math.round(v)} h`) },
+        { key: "last_seen", label: "Last seen", align: "right", fmt: (v) => v ? fmtTime(v) : "never" },
+        { key: "battery", label: "Batt", unit: "%", align: "right", warn: { lt: 25 }, bad: { lt: 15 } },
+      ],
+      row: [{ when: { field: "online", eq: false }, level: "bad" }],
+      issue: () => "offline", empty: "All devices online ✅",
+    },
+    weak: {
+      role: "fleet_total", path: "devices", title: "Weak or lossy",
+      filter: (r) => ["poor", "fair", "bad", "very_poor"].includes(r.signal) || num(r.packet_loss) > 5 || num(r.rssi) < -110,
+      columns: [
+        { key: "name", label: "Device", grow: true },
+        { key: "rssi", label: "RSSI", unit: "dBm", align: "right", warn: { lt: -110 }, bad: { lt: -120 } },
+        { key: "snr", label: "SNR", unit: "dB", align: "right", warn: { lt: -7 } },
+        { key: "sf", label: "SF", align: "right", fmt: (v) => v == null ? "—" : "SF" + v, warn: { gt: 10 } },
+        { key: "gateways_heard", label: "GW", align: "right" },
+        { key: "packet_loss", label: "Loss", unit: "%", align: "right", warn: { gt: 5 }, bad: { gt: 20 } },
+        { key: "gateway", label: "Best gw", muted: true },
+      ],
+      row: [{ when: { field: "signal", in: ["poor", "bad", "very_poor"] }, level: "bad" },
+            { when: { field: "signal", eq: "fair" }, level: "warn" }],
+      issue: (r) => ["poor", "bad", "very_poor"].includes(r.signal) ? "weak signal" : (r.signal === "fair" ? "fair signal" : null),
+      empty: "All devices have a good link ✅",
+    },
+    firmware: {
+      role: "fleet_total", path: "devices", title: "Firmware",
+      transform: (rows) => {
+        const by = {};
+        for (const d of rows) { const m = d.model || "?"; (by[m] = by[m] || []).push(d); }
+        return Object.keys(by).sort().map((m) => {
+          const ds = by[m], vers = [...new Set(ds.filter((d) => d.firmware).map((d) => d.firmware))].sort();
+          return { model: m, count: ds.length, versions: vers.join(", "), mixed: vers.length > 1, none: vers.length === 0 };
+        });
+      },
+      columns: [
+        { key: "model", label: "Model", grow: true },
+        { key: "count", label: "Devices", align: "right" },
+        { key: "versions", label: "Firmware", fmt: (v, r) => r.none ? "not reported yet" : (r.mixed ? `mixed: ${v}` : `all on ${v}`) },
+      ],
+      row: [{ when: { field: "mixed", truthy: true }, level: "warn" }],
+      issue: (r) => r.mixed ? "mixed versions" : null, empty: "No devices yet.",
+    },
   };
+  function fmtTime(iso) {
+    const t = Date.parse(iso); if (!Number.isFinite(t)) return "—";
+    try { return new Date(t).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
+    catch (e) { return new Date(t).toISOString().slice(0, 16).replace("T", " "); }
+  }
 
   class TableCard extends Base {
     static getStubConfig() { return { preset: "devices" }; }
@@ -516,8 +571,20 @@
       let src = null;
       if (this._cfg.entity) src = this._st(this._cfg.entity);
       else { const ids = this._watch(); src = ids.length ? this._st(ids[0]) : null; }
-      if (Array.isArray(this._cfg.rows)) return this._cfg.rows;
-      return (src && Array.isArray(src.attributes[path])) ? src.attributes[path] : [];
+      let rows = Array.isArray(this._cfg.rows) ? this._cfg.rows
+        : ((src && Array.isArray(src.attributes[path])) ? src.attributes[path] : []);
+      if (p.transform) rows = p.transform(rows);
+      if (p.filter) rows = rows.filter(p.filter);
+      return rows;
+    }
+    _openRow(r) {
+      if (r.device_id) {
+        const reg = this._hass.entities || {};
+        const ent = Object.keys(reg).find((e) => reg[e].device_id === r.device_id);
+        if (ent) return fireMoreInfo(this, ent);
+        history.pushState(null, "", "/config/devices/device/" + r.device_id);
+        window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+      } else if (r.entity_id) fireMoreInfo(this, r.entity_id);
     }
     _render() {
       if (!this._hass) return;
@@ -535,6 +602,15 @@
       };
       let rows = this._rows();
       if (cfg.only_issues) rows = rows.filter((r) => rowLevel(r));
+      const sortable = cfg.sortable !== false;
+      if (this._sort) {                                    // user-chosen column sort
+        const { key, dir } = this._sort;
+        rows = rows.slice().sort((a, b) => {
+          const va = a[key], vb = b[key], na = num(va), nb = num(vb);
+          let c = (na != null && nb != null) ? na - nb : String(va == null ? "" : va).localeCompare(String(vb == null ? "" : vb));
+          return dir === "desc" ? -c : c;
+        });
+      }
       const css = `
         table{width:100%;border-collapse:collapse;font-size:13px}
         th{font:600 11px/1 inherit;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em;
@@ -554,12 +630,27 @@
         .cw{overflow-x:auto}
         .ico{margin-right:5px;font-size:11px}
         .empty{color:var(--ms-ink2);padding:10px 2px}
+        th.s{cursor:pointer;user-select:none}
+        th.s:hover{color:var(--ms-ink)}
+        .ar{margin-left:4px;opacity:.7;font-size:10px}
+        tr.rowclick{cursor:pointer}
+        tr.rowclick:hover td{background:color-mix(in srgb, var(--ms-ink) 5%, transparent)}
       `;
       this._css = css;
-      const head = h("tr", {}, cols.map((c) => h("th", { class: (c.align === "right" ? "r " : "") }, esc(c.label || c.key))));
+      const head = h("tr", {}, cols.map((c) => {
+        const active = this._sort && this._sort.key === c.key;
+        const th = h("th", { class: (c.align === "right" ? "r " : "") + (sortable ? "s" : "") },
+          [esc(c.label || c.key), active ? h("span", { class: "ar" }, this._sort.dir === "desc" ? "▼" : "▲") : null]);
+        if (sortable) th.onclick = () => {
+          const dir = (active && this._sort.dir === "asc") ? "desc" : "asc";
+          this._sort = { key: c.key, dir }; this._render();
+        };
+        return th;
+      }));
       const body = rows.map((r) => {
         const lvl = rowLevel(r);
         const issue = p.issue ? p.issue(r) : null;
+        const clickable = !!(r.device_id || r.entity_id);
         const tds = cols.map((c, i) => {
           let v = r[c.key];
           const cellBad = breach(c.bad, v), cellWarn = !cellBad && breach(c.warn, v);
@@ -570,7 +661,9 @@
           const kids = (i === 0 && issue) ? [h("span", { class: "ico", title: issue }, lvl === "bad" ? "⛔" : "⚠"), esc(disp)] : esc(disp);
           return h("td", { class: cls }, kids);
         });
-        return h("tr", { class: "issue " + (lvl || "") }, tds);
+        const tr = h("tr", { class: "issue " + (lvl || "") + (clickable ? " rowclick" : "") }, tds);
+        if (clickable) tr.onclick = () => this._openRow(r);
+        return tr;
       });
       const table = rows.length
         ? h("div", { class: "cw" }, [h("table", {}, [h("thead", {}, head), h("tbody", {}, body)])])

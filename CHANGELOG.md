@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.48.0
+- **Table card: three more presets, click-through and sorting.**
+  - **Presets** `offline`, `weak` and `firmware` join `devices`. The maintenance dashboard's **Offline**, **Weak or
+    lossy** and **Firmware** sections are now tables too (the firmware table groups by model and flags mixed
+    versions). Each preset carries its own columns, filter and highlight rules.
+  - **Click a row → the device.** Rows open the device's more-info dialog (or its device page), so you can jump
+    straight from a problem to the device. (A `device_id` is now included per device for this.)
+  - **Click a column header to sort** (numeric or text, ascending/descending), with an arrow on the active column.
+- The table remains fully overridable (columns, thresholds, row rules) and self-contained.
+
 ## 0.47.0
 - **New table card with issue highlighting** (`milesight-table-card`). A compact, sortable device table that
   **faintly tints a whole row** when something's wrong — red for offline, amber for low battery — and **emphasises

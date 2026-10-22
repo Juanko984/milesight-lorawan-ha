@@ -1962,16 +1962,17 @@ def test_maintenance_dashboard_renders():
     assert "**2 devices** · 🔋 1 batteries due in 90 days · 📴 1 offline > 24 h · 📶 0 weak signal" in out["summary"]
     assert "🟠 **Cold room** · Kitchen · 40 %" in out["Batteries"] and "replace by **2026-12-01** (45 days)" in out["Batteries"]
     assert "No forecast yet: Freezer" in out["Batteries"]
-    assert "📴 **Freezer**" in out["Offline more than 24 h or never heard"] and "1.3 days" in out["Offline more than 24 h or never heard"]
-    assert "🟠 **Cold room**" in out["Weak or lossy devices"] and "best" not in out["Weak or lossy devices"].split("Freezer")[0][:0]
     assert "🟢 **UG65**" in out["Gateways"] and "120 packets" in out["Gateways"]
-    # "All devices" is now the custom table card (milesight-table-card), not markdown
-    all_dev = next(s for v in cfg["views"] for s in v["sections"]
-                   if any(c.get("heading") == "All devices" for c in s["cards"]))
-    tbl = next(c for c in all_dev["cards"] if c["type"] == "custom:milesight-table-card")
-    assert tbl["preset"] == "devices"
-    assert "⚠ mixed: 1.2 (1), 1.3 (1)" in out["Firmware"] and "Older than 1.3: Cold room" in out["Firmware"]
     assert "🔋 **Cold room**" in out["Service history"] and "Battery replaced · Juan" in out["Service history"]
+    # "All devices", "Offline", "Firmware" and "Weak" are now custom table cards with presets, not markdown lists
+    def table_preset(head):
+        sec = next(s for v in cfg["views"] for s in v["sections"]
+                   if any(c.get("heading") == head for c in s["cards"]))
+        return next(c for c in sec["cards"] if c["type"] == "custom:milesight-table-card")["preset"]
+    assert table_preset("All devices") == "devices"
+    assert table_preset("Offline more than 24 h or never heard") == "offline"
+    assert table_preset("Firmware") == "firmware"
+    assert table_preset("Weak or lossy devices") == "weak"
 
 
 def test_run_threshold_and_ct_energy():

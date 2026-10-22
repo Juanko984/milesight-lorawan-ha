@@ -54,6 +54,18 @@ def fleet_devices(hass: HomeAssistant, hub_entry: ConfigEntry) -> list[dict[str,
     hub = getattr(hub_entry, "runtime_data", None)
     heard = set(hub.last_uplink) if hub is not None else set()
     ts_now = time.time()
+    from homeassistant.helpers import device_registry as _dr
+    try:
+        dreg = _dr.async_get(hass)
+    except Exception:  # noqa: BLE001 - registry unavailable in some stubbed contexts
+        dreg = None
+
+    def _device_id(deveui: str) -> str | None:
+        try:
+            dev = dreg.async_get_device(identifiers={(DOMAIN, deveui)}) if dreg else None
+            return dev.id if dev else None
+        except Exception:  # noqa: BLE001 - stubbed/partial registry
+            return None
     out = []
     for entry in hass.config_entries.async_entries(DOMAIN):
         rt = getattr(entry, "runtime_data", None)
@@ -72,6 +84,7 @@ def fleet_devices(hass: HomeAssistant, hub_entry: ConfigEntry) -> list[dict[str,
             "gateways_heard": v.get("gateways_heard"), "signal": v.get("signal_quality"),
             "packet_loss": v.get("packet_loss_today"), "command": v.get("command_status"),
             "last_seen": datetime.fromtimestamp(last, timezone.utc).isoformat() if last else None,
+            "device_id": _device_id(rt.deveui),
             **maintenance_fields(rt, entry, ts_now),
         })
     return sorted(out, key=lambda d: (d["online"], d["name"].lower()))

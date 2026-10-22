@@ -46,37 +46,19 @@ views:
           - type: heading
             heading: Offline more than 24 h or never heard
             icon: mdi:access-point-network-off
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: offline
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set off = devs | selectattr('offline_hours', 'ne', none) | selectattr('offline_hours', 'ge', 24) | sort(attribute='offline_hours', reverse=true) | list %}
-              {% if not off %}Every device reported in the last 24 hours ✅{% else %}
-              {% for d in off %}📴 **{{ d.name }}**{{ ' · ' ~ d.area if d.area else '' }} · {{ d.model }}  
-              <small>silent for {{ (d.offline_hours / 24) | round(1) }} days · last seen {{ as_timestamp(d.last_seen) | timestamp_custom('%d %b %H:%M') if d.last_seen else 'never' }}{% if d.battery is not none %} · battery {{ d.battery }} %{% endif %}</small>
-
-              {% endfor %}{% endif %}
-              {% set never = devs | selectattr('last_seen', 'none') | list %}
-              {% if never %}
-
-              **Never heard since they were added ({{ never | count }})** – check the device is on, joined, and that its gateway application forwards to Home Assistant (MQTT):
-              {% for d in never %}❔ {{ d.name }} · {{ d.model }}{{ ' · ' ~ d.area if d.area else '' }}  
-              {% endfor %}{% endif %}
       - type: grid
         cards:
           - type: heading
             heading: Firmware
             icon: mdi:chip
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: firmware
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set models = devs | map(attribute='model') | unique | sort | list %}
-              {% for m in models %}{% set ds = devs | selectattr('model', 'eq', m) | list %}{% set vers = ds | selectattr('firmware') | map(attribute='firmware') | unique | sort | list %}
-              **{{ m }}** · {{ ds | count }} device(s) · {% if not vers %}firmware not reported yet{% elif vers | count == 1 %}all on {{ vers[0] }} ✅{% else %}⚠ mixed: {% for v in vers %}{{ v }} ({{ ds | selectattr('firmware', 'eq', v) | list | count }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}  
-              {% if vers | count > 1 %}<small>Older than {{ vers[-1] }}: {{ ds | selectattr('firmware') | rejectattr('firmware', 'eq', vers[-1]) | map(attribute='name') | join(', ') }}</small>  
-              {% endif %}
-              {% endfor %}
       - type: grid
         cards:
           - type: heading
@@ -138,16 +120,11 @@ views:
           - type: heading
             heading: Weak or lossy devices
             icon: mdi:signal-cellular-1
+          - type: custom:milesight-table-card
+            preset: weak
+            title: false
+            grid_options: {columns: full}
           - type: markdown
             grid_options: {columns: full}
             content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set bad = devs | selectattr('signal', 'in', ['poor', 'fair']) | list
-                 + (devs | selectattr('packet_loss', 'defined') | rejectattr('packet_loss', 'none') | selectattr('packet_loss', 'ge', 10) | list) %}
-              {% if not bad %}All devices have a good link ✅{% else %}
-              {% for d in bad | unique(attribute='deveui') | sort(attribute='name') %}{{ '🔴' if d.signal == 'poor' else '🟠' }} **{{ d.name }}**{{ ' · ' ~ d.area if d.area else '' }} · {{ d.signal or '–' }}  
-              <small>RSSI {{ d.rssi }} dBm · SNR {{ d.snr }} dB · SF{{ d.sf }} · {{ d.gateways_heard or 0 }} gateway(s){% if d.packet_loss %} · {{ d.packet_loss }} % lost today{% endif %}{% if d.gateway %} · best {{ d.gateway }}{% endif %}</small>
-
-              {% endfor %}
-              <small>Move the device or gateway, add an antenna or a second gateway. Run a walk test from *LoRaWAN commissioning*.</small>{% endif %}
-              <small>🟢 good / excellent · 🟠 fair · 🔴 poor (link margin = SNR above what the spreading factor needs)</small>
+              <small>Move the device or gateway, add an antenna or a second gateway. Run a walk test from *LoRaWAN commissioning*. Link margin = SNR above what the spreading factor needs.</small>
