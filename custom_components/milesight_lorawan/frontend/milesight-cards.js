@@ -586,6 +586,34 @@
         window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
       } else if (r.entity_id) fireMoreInfo(this, r.entity_id);
     }
+    setConfig(cfg) {
+      this._cfg = cfg || {};
+      try { const s = localStorage.getItem(this._pkey()); if (s) this._sort = JSON.parse(s); } catch (e) { /* private mode */ }
+      this._lastSig = null; this._render();
+    }
+    _pkey() { const c = this._cfg; return "msTableSort:" + (c.preset || "") + ":" + (c.entity || "") + ":" + (c.title || ""); }
+    _saveSort() {
+      try { this._sort ? localStorage.setItem(this._pkey(), JSON.stringify(this._sort)) : localStorage.removeItem(this._pkey()); }
+      catch (e) { /* private mode */ }
+    }
+    _disp(c, r) {
+      const v = r[c.key];
+      let d = c.fmt ? c.fmt(v, r) : (v == null || v === "" ? "" : v);
+      if (!c.fmt && c.unit != null && v != null && v !== "") d = `${v} ${c.unit}`;
+      return d;
+    }
+    _exportCsv(cols, rows) {
+      const q = (s) => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
+      const lines = [cols.map((c) => q(c.label || c.key)).join(",")]
+        .concat(rows.map((r) => cols.map((c) => q(this._disp(c, r))).join(",")));
+      try {
+        const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = ((this._cfg.title && this._cfg.title !== false ? this._cfg.title : this._cfg.preset) || "table") + ".csv";
+        a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      } catch (e) { /* download blocked */ }
+    }
     _render() {
       if (!this._hass) return;
       const cfg = this._cfg, p = this._pre();
@@ -602,6 +630,9 @@
       };
       let rows = this._rows();
       if (cfg.only_issues) rows = rows.filter((r) => rowLevel(r));
+      const total = rows.length;
+      const q = (this._q || "").trim().toLowerCase();
+      if (q) rows = rows.filter((r) => cols.some((c) => String(this._disp(c, r)).toLowerCase().includes(q)));
       const sortable = cfg.sortable !== false;
       if (this._sort) {                                    // user-chosen column sort
         const { key, dir } = this._sort;
@@ -635,15 +666,33 @@
         .ar{margin-left:4px;opacity:.7;font-size:10px}
         tr.rowclick{cursor:pointer}
         tr.rowclick:hover td{background:color-mix(in srgb, var(--ms-ink) 5%, transparent)}
+        .tb{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+        .search{flex:1 1 auto;min-width:0;font:inherit;font-size:13px;color:var(--ms-ink);
+          background:color-mix(in srgb, var(--ms-ink) 5%, transparent);border:1px solid var(--ms-line);
+          border-radius:8px;padding:6px 10px;outline:none}
+        .search:focus{border-color:var(--ms-accent)}
+        .count{font-size:12px;color:var(--ms-ink2);white-space:nowrap}
+        .csv{flex:0 0 auto;font:inherit;font-size:12px;color:var(--ms-ink2);cursor:pointer;
+          background:none;border:1px solid var(--ms-line);border-radius:8px;padding:5px 10px}
+        .csv:hover{color:var(--ms-ink);border-color:var(--ms-accent)}
       `;
       this._css = css;
+      const showSearch = cfg.search !== false && total > 5;
+      const showCsv = cfg.csv !== false && total > 0;
+      let searchInput = null;
+      const toolbar = (showSearch || showCsv) ? h("div", { class: "tb" }, [
+        showSearch ? (searchInput = h("input", { class: "search", type: "text", value: this._q || "",
+          placeholder: "Filter…", oninput: (e) => { this._q = e.target.value; this._focusSearch = true; this._render(); } })) : h("div", { style: { flex: "1" } }),
+        (q && rows.length !== total) ? h("span", { class: "count" }, `${rows.length}/${total}`) : null,
+        showCsv ? h("button", { class: "csv", onclick: () => this._exportCsv(cols, rows), title: "Download CSV" }, "⭳ CSV") : null,
+      ]) : null;
       const head = h("tr", {}, cols.map((c) => {
         const active = this._sort && this._sort.key === c.key;
         const th = h("th", { class: (c.align === "right" ? "r " : "") + (sortable ? "s" : "") },
           [esc(c.label || c.key), active ? h("span", { class: "ar" }, this._sort.dir === "desc" ? "▼" : "▲") : null]);
         if (sortable) th.onclick = () => {
           const dir = (active && this._sort.dir === "asc") ? "desc" : "asc";
-          this._sort = { key: c.key, dir }; this._render();
+          this._sort = { key: c.key, dir }; this._saveSort(); this._render();
         };
         return th;
       }));
@@ -667,11 +716,156 @@
       });
       const table = rows.length
         ? h("div", { class: "cw" }, [h("table", {}, [h("thead", {}, head), h("tbody", {}, body)])])
-        : h("div", { class: "empty" }, cfg.empty || "No devices yet.");
+        : h("div", { class: "empty" }, q ? "Nothing matches your filter." : (cfg.empty || "No devices yet."));
       this._card(h("div", { class: "wrap" }, [
         title === false ? null : h("p", { class: "title", style: { marginBottom: "8px" } }, title || "Devices"),
-        table,
+        toolbar, table,
       ]));
+      if (this._focusSearch && searchInput) {              // keep the caret in the filter box while typing
+        const el = this.shadowRoot.querySelector(".search");
+        if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) { /* ignore */ } }
+        this._focusSearch = false;
+      }
+    }
+  }
+
+  // ================================================================ gauge (multi-type, switchable, animated)
+  const GTYPES = {
+    arc: { start: -135, sweep: 270, needle: true, label: "Arc" },
+    semicircle: { start: -90, sweep: 180, needle: true, label: "Half" },
+    ring: { start: 0, sweep: 359.99, needle: false, label: "Ring" },
+    bar: { bar: true, label: "Bar" },
+  };
+  const gpolar = (cx, cy, r, deg) => { const a = (deg - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+  function garc(cx, cy, r, start, sweep) {
+    const [x0, y0] = gpolar(cx, cy, r, start), [x1, y1] = gpolar(cx, cy, r, start + sweep);
+    return `M${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 ${Math.abs(sweep) > 180 ? 1 : 0} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
+  }
+  const gColorName = { good: "var(--ms-good)", warn: "var(--ms-warn)", bad: "var(--ms-bad)", accent: "var(--ms-accent)",
+    green: "var(--ms-good)", yellow: "var(--ms-warn)", amber: "var(--ms-warn)", red: "var(--ms-bad)" };
+  const gResolve = (c) => gColorName[c] || c || "var(--ms-accent)";
+
+  class GaugeCard extends Base {
+    static getStubConfig() { return { entity: "", min: 0, max: 100 }; }
+    setConfig(cfg) { this._cfg = cfg || {}; this._type = this._loadType(); this._built = false; this._g = null; this._render(); }
+    set hass(hass) {
+      this._hass = hass;
+      const st = this._st(this._cfg.entity);
+      const sig = st ? st.state + "@" + st.last_changed : "∅";
+      if (!this._built) { this._render(); return; }
+      if (sig !== this._lastSig) { this._lastSig = sig; this._update(); }
+    }
+    _types() { return (this._cfg.types || ["arc", "semicircle", "ring", "bar"]).filter((t) => GTYPES[t]); }
+    _tkey() { const c = this._cfg; return "msGaugeType:" + (c.entity || "") + ":" + (c.title || c.name || ""); }
+    _loadType() {
+      let t = this._cfg.type || "arc";
+      try { const s = localStorage.getItem(this._tkey()); if (s && GTYPES[s]) t = s; } catch (e) { /* private */ }
+      return GTYPES[t] ? t : "arc";
+    }
+    _setType(t) { this._type = t; this._built = false; try { localStorage.setItem(this._tkey(), t); } catch (e) { /* private */ } this._render(); }
+    _segs() {
+      const c = this._cfg;
+      if (Array.isArray(c.segments)) return c.segments.map((s) => ({ from: num(s.from), color: gResolve(s.color) })).sort((a, b) => a.from - b.from);
+      if (c.severity) { const s = c.severity, o = [];
+        if (s.green != null) o.push({ from: num(s.green), color: "var(--ms-good)" });
+        if (s.yellow != null) o.push({ from: num(s.yellow), color: "var(--ms-warn)" });
+        if (s.red != null) o.push({ from: num(s.red), color: "var(--ms-bad)" });
+        return o.sort((a, b) => a.from - b.from); }
+      return [];
+    }
+    _vals() {
+      const st = this._st(this._cfg.entity), v = st ? num(st.state) : null;
+      const mn = num(this._cfg.min) != null ? num(this._cfg.min) : 0, mx = num(this._cfg.max) != null ? num(this._cfg.max) : 100;
+      const pct = v == null ? 0 : clamp((v - mn) / ((mx - mn) || 1) * 100, 0, 100);
+      const segs = this._segs();
+      let col = this._cfg.color ? gResolve(this._cfg.color) : "var(--ms-accent)";
+      for (const s of segs) if (v != null && v >= s.from) col = s.color;
+      return { st, v, mn, mx, pct, col, segs, unit: (st && st.attributes.unit_of_measurement) || this._cfg.unit || "" };
+    }
+    _switcher() {
+      const types = this._types();
+      if (this._cfg.switchable === false || types.length < 2) return null;
+      return h("div", { class: "gsw" }, types.map((t) => {
+        const b = h("button", { class: "gt" + (t === this._type ? " on" : ""), onclick: () => this._setType(t) }, GTYPES[t].label);
+        return b;
+      }));
+    }
+    _render() {
+      if (!this._hass) return;
+      const cfg = this._cfg, t = this._type, spec = GTYPES[t];
+      const name = cfg.name || (this._st(cfg.entity) && this._st(cfg.entity).attributes.friendly_name) || cfg.entity || "Gauge";
+      this._css = `
+        .gwrap{padding:12px 16px 14px;text-align:center}
+        .gsvg{display:block;margin:0 auto;max-width:100%}
+        .gval{font-weight:680;fill:var(--ms-ink)}
+        .gunit{fill:var(--ms-ink2)}
+        .gname{font-size:14px;color:var(--ms-ink);margin-top:2px}
+        .gsub{font-size:12px;color:var(--ms-ink2)}
+        .gsw{display:inline-flex;gap:4px;margin-top:10px;border:1px solid var(--ms-line);border-radius:999px;padding:3px}
+        .gt{font:inherit;font-size:12px;color:var(--ms-ink2);background:none;border:none;border-radius:999px;padding:4px 11px;cursor:pointer}
+        .gt.on{background:var(--ms-accent);color:#fff}
+        .gtrack{fill:none;stroke:var(--ms-line)}
+        .gfill{fill:none;stroke-linecap:round;transition:stroke-dashoffset .9s cubic-bezier(.25,.1,.25,1),stroke .4s}
+        .gneedle{transition:transform .9s cubic-bezier(.25,.1,.25,1)}
+        .gbarfill{transition:width .9s cubic-bezier(.25,.1,.25,1),fill .4s}
+      `;
+      const click = () => fireMoreInfo(this, cfg.entity);
+      let svg;
+      if (spec.bar) {
+        svg = svgNS(`<svg class="gsvg" width="100%" height="76" viewBox="0 0 200 76" onclick="void 0">
+          <text class="gval" x="100" y="26" text-anchor="middle" font-size="26" data-val>–</text>
+          <rect class="gtrack" x="12" y="40" width="176" height="12" rx="6" stroke-width="0" fill="var(--ms-line)"/>
+          <rect class="gbarfill" x="12" y="40" width="0" height="12" rx="6" data-fill/>
+          <text class="gsub" x="12" y="68" font-size="10" data-min>0</text>
+          <text class="gsub" x="188" y="68" text-anchor="end" font-size="10" data-max>100</text>
+        </svg>`);
+      } else {
+        const ring = t === "ring", half = t === "semicircle";
+        const cx = 100, cy = half ? 96 : 100, r = 74;
+        const track = garc(cx, cy, r, spec.start, spec.sweep);
+        const valY = ring ? cy + 2 : half ? cy + 30 : cy + 42;    // clear of the needle/pivot
+        const vbH = half ? 140 : ring ? 200 : 182;
+        svg = svgNS(`<svg class="gsvg" width="${ring ? 172 : 200}" height="${half ? 118 : ring ? 172 : 158}"
+            viewBox="0 0 200 ${vbH}">
+          <path class="gtrack" d="${track}" stroke-width="${ring ? 11 : 12}"/>
+          <path class="gfill" d="${track}" stroke-width="${ring ? 11 : 12}" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" data-fill/>
+          ${spec.needle ? `<g class="gneedle" data-needle style="transform-origin:${cx}px ${cy}px">
+            <line x1="${cx}" y1="${cy + 6}" x2="${cx}" y2="${cy - r + 14}" stroke="var(--ms-ink)" stroke-width="2.6" stroke-linecap="round"/>
+            <circle cx="${cx}" cy="${cy}" r="4" fill="var(--ms-ink)"/></g>` : ""}
+          <text class="gval" x="${cx}" y="${valY}" text-anchor="middle" font-size="${ring ? 30 : 26}" data-val>–</text>
+          <text class="gunit" x="${cx}" y="${valY + (ring ? 16 : 15)}" text-anchor="middle" font-size="12" data-unit></text>
+        </svg>`);
+      }
+      const card = this._card(h("div", { class: "gwrap click", onclick: click }, [
+        svg,
+        h("div", { class: "gname" }, esc(name)),
+        this._switcher(),
+      ]));
+      // cache refs
+      this._g = {
+        val: svg.querySelector("[data-val]"), unit: svg.querySelector("[data-unit]"),
+        fill: svg.querySelector("[data-fill]"), needle: svg.querySelector("[data-needle]"),
+        min: svg.querySelector("[data-min]"), max: svg.querySelector("[data-max]"), spec,
+      };
+      this._built = true;
+      // first paint: let the empty state render, then animate to the value next frame
+      requestAnimationFrame(() => this._update());
+    }
+    _update() {
+      if (!this._g || !this._hass) return;
+      const { v, mn, mx, pct, col, unit } = this._vals(), g = this._g, spec = g.spec;
+      const vt = v == null ? "–" : (Math.round(v * 10) / 10).toString();
+      if (g.val) g.val.textContent = vt;
+      if (g.unit) g.unit.textContent = unit || "";
+      if (spec.bar) {
+        if (g.fill) { g.fill.setAttribute("width", (176 * pct / 100).toFixed(1)); g.fill.setAttribute("fill", col); }
+        if (g.min) g.min.textContent = mn; if (g.max) g.max.textContent = mx;
+        if (g.val && unit) g.val.textContent = vt + " " + unit;
+      } else {
+        if (g.fill) { g.fill.setAttribute("stroke", col); g.fill.style.strokeDashoffset = String(100 - pct); }
+        if (g.needle) g.needle.style.transform = `rotate(${(spec.start + spec.sweep * pct / 100).toFixed(1)}deg)`;
+      }
+      this._lastSig = (this._st(this._cfg.entity) || {}).state + "@" + (this._st(this._cfg.entity) || {}).last_changed;
     }
   }
 
@@ -720,20 +914,30 @@
         { value: "grain", label: "Grain / feed" }, { value: "waste", label: "Waste" }] } } },
       { name: "low", selector: { number: { min: 0, max: 100, mode: "box", unit_of_measurement: "%" } } }],
     "milesight-table-card": [
-      { name: "preset", selector: { select: { mode: "dropdown", options: [{ value: "devices", label: "Devices" }] } } },
+      { name: "preset", selector: { select: { mode: "dropdown", options: [
+        { value: "devices", label: "Devices" }, { value: "offline", label: "Offline" },
+        { value: "weak", label: "Weak / lossy" }, { value: "firmware", label: "Firmware" }] } } },
       { name: "entity", selector: ENTITY_SEL }, { name: "title", selector: { text: {} } },
-      { name: "only_issues", selector: { boolean: {} } }],
+      { name: "only_issues", selector: { boolean: {} } }, { name: "search", selector: { boolean: {} } }],
+    "milesight-gauge-card": [sel.entity, sel.name,
+      { name: "type", selector: { select: { mode: "dropdown", options: [
+        { value: "arc", label: "Arc" }, { value: "semicircle", label: "Half" },
+        { value: "ring", label: "Ring" }, { value: "bar", label: "Bar" }] } } },
+      { name: "min", selector: { number: { mode: "box" } } }, { name: "max", selector: { number: { mode: "box" } } },
+      { name: "unit", selector: { text: {} } }, { name: "switchable", selector: { boolean: {} } }],
   };
 
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
-        MINI_TAG = "milesight-trend-card", LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card";
+        MINI_TAG = "milesight-trend-card", LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
+        GAUGE_TAG = "milesight-gauge-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
     [MINI_TAG, TrendCard, "Milesight Trend", "Self-contained mini trend chart for any sensor"],
     [LVL_TAG, LevelCard, "Milesight Level", "Animated tank / silo / dam / bin fill, by purpose"],
     [TBL_TAG, TableCard, "Milesight Table", "Device/status table that faintly highlights rows and cells with issues"],
+    [GAUGE_TAG, GaugeCard, "Milesight Gauge", "Animated gauge for any value — arc, half, ring or bar, switchable live"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

@@ -2112,7 +2112,7 @@ def test_gateway_api():
     import pathlib as _pl
     cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
     for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
-                 "milesight-level-card", "milesight-table-card"):
+                 "milesight-level-card", "milesight-table-card", "milesight-gauge-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # gateway timezone label → IANA name (for setting the clock in the gateway's own zone)

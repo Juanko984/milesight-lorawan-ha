@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.49.0
+- **Table card: filter box, CSV export, remembered sort.** Tables with more than a few rows get a live **Filter**
+  box; any table offers a **⭳ CSV** download of the current (filtered + sorted) rows; and the column sort you pick
+  is **remembered per card** between visits.
+- **New animated gauge card** (`milesight-gauge-card`) — a general gauge for any numeric entity that can replace
+  the built-in ones. Four styles — **Arc**, **Half**, **Ring** and **Bar** — and the viewer can **switch style
+  live** on the card (the choice is remembered). The value **animates** smoothly when it changes (needle sweep /
+  arc fill), with severity bands (good / warning / critical) via `segments` or Home-Assistant-style `severity`.
+  Themes to light and dark, with a visual config editor.
+
 ## 0.48.0
 - **Table card: three more presets, click-through and sorting.**
   - **Presets** `offline`, `weak` and `firmware` join `devices`. The maintenance dashboard's **Offline**, **Weak or
