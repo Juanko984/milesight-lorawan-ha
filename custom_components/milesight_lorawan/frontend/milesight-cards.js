@@ -686,6 +686,105 @@
       empty: { icon: "mdi:rotate-right", title: "No centre pivots",
         hint: "Open the AT101 on the end tower → Configure → Centre pivot." },
     },
+    // ---- fleet batteries, service log and gateways (from the aggregate sensors) ----
+    batteries: {
+      role: "fleet_total", path: "devices", title: "Batteries",
+      filter: (r) => r.battery != null,
+      transform: (rows) => rows.slice().sort((a, b) => {
+        const da = a.battery_days_left, db = b.battery_days_left;
+        if (da == null && db == null) return 0;
+        if (da == null) return 1; if (db == null) return -1; return da - db;
+      }),
+      columns: [
+        { key: "name", label: "Device", grow: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "battery", label: "Battery", unit: "%", align: "right", warn: { lt: 25 }, bad: { lt: 15 } },
+        { key: "battery_days_left", label: "Days left", align: "right", warn: { lt: 90 }, bad: { lt: 30 },
+          fmt: (v, r) => v == null ? (r.battery_low ? "low now" : "—") : v },
+        { key: "battery_replace_by", label: "Replace by", align: "right", fmt: (v) => v || "—" },
+        { key: "battery_forecast", label: "Forecast", muted: true, fmt: (v) => v || "—" },
+      ],
+      row: [{ when: { field: "battery_low", truthy: true }, level: "warn" },
+            { when: { field: "battery_days_left", lt: 30 }, level: "bad" }],
+      issue: (r) => (r.battery_low || (r.battery_days_left != null && r.battery_days_left <= 30)) ? "replace soon" : null,
+      empty: { icon: "mdi:battery-check", title: "No battery forecasts yet",
+        hint: "Forecasts appear after about two weeks of readings." },
+    },
+    service: {
+      role: "fleet_total", path: "devices", title: "Service history",
+      transform: (rows) => {
+        const out = [];
+        for (const d of rows) for (const e of (d.service || [])) out.push({ ...e, name: d.name });
+        out.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+        return out.slice(0, 50);
+      },
+      columns: [
+        { key: "at", label: "Date", align: "right", fmt: (v) => v ? fmtTime(v) : "—" },
+        { key: "name", label: "Device", grow: true },
+        { key: "kind", label: "Type", fmt: (v) => ({ battery_replaced: "Battery", firmware: "Firmware", profile: "Profile", maintenance: "Maintenance" }[v] || v || "Note") },
+        { key: "text", label: "Note", grow: true },
+        { key: "by", label: "By", muted: true, fmt: (v) => v || "—" },
+      ],
+      empty: { icon: "mdi:history", title: "No service entries yet",
+        hint: "Battery and firmware changes log themselves; add notes with the Log service action." },
+    },
+    gateways: {
+      role: "net_gateways_online", path: "gateways", title: "Gateways",
+      transform: (rows) => rows.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))),
+      columns: [
+        { key: "name", label: "Gateway", grow: true },
+        { key: "online", label: "Status", fmt: (v) => v === true ? "Online" : (v === false ? "Offline" : "Unknown") },
+        { key: "packets_today", label: "Packets today", align: "right" },
+        { key: "devices_today", label: "Devices today", align: "right" },
+      ],
+      row: [{ when: { field: "online", eq: false }, level: "bad" }],
+      issue: (r) => r.online === false ? "offline" : null,
+      empty: { icon: "mdi:router-wireless", title: "No gateways seen yet",
+        hint: "Gateways appear with the first uplink that lists them." },
+    },
+    tanks: {
+      source: "entities", role: "tank", title: "Tanks & silos",
+      columns: [
+        { key: "device", label: "Tank", grow: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "fill", label: "Fill", align: "right", unit: "%", warn: { lt: 20 } },
+        { key: "_state", label: "Volume", align: "right",
+          fmt: (v, r) => (v == null || v === "unknown") ? "—" : `${v} / ${r.capacity_l != null ? Math.round(r.capacity_l) : "–"} L` },
+        { key: "usage_per_day", label: "Uses/day", align: "right", fmt: (v) => v == null ? "—" : `${Math.round(v)} L` },
+        { key: "days_left", label: "Days left", align: "right", fmt: (v) => v == null ? "—" : v },
+      ],
+      row: [{ when: { field: "sudden_drop", truthy: true }, level: "bad" }, { when: { field: "low", truthy: true }, level: "warn" }],
+      issue: (r) => r.sudden_drop ? "sudden drop" : (r.low ? "low" : null),
+      empty: { icon: "mdi:storage-tank-outline", title: "No tanks or silos yet",
+        hint: "Open a level sensor's device → Configure → Tank or silo." },
+    },
+    // ---- building analytics (sensors tagged by `kind`, grouped by HA area) ----
+    comfort: {
+      source: "entities", match: { attr: "kind", eq: "comfort", has: "area" }, title: "Comfort per area",
+      transform: (rows) => rows.slice().sort((a, b) => String(a.area || "").localeCompare(String(b.area || ""))),
+      columns: [
+        { key: "area", label: "Area", grow: true },
+        { key: "_state", label: "Comfort", align: "right", warn: { lt: 50 },
+          fmt: (v) => { const n = num(v); return (n == null || n < 0) ? "—" : `${n} / 100`; } },
+        { key: "temperature", label: "Temp", align: "right", fmt: (v) => v == null ? "—" : `${v} °C` },
+        { key: "humidity", label: "Humidity", align: "right", fmt: (v) => v == null ? "—" : `${v} %` },
+        { key: "co2", label: "CO₂", align: "right", fmt: (v) => v == null ? "—" : `${v} ppm` },
+      ],
+      row: [{ when: { field: "_state", lt: 50 }, level: "warn" }],
+      empty: { icon: "mdi:emoticon-happy-outline", title: "No area comfort sensors yet",
+        hint: "Assign devices with temperature / humidity / CO₂ to areas." },
+    },
+    utilisation: {
+      source: "entities", match: { has: "utilisation_today" }, title: "Utilisation today",
+      transform: (rows) => rows.slice().sort((a, b) => String(a.area || "").localeCompare(String(b.area || ""))),
+      columns: [
+        { key: "area", label: "Area", grow: true },
+        { key: "utilisation_today", label: "Utilisation", align: "right", unit: "%",
+          fmt: (v) => v == null ? "closed / outside hours" : `${v} %` },
+      ],
+      empty: { icon: "mdi:chart-donut", title: "No occupancy sensors yet",
+        hint: "People counters, PIR and desk sensors fill this in." },
+    },
   };
   function fmtTime(iso) {
     const t = Date.parse(iso); if (!Number.isFinite(t)) return "—";
@@ -698,8 +797,20 @@
     _pre() { return (this._cfg.preset && PRESETS[this._cfg.preset]) || {}; }
     _watch() {
       if (this._cfg.entity) return [this._cfg.entity];
-      const role = this._cfg.role || this._pre().role;
-      const ids = [];
+      const p = this._pre(), ids = [];
+      if (p.match) {
+        const m = p.match;
+        for (const id in this._hass.states) {
+          if (!id.startsWith("sensor.")) continue;
+          const a = this._hass.states[id].attributes;
+          if (m.attr && a[m.attr] !== m.eq) continue;
+          if (m.has && a[m.has] === undefined) continue;
+          if (!m.attr && !m.has) continue;
+          ids.push(id);
+        }
+        return ids;
+      }
+      const role = this._cfg.role || p.role;
       for (const id in this._hass.states) if (id.startsWith("sensor.") && this._hass.states[id].attributes.milesight_role === role) ids.push(id);
       return ids;
     }
@@ -709,14 +820,16 @@
       if (Array.isArray(this._cfg.rows)) {
         rows = this._cfg.rows;
       } else if (p.source === "entities") {
-        // one row per entity carrying this milesight_role (optionally filtered by `group`), from its attributes
+        // one row per entity, from its attributes. Matched either by milesight_role (optionally + group),
+        // or by a generic attribute match {attr, eq} (e.g. kind=comfort) for the analytics sensors.
         const S = this._hass.states, reg = this._hass.entities || {}, dom = (p.domain || "sensor") + ".";
-        const role = this._cfg.role || p.role, grp = p.group;
+        const role = this._cfg.role || p.role, grp = p.group, m = p.match;
         rows = [];
         for (const id in S) {
           if (!id.startsWith(dom)) continue;
           const a = S[id].attributes;
-          if (a.milesight_role !== role || (grp && a.group !== grp)) continue;
+          if (m) { if (a[m.attr] !== m.eq || (m.has && a[m.has] === undefined)) continue; }
+          else if (a.milesight_role !== role || (grp && a.group !== grp)) continue;
           rows.push({ ...a, _state: S[id].state, entity_id: id, device_id: reg[id] && reg[id].device_id });
         }
       } else {
@@ -1599,7 +1712,10 @@
         { value: "weak", label: "Weak / lossy" }, { value: "firmware", label: "Firmware" },
         { value: "cold_chain", label: "Fridges & freezers" }, { value: "compressors", label: "Compressors" },
         { value: "loads", label: "Loads" }, { value: "pumps", label: "Pumps" },
-        { value: "pivots", label: "Centre pivots" }] } } },
+        { value: "pivots", label: "Centre pivots" }, { value: "batteries", label: "Batteries" },
+        { value: "service", label: "Service history" }, { value: "gateways", label: "Gateways" },
+        { value: "tanks", label: "Tanks & silos" }, { value: "comfort", label: "Comfort per area" },
+        { value: "utilisation", label: "Utilisation" }] } } },
       { name: "entity", selector: ENTITY_SEL }, { name: "title", selector: { text: {} } },
       { name: "only_issues", selector: { boolean: {} } }, { name: "search", selector: { boolean: {} } }],
     "milesight-gauge-card": [sel.entity, sel.name,

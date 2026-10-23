@@ -23,17 +23,10 @@ views:
           - type: heading
             heading: Comfort per area
             icon: mdi:emoticon-happy-outline
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: comfort
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set rows = states.sensor | selectattr('attributes.kind', 'defined')
-                 | selectattr('attributes.kind', 'eq', 'comfort') | selectattr('attributes.area', 'defined') | list %}
-              {% if not rows %}No area comfort sensors yet – assign devices with temperature / humidity / CO₂ to areas.{% else %}
-              {% for s in rows | sort(attribute='attributes.area') %}{% set v = s.state | int(-1) %}{% set a = s.attributes %}
-              **{{ a.area }}** · {{ '🟢' if v >= 80 else ('🟡' if v >= 50 else ('🔴' if v >= 0 else '⚪')) }} {{ v if v >= 0 else '–' }}{{ ' / 100' if v >= 0 else '' }}  
-              {{ [('🌡️ ' ~ a.temperature ~ ' °C') if a.temperature is not none, ('💧 ' ~ a.humidity ~ ' %') if a.humidity is not none, ('CO₂ ' ~ a.co2 ~ ' ppm') if a.co2 is not none] | select | join(' · ') or 'no readings yet' }}
-
-              {% endfor %}{% endif %}
       - type: grid
         cards:
           - type: heading
@@ -71,13 +64,7 @@ views:
           - type: heading
             heading: Utilisation today (opening hours)
             icon: mdi:chart-donut
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: utilisation
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set rows = states.sensor | selectattr('attributes.utilisation_today', 'defined') | list %}
-              {% if not rows %}No occupancy sensors yet.{% else %}
-              {% for s in rows | sort(attribute='attributes.area') %}{% set u = s.attributes.utilisation_today %}
-              **{{ s.attributes.area }}** · {% if u is none %}closed today / outside opening hours{% else %}{{ u }} %  
-              {% set n = (u / 10) | round(0, 'floor') | int %}{{ '🟦' * n }}{{ '⬜' * (10 - n) }}{% endif %}
-
-              {% endfor %}{% endif %}

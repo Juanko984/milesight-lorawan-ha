@@ -38,18 +38,14 @@ views:
           - type: custom:milesight-level-card
             title: false
             grid_options: {columns: full}
+          - type: custom:milesight-table-card
+            preset: tanks
+            title: false
+            grid_options: {columns: full}
           - type: markdown
             grid_options: {columns: full}
             content: |
-              {% set tanks = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'tank') | list %}
-              {% if not tanks %}No tanks yet – open a level sensor's device → Configure → Tank or silo.{% else %}
-              {% for t in tanks | sort(attribute='attributes.device') %}{% set a = t.attributes %}{% set f = a.fill | int(0) if a.fill is not none else none %}
-              {{ '🔴' if a.sudden_drop else ('🟠' if a.low else '🟢') }} **{{ a.device }}**{{ ' · ' ~ a.area if a.area else '' }}{{ ' · SUDDEN DROP' if a.sudden_drop else (' · LOW' if a.low else '') }}  
-              {% if f is not none %}{% set n = (f / 10) | round(0, 'floor') | int %}{{ ('🟥' if a.low or a.sudden_drop else '🟦') * n }}{{ '⬜' * (10 - n) }} **{{ f }} %**{% else %}no reading yet{% endif %}  
-              <small>{{ t.state if t.state not in ('unknown', 'unavailable') else '–' }} of {{ a.capacity_l | round(0) | int }} L{% if a.usage_per_day is not none %} · uses {{ a.usage_per_day | round(0) | int }} L/day{% endif %}{% if a.days_left is not none %} · {{ a.days_left }} days left{% endif %}</small>
-
-              {% endfor %}
-              <small>🟢 OK · 🟠 low · 🔴 sudden drop (theft or leak) – press the tank's *Clear sudden-drop alarm* button once checked</small>{% endif %}
+              <small>A row turns red on a sudden drop (theft or leak) and amber when low – press the tank's *Clear sudden-drop alarm* button once checked.</small>
       - type: grid
         cards:
           - type: heading

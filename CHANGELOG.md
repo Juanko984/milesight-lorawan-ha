@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.57.0
+- **Every list is now a table.** The sections that were still markdown lists are rebuilt with the highlighting
+  table card, so they sort, filter, export to CSV and tint problem rows red/amber like the rest of the app:
+  - **Batteries** and **Service history** (Maintenance), **Gateways** (Signal) — new `batteries`, `service`
+    and `gateways` presets. Batteries sort by time-to-replace and go red when a cell is critical.
+  - **Comfort per area** and **Utilisation** (Building analytics) — new `comfort` and `utilisation` presets.
+    The table card gained an **attribute-match** source so it can tabulate the analytics sensors (tagged by
+    `kind` / area), not only role sensors.
+  - **Tanks & silos** (Tanks) now has a sortable table under the vessel graphics.
+  - The occupancy heatmap, the open-alerts and irrigation/frost banners stay as they are — a table would be a
+    worse fit for status and per-hour data.
+- **The page header is on every tab.** The Maintenance **Devices** and **Signal** sub-views now carry the same
+  masthead (site, title, health strip and cross-page nav) as every other page, so no tab looks half-built.
+
 ## 0.56.0
 - **First-run onboarding checklist.** A new `milesight-onboarding` card guides a brand-new install through
   setup with a live, self-checking list — **gateway online, devices added, data arriving, purposes assigned** —

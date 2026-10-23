@@ -35,21 +35,10 @@ views:
           - type: heading
             heading: Batteries
             icon: mdi:battery-clock
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: batteries
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set rows = devs | selectattr('battery', 'ne', none) | list %}
-              {% set due = rows | selectattr('battery_days_left', 'ne', none) | sort(attribute='battery_days_left') | list %}
-              {% set low = rows | selectattr('battery_low') | rejectattr('battery_days_left', 'ne', none) | list %}
-              {% if not due and not low %}No battery forecasts yet – they appear after two weeks of readings.{% endif %}
-              {% for d in low + due %}{% set n = d.battery_days_left %}
-              {{ '🔴' if d.battery_low or (n is not none and n <= 30) else ('🟠' if n is not none and n <= 90 else '🟢') }} **{{ d.name }}**{{ ' · ' ~ d.area if d.area else '' }} · {{ d.battery }} %  
-              <small>{% if n is not none %}replace by **{{ d.battery_replace_by }}** ({{ n }} days){% else %}low now{% endif %}{% if d.battery_forecast %} · {{ d.battery_forecast }}{% endif %}</small>
-
-              {% endfor %}
-              {% set waiting = rows | selectattr('battery_days_left', 'none') | rejectattr('battery_low') | list %}
-              {% if waiting %}<small>No forecast yet: {{ waiting | map(attribute='name') | join(', ') }}</small>{% endif %}
       - type: grid
         cards:
           - type: heading
@@ -73,23 +62,23 @@ views:
           - type: heading
             heading: Service history
             icon: mdi:history
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: service
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set ns = namespace(items=[]) %}
-              {% for d in devs %}{% for e in d.service or [] %}{% set ns.items = ns.items + [dict(e, name=d.name)] %}{% endfor %}{% endfor %}
-              {% if not ns.items %}No service entries yet. Battery replacements and firmware changes are logged by themselves; add notes with the *Log service* action (milesight_lorawan.log_service).{% else %}
-              {% for e in ns.items | sort(attribute='at', reverse=true) %}{% if loop.index <= 20 %}{{ {'battery_replaced': '🔋', 'firmware': '💾', 'profile': '📋', 'maintenance': '🔧'}.get(e.kind, '📝') }} **{{ e.name }}** · {{ as_timestamp(e.at) | timestamp_custom('%d %b %Y') }}  
-              <small>{{ e.text }}{% if e.by %} · {{ e.by }}{% endif %}</small>
-
-              {% endif %}{% endfor %}{% endif %}
   - title: Devices
     path: devices
     icon: mdi:format-list-bulleted
     type: sections
     max_columns: 3
     sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            title: Devices
+            subtitle: Every device on the fleet, with signal, battery and firmware
+            icon: mdi:format-list-bulleted
       - type: grid
         column_span: 3
         cards:
@@ -109,20 +98,21 @@ views:
     max_columns: 3
     sections:
       - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            title: Signal
+            subtitle: Gateways and the devices with a weak or lossy link
+            icon: mdi:signal
+      - type: grid
         cards:
           - type: heading
             heading: Gateways
             icon: mdi:router-wireless
-          - type: markdown
+          - type: custom:milesight-table-card
+            preset: gateways
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set gws = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_gateways_online')
-                 | map(attribute='attributes.gateways') | sum(start=[]) | list %}
-              {% if not gws %}No gateways seen yet – they appear with the first uplink that lists them.{% else %}
-              {% for g in gws | sort(attribute='name') %}{{ '🟢' if g.online else ('🔴' if g.online is false else '⚪') }} **{{ g.name }}**  
-              <small>{{ g.packets_today }} packets · {{ g.devices_today }} devices today</small>
-
-              {% endfor %}{% endif %}
       - type: grid
         column_span: 2
         cards:

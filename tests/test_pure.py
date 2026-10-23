@@ -1546,19 +1546,29 @@ def test_bundled_dashboard_templates_render():
                         text = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0)
                         assert "|---|" not in text, (f, text)          # no wide tables any more
                         out[f"{f}:{sec['cards'][0]['heading']}"] = text
-    assert "**Lab** · 🟡 72 / 100" in out["building_analytics:Comfort per area"]
-    assert "🌡️ 22.5 °C · 💧 48 %" in out["building_analytics:Comfort per area"]
+    # Occupancy stays a per-hour heatmap, open alerts stay alert cards, irrigation stays a status card
     assert "**Lab** · 🧑 2 · 40 % today" in out["building_analytics:Occupancy today"]
-    assert "closed today / outside opening hours" in out["building_analytics:Utilisation today (opening hours)"]
-    assert "🟦🟦🟦⬜⬜⬜⬜⬜⬜⬜ **34 %**" in out["tanks_and_alerts:Tanks and silos"]
     assert 'title="Pump dry-run"' in out["tanks_and_alerts:Open alerts"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
-    # Pumps and Centre pivots are now table cards (pumps / pivots presets), not markdown lists
-    def _farm_preset(head):
-        sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / "farm.yaml").read_text(encoding="utf-8"))["views"]
+    # Record-style lists are now table cards, not markdown. Check each converted section carries the right preset.
+    def _preset(dash, head):
+        sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]
                    for s in v["sections"] if any(c.get("heading") == head for c in s["cards"]))
         return next(c for c in sec["cards"] if c["type"] == "custom:milesight-table-card")["preset"]
-    assert _farm_preset("Pumps") == "pumps" and _farm_preset("Centre pivots") == "pivots"
+    assert _preset("farm", "Pumps") == "pumps" and _preset("farm", "Centre pivots") == "pivots"
+    assert _preset("building_analytics", "Comfort per area") == "comfort"
+    assert _preset("building_analytics", "Utilisation today (opening hours)") == "utilisation"
+    assert _preset("tanks_and_alerts", "Tanks and silos") == "tanks"
+    assert _preset("maintenance", "Batteries") == "batteries"
+    assert _preset("maintenance", "Service history") == "service"
+    assert _preset("maintenance", "Gateways") == "gateways"
+    # every non-subview view carries a page header
+    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics"):
+        for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]:
+            if v.get("subview"):
+                continue
+            cards = [c for s in v.get("sections", []) for c in s.get("cards", [])] + v.get("cards", [])
+            assert any(c["type"] == "custom:milesight-page-header" for c in cards), (dash, v.get("title"))
 
 
 # ---------------------------------------------------------------- built-in network server (lns/)
@@ -1976,11 +1986,7 @@ def test_maintenance_dashboard_renders():
                                                                         dict=dict)
                     assert "|---|" not in out[head], head          # phone-friendly, no wide tables
     assert "**2 devices** · 🔋 1 batteries due in 90 days · 📴 1 offline > 24 h · 📶 0 weak signal" in out["summary"]
-    assert "🟠 **Cold room** · Kitchen · 40 %" in out["Batteries"] and "replace by **2026-12-01** (45 days)" in out["Batteries"]
-    assert "No forecast yet: Freezer" in out["Batteries"]
-    assert "🟢 **UG65**" in out["Gateways"] and "120 packets" in out["Gateways"]
-    assert "🔋 **Cold room**" in out["Service history"] and "Battery replaced · Juan" in out["Service history"]
-    # "All devices", "Offline", "Firmware" and "Weak" are now custom table cards with presets, not markdown lists
+    # All the fleet lists are now custom table cards with presets, not markdown
     def table_preset(head):
         sec = next(s for v in cfg["views"] for s in v["sections"]
                    if any(c.get("heading") == head for c in s["cards"]))
@@ -1989,6 +1995,13 @@ def test_maintenance_dashboard_renders():
     assert table_preset("Offline more than 24 h or never heard") == "offline"
     assert table_preset("Firmware") == "firmware"
     assert table_preset("Weak or lossy devices") == "weak"
+    assert table_preset("Batteries") == "batteries"
+    assert table_preset("Service history") == "service"
+    assert table_preset("Gateways") == "gateways"
+    # the Devices and Signal views now carry a page header too
+    for p in ("maintenance", "devices", "signal"):
+        v = next(x for x in cfg["views"] if x["path"] == p)
+        assert any(c["type"] == "custom:milesight-page-header" for s in v["sections"] for c in s["cards"]), p
 
 
 def test_run_threshold_and_ct_energy():
@@ -2136,6 +2149,10 @@ def test_gateway_api():
     assert "function emptyState" in cards and "function emptyOpts" in cards and "allStale" in cards
     # cross-page navigation in the page header
     assert "_pages()" in cards and "location-changed" in cards
+    # the new table presets (batteries, service, gateways, tanks, comfort, utilisation) and the attribute-match source
+    for _p in ("batteries:", "service:", "gateways:", "tanks:", "comfort:", "utilisation:"):
+        assert _p in cards, _p
+    assert "p.match" in cards
     # every shipped dashboard carries the page header
     import pathlib as _pl2
     dash_dir = _pl2.Path(ga.__file__).parent / "resources" / "dashboards"
