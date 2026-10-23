@@ -64,7 +64,7 @@ def _gauge(entity: str | None, name: str, lo: float, hi: float, segments: list[t
         card = {"type": "gauge", "entity": entity, "name": name, "min": lo, "max": hi, "needle": True}
     else:
         card = {"type": "custom:milesight-gauge-card", "entity": entity, "name": name,
-                "min": lo, "max": hi, "shape": "arc", "switchable": False, "ticks": False, "needle": True}
+                "min": lo, "max": hi, "shape": "arc", "switchable": False, "ticks": True, "needle": True}
     if segments:
         card["segments"] = [{"from": f, "color": c} for f, c in segments]
     if unit:

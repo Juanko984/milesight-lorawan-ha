@@ -16,6 +16,7 @@ views:
           # First-run setup checklist – hides itself once the gateway, devices, data and purposes are in place.
           - type: custom:milesight-onboarding
           - type: custom:milesight-page-header
+            grid_options: {columns: full}
             title: Maintenance
             subtitle: Device health, signal and firmware across your fleet
             icon: mdi:wrench-clock
@@ -76,6 +77,7 @@ views:
         column_span: 3
         cards:
           - type: custom:milesight-page-header
+            grid_options: {columns: full}
             title: Devices
             subtitle: Every device on the fleet, with signal, battery and firmware
             icon: mdi:format-list-bulleted
@@ -101,6 +103,7 @@ views:
         column_span: 3
         cards:
           - type: custom:milesight-page-header
+            grid_options: {columns: full}
             title: Signal
             subtitle: Gateways and the devices with a weak or lossy link
             icon: mdi:signal

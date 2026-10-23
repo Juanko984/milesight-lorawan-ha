@@ -1452,6 +1452,7 @@
   // ================================================================ page header (site · page · health strip)
   class PageHeader extends Base {
     static getStubConfig() { return { title: "Overview" }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }  // a masthead is always full width
     _findRole(role) {
       const S = this._hass.states;
       for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === role) return id;
@@ -1559,6 +1560,7 @@
     "frost", "climate", "air", "energy", "hvac", "people", "comfort", "level"];
   class OnboardingCard extends Base {
     static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _watch() { return null; }                              // re-render on every update (not animated; must catch first data)
     _dkey() { return "msOnboardingDismissed"; }
     _dismissed() { try { return localStorage.getItem(this._dkey()) === "1"; } catch (e) { return false; } }
@@ -1572,6 +1574,7 @@
       const on = devs.filter((x) => x.online).length;
       let purposed = 0;
       for (const id in S) { const r = S[id].attributes.milesight_role; if (r && OB_PURPOSE_ROLES.indexOf(r) >= 0) purposed++; }
+      const alo = find("alerts_open"), escalation = !!(alo && alo.attributes.escalation_enabled);
       const toInt = this._cfg.setup_path || "/config/integrations/integration/milesight_lorawan";
       const go = (p) => () => navigate(p);
       return [
@@ -1597,6 +1600,11 @@
           hint: purposed > 0 ? `${purposed} sensor${purposed > 1 ? "s" : ""} tagged — your dashboards are tailored to the site.`
             : "Open a device → Configure → Purpose (tank, pump, fridge, pivot …) to unlock the matching dashboards and safety alerts.",
           action: purposed > 0 ? null : { label: "Assign purposes", onClick: go(toInt) } },
+        { key: "alerting", title: "Alerting set up",
+          state: escalation ? "good" : "pending",
+          hint: escalation ? "Critical problems page someone and escalate if nobody acknowledges."
+            : "Add who to notify (and an on-call rota) so a warm fridge, dropping tank or dry-running pump reaches a phone — Configure → Alerts.",
+          action: escalation ? null : { label: "Set up alerting", onClick: go(toInt) } },
       ];
     }
     _render() {
@@ -1673,6 +1681,7 @@
   };
   class AlertsCard extends Base {
     static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states;
       for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === "alerts_open") return id;

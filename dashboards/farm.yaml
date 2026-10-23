@@ -13,6 +13,7 @@ views:
         column_span: 3
         cards:
           - type: custom:milesight-page-header
+            grid_options: {columns: full}
             title: Farm
             subtitle: Pumps, pivots and irrigation
             icon: mdi:tractor-variant

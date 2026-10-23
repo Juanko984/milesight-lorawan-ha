@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.59.0
+- **The page header is always full width.** The masthead now declares a full-width layout, so it spans the page
+  edge-to-edge in the sections view and no longer shows the "doesn't support resizing" warning. Same for the
+  onboarding and alerts cards. Every shipped header also carries an explicit full-width option.
+- **Gauges show their scale again.** The generated gauges (CO₂, PM2.5, TVOC, building health, device thresholds …)
+  now draw their tick/number scale around the dial, so you can read the value against the coloured zones at a
+  glance — consistently on every page, not just the per-device views.
+- **Every page has the header — including the landing page.** The site landing/Overview page now leads with the
+  same full-width header (site, title, live health strip and cross-page navigation) above its info banner, so it
+  matches the other dashboards instead of being the odd one out.
+
 ## 0.58.0
 - **Act on alerts from the dashboard.** New `milesight-alerts-card` lists the open alerts the escalation engine
   is tracking and lets anyone **Acknowledge** or **Snooze** them right there — the same actions as the phone
@@ -12,6 +23,8 @@ All notable changes to this integration. Versions follow the GitHub releases / H
   - New **`snooze_alert`** service (alert_id, optional minutes) to match the existing `acknowledge_alert`.
   - The gateway's alerts sensor now also reports **on-call / backup people** and the snooze default, so the
     card needs no configuration.
+  - The first-run onboarding checklist gained an **"Alerting set up"** step, so a new install is nudged to set
+    up who gets paged — not just to wire up sensors.
 - **A render guard in CI so a broken card can't ship.** Every push and tag now runs a headless browser that
   instantiates every card and every table preset against sample data and **fails the build on any console
   error or empty render** (`tests/cards/render.cjs`, wired into `.github/workflows/validate.yml`). This is the

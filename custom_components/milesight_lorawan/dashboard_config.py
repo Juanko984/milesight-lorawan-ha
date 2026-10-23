@@ -74,7 +74,7 @@ def _gauge(entity: str | None, name: str, lo: float, hi: float, segments: list[t
         # the integration's own gauge card: draws the severity zones on the track (green/amber/red bands) behind the
         # needle, animates, and themes to light/dark. `needle` is kept for backwards tests; the card ignores it.
         card = {"type": "custom:milesight-gauge-card", "entity": entity, "name": name, "min": lo, "max": hi,
-                "shape": "arc", "switchable": False, "ticks": False, "needle": True, "segments": seg}
+                "shape": "arc", "switchable": False, "ticks": True, "needle": True, "segments": seg}
     return {**safe_gauge(card), "grid_options": {"columns": columns}}
 
 
@@ -112,6 +112,9 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
 
     sections = [
         _section([
+            {"type": "custom:milesight-page-header", "title": "Overview",
+             "subtitle": "Everything at a glance across the site", "icon": "mdi:home-outline",
+             "grid_options": {"columns": "full"}},
             {"type": "custom:milesight-onboarding", "grid_options": {"columns": "full"}},
             {"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}},
         ], span=4),

@@ -7,6 +7,7 @@ views:
     icon: mdi:lightning-bolt
     cards:
       - type: custom:milesight-page-header
+        grid_options: {columns: full}
         title: Energy
         subtitle: Consumption and demand across the site
         icon: mdi:lightning-bolt

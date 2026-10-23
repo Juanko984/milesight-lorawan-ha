@@ -681,7 +681,8 @@ where = asyncio.run(dmod.async_update_dashboard(hass2, site_entry))
 dash = hass2.data["lovelace"].dashboards["building-head-office"]
 assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Acme Ltd"
 _first_cards = dash.saved["views"][0]["sections"][0]["cards"]
-assert _first_cards[0]["type"] == "custom:milesight-onboarding"                              # first-run checklist leads
+assert _first_cards[0]["type"] == "custom:milesight-page-header"                             # masthead leads every page
+assert _first_cards[1]["type"] == "custom:milesight-onboarding"                              # then the first-run checklist
 _banner = next(c for c in _first_cards if "content" in c)
 assert _banner["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]

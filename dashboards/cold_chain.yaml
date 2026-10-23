@@ -8,6 +8,7 @@ views:
     icon: mdi:fridge-outline
     cards:
       - type: custom:milesight-page-header
+        grid_options: {columns: full}
         title: Cold chain
         subtitle: Fridge and freezer temperatures and excursions
         icon: mdi:snowflake-thermometer
@@ -31,6 +32,7 @@ views:
     icon: mdi:heat-pump-outline
     cards:
       - type: custom:milesight-page-header
+        grid_options: {columns: full}
         title: Compressors
         subtitle: Compressor duty and short-cycling
         icon: mdi:heat-pump-outline

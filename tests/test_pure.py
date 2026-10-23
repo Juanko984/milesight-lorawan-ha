@@ -738,6 +738,8 @@ def test_dashboard_config_and_templates():
     json.dumps(cfg)                                                                          # storable
     # gauges use the custom card by default; the 'classic_gauges' option falls back to the built-in gauge
     assert co2["type"] == "custom:milesight-gauge-card" and co2["shape"] == "arc"
+    assert co2["ticks"] is True                              # generated gauges show their scale labels
+    assert secs[0]["cards"][0].get("grid_options", {}).get("columns") == "full"   # header spans full width
     dc_ = _load("dashboard_config")
     dc_.set_classic(True)
     g2 = dc_._gauge("sensor.x", "T", 0, 100, [(0, "var(--success-color)")])
@@ -752,7 +754,8 @@ def test_dashboard_config_and_templates():
     class Now:
         def strftime(self, f): return "Wednesday 15 October 2026 · 14:32"
     # the first section leads with the self-hiding onboarding checklist, then the banner markdown
-    assert secs[0]["cards"][0]["type"] == "custom:milesight-onboarding"
+    assert secs[0]["cards"][0]["type"] == "custom:milesight-page-header"      # masthead leads every page
+    assert secs[0]["cards"][1]["type"] == "custom:milesight-onboarding"       # then the first-run checklist
     banner_card = next(c for c in secs[0]["cards"] if "content" in c)
     banner = env.from_string(banner_card["content"]).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme Facilities", now=Now)

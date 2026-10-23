@@ -14,6 +14,7 @@ views:
         column_span: 3
         cards:
           - type: custom:milesight-page-header
+            grid_options: {columns: full}
             title: Tanks & Alerts
             subtitle: Levels, usage and open alerts
             icon: mdi:storage-tank
