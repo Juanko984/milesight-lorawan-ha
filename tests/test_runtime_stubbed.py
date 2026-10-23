@@ -680,7 +680,10 @@ hass2.data["lovelace"].dashboards.pop("building-head-office"); _DashStore.data =
 where = asyncio.run(dmod.async_update_dashboard(hass2, site_entry))
 dash = hass2.data["lovelace"].dashboards["building-head-office"]
 assert where == "/building-head-office" and PANELS["building-head-office"]["sidebar_title"] == "Acme Ltd"
-assert dash.saved["views"][0]["sections"][0]["cards"][0]["content"].startswith('{% set s = "sensor.site1_site" %}')
+_first_cards = dash.saved["views"][0]["sections"][0]["cards"]
+assert _first_cards[0]["type"] == "custom:milesight-onboarding"                              # first-run checklist leads
+_banner = next(c for c in _first_cards if "content" in c)
+assert _banner["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
 assert heads[-3:] == ["People", "Meeting room 1", "Open office"], heads
 saved_hash = dmod._hash(dash.saved)

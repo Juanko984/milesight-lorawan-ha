@@ -126,6 +126,20 @@ acknowledge_alert:
       example: "3f2a9c01be"
       selector:
         text:
+snooze_alert:
+  fields:
+    alert_id:
+      required: true
+      example: "3f2a9c01be"
+      selector:
+        text:
+    minutes:
+      example: 60
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
 add_to_gateway:
   fields:
     deveui:

@@ -1662,6 +1662,106 @@
     }
   }
 
+  // ================================================================ open alerts (acknowledge / snooze on the page)
+  // Lists the open alerts the escalation engine is tracking and lets someone acknowledge or snooze them from the
+  // dashboard — the same actions as the phone notification. Shows who is on call so it is clear who was paged.
+  const AL_SEV = { critical: "bad", serious: "warn", warning: "warn", warn: "warn", info: "accent" };
+  const AL_STATUS = {
+    waiting: { label: "Waiting", cls: "warn" }, notified: { label: "Paged", cls: "warn" },
+    escalated: { label: "Escalated", cls: "bad" }, acknowledged: { label: "Acknowledged", cls: "ok" },
+    "quiet hours": { label: "Held (quiet hours)", cls: "mut" },
+  };
+  class AlertsCard extends Base {
+    static getStubConfig() { return {}; }
+    _find() {
+      const S = this._hass.states;
+      for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === "alerts_open") return id;
+      return null;
+    }
+    _watch() { const id = this._find(); return id ? [id] : null; }
+    _ack(id) { this._hass.callService("milesight_lorawan", "acknowledge_alert", { alert_id: id }); }
+    _snooze(id, min) { this._hass.callService("milesight_lorawan", "snooze_alert", Object.assign({ alert_id: id }, min ? { minutes: min } : {})); }
+    _render() {
+      if (!this._hass) return;
+      const cfg = this._cfg, id = this._find(), st = id && this._st(id);
+      const a = st ? st.attributes : {};
+      const alerts = a.alerts || [];
+      this._css = `
+        .ah{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+        .aht{font-size:16px;font-weight:700;color:var(--ms-ink)}
+        .oncall{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ms-ink2);
+          border:1px solid var(--ms-line);border-radius:999px;padding:4px 11px}
+        .oncall ha-icon{--mdc-icon-size:15px;color:var(--ms-good)}
+        .oncall.off ha-icon{color:var(--ms-ink2)}
+        .alist{display:flex;flex-direction:column;gap:9px}
+        .al{border:1px solid var(--ms-line);border-radius:11px;padding:11px 13px;display:flex;flex-direction:column;gap:7px}
+        .al.bad{box-shadow:inset 3px 0 0 var(--ms-bad);background:color-mix(in srgb,var(--ms-bad) 6%,transparent)}
+        .al.warn{box-shadow:inset 3px 0 0 var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 6%,transparent)}
+        .al.ok{box-shadow:inset 3px 0 0 var(--ms-good)}
+        .alr{display:flex;align-items:flex-start;gap:10px}
+        .alr ha-icon{--mdc-icon-size:20px;margin-top:1px}
+        .al.bad .alr ha-icon{color:var(--ms-bad)} .al.warn .alr ha-icon{color:var(--ms-warn)}
+        .al.ok .alr ha-icon{color:var(--ms-good)} .al.accent .alr ha-icon{color:var(--ms-accent)}
+        .alb{flex:1 1 auto;min-width:0}
+        .alt{font-size:14px;font-weight:600;color:var(--ms-ink)}
+        .alm{font-size:13px;color:var(--ms-ink2);margin-top:1px;line-height:1.35}
+        .almeta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:2px;font-size:11.5px;color:var(--ms-ink2)}
+        .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--ms-line)}
+        .badge.warn{color:var(--ms-warn);border-color:color-mix(in srgb,var(--ms-warn) 45%,var(--ms-line))}
+        .badge.bad{color:var(--ms-bad);border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))}
+        .badge.ok{color:var(--ms-good);border-color:color-mix(in srgb,var(--ms-good) 45%,var(--ms-line))}
+        .badge.mut{color:var(--ms-ink2)}
+        .cat{text-transform:capitalize}
+        .alacts{display:flex;gap:7px;flex-wrap:wrap}
+        .alact{font:inherit;font-size:12.5px;color:var(--ms-ink);background:none;border:1px solid var(--ms-line);
+          border-radius:8px;padding:6px 13px;cursor:pointer}
+        .alact:hover{border-color:var(--ms-accent);color:var(--ms-accent)}
+        .alact.ack:hover{border-color:var(--ms-good);color:var(--ms-good)}
+      `;
+      if (!alerts.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ tone: "ok",
+          icon: "mdi:check-circle-outline", title: "All clear", hint: "No open alerts." })]));
+      }
+      const onCall = a.on_call || [];
+      const header = h("div", { class: "ah" }, [
+        cfg.title === false ? null : h("div", { class: "aht" }, cfg.title || "Open alerts"),
+        a.escalation_enabled
+          ? h("span", { class: "oncall" }, [h("ha-icon", { icon: "mdi:shield-account" }),
+              onCall.length ? "On call: " + onCall.join(", ") : "On call: nobody now"])
+          : h("span", { class: "oncall off" }, [h("ha-icon", { icon: "mdi:bell-off-outline" }), "Escalation not set up"]),
+      ]);
+      const snoozeMin = a.snooze_min || 60;
+      const rows = alerts.map((al) => {
+        const tone = AL_SEV[al.severity] || "accent";
+        const acked = al.status === "acknowledged";
+        const stt = AL_STATUS[al.status] || { label: al.status || "open", cls: "mut" };
+        const icon = tone === "bad" ? "mdi:alert-octagon" : tone === "warn" ? "mdi:alert" : "mdi:information-outline";
+        const meta = [
+          al.category ? h("span", { class: "cat" }, esc(String(al.category).replace(/_/g, " "))) : null,
+          al.since ? h("span", {}, "since " + esc(al.since)) : null,
+          h("span", { class: "badge " + stt.cls }, stt.label),
+          acked && al.acknowledged_by ? h("span", {}, "by " + esc(al.acknowledged_by)) : null,
+        ];
+        const acts = acked ? null : h("div", { class: "alacts" }, [
+          h("button", { class: "alact ack", onclick: () => this._ack(al.id) }, "Acknowledge"),
+          h("button", { class: "alact", onclick: () => this._snooze(al.id, snoozeMin) }, `Snooze ${Math.round(snoozeMin)} min`),
+        ]);
+        return h("div", { class: "al " + (acked ? "ok" : tone) }, [
+          h("div", { class: "alr" }, [
+            h("ha-icon", { icon: acked ? "mdi:check-circle" : icon }),
+            h("div", { class: "alb" }, [
+              h("div", { class: "alt" }, esc(al.title || "Alert")),
+              al.message ? h("div", { class: "alm" }, esc(al.message)) : null,
+              h("div", { class: "almeta" }, meta),
+            ]),
+          ]),
+          acts,
+        ]);
+      });
+      this._card(h("div", { class: "wrap" }, [header, h("div", { class: "alist" }, rows)]));
+    }
+  }
+
   // ---------------------------------------------------------------- visual config editors (ha-form)
   const ENTITY_SEL = { entity: { domain: ["sensor", "binary_sensor"] } };
   class CardEditor extends HTMLElement {
@@ -1729,13 +1829,14 @@
       { name: "icon", selector: { icon: {} } }, { name: "site", selector: { text: {} } },
       { name: "stats", selector: { boolean: {} } }, { name: "nav", selector: { boolean: {} } }],
     "milesight-onboarding": [{ name: "title", selector: { text: {} } }],
+    "milesight-alerts-card": [{ name: "title", selector: { text: {} } }],
   };
 
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
         GAUGE_TAG = "milesight-gauge-card", PANEL_TAG = "milesight-device-panel", HEADER_TAG = "milesight-page-header",
-        ONBOARD_TAG = "milesight-onboarding";
+        ONBOARD_TAG = "milesight-onboarding", ALERTS_TAG = "milesight-alerts-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -1746,6 +1847,7 @@
     [PANEL_TAG, DevicePanel, "Milesight Device Page", "A per-device page laid out by device type (tank/climate/air/pump)"],
     [HEADER_TAG, PageHeader, "Milesight Page Header", "A page masthead: site, title, subtitle and a live health strip"],
     [ONBOARD_TAG, OnboardingCard, "Milesight Onboarding", "First-run setup checklist that ticks itself off and hides once set up"],
+    [ALERTS_TAG, AlertsCard, "Milesight Alerts", "Open alerts with acknowledge / snooze and who is on call"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

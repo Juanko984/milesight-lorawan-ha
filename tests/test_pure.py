@@ -1546,10 +1546,13 @@ def test_bundled_dashboard_templates_render():
                         text = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0)
                         assert "|---|" not in text, (f, text)          # no wide tables any more
                         out[f"{f}:{sec['cards'][0]['heading']}"] = text
-    # Occupancy stays a per-hour heatmap, open alerts stay alert cards, irrigation stays a status card
+    # Occupancy stays a per-hour heatmap, irrigation stays a status card
     assert "**Lab** · 🧑 2 · 40 % today" in out["building_analytics:Occupancy today"]
-    assert 'title="Pump dry-run"' in out["tanks_and_alerts:Open alerts"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
+    # Open alerts is now the interactive alerts card (acknowledge / snooze), not a markdown list
+    ta = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
+    alerts_sec = next(s for v in ta["views"] for s in v["sections"] if any(c.get("heading") == "Open alerts" for c in s["cards"]))
+    assert any(c["type"] == "custom:milesight-alerts-card" for c in alerts_sec["cards"])
     # Record-style lists are now table cards, not markdown. Check each converted section carries the right preset.
     def _preset(dash, head):
         sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]
@@ -2142,7 +2145,7 @@ def test_gateway_api():
     cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
     for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
                  "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
-                 "milesight-page-header", "milesight-onboarding"):
+                 "milesight-page-header", "milesight-onboarding", "milesight-alerts-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # shared empty-state + all-offline safety warning helpers are present
@@ -2153,6 +2156,15 @@ def test_gateway_api():
     for _p in ("batteries:", "service:", "gateways:", "tanks:", "comfort:", "utilisation:"):
         assert _p in cards, _p
     assert "p.match" in cards
+    # the alerts card calls the acknowledge / snooze services, and the services are declared
+    assert "acknowledge_alert" in cards and "snooze_alert" in cards
+    import pathlib as _pl3
+    svc = (_pl3.Path(ga.__file__).parent / "services.yaml").read_text(encoding="utf-8")
+    assert "snooze_alert:" in svc and "acknowledge_alert:" in svc
+    # the committed render guard and its CI job exist
+    assert (PKG.parents[1] / "tests" / "cards" / "render.cjs").exists()
+    wf = (PKG.parents[1] / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+    assert "tests/cards/render.cjs" in wf
     # every shipped dashboard carries the page header
     import pathlib as _pl2
     dash_dir = _pl2.Path(ga.__file__).parent / "resources" / "dashboards"

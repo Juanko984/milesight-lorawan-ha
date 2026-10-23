@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.58.0
+- **Act on alerts from the dashboard.** New `milesight-alerts-card` lists the open alerts the escalation engine
+  is tracking and lets anyone **Acknowledge** or **Snooze** them right there — the same actions as the phone
+  push, so a problem can be closed out from the wall tablet without digging through notifications. Each alert
+  shows its severity (red/amber), category, when it started, its escalation status (waiting → paged → escalated
+  → acknowledged) and who acknowledged it. The card also shows **who is on call now**, so it's clear who was
+  paged; it reads "All clear" when nothing is open. Deployed on the Tanks & Alerts dashboard.
+  - New **`snooze_alert`** service (alert_id, optional minutes) to match the existing `acknowledge_alert`.
+  - The gateway's alerts sensor now also reports **on-call / backup people** and the snooze default, so the
+    card needs no configuration.
+- **A render guard in CI so a broken card can't ship.** Every push and tag now runs a headless browser that
+  instantiates every card and every table preset against sample data and **fails the build on any console
+  error or empty render** (`tests/cards/render.cjs`, wired into `.github/workflows/validate.yml`). This is the
+  same check that was being run by hand each release — now automatic, before HACS pushes an update to a farm.
+
 ## 0.57.0
 - **Every list is now a table.** The sections that were still markdown lists are rebuilt with the highlighting
   table card, so they sort, filter, export to CSV and tint problem rows red/amber like the rest of the app:

@@ -19,6 +19,7 @@ SERVICE_SEND_DOWNLINK = "send_downlink"
 SERVICE_OUTPUT_COMMAND = "output_command"
 SERVICE_DISPLAY = "display_content"
 SERVICE_ACK = "acknowledge_alert"
+SERVICE_SNOOZE = "snooze_alert"
 SERVICE_PROVISION = "add_to_gateway"
 SERVICE_DEPROVISION = "remove_from_gateway"
 SERVICE_SYNC = "sync_gateway_devices"
@@ -58,6 +59,8 @@ DISPLAY_SCHEMA = vol.Schema({
 
 
 ACK_SCHEMA = vol.Schema({vol.Optional("alert_id"): cv.string})
+SNOOZE_SCHEMA = vol.Schema({vol.Required("alert_id"): cv.string,
+                            vol.Optional("minutes"): vol.All(vol.Coerce(float), vol.Range(min=1, max=1440))})
 PROVISION_SCHEMA = vol.Schema({
     vol.Required("deveui"): cv.string,
     vol.Optional("name"): cv.string,
@@ -153,6 +156,14 @@ def async_register_services(hass: HomeAssistant) -> None:
             user = u.name if u else None
         for hub in _hubs(hass):
             await hub.alerts.async_acknowledge(call.data.get("alert_id"), user)
+
+    async def _snooze(call: ServiceCall) -> None:
+        user = None
+        if call.context.user_id:
+            u = await hass.auth.async_get_user(call.context.user_id)
+            user = u.name if u else None
+        for hub in _hubs(hass):
+            await hub.alerts.async_snooze(call.data["alert_id"], user, call.data.get("minutes"))
 
     async def _provision(call: ServiceCall) -> dict:
         from .ns_api import valid_key
@@ -307,6 +318,7 @@ def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_HANDOVER, _handover, schema=vol.Schema({}),
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_ACK, _ack, schema=ACK_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_SNOOZE, _snooze, schema=SNOOZE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_PROVISION, _provision, schema=PROVISION_SCHEMA,
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_DEPROVISION, _deprovision, schema=DEPROVISION_SCHEMA,

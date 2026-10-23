@@ -359,8 +359,21 @@ class OpenAlertsSensor(SensorEntity):
                    "acknowledged_by": (a.get("acked") or {}).get("by"), "notified": a.get("notified")}
                   for a in sorted(hub.alerts.engine.open_alerts(), key=lambda x: x.get("first") or 0)]
         last = hub.alerts.last_sent
+        cfg = hub.alerts.cfg
+        now_local = dt_util.utc_from_timestamp(time.time()).astimezone(tz)
+
+        def who(targets: list[str]) -> list[str]:
+            # "notify.mobile_app_juan" -> "juan"; keep anything that isn't a mobile_app target as-is
+            out = []
+            for t in targets:
+                n = t.split(".", 1)[-1]
+                out.append(n[len("mobile_app_"):] if n.startswith("mobile_app_") else n)
+            return out
         return {"milesight_role": "alerts_open", "site": self.entry.title, "alerts": alerts,
-                "escalation_enabled": hub.alerts.cfg.enabled,
+                "escalation_enabled": cfg.enabled,
+                "on_call": who(cfg.first_line(now_local)) if cfg.enabled else [],
+                "backup": who(list(cfg.backup)),
+                "snooze_min": cfg.snooze_min,
                 "last_notification": {**last, "at": fmt(last["at"])} if last else None}
 
 

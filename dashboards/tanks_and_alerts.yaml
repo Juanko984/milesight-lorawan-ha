@@ -22,14 +22,10 @@ views:
           - type: heading
             heading: Open alerts
             icon: mdi:bell-alert
-          - type: markdown
+          # Live open alerts with acknowledge / snooze buttons and who is on call (same actions as the phone push).
+          - type: custom:milesight-alerts-card
+            title: false
             grid_options: {columns: full}
-            content: |
-              {% set al = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'alerts_open')
-                 | map(attribute='attributes.alerts') | sum(start=[]) | list %}
-              {% if not al %}<ha-alert alert-type="success">No open alerts</ha-alert>{% else %}
-              {% for a in al %}<ha-alert alert-type="{{ 'error' if a.severity == 'critical' else 'warning' }}" title="{{ a.title }}">{{ a.message }}<br><small>since {{ a.since }} · {{ a.status }}{% if a.acknowledged_by %} by {{ a.acknowledged_by }}{% endif %}</small></ha-alert>
-              {% endfor %}{% endif %}
       - type: grid
         cards:
           - type: heading

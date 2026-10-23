@@ -1,0 +1,101 @@
+<!doctype html>
+<!-- Headless render guard: loads the shipped card bundle, instantiates every card and every table preset with
+     representative fake `hass` data, and lets tests/cards/render.cjs fail the build on any console/page error.
+     Open manually in a browser too — each card renders below. -->
+<html><head><meta charset="utf-8"><style>
+ body{margin:0;padding:16px;font-family:system-ui,sans-serif;background:#eef0f2;
+  --primary-text-color:#1b1b1b;--secondary-text-color:#6b6b6b;--divider-color:rgba(0,0,0,.14);
+  --card-background-color:#fff;--ha-card-background:#fff;--primary-color:#1e88e5;
+  --success-color:#2e7d32;--warning-color:#e67e00;--error-color:#c62828;}
+ h3{font:600 12px system-ui;color:#555;margin:14px 0 4px}
+ ha-card{display:block;background:#fff;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,.08);border:1px solid var(--divider-color);margin-bottom:10px}
+ ha-icon{display:inline-flex}
+</style></head><body>
+<script src="../../custom_components/milesight_lorawan/frontend/milesight-cards.js"></script>
+<div id="root"></div>
+<script>
+ customElements.define("ha-icon", class extends HTMLElement { connectedCallback(){ this.textContent="□"; }});
+ customElements.define("ha-card", class extends HTMLElement {});
+
+ const devs = [];
+ for (let i = 0; i < 12; i++) devs.push({
+   name: "Dev " + i, model: "EM300-TH", area: i % 2 ? "Field" : "Barn", online: i < 10,
+   battery: 60 - i * 4, battery_low: i > 8, battery_days_left: i > 8 ? 10 + i : 120,
+   battery_replace_by: "2026-12-01", battery_forecast: "steady", rssi: -100 - i, snr: 7 - i, sf: 7 + (i % 5),
+   gateways_heard: 1 + (i % 2), packet_loss: i, signal: i > 8 ? "poor" : "good", firmware: "1." + (i % 3),
+   offline_hours: i >= 10 ? 48 : 0, last_seen: "x",
+   service: i === 0 ? [{ at: "2026-10-20T08:00:00Z", kind: "firmware", text: "v1.6->v1.7", by: "Sam" }] : [],
+ });
+ const gws = [{ name: "GW-A", online: true, packets_today: 4000, devices_today: 20 },
+              { name: "GW-B", online: false, packets_today: 0, devices_today: 0 }];
+ const alerts = [
+   { id: "a1", title: "Fridge warm", message: "6.8 °C for 25 min", severity: "critical", category: "cold_chain", since: "22 Oct 14:05", status: "escalated", acknowledged_by: null },
+   { id: "a2", title: "Pump dry-run", message: "2.1 A", severity: "warning", category: "pumps", since: "22 Oct 09:10", status: "notified", acknowledged_by: null },
+   { id: "a3", title: "Tank low", message: "8% left", severity: "warning", category: "tank", since: "21 Oct", status: "acknowledged", acknowledged_by: "Juan" },
+ ];
+ const S = {
+   "sensor.gw": { state: "online", attributes: { friendly_name: "UG65", eui: "24e124", packets_today: 1200, devices: 20, connection: "MQTT", clock: "synced", last_heard: Date.now() / 1000 } },
+   "sensor.temp": { state: "4.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Fridge", device_class: "temperature", unit_of_measurement: "°C", alarm_low: 2, alarm_high: 8, min_today: 3, max_today: 6 } },
+   "sensor.fleet": { state: "12", attributes: { milesight_role: "fleet_total", devices: devs, site: "Acme Farm" } },
+   "sensor.gws": { state: "2", attributes: { milesight_role: "net_gateways_online", gateways: gws } },
+   "sensor.alo": { state: "2", attributes: { milesight_role: "alerts_open", alerts: alerts, escalation_enabled: true, on_call: ["juan"], backup: ["sam"], snooze_min: 60 } },
+   "sensor.tank1": { state: "1200", attributes: { milesight_role: "tank", device: "Diesel", area: "Yard", fill: 14, low: true, sudden_drop: false, capacity_l: 5000, usage_per_day: 120, days_left: 5 } },
+   "sensor.pump1": { state: "3", attributes: { milesight_role: "pump", device: "Borehole", running: true, dry_run: true, current: 2.1, normal_current: 9.8, starts_last_hour: 1 } },
+   "sensor.pivot1": { state: "running", attributes: { milesight_role: "pivot", device: "Pivot 1", status: "running", angle: 198, speed: 12, finish_in_h: 3.2 } },
+   "sensor.load1": { state: "4", attributes: { milesight_role: "load", group: "cold_chain", device: "Compressor", area: "Cold room", running: true, duty_today: 44, duty_24h: 40, starts_today: 12 } },
+   "sensor.cc1": { state: "12", attributes: { milesight_role: "cold_chain", device: "Fridge 1", area: "Kitchen", temperature: 4.1, low: 2, high: 8, min_today: 3, max_today: 6, alarm: false, door_open: false, excursions_today: 0 } },
+   "sensor.cmf1": { state: "82", attributes: { kind: "comfort", area: "Reception", temperature: 22, humidity: 45, co2: 620 } },
+   "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
+   "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
+   "sensor.level1": { state: "62", last_changed: new Date().toISOString(), attributes: { milesight_role: "tank", device: "Water tank", fill: 62, capacity_l: 10000 } },
+ };
+ const hass = {
+   config: { location_name: "Acme Farm" },
+   panels: { "building-acme": { url_path: "building-acme", title: "Acme Farm", icon: "mdi:home" },
+             "milesight-maintenance": { url_path: "milesight-maintenance", title: "Maintenance" },
+             "milesight-tanks": { url_path: "milesight-tanks", title: "Tanks" } },
+   states: S, entities: {}, devices: {},
+   callService: () => {}, callWS: () => Promise.resolve({}),
+ };
+
+ const root = document.getElementById("root");
+ function mount(tag, cfg, label) {
+   const h = document.createElement("h3"); h.textContent = label || tag; root.appendChild(h);
+   const el = document.createElement(tag);
+   try { el.setConfig(cfg || {}); el.hass = hass; } catch (e) { console.error("setConfig " + tag + ": " + e.message); }
+   root.appendChild(el);
+   return el;
+ }
+
+ const cards = [
+   ["milesight-gateway-card", { entity: "sensor.gw" }],
+   ["milesight-device-card", { entity: "sensor.temp" }],
+   ["milesight-trend-card", { entity: "sensor.temp" }],
+   ["milesight-level-card", {}],
+   ["milesight-gauge-card", { entity: "sensor.temp", min: 0, max: 10, shape: "arc" }],
+   ["milesight-page-header", { title: "Maintenance", subtitle: "Health", icon: "mdi:wrench-clock" }],
+   ["milesight-onboarding", {}],
+   ["milesight-alerts-card", { title: false }],
+   ["milesight-device-panel", { entity: "sensor.temp" }],
+ ];
+ cards.forEach(([t, c]) => mount(t, c, t));
+
+ ["devices", "offline", "weak", "firmware", "cold_chain", "compressors", "loads", "pumps", "pivots",
+  "batteries", "service", "gateways", "tanks", "comfort", "utilisation"].forEach((p) =>
+   mount("milesight-table-card", { preset: p, title: false }, "table: " + p));
+
+ // also exercise empty states: a hass with no milesight sensors
+ const emptyHass = { config: {}, panels: {}, states: {}, entities: {}, devices: {}, callService: () => {} };
+ ["batteries", "gateways", "tanks", "comfort"].forEach((p) => {
+   const el = document.createElement("milesight-table-card");
+   try { el.setConfig({ preset: p, title: false }); el.hass = emptyHass; } catch (e) { console.error("empty " + p + ": " + e.message); }
+   root.appendChild(el);
+ });
+ const al = document.createElement("milesight-alerts-card");
+ try { al.setConfig({}); al.hass = emptyHass; } catch (e) { console.error("empty alerts: " + e.message); }
+ root.appendChild(al);
+
+ window.__rendered = root.querySelectorAll("*").length;
+ window.__cardCount = root.querySelectorAll("[class*='milesight-'],milesight-table-card").length;
+ document.title = "rendered";
+</script></body></html>
