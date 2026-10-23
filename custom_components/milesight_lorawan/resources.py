@@ -29,6 +29,7 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),
     "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),
     "energy.yaml": ("milesight-energy", "mdi:lightning-bolt", {"energy", "hvac"}),
+    "coop.yaml": ("milesight-coop", "mdi:egg", {"coop"}),
 }
 
 
@@ -40,6 +41,9 @@ def site_tags(hass: HomeAssistant) -> set[str]:
     for e in hass.config_entries.async_entries(DOMAIN):
         if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_DEVICE:
             tags |= device_tags(e.options.get("model", e.data.get("model")), {**e.data, **e.options})
+            area = str(e.options.get("area") or e.data.get("area") or "").lower()
+            if "coop" in area or "chicken" in area:    # a device assigned to a chicken-coop area
+                tags.add("coop")
         elif e.options.get("irr_weather") or e.options.get("irr_soil"):
             tags.add("irrigation")                     # gateway with the forecast-aware irrigation set up
     return tags

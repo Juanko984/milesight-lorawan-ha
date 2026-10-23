@@ -14,19 +14,13 @@ views:
         icon: mdi:snowflake-thermometer
       - type: custom:milesight-table-card
         preset: cold_chain
-      - type: markdown
+      # Per-unit 7-day log as a phone-friendly day strip (replaces the old wide markdown table).
+      - type: custom:milesight-coldlog-card
         title: Cold-chain log (last 7 days)
+        days: 7
+      - type: markdown
         content: |
-          {% set t = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'cold_chain') | list %}
-          {% for s in t | sort(attribute='attributes.device') %}{% set a = s.attributes %}
-          **{{ a.device }}**{{ ' · ' ~ a.area if a.area else '' }}
-
-          | Day | Min | Max | Out of range | Excursions |
-          |---|---|---|---|---|
-          {% for d in (a.log or [])[-7:] | reverse %}| {{ d.day }} | {{ d.min }} °C | {{ d.max }} °C | {{ d.out_min }} min | {{ d.excursions }} |
-          {% endfor %}
-          {% endfor %}
-          The full 31 days are in each probe's *Time out of range today* attribute (log) and in the history.
+          <small>The full 31 days are in each probe's *Time out of range today* attribute (log) and in the history.</small>
   - title: Compressors
     path: compressors
     icon: mdi:heat-pump-outline

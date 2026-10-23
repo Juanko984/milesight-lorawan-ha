@@ -881,7 +881,8 @@ assert out["dashboards"]["written"] == ["Tanks & alerts"] and "Tanks & alerts" i
 assert models.device_tags("EM410-RDL") == {"tank"} and models.device_tags("VS121") >= {"people"}
 assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") == frozenset()
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
-assert len(out0["blueprints"]["written"]) == 11 and (bp / "leak.yaml").exists()
+assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
+assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
 assert set(dashes) == {"milesight-maintenance", "milesight-tanks", "milesight-analytics"}
 assert dashes["milesight-tanks"].saved["title"] == "Tanks & alerts" and "milesight-tanks" in PANELS
@@ -1064,6 +1065,8 @@ assert irr_ha.irrigation_entities(hass, types.SimpleNamespace(runtime_data=types
     irrigation=irr_ha.IrrigationManager(hass, types.SimpleNamespace(entry_id="x", title="x", options={})))), "sensor") == []
 res2 = load("resources")
 assert res2.wanted_dashboards({"pump"})["milesight-farm"] and not res2.wanted_dashboards({"tank"})["milesight-farm"]
+# the coop page installs only when a device is in a coop area (the "coop" tag)
+assert res2.wanted_dashboards({"coop"})["milesight-coop"] and not res2.wanted_dashboards({"tank"})["milesight-coop"]
 print("irrigation ok")
 
 

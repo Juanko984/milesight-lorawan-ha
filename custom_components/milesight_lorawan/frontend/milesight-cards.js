@@ -106,6 +106,11 @@
       o.action ? h("button", { class: "ea", onclick: o.action.onClick }, o.action.label) : null,
     ]);
   }
+  // case-insensitive HA-area match, so a card can scope to one area (e.g. a chicken coop)
+  function areaEq(have, want) {
+    if (!want) return true;
+    return String(have == null ? "" : have).trim().toLowerCase() === String(want).trim().toLowerCase();
+  }
   // normalise a preset's `empty` (string or object) into emptyState options
   function emptyOpts(empty, fallbackIcon) {
     if (!empty) return { icon: fallbackIcon, title: "Nothing here yet" };
@@ -351,11 +356,12 @@
       return this._discover().map((x) => x.id);           // auto mode: re-render when any tank changes
     }
     _discover() {
-      const role = this._cfg.role || "tank";
+      const role = this._cfg.role || "tank", area = this._cfg.area;
       const out = [];
       for (const id in this._hass.states) {
         if (!id.startsWith("sensor.")) continue;
-        if (this._hass.states[id].attributes.milesight_role === role) out.push({ id, st: this._hass.states[id] });
+        const a = this._hass.states[id].attributes;
+        if (a.milesight_role === role && areaEq(a.area, area)) out.push({ id, st: this._hass.states[id] });
       }
       return out.sort((p, q) => String(p.st.attributes.device || p.id).localeCompare(String(q.st.attributes.device || q.id)));
     }
@@ -839,6 +845,7 @@
       }
       if (p.transform) rows = p.transform(rows);
       if (p.filter) rows = rows.filter(p.filter);
+      if (this._cfg.area) rows = rows.filter((r) => areaEq(r.area, this._cfg.area));
       return rows;
     }
     _openRow(r) {
@@ -1688,7 +1695,7 @@
       return null;
     }
     _watch() { const id = this._find(); return id ? [id] : null; }
-    _ack(id) { this._hass.callService("milesight_lorawan", "acknowledge_alert", { alert_id: id }); }
+    _ack(id) { this._hass.callService("milesight_lorawan", "acknowledge_alert", id ? { alert_id: id } : {}); }
     _snooze(id, min) { this._hass.callService("milesight_lorawan", "snooze_alert", Object.assign({ alert_id: id }, min ? { minutes: min } : {})); }
     _render() {
       if (!this._hass) return;
@@ -1726,18 +1733,21 @@
           border-radius:8px;padding:6px 13px;cursor:pointer}
         .alact:hover{border-color:var(--ms-accent);color:var(--ms-accent)}
         .alact.ack:hover{border-color:var(--ms-good);color:var(--ms-good)}
+        .ackall{margin-left:auto}
       `;
       if (!alerts.length) {
         return this._card(h("div", { class: "wrap" }, [emptyState({ tone: "ok",
           icon: "mdi:check-circle-outline", title: "All clear", hint: "No open alerts." })]));
       }
       const onCall = a.on_call || [];
+      const openCount = alerts.filter((x) => x.status !== "acknowledged").length;
       const header = h("div", { class: "ah" }, [
         cfg.title === false ? null : h("div", { class: "aht" }, cfg.title || "Open alerts"),
         a.escalation_enabled
           ? h("span", { class: "oncall" }, [h("ha-icon", { icon: "mdi:shield-account" }),
               onCall.length ? "On call: " + onCall.join(", ") : "On call: nobody now"])
           : h("span", { class: "oncall off" }, [h("ha-icon", { icon: "mdi:bell-off-outline" }), "Escalation not set up"]),
+        openCount > 1 ? h("button", { class: "alact ack ackall", onclick: () => this._ack(null) }, "Acknowledge all") : null,
       ]);
       const snoozeMin = a.snooze_min || 60;
       const rows = alerts.map((al) => {
@@ -1768,6 +1778,131 @@
         ]);
       });
       this._card(h("div", { class: "wrap" }, [header, h("div", { class: "alist" }, rows)]));
+    }
+  }
+
+  // ================================================================ cold-chain per-unit log (phone-friendly day strip)
+  // Replaces the wide markdown table: one block per fridge/freezer, a horizontally-scrollable strip of recent days,
+  // each day coloured by whether it was in range, out of range, or had excursions.
+  class ColdLogCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() {
+      const ids = [];
+      for (const id in this._hass.states) if (id.startsWith("sensor.") && this._hass.states[id].attributes.milesight_role === "cold_chain") ids.push(id);
+      return ids;
+    }
+    _render() {
+      if (!this._hass) return;
+      const cfg = this._cfg, days = cfg.days || 7;
+      const units = this._watch().map((id) => this._st(id)).filter(Boolean)
+        .sort((a, b) => String(a.attributes.device || "").localeCompare(String(b.attributes.device || "")));
+      this._css = `
+        .clw{display:flex;flex-direction:column;gap:14px}
+        .clu .cuh{display:flex;align-items:baseline;gap:8px;margin-bottom:7px}
+        .cuh .cun{font-size:14px;font-weight:600;color:var(--ms-ink)}
+        .cuh .cua{font-size:12px;color:var(--ms-ink2)}
+        .cdays{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px}
+        .cday{flex:0 0 auto;min-width:62px;border:1px solid var(--ms-line);border-radius:9px;padding:7px 8px;text-align:center}
+        .cday .cd{font-size:11px;color:var(--ms-ink2);white-space:nowrap}
+        .cday .ct{font-size:12.5px;font-weight:600;color:var(--ms-ink);margin-top:2px;white-space:nowrap}
+        .cday .cx{font-size:10.5px;margin-top:3px;white-space:nowrap}
+        .cday.ok{box-shadow:inset 0 2px 0 var(--ms-good)}
+        .cday.warn{box-shadow:inset 0 2px 0 var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 7%,transparent)}
+        .cday.bad{box-shadow:inset 0 2px 0 var(--ms-bad);background:color-mix(in srgb,var(--ms-bad) 8%,transparent)}
+        .cday.warn .cx{color:var(--ms-warn)} .cday.bad .cx{color:var(--ms-bad)} .cday.ok .cx{color:var(--ms-ink2)}
+      `;
+      if (!units.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:fridge-outline",
+          title: "No fridge or freezer probes", hint: "Open a temperature sensor → Configure → Purpose → Fridge / cold room or Freezer." })]));
+      }
+      const unitEl = (st) => {
+        const a = st.attributes, log = (a.log || []).slice(-days).reverse();
+        const cells = log.length ? log.map((d) => {
+          const out = num(d.out_min) || 0, exc = num(d.excursions) || 0;
+          const lvl = exc > 0 ? "bad" : out > 0 ? "warn" : "ok";
+          const mn = d.min == null ? "–" : d.min, mx = d.max == null ? "–" : d.max;
+          return h("div", { class: "cday " + lvl }, [
+            h("div", { class: "cd" }, esc(d.day)),
+            h("div", { class: "ct" }, `${mn} – ${mx}°`),
+            h("div", { class: "cx" }, exc > 0 ? `${exc}× · ${Math.round(out)}m` : (out > 0 ? `${Math.round(out)}m out` : "in range")),
+          ]);
+        }) : [h("div", { class: "cday" }, [h("div", { class: "cd" }, "no log yet")])];
+        return h("div", { class: "clu" }, [
+          h("div", { class: "cuh" }, [h("span", { class: "cun" }, esc(a.device || "Unit")),
+            a.area ? h("span", { class: "cua" }, esc(a.area)) : null]),
+          h("div", { class: "cdays" }, cells),
+        ]);
+      };
+      this._card(h("div", { class: "wrap" }, [
+        cfg.title === false ? null : h("p", { class: "title", style: { marginBottom: "10px" } }, cfg.title || "Cold-chain log"),
+        h("div", { class: "clw" }, units.map(unitEl)),
+      ]));
+    }
+  }
+
+  // ================================================================ alert summary (last 7 days)
+  // Surfaces the alerts_summary sensor so the system can be tuned: how many fired, how fast they were acknowledged,
+  // which sensors cry wolf.
+  class AlertSummaryCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      for (const id in this._hass.states) if (id.startsWith("sensor.") && this._hass.states[id].attributes.milesight_role === "alerts_summary") return id;
+      return null;
+    }
+    _watch() { const id = this._find(); return id ? [id] : null; }
+    _render() {
+      if (!this._hass) return;
+      const cfg = this._cfg, id = this._find(), st = id && this._st(id);
+      const a = st ? st.attributes : {};
+      const total = st ? num(st.state) : null;
+      const days = a.days || 7;
+      this._css = `
+        .ashead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+        .asn{font-size:30px;font-weight:720;color:var(--ms-ink);line-height:1}
+        .asl{font-size:13px;color:var(--ms-ink2)}
+        .astiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+        .astile{border:1px solid var(--ms-line);border-radius:10px;padding:9px 11px}
+        .astile .v{font-size:17px;font-weight:700;color:var(--ms-ink)}
+        .astile .k{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .assec{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-ink2);margin:0 0 7px}
+        .asbar{display:flex;align-items:center;gap:9px;margin-bottom:6px;font-size:13px}
+        .asbar .cn{flex:0 0 120px;color:var(--ms-ink);text-transform:capitalize}
+        .asbar .tr{flex:1 1 auto;height:8px;border-radius:5px;background:color-mix(in srgb,var(--ms-ink) 8%,transparent);overflow:hidden}
+        .asbar .tr > i{display:block;height:100%;background:var(--ms-accent);border-radius:5px}
+        .asbar .vv{flex:0 0 auto;color:var(--ms-ink2);font-variant-numeric:tabular-nums}
+        .asnoisy{display:flex;flex-direction:column;gap:5px}
+        .asnoisy .nr{display:flex;justify-content:space-between;font-size:13px;color:var(--ms-ink)}
+        .asnoisy .nr small{color:var(--ms-ink2)}
+        .assub{margin-top:12px}
+      `;
+      if (!st || !total) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ tone: "ok",
+          icon: "mdi:check-circle-outline", title: `No alerts in the last ${days} days`, hint: "The system has been quiet." })]));
+      }
+      const tile = (v, k) => h("div", { class: "astile" }, [h("div", { class: "v" }, esc(v)), h("div", { class: "k" }, k)]);
+      const byCat = a.by_category || {}, catMax = Math.max(1, ...Object.values(byCat).map((v) => num(v) || 0));
+      const catRows = Object.keys(byCat).map((k) => h("div", { class: "asbar" }, [
+        h("span", { class: "cn" }, esc(String(k).replace(/_/g, " "))),
+        h("span", { class: "tr" }, [h("i", { style: { width: Math.round((num(byCat[k]) || 0) / catMax * 100) + "%" } })]),
+        h("span", { class: "vv" }, String(byCat[k])),
+      ]));
+      const noisy = (a.noisiest || []).map((n) => h("div", { class: "nr" },
+        [h("span", {}, esc(n.source)), h("small", {}, `${n.alerts}${n.flaps ? ` (+${n.flaps} repeats)` : ""}`)]));
+      this._card(h("div", { class: "wrap" }, [
+        cfg.title === false ? null : h("p", { class: "title", style: { marginBottom: "10px" } }, cfg.title || "Alerts — last 7 days"),
+        h("div", { class: "ashead" }, [h("span", { class: "asn" }, String(total)),
+          h("span", { class: "asl" }, `in ${days} days · ${a.critical || 0} critical`)]),
+        h("div", { class: "astiles" }, [
+          tile(a.mtta_min != null ? `${a.mtta_min} min` : "—", "Mean time to ack"),
+          tile(String(a.not_acknowledged != null ? a.not_acknowledged : "—"), "Never acknowledged"),
+          tile(String(a.escalated != null ? a.escalated : "—"), "Escalated"),
+        ]),
+        catRows.length ? h("div", {}, [h("p", { class: "assec" }, "By category"), h("div", {}, catRows)]) : null,
+        noisy.length ? h("div", { class: "assub" }, [h("p", { class: "assec" }, "Noisiest sources"),
+          h("div", { class: "asnoisy" }, noisy)]) : null,
+      ]));
     }
   }
 
@@ -1814,7 +1949,8 @@
       { name: "liquid", selector: { select: { mode: "dropdown", options: [
         { value: "water", label: "Water" }, { value: "fuel", label: "Fuel" },
         { value: "grain", label: "Grain / feed" }, { value: "waste", label: "Waste" }] } } },
-      { name: "low", selector: { number: { min: 0, max: 100, mode: "box", unit_of_measurement: "%" } } }],
+      { name: "low", selector: { number: { min: 0, max: 100, mode: "box", unit_of_measurement: "%" } } },
+      { name: "area", selector: { text: {} } }],
     "milesight-table-card": [
       { name: "preset", selector: { select: { mode: "dropdown", options: [
         { value: "devices", label: "Devices" }, { value: "offline", label: "Offline" },
@@ -1826,6 +1962,7 @@
         { value: "tanks", label: "Tanks & silos" }, { value: "comfort", label: "Comfort per area" },
         { value: "utilisation", label: "Utilisation" }] } } },
       { name: "entity", selector: ENTITY_SEL }, { name: "title", selector: { text: {} } },
+      { name: "area", selector: { text: {} } },
       { name: "only_issues", selector: { boolean: {} } }, { name: "search", selector: { boolean: {} } }],
     "milesight-gauge-card": [sel.entity, sel.name,
       { name: "shape", selector: { select: { mode: "dropdown", options: [
@@ -1839,13 +1976,17 @@
       { name: "stats", selector: { boolean: {} } }, { name: "nav", selector: { boolean: {} } }],
     "milesight-onboarding": [{ name: "title", selector: { text: {} } }],
     "milesight-alerts-card": [{ name: "title", selector: { text: {} } }],
+    "milesight-coldlog-card": [{ name: "title", selector: { text: {} } },
+      { name: "days", selector: { number: { min: 3, max: 31, mode: "box" } } }],
+    "milesight-alert-summary-card": [{ name: "title", selector: { text: {} } }],
   };
 
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
         GAUGE_TAG = "milesight-gauge-card", PANEL_TAG = "milesight-device-panel", HEADER_TAG = "milesight-page-header",
-        ONBOARD_TAG = "milesight-onboarding", ALERTS_TAG = "milesight-alerts-card";
+        ONBOARD_TAG = "milesight-onboarding", ALERTS_TAG = "milesight-alerts-card",
+        COLDLOG_TAG = "milesight-coldlog-card", ALSUM_TAG = "milesight-alert-summary-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -1857,6 +1998,8 @@
     [HEADER_TAG, PageHeader, "Milesight Page Header", "A page masthead: site, title, subtitle and a live health strip"],
     [ONBOARD_TAG, OnboardingCard, "Milesight Onboarding", "First-run setup checklist that ticks itself off and hides once set up"],
     [ALERTS_TAG, AlertsCard, "Milesight Alerts", "Open alerts with acknowledge / snooze and who is on call"],
+    [COLDLOG_TAG, ColdLogCard, "Milesight Cold-chain Log", "Per-unit day strip of fridge/freezer min/max and excursions"],
+    [ALSUM_TAG, AlertSummaryCard, "Milesight Alert Summary", "Last 7 days: how many alerts, ack time, noisiest sources"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

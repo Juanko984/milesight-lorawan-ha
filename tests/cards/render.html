@@ -40,10 +40,14 @@
    "sensor.gws": { state: "2", attributes: { milesight_role: "net_gateways_online", gateways: gws } },
    "sensor.alo": { state: "2", attributes: { milesight_role: "alerts_open", alerts: alerts, escalation_enabled: true, on_call: ["juan"], backup: ["sam"], snooze_min: 60 } },
    "sensor.tank1": { state: "1200", attributes: { milesight_role: "tank", device: "Diesel", area: "Yard", fill: 14, low: true, sudden_drop: false, capacity_l: 5000, usage_per_day: 120, days_left: 5 } },
+   "sensor.coopwater": { state: "80", attributes: { milesight_role: "tank", device: "Coop water", area: "Chicken coop", fill: 80, low: false, sudden_drop: false, capacity_l: 50, usage_per_day: 8, days_left: 6 } },
    "sensor.pump1": { state: "3", attributes: { milesight_role: "pump", device: "Borehole", running: true, dry_run: true, current: 2.1, normal_current: 9.8, starts_last_hour: 1 } },
    "sensor.pivot1": { state: "running", attributes: { milesight_role: "pivot", device: "Pivot 1", status: "running", angle: 198, speed: 12, finish_in_h: 3.2 } },
    "sensor.load1": { state: "4", attributes: { milesight_role: "load", group: "cold_chain", device: "Compressor", area: "Cold room", running: true, duty_today: 44, duty_24h: 40, starts_today: 12 } },
-   "sensor.cc1": { state: "12", attributes: { milesight_role: "cold_chain", device: "Fridge 1", area: "Kitchen", temperature: 4.1, low: 2, high: 8, min_today: 3, max_today: 6, alarm: false, door_open: false, excursions_today: 0 } },
+   "sensor.cc1": { state: "12", attributes: { milesight_role: "cold_chain", device: "Fridge 1", area: "Kitchen", temperature: 4.1, low: 2, high: 8, min_today: 3, max_today: 6, alarm: false, door_open: false, excursions_today: 0,
+     log: [{ day: "Mon 17", min: 3, max: 6, out_min: 0, excursions: 0 }, { day: "Tue 18", min: 2, max: 9, out_min: 45, excursions: 1 }, { day: "Wed 19", min: 3, max: 7, out_min: 0, excursions: 0 }, { day: "Thu 20", min: 4, max: 12, out_min: 180, excursions: 3 }] } },
+   "sensor.asum": { state: "14", attributes: { milesight_role: "alerts_summary", days: 7, critical: 3, acknowledged: 9, not_acknowledged: 2, escalated: 1, snoozed: 2, mtta_min: 7.5,
+     by_category: { cold_chain: 6, pumps: 4, tank: 3, gateways: 1 }, noisiest: [{ source: "Fridge 1", alerts: 5, flaps: 2 }, { source: "Borehole", alerts: 4, flaps: 0 }], on_call_now: ["notify.mobile_app_juan"], escalation_chain: ["notify.mobile_app_sam"] } },
    "sensor.cmf1": { state: "82", attributes: { kind: "comfort", area: "Reception", temperature: 22, humidity: 45, co2: 620 } },
    "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
    "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
@@ -76,6 +80,8 @@
    ["milesight-page-header", { title: "Maintenance", subtitle: "Health", icon: "mdi:wrench-clock" }],
    ["milesight-onboarding", {}],
    ["milesight-alerts-card", { title: false }],
+   ["milesight-coldlog-card", {}],
+   ["milesight-alert-summary-card", {}],
    ["milesight-device-panel", { entity: "sensor.temp" }],
  ];
  cards.forEach(([t, c]) => mount(t, c, t));
@@ -83,6 +89,10 @@
  ["devices", "offline", "weak", "firmware", "cold_chain", "compressors", "loads", "pumps", "pivots",
   "batteries", "service", "gateways", "tanks", "comfort", "utilisation"].forEach((p) =>
    mount("milesight-table-card", { preset: p, title: false }, "table: " + p));
+
+ // area-scoped (coop page) — filters to one HA area
+ mount("milesight-table-card", { preset: "tanks", area: "Chicken coop", title: false }, "table: tanks @ Chicken coop");
+ mount("milesight-level-card", { area: "Chicken coop" }, "level @ Chicken coop");
 
  // also exercise empty states: a hass with no milesight sensors
  const emptyHass = { config: {}, panels: {}, states: {}, entities: {}, devices: {}, callService: () => {} };

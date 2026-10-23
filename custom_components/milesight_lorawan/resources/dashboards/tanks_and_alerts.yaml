@@ -27,6 +27,10 @@ views:
           - type: custom:milesight-alerts-card
             title: false
             grid_options: {columns: full}
+          # How the alerting is doing: count, how fast they're acknowledged, which sensors are noisiest.
+          - type: custom:milesight-alert-summary-card
+            title: false
+            grid_options: {columns: full}
       - type: grid
         cards:
           - type: heading

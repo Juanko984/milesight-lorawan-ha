@@ -2,6 +2,30 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.61.0
+- **New Chicken coop dashboard.** A ready-made coop page built from the existing cards: full-width header, open
+  alerts (with acknowledge / snooze), **feed & water** levels (the feed renders as a silo, water as a tank),
+  **climate** (temperature / humidity / CO₂), **door & light-level** status, a live-controls area card, and
+  links to the two coop automations. It installs itself when any device is assigned to a **"Chicken coop"**
+  area, and finds the sensors by that area — no entity ids to edit. Add a sensor to the coop area and it appears.
+- **Cards can scope to a Home Assistant area.** The level and table cards gained an `area:` option, so the same
+  cards can be pointed at one area (coop, nursery, barn 2 …). This is what makes the coop page dynamic.
+- **Two coop automations (blueprints).** *Coop lights by daylight* — the EM500-LGT drives supplemental lights to
+  hold a steady day length for laying, on below a lux threshold during a lighting window and off after it.
+  *Coop heater by temperature* — a heater on a UC relay (or any switch) holds a minimum temperature with
+  hysteresis and a fail-safe cut-out if the probe drops out. Both target any switch, including UC relay outputs.
+
+## 0.60.0
+- **Cold-chain log is now phone-friendly.** The last wide markdown table is gone. The per-unit 7-day log is a
+  new `milesight-coldlog-card`: one block per fridge/freezer with a horizontally-scrollable strip of day cells,
+  each showing min–max and coloured green (in range), amber (minutes out of range) or red (excursions). Reads
+  cleanly on a phone, where cold-chain is most often checked.
+- **See how the alerting itself is doing.** New `milesight-alert-summary-card` surfaces the "last 7 days" data
+  the integration was already computing but never showed: total alerts and how many were critical, **mean time
+  to acknowledge**, how many were never acknowledged or escalated, a by-category breakdown, and the **noisiest
+  sources** — so you can tune thresholds and quiet the sensors that cry wolf. Added to the Tanks & Alerts page.
+- **Acknowledge all.** The alerts card gained an "Acknowledge all" button when more than one alert is open.
+
 ## 0.59.0
 - **The page header is always full width.** The masthead now declares a full-width layout, so it spans the page
   edge-to-edge in the sections view and no longer shows the "doesn't support resizing" warning. Same for the

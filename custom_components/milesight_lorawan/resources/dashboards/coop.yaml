@@ -1,0 +1,103 @@
+# Milesight LoRaWAN – Chicken coop
+# Dynamic by Home Assistant area. Create an area called "Chicken coop" and assign the coop's devices to it
+# (temperature / CO2 / humidity, water + feed level sensors, a door contact, an EM500-LGT light sensor, and the
+# UC relay that switches the lights / heater). Everything below finds them by that area — no entity ids to edit.
+# Using a different area name? Change every `area: Chicken coop` below, and the `area:` on the live-controls card
+# (that one wants the area's id, e.g. my_coop). Lights and heating are automated by the two coop blueprints
+# (Settings → Automations → Blueprints → Import).
+title: Chicken coop
+views:
+  - title: Coop
+    path: coop
+    icon: mdi:egg
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Chicken coop
+            subtitle: Feed, water, climate, lighting and the door
+            icon: mdi:egg
+      - type: grid
+        cards:
+          - type: heading
+            heading: Alerts
+            icon: mdi:bell-alert
+          - type: custom:milesight-alerts-card
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Feed & water
+            icon: mdi:silo
+          - type: custom:milesight-level-card
+            title: false
+            area: Chicken coop
+            grid_options: {columns: full}
+          - type: custom:milesight-table-card
+            preset: tanks
+            title: false
+            area: Chicken coop
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Climate
+            icon: mdi:thermometer
+          - type: custom:milesight-table-card
+            preset: comfort
+            title: false
+            area: Chicken coop
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Door & light level
+            icon: mdi:door
+          # Safe, dynamic discovery by area – degrades to a hint when nothing is found (never a config error).
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              {% set ents = expand(area_entities('Chicken coop')) %}
+              {% set doors = ents | selectattr('attributes.device_class', 'defined')
+                 | selectattr('attributes.device_class', 'in', ['door', 'opening', 'window', 'garage_door']) | list %}
+              {% set lux = ents | selectattr('attributes.device_class', 'defined')
+                 | selectattr('attributes.device_class', 'eq', 'illuminance') | list %}
+              {% if not doors %}No door contact in the coop yet – add a magnet contact (EM300-MCS / WS301) and put it in the *Chicken coop* area.
+              {% else %}{% for d in doors %}{{ '🔴 **OPEN**' if d.state == 'on' else '🟢 Closed' }} · {{ d.name }}
+              {% endfor %}{% endif %}
+              {% if lux %}{% for l in lux %}
+              💡 **{{ l.name }}**: {{ l.state }} {{ l.attributes.unit_of_measurement or 'lx' }}{% endfor %}{% else %}
+
+              No light sensor yet – add an EM500-LGT to drive the lights blueprint.{% endif %}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Live controls — door, lights, heater, light level
+            icon: mdi:home-lightning-bolt-outline
+          # Native area card: live badges and toggles for everything in the coop area (doors, UC relays, lux…).
+          # Wants the area id (slug). If this one card shows an error, set it to your coop area's id; the rest of
+          # the page is unaffected.
+          - type: area
+            area: chicken_coop
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              ## Automate the coop
+              Import these two blueprints (Settings → Automations → Blueprints → Import blueprint) to run the coop
+              hands-off. Both switch a **UC relay output** (or any switch), so pick your relay and thresholds when
+              you create the automation.
+
+              - **Coop lights by daylight** — when the EM500-LGT reads below your "on" level during the lighting
+                window, the lights come on; they switch off once it's bright enough or the window ends (so the
+                birds get a real dark period). Keeps a steady day length for laying.
+              - **Coop heater by temperature** — the heater comes on below your "on" temperature and off above the
+                "off" temperature (hysteresis stops short-cycling), with a safety cut-out if the probe drops out.

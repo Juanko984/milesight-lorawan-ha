@@ -1,0 +1,68 @@
+blueprint:
+  name: Milesight – Coop heater by temperature
+  description: >
+    Hold a minimum temperature in a chicken coop. When the temperature (an EM300-TH, AM series, or any
+    temperature sensor) drops below the "on" level, switch a heater on (a UC relay output, a smart plug, or any
+    switch); switch it off again once it is warm enough. Two thresholds (hysteresis) stop the heater
+    short-cycling. A safety cut-out turns the heater off if the sensor goes unavailable, so it never runs blind.
+  domain: automation
+  source_url: https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/coop_heater.yaml
+  input:
+    temp_sensor:
+      name: Temperature sensor
+      description: The coop temperature probe (EM300-TH, AM103/104/307, etc.).
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+    heater_switch:
+      name: Heater
+      description: The switch to control (a UC relay output, smart plug, or switch).
+      selector:
+        target:
+          entity:
+            domain: [switch, input_boolean]
+    temp_on:
+      name: Turn on below (°C)
+      default: 5
+      selector:
+        number: {min: -10, max: 30, step: 0.5, unit_of_measurement: "°C", mode: box}
+    temp_off:
+      name: Turn off above (°C)
+      description: Must be higher than "turn on below" to avoid short-cycling.
+      default: 10
+      selector:
+        number: {min: -10, max: 35, step: 0.5, unit_of_measurement: "°C", mode: box}
+mode: single
+max_exceeded: silent
+trigger:
+  - trigger: state
+    entity_id: !input temp_sensor
+    id: temp
+  - trigger: time_pattern
+    minutes: "/5"
+    id: tick
+variables:
+  temp_sensor: !input temp_sensor
+  temp_on: !input temp_on
+  temp_off: !input temp_off
+  temp: "{{ states(temp_sensor) }}"
+  temp_f: "{{ temp | float(none) }}"
+action:
+  - choose:
+      # sensor unavailable -> fail safe, heater off (never run blind)
+      - conditions: "{{ temp in ['unknown', 'unavailable'] or temp_f is none }}"
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input heater_switch
+      # too cold -> heater on
+      - conditions: "{{ temp_f is not none and temp_f < temp_on }}"
+        sequence:
+          - action: homeassistant.turn_on
+            target: !input heater_switch
+      # warm enough -> heater off
+      - conditions: "{{ temp_f is not none and temp_f > temp_off }}"
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input heater_switch

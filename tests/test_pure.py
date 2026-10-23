@@ -1569,12 +1569,25 @@ def test_bundled_dashboard_templates_render():
     assert _preset("maintenance", "Service history") == "service"
     assert _preset("maintenance", "Gateways") == "gateways"
     # every non-subview view carries a page header
-    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics"):
+    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop"):
         for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]:
             if v.get("subview"):
                 continue
             cards = [c for s in v.get("sections", []) for c in s.get("cards", [])] + v.get("cards", [])
             assert any(c["type"] == "custom:milesight-page-header" for c in cards), (dash, v.get("title"))
+    # the chicken-coop page scopes our cards to the coop area, and no wide markdown tables
+    coop = yaml.safe_load((PKG.parents[1] / "dashboards" / "coop.yaml").read_text(encoding="utf-8"))
+    coop_cards = [c for v in coop["views"] for s in v["sections"] for c in s["cards"]]
+    coop_types = {c["type"] for c in coop_cards}
+    assert {"custom:milesight-level-card", "custom:milesight-table-card", "custom:milesight-alerts-card"} <= coop_types
+    assert all(c.get("area") == "Chicken coop" for c in coop_cards
+               if c["type"] in ("custom:milesight-level-card",) or (c["type"] == "custom:milesight-table-card"))
+    assert not any("|---|" in c.get("content", "") for c in coop_cards)
+    # coop auto-installs only when a device is in a coop area, and ships the two blueprints
+    from importlib.util import spec_from_file_location, module_from_spec  # noqa: F401
+    assert {"custom:milesight-page-header"} <= coop_types
+    bp = PKG.parents[1] / "blueprints" / "automation" / "milesight_lorawan"
+    assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 
 
 # ---------------------------------------------------------------- built-in network server (lns/)
@@ -2148,7 +2161,8 @@ def test_gateway_api():
     cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
     for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
                  "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
-                 "milesight-page-header", "milesight-onboarding", "milesight-alerts-card"):
+                 "milesight-page-header", "milesight-onboarding", "milesight-alerts-card",
+                 "milesight-coldlog-card", "milesight-alert-summary-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # shared empty-state + all-offline safety warning helpers are present
@@ -2161,6 +2175,11 @@ def test_gateway_api():
     assert "p.match" in cards
     # the alerts card calls the acknowledge / snooze services, and the services are declared
     assert "acknowledge_alert" in cards and "snooze_alert" in cards
+    # area scoping (for the coop page etc.) and its registration
+    assert "function areaEq" in cards and "this._cfg.area" in cards
+    import pathlib as _pl4
+    res = (_pl4.Path(ga.__file__).parent / "resources.py").read_text(encoding="utf-8")
+    assert '"coop.yaml"' in res and '{"coop"}' in res and '"coop"' in res  # dashboard + tag gate + area detection
     import pathlib as _pl3
     svc = (_pl3.Path(ga.__file__).parent / "services.yaml").read_text(encoding="utf-8")
     assert "snooze_alert:" in svc and "acknowledge_alert:" in svc
