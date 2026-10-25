@@ -533,7 +533,11 @@ def _purpose_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> di
         add("trough_empty", "Water trough empty", f"{where}: the float switch shows the trough empty for "
             f"{_num((v.get('door_current_s') or 0) / 60, '{:.0f}')} min – check the water supply.", "tank",
             severity=sev)
-    elif what and not v.get("is_trough") and v.get("door_left_open") is True:
+    elif v.get("is_fence") and v.get("door_left_open") is True:
+        add("fence_fault", "Electric fence fault", f"{where}: the energizer shows a fault for "
+            f"{_num((v.get('door_current_s') or 0) / 60, '{:.0f}')} min – power loss, break or short?", "security",
+            "critical")
+    elif what and not (v.get("is_trough") or v.get("is_fence")) and v.get("door_left_open") is True:
         add("left_open", f"{what} left open", f"{where} has been open for "
             f"{_num((v.get('door_current_s') or 0) / 60, '{:.0f}')} min.")
     if v.get("after_hours_activity") is True:

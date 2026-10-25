@@ -116,6 +116,8 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("counter_zone", "Counter / staff zone (retail)", "people", "motion", icon="mdi:cash-register"),
     _p("toilet", "Toilet / washroom", "facilities", "motion air", icon="mdi:toilet", clean_visits=50),
     _p("intrusion", "Security (intrusion)", "security", "motion", icon="mdi:motion-sensor", after_hours=True),
+    _p("electric_fence", "Electric fence (energizer monitor)", "security", "contact", "Fence", "mdi:fence-electric",
+       "problem", contact_noun="Fence", severity="critical", left_open_min=2),
     # ---- buttons
     _p("panic", "Panic / SOS button", "security", "button", icon="mdi:alarm-light", severity="critical",
        latch_min=30),

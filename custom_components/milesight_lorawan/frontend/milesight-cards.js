@@ -2843,6 +2843,51 @@
     }
   }
 
+  // ================================================================ electric fence (perimeter security)
+  // A boolean per fence line: an energizer fault relay on an EM300-MCS contact (closed = energized, open = fault).
+  // Self-discovers role 'electric_fence'.
+  class FenceCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _render() {
+      if (!this._hass) return;
+      const S = this._hass.states;
+      let fences = byRoleBin(S, "electric_fence");
+      if (this._cfg.area) fences = fences.filter((x) => areaEq(x.attributes.area, this._cfg.area));
+      this._css = `
+        .fn{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+        .ln{display:flex;align-items:center;gap:12px;border:1px solid var(--ms-line);border-radius:13px;padding:12px 14px}
+        .ln.fault{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line))}
+        .ln .ic{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-good) 16%,transparent)}
+        .ln.fault .ic{background:color-mix(in srgb,var(--ms-bad) 16%,transparent)}
+        .ln .ic ha-icon{--mdc-icon-size:21px;color:var(--ms-good)} .ln.fault .ic ha-icon{color:var(--ms-bad)}
+        .ln .nm{font-size:14px;font-weight:600;color:var(--ms-ink)} .ln .ar{font-size:12px;color:var(--ms-ink2)}
+        .ln .st{margin-left:auto;text-align:right}
+        .ln .pill{font-size:12px;font-weight:650;padding:2px 10px;border-radius:999px;background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+        .ln.fault .pill{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .ln .sub{font-size:11px;color:var(--ms-ink2);margin-top:3px}
+      `;
+      if (!fences.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:fence-electric",
+          title: "No electric fences yet", hint: "Wire an energizer's fault relay to an EM300-MCS contact and set its purpose to “Electric fence”." })]));
+      }
+      const fault = (x) => x.attributes.fault === true || ["on", "true", "open"].includes(String(x.state).toLowerCase());
+      fences.sort((a, b) => (fault(b) ? 1 : 0) - (fault(a) ? 1 : 0));
+      const cell = (x) => {
+        const f = fault(x), a = x.attributes, since = num(a.since);
+        return h("div", { class: "ln" + (f ? " fault" : ""), onclick: () => fireMoreInfo(this, Object.keys(S).find((id) => S[id] === x)) }, [
+          h("div", { class: "ic" }, [h("ha-icon", { icon: f ? "mdi:fence-electric" : "mdi:fence-electric" })]),
+          h("div", {}, [h("div", { class: "nm" }, esc(a.device || "Fence")),
+            a.area ? h("div", { class: "ar" }, esc(a.area)) : null]),
+          h("div", { class: "st" }, [h("span", { class: "pill" }, f ? "Fault" : "Energized"),
+            f && since ? h("div", { class: "sub" }, "for " + ago(since * 1000).replace(" ago", "")) : null]),
+        ]);
+      };
+      this._card(h("div", { class: "fn" }, fences.map(cell)));
+    }
+  }
+
   // ================================================================ cold-chain compliance (HACCP / food safety)
   // Time in range, one-tap PDF reports, corrective actions and the recent reports — surfacing the report engine.
   class ComplianceCard extends Base {
@@ -3007,6 +3052,7 @@
     "milesight-tank-supply-card": [],
     "milesight-trough-card": [{ name: "area", selector: { text: {} } }],
     "milesight-flood-card": [{ name: "area", selector: { text: {} } }],
+    "milesight-fence-card": [{ name: "area", selector: { text: {} } }],
     "milesight-compliance-card": [{ name: "title", selector: { text: {} } }],
     "milesight-mains-card": [{ name: "title", selector: { text: {} } }],
     "milesight-load-summary-card": [{ name: "title", selector: { text: {} } }],
@@ -3028,7 +3074,7 @@
         BLDBAND_TAG = "milesight-building-band", AIR_TAG = "milesight-air-card",
         RETAIL_TAG = "milesight-retail-band", FOOTFALL_TAG = "milesight-footfall-card", ZONES_TAG = "milesight-zones-card",
         TANKBAND_TAG = "milesight-tank-band", TANKSUPPLY_TAG = "milesight-tank-supply-card",
-        TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card",
+        TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card", FENCE_TAG = "milesight-fence-card",
         COMPLIANCE_TAG = "milesight-compliance-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
@@ -3058,6 +3104,7 @@
     [TANKSUPPLY_TAG, TankSupplyCard, "Milesight Tank Supply", "Days-of-supply bars and recent refills"],
     [TROUGH_TAG, TroughCard, "Milesight Water Troughs", "Animal drinking troughs: empty / full from a float switch"],
     [FLOOD_TAG, FloodCard, "Milesight Flood Warning", "Flood / drain / river level with rate of rise and a danger line"],
+    [FENCE_TAG, FenceCard, "Milesight Electric Fence", "Perimeter electric fences: energized / fault from an energizer monitor"],
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
   ];
   window.customCards = window.customCards || [];

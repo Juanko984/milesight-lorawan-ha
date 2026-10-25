@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.73.0
+- **Electric fence monitor — new fit-for-purpose security use case.** Wire an energizer's fault relay to an
+  EM300-MCS contact (closed = energized, **open = fault**) and set the device's purpose to **Electric fence
+  (energizer monitor)**. A boolean per fence line, grouped under **Security**.
+  - New **Perimeter and security** section on the site landing page with a `milesight-fence-card`: one tile per
+    fence line, **Energized** (green) or **Fault** (red, with how long), self-discovering and area-scopeable.
+  - Alerts: a **critical "Electric fence fault"** (security category) when the line stays faulted past its
+    debounce — power loss, a break or a short — with acknowledge / snooze and phone push.
+  - Appears automatically on the landing page once a fence is set up.
+
 ## 0.72.0
 - **Flood / drain early-warning sensor — new fit-for-purpose use case.** Set a level sensor (EM500-UDL, radar …)
   mounted over a drain, culvert, under a bridge or on a river to the **Flood / drain level (early warning)**

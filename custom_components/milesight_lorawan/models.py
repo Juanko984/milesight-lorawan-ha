@@ -1957,6 +1957,8 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
             tags.add("coop")
         if key == "flood":                     # flood / drain early-warning shows on the Water Level dashboard
             tags.add("tank")
+        if key == "electric_fence":            # perimeter fence shows on the site landing page
+            tags.add("fence")
     return frozenset(tags)
 
 

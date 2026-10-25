@@ -658,6 +658,11 @@ class DeviceRuntime:
             self.attrs["door_active"] = {"milesight_role": "water_trough", "device": self.entry.title,
                                          "area": self.entry.data.get("area"), "empty": empty,
                                          "since": v.get("door_since"), "empty_confirmed": bool(v.get("door_left_open"))}
+        if self._pkey == "electric_fence" and "door" in self.binary:  # energizer monitor: contact open = fence fault
+            v["is_fence"] = True
+            self.attrs["door_active"] = {"milesight_role": "electric_fence", "device": self.entry.title,
+                                         "area": self.entry.data.get("area"), "fault": v.get("door_active"),
+                                         "since": v.get("door_since"), "fault_confirmed": bool(v.get("door_left_open"))}
         for prefix, (tr, cfg, key, ch) in self.loads.items():
             v.update(tr.values(ts, cfg, prefix))
             pl = _purposes.get(key)

@@ -1592,6 +1592,17 @@ def test_bundled_dashboard_templates_render():
     assert fl is not None and fl.severity == "critical" and "level" in fl.families
     assert "flood_danger_cm" in _pur.setting_fields("flood", {"level"})
     assert "tank" in mdl.device_tags("EM500-UDL", {"purpose": "flood"})
+    # the electric-fence purpose: a security-group contact boolean (energizer monitor), critical
+    ef = _pur.get("electric_fence")
+    assert ef is not None and ef.group == "security" and "contact" in ef.families and ef.severity == "critical"
+    ft = mdl.device_tags("EM300-MCS", {"purpose": "electric_fence"})
+    assert "fence" in ft and "security" in ft
+    # the site landing page shows a perimeter-security section with the fence card when a fence is present
+    fcfg = dcfg.build_config({"title": "X", "site": "sensor.s", "open_alerts": "sensor.a", "tags": ["fence"], "nav": []})
+    fheads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None)
+              for s_ in fcfg["views"][0]["sections"]]
+    assert "Perimeter and security" in fheads
+    assert any(c["type"] == "custom:milesight-fence-card" for s_ in fcfg["views"][0]["sections"] for c in s_["cards"])
     # Record-style lists are now table cards, not markdown. Check each converted section carries the right preset.
     def _preset(dash, head):
         sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]
@@ -2210,7 +2221,7 @@ def test_gateway_api():
                  "milesight-coldchain-band", "milesight-building-band", "milesight-air-card",
                  "milesight-retail-band", "milesight-footfall-card", "milesight-zones-card",
                  "milesight-tank-band", "milesight-tank-supply-card", "milesight-trough-card",
-                 "milesight-flood-card", "milesight-compliance-card"):
+                 "milesight-flood-card", "milesight-fence-card", "milesight-compliance-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # shared empty-state + all-offline safety warning helpers are present
