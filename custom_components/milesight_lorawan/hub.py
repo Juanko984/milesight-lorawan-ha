@@ -499,7 +499,9 @@ class Hub:
         if force or new or now - self._last_push >= 30:
             self._last_push = now
             async_dispatcher_send(self.hass, SIGNAL_GATEWAY.format(self.entry.entry_id))
-        self.store.async_delay_save(self.stats.to_dict, 60)
+        # delay must stay under the 60 s tick (which calls this), or the save is reset every tick and gateway
+        # stats (packet counts, last-heard) only persist on a clean shutdown — lost on a crash.
+        self.store.async_delay_save(self.stats.to_dict, 25)
 
     @callback
     def _tick(self, _now: Any = None) -> None:

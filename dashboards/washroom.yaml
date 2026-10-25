@@ -1,0 +1,46 @@
+# Milesight LoRaWAN – smart washroom / facilities dashboard
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# Works without editing: the cards find the gateway's "washroom" sensor, which groups every washroom device by its
+# Home Assistant area into one card per restroom. Add GS301 (odour), WS201 (soap/paper/towel levels),
+# VS330 (occupancy), GS601 (vape), an AM sensor (CO2) and WS302 (noise) to each washroom and set their area.
+title: Washrooms
+views:
+  - title: Washrooms
+    path: washrooms
+    icon: mdi:human-male-female
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Washrooms
+            subtitle: Cleanliness, supplies, traffic and air across every restroom
+            icon: mdi:human-male-female
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: At a glance
+            icon: mdi:view-dashboard-outline
+          - type: custom:milesight-washroom-band
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Needs attention
+            icon: mdi:bell-alert
+          - type: custom:milesight-alerts-card
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Washrooms
+            icon: mdi:human-male-female
+          - type: custom:milesight-washroom-card
+            grid_options: {columns: full}

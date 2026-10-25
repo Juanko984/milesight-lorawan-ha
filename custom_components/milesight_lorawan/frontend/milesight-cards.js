@@ -1949,7 +1949,7 @@
         warn = a.filter((x) => x.severity !== "critical" && x.status !== "acknowledged").length, n = a.filter((x) => x.status !== "acknowledged").length;
         add({ key: "alerts", icon: "mdi:bell", label: "Open alerts", value: String(n),
           tone: crit ? "bad" : n ? "warn" : "good",
-          sub: n ? `${crit} critical · ${warn} warning` : "All clear", nav: "/milesight-tanks/tanks" }); }
+          sub: n ? `${crit} critical · ${warn} warning` : "All clear", nav: "/milesight-water/tanks" }); }
       const hp = this._role("building_health");
       if (hp) { const v = num(hp.state);
         add({ key: "health", icon: "mdi:heart-pulse", label: "Site health", value: v == null ? "—" : `${Math.round(v)}%`,
@@ -2001,7 +2001,7 @@
   // A compact card for one operational domain (tanks, cold chain, energy, climate, farm, coop). Self-discovers by
   // role, shows a status badge + two headline numbers + the one thing wrong, and taps through to its dashboard.
   const DOMAINS = {
-    tanks: { name: "Tanks & water", icon: "mdi:storage-tank", path: "/milesight-tanks/tanks",
+    tanks: { name: "Tanks & water", icon: "mdi:storage-tank", path: "/milesight-water/tanks",
       compute(S) {
         const t = byRole(S, "tank"); if (!t.length) return null;
         const fills = t.map((x) => num(x.attributes.fill)).filter((v) => v != null);
@@ -2616,7 +2616,7 @@
     _tiles() {
       const S = this._hass.states, t = byRole(S, "tank"), troughs = byRoleBin(S, "water_trough");
       if (!t.length && !troughs.length) return [];
-      const base = "/milesight-tanks/tanks", a = (x) => x.attributes;
+      const base = "/milesight-water/tanks", a = (x) => x.attributes;
       const litres = t.map((x) => num(x.state)).filter((v) => v != null);
       const total = litres.length ? litres.reduce((s, v) => s + v, 0) : null;
       const hasMass = t.every((x) => a(x).mass_t != null) && t.length > 0;
@@ -2649,7 +2649,7 @@
       if (troughs.length) out.push({ icon: "mdi:water-well", label: "Troughs",
         value: `${troughs.length - emptyTr.length}/${troughs.length}`, tone: emptyTr.length ? "bad" : "good",
         sub: emptyTr.length ? `${emptyTr.length} empty · ${emptyTr.map((x) => a(x).device).filter(Boolean)[0] || "check"}` : "all full",
-        nav: "/milesight-tanks/tanks" });
+        nav: "/milesight-water/tanks" });
       return out;
     }
     _render() {
@@ -2888,6 +2888,135 @@
     }
   }
 
+  // ================================================================ smart washroom band
+  // Need cleaning / low supplies / odour / alerts / occupied — from the gateway 'washroom' sensor.
+  class WashroomBand extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _tiles() {
+      const r = byRole(this._hass.states, "washroom")[0]; if (!r) return [];
+      const a = r.attributes, base = "/milesight-washroom/washrooms";
+      return [
+        { icon: "mdi:broom", label: "Need cleaning", value: String(a.need_cleaning || 0),
+          tone: a.need_cleaning ? "warn" : "good", sub: a.need_cleaning ? "past visit threshold" : "all serviced", nav: base },
+        { icon: "mdi:paper-roll-outline", label: "Low supplies", value: String(a.low_supplies || 0),
+          tone: a.low_supplies ? "bad" : "good", sub: a.low_supplies ? "refill soon" : "all stocked", nav: base },
+        { icon: "mdi:air-filter", label: "Odour / air", value: String(a.odour_issues || 0),
+          tone: a.odour_issues ? "warn" : "good", sub: a.odour_issues ? "ventilate / check" : "all fresh", nav: base },
+        { icon: "mdi:alert", label: "Alerts", value: String(a.alerts || 0),
+          tone: a.alerts ? "bad" : "good", sub: a.alerts ? "vaping / leak / smoke" : "none", nav: base },
+        { icon: "mdi:account", label: "Occupied now", value: `${a.occupied_now || 0}/${a.count || 0}`,
+          tone: "info", sub: "in use", nav: base },
+      ];
+    }
+    _render() {
+      if (!this._hass) return;
+      const tiles = this._tiles();
+      this._css = `
+        .band{display:grid;grid-template-columns:repeat(${Math.max(1, tiles.length)},1fr);gap:12px}
+        @media (max-width:760px){.band{grid-template-columns:repeat(2,1fr)}}
+        .stat{position:relative;overflow:hidden;border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px;cursor:pointer}
+        .stat:hover{border-color:var(--ms-accent)}
+        .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ms-good)}
+        .stat.bad::before{background:var(--ms-bad)} .stat.warn::before{background:var(--ms-warn)} .stat.info::before{background:var(--ms-accent)}
+        .stat .k{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ms-ink2)}
+        .stat .k ha-icon{--mdc-icon-size:17px}
+        .stat .v{font-size:25px;font-weight:720;margin-top:9px;line-height:1;color:var(--ms-ink)}
+        .stat.bad .v{color:var(--ms-bad)} .stat.warn .v{color:var(--ms-warn)} .stat.good .v{color:var(--ms-good)} .stat.info .v{color:var(--ms-accent)}
+        .stat .s{font-size:12px;color:var(--ms-ink2);margin-top:4px}
+      `;
+      if (!tiles.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:human-male-female",
+          title: "No washrooms yet", hint: "Add washroom sensors (GS301 odour, WS201 supplies, VS330 occupancy, GS601 vape) and set their area." })]));
+      }
+      const tileEl = (t) => h("div", { class: "stat " + t.tone, onclick: () => navigate(t.nav) }, [
+        h("div", { class: "k" }, [h("ha-icon", { icon: t.icon }), t.label]),
+        h("div", { class: "v" }, t.value), h("div", { class: "s" }, t.sub)]);
+      this._card(h("div", { class: "band" }, tiles.map(tileEl)));
+    }
+  }
+
+  // ================================================================ smart washroom rooms
+  // One card per restroom: cleanliness (odour), occupancy, CO2, noise, consumable bars, cleaning progress, events.
+  class WashroomCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _render() {
+      if (!this._hass) return;
+      const r = byRole(this._hass.states, "washroom")[0];
+      const rooms = (r && r.attributes.rooms) || [];
+      this._css = `
+        .rooms{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+        .room{border:1px solid var(--ms-line);border-radius:15px;padding:15px 16px}
+        .room.att{border-color:color-mix(in srgb,var(--ms-bad) 42%,var(--ms-line))}
+        .top{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+        .top ha-icon{--mdc-icon-size:20px;color:var(--ms-accent)}
+        .nm{font-size:16px;font-weight:700;color:var(--ms-ink)}
+        .chips{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+        .chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .chip.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .chip.bad{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
+        .mx{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;margin-bottom:13px}
+        .ml{font-size:11px;color:var(--ms-ink2)} .mv{font-size:16px;font-weight:650;color:var(--ms-ink);margin-top:1px}
+        .mv.good{color:var(--ms-good)} .mv.warn{color:var(--ms-warn)} .mv.bad{color:var(--ms-bad)}
+        .sl{display:flex;justify-content:space-between;font-size:12px;margin:6px 0 3px;color:var(--ms-ink2)}
+        .bar{height:7px;border-radius:4px;background:var(--ms-line);overflow:hidden}
+        .bar>i{display:block;height:100%;border-radius:4px}
+        .clean{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ms-ink2);margin-top:12px}
+        .clean ha-icon{--mdc-icon-size:15px} .clean .pb{flex:1;height:6px;border-radius:4px;background:var(--ms-line);overflow:hidden}
+        .clean .pb>i{display:block;height:100%;background:var(--ms-accent)}
+        .flags{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+        .flag{font-size:11px;font-weight:600;padding:3px 9px;border-radius:8px}
+        .flag.bad{background:color-mix(in srgb,var(--ms-bad) 14%,transparent);color:var(--ms-bad)}
+        .flag.warn{background:color-mix(in srgb,var(--ms-warn) 14%,transparent);color:var(--ms-warn)}
+      `;
+      if (!rooms.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:human-male-female",
+          title: "No washrooms yet", hint: "Give the washroom sensors a Home Assistant area — each area becomes a room here." })]));
+      }
+      const odourCls = (o) => o === "Strong" ? "bad" : o === "Noticeable" ? "warn" : o ? "good" : "";
+      const co2Cls = (v) => v == null ? "" : v < 800 ? "good" : v < 1200 ? "warn" : "bad";
+      const dbCls = (v) => v == null ? "" : v < 55 ? "good" : v < 70 ? "warn" : "bad";
+      const supCls = (v) => v <= 5 ? "var(--ms-bad)" : v <= 20 ? "var(--ms-warn)" : "var(--ms-good)";
+      const metric = (label, val, cls) => h("div", {}, [h("div", { class: "ml" }, label), h("div", { class: "mv " + (cls || "") }, val)]);
+      const chips = (rm) => {
+        const out = [];
+        if (rm.vape) out.push(["bad", "Vaping"]); if (rm.smoke) out.push(["bad", "Smoke"]); if (rm.leak) out.push(["bad", "Leak"]);
+        if (rm.supply_min != null && rm.supply_min <= 5) out.push(["bad", "Supply out"]);
+        if (rm.clean_due) out.push(["bad", "Needs clean"]);
+        else if (rm.clean_visits && rm.visits_since_clean != null && rm.visits_since_clean >= rm.clean_visits * 0.7) out.push(["warn", "Clean soon"]);
+        if (rm.odour_bad) out.push(["warn", "Odour"]);
+        if (!out.length) out.push(["good", "All good"]);
+        return out.slice(0, 3).map(([c, t]) => h("span", { class: "chip " + (c === "good" ? "" : c) }, t));
+      };
+      const roomEl = (rm) => {
+        const occ = rm.occupied ? (rm.people ? `${rm.people} in use` : "In use") : "Free";
+        const pct = rm.clean_visits && rm.visits_since_clean != null ? Math.min(100, Math.round(100 * rm.visits_since_clean / rm.clean_visits)) : null;
+        return h("div", { class: "room" + (rm.attention ? " att" : "") }, [
+          h("div", { class: "top" }, [h("ha-icon", { icon: "mdi:human-male-female-child" }),
+            h("div", { class: "nm" }, esc(rm.area)), h("div", { class: "chips" }, chips(rm))]),
+          h("div", { class: "mx" }, [
+            metric("Cleanliness", rm.odour || "—", odourCls(rm.odour)),
+            metric("Occupancy", occ, rm.occupied ? "" : "good"),
+            metric("CO₂", rm.co2 != null ? `${rm.co2} ppm` : "—", co2Cls(rm.co2)),
+            metric("Noise", rm.sound_db != null ? `${rm.sound_db} dB` : "—", dbCls(rm.sound_db)),
+          ]),
+          (rm.supplies && rm.supplies.length) ? h("div", {}, rm.supplies.map((s) => h("div", {}, [
+            h("div", { class: "sl" }, [h("span", {}, esc(s.name)), h("span", {}, `${s.remaining}%`)]),
+            h("div", { class: "bar" }, [h("i", { style: { width: Math.max(2, s.remaining) + "%", background: supCls(s.remaining) } })]),
+          ]))) : null,
+          pct != null ? h("div", { class: "clean" }, [h("ha-icon", { icon: "mdi:broom" }),
+            h("span", {}, `${rm.visits_since_clean} / ${rm.clean_visits} visits`),
+            h("div", { class: "pb" }, [h("i", { style: { width: pct + "%", background: rm.clean_due ? "var(--ms-bad)" : "var(--ms-accent)" } })])]) : null,
+          (rm.issues && rm.issues.length) ? h("div", { class: "flags" }, rm.issues.map((i) => h("span", { class: "flag " + i.level }, i.text))) : null,
+        ]);
+      };
+      this._card(h("div", { class: "rooms" }, rooms.map(roomEl)));
+    }
+  }
+
   // ================================================================ cold-chain compliance (HACCP / food safety)
   // Time in range, one-tap PDF reports, corrective actions and the recent reports — surfacing the report engine.
   class ComplianceCard extends Base {
@@ -3053,6 +3182,8 @@
     "milesight-trough-card": [{ name: "area", selector: { text: {} } }],
     "milesight-flood-card": [{ name: "area", selector: { text: {} } }],
     "milesight-fence-card": [{ name: "area", selector: { text: {} } }],
+    "milesight-washroom-band": [],
+    "milesight-washroom-card": [],
     "milesight-compliance-card": [{ name: "title", selector: { text: {} } }],
     "milesight-mains-card": [{ name: "title", selector: { text: {} } }],
     "milesight-load-summary-card": [{ name: "title", selector: { text: {} } }],
@@ -3075,6 +3206,7 @@
         RETAIL_TAG = "milesight-retail-band", FOOTFALL_TAG = "milesight-footfall-card", ZONES_TAG = "milesight-zones-card",
         TANKBAND_TAG = "milesight-tank-band", TANKSUPPLY_TAG = "milesight-tank-supply-card",
         TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card", FENCE_TAG = "milesight-fence-card",
+        WASHBAND_TAG = "milesight-washroom-band", WASHROOM_TAG = "milesight-washroom-card",
         COMPLIANCE_TAG = "milesight-compliance-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
@@ -3105,6 +3237,8 @@
     [TROUGH_TAG, TroughCard, "Milesight Water Troughs", "Animal drinking troughs: empty / full from a float switch"],
     [FLOOD_TAG, FloodCard, "Milesight Flood Warning", "Flood / drain / river level with rate of rise and a danger line"],
     [FENCE_TAG, FenceCard, "Milesight Electric Fence", "Perimeter electric fences: energized / fault from an energizer monitor"],
+    [WASHBAND_TAG, WashroomBand, "Milesight Washroom Band", "Washroom tiles: need cleaning, low supplies, odour, alerts, occupied"],
+    [WASHROOM_TAG, WashroomCard, "Milesight Washrooms", "One card per restroom: cleanliness, supplies, traffic, air, events"],
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
   ];
   window.customCards = window.customCards || [];

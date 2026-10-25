@@ -2,6 +2,37 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.76.0
+- **"Water Level" renamed to "Water" under a fresh sidebar slug (`milesight-water`).** If you'd hand-edited or
+  half-deleted the old "Tanks & alerts" dashboard, it could come back blank and refuse to delete because the old
+  `milesight-tanks` slug was stuck in the integration's stored state. On update the old slug is now removed and a
+  **brand-new "Water" dashboard** is created with the full Water command center (band, alerts, tanks table,
+  supply & refills, troughs, flood), so there's nothing stale to fight. Alert deep-links and card navigation now
+  point at the new slug.
+
+## 0.75.0
+- **Distribution & quality pass.**
+  - **Persistence robustness sweep.** Audited every tracker's save scheduling. Fixed a second instance of the
+    "delay resets before it fires" bug (after the area / retail fix in 0.69): the gateway-stats save was scheduled
+    with a 60 s delay from the 60 s tick, so on a quiet gateway it never flushed and packet counts / last-heard
+    only persisted on a clean shutdown (lost on a crash). Now saved within each tick. A regression test guards the
+    pattern across the area, retail and hub trackers.
+  - **System Health panel.** Settings → System → System information now shows a Milesight section: gateways online,
+    devices set up, and whether the built-in LoRaWAN server is running.
+  - **Code owner** added to the manifest (required for HACS / hassfest and the HA Quality Scale).
+
+## 0.74.0
+- **New Smart Washroom / Facilities dashboard.** A whole new use case built from the device catalogue — Milesight's
+  smart-restroom stack. Auto-installs when a washroom sensor (GS301 odour, WS201 supplies, VS330 occupancy,
+  GS601 vape) or a **Toilet / washroom** purpose is present.
+  - A new gateway `washroom` sensor groups every washroom device **by Home Assistant area into one card per
+    restroom**, rolling up cleanliness (odour from NH₃/H₂S), consumables (soap / paper / towels %), traffic
+    (visits since clean, with a cleaning-progress bar), air (CO₂), noise (dB) and events (vaping, leak, smoke).
+  - **Band** (`milesight-washroom-band`): need cleaning, low supplies, odour / air, alerts, occupied now.
+  - **Per-room cards** (`milesight-washroom-card`): cleanliness, occupancy, CO₂, noise, consumable bars with low
+    (amber) / out (red) thresholds, cleaning progress, and red/amber event flags — the worst rooms sort first.
+  - Reuses the alerts card for acknowledge / snooze, so a vaping event or an empty dispenser is actionable.
+
 ## 0.73.0
 - **Electric fence monitor — new fit-for-purpose security use case.** Wire an energizer's fault relay to an
   EM300-MCS contact (closed = energized, **open = fault**) and set the device's purpose to **Electric fence

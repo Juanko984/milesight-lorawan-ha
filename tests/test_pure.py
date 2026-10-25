@@ -725,6 +725,57 @@ def test_compute_retail():
     assert empty["visitors_today"] == 0 and empty["avg_dwell"] is None and empty["entrances"] == []
 
 
+def test_persistence_save_delays():
+    # A tracker that saves from a 60 s interval must use a delay < 60 s; otherwise the next tick resets the timer
+    # before it fires and the history only ever persists on a clean shutdown (lost on a crash). Regression guard
+    # for the area / retail / hub trackers.
+    import re
+    for mod in ("fleet", "retail", "hub"):
+        src = (PKG / f"{mod}.py").read_text(encoding="utf-8")
+        for m in re.finditer(r"async_delay_save\([^,]+,\s*(\d+)\s*\)", src):
+            assert int(m.group(1)) < 60, f"{mod}: {m.group(0)} resets against the 60 s tick"
+
+
+def test_compute_washroom():
+    wc = _load("washroom_calc")
+    devs = [
+        {"area": "L1 Men", "name": "odour", "core": True, "odour": "Fresh", "co2": 620, "sound_db": 48},
+        {"area": "L1 Men", "name": "vape", "core": True, "vape": True},
+        {"area": "L1 Men", "name": "Soap", "core": True, "remaining": 64, "supply_name": "Soap"},
+        {"area": "L1 Men", "name": "Paper", "core": True, "remaining": 31, "supply_name": "Paper"},
+        {"area": "L1 Men", "name": "ctr", "core": True, "visits_since_clean": 74, "clean_due": False,
+         "clean_visits": 100, "occupied": True, "people": 2},
+        {"area": "L2 Women", "name": "odour2", "core": True, "odour": "Strong", "co2": 1180},
+        {"area": "L2 Women", "name": "Soap2", "core": True, "remaining": 4, "supply_name": "Soap"},
+        {"area": "L2 Women", "name": "ctr2", "core": True, "visits_since_clean": 103, "clean_due": True,
+         "clean_visits": 100},
+        {"area": "Office", "name": "office co2", "core": False, "co2": 900},   # no core device → not a washroom
+    ]
+    r = wc.compute_washroom(devs)
+    assert r["count"] == 2 and r["need_cleaning"] == 1 and r["low_supplies"] == 1 and r["alerts"] == 1
+    assert r["occupied_now"] == 1 and r["odour_issues"] == 1          # L2 Strong odour
+    assert [rm["area"] for rm in r["rooms"]] == ["L1 Men", "L2 Women"]  # the vaping room sorts first
+    l1 = r["rooms"][0]
+    assert l1["supplies"][0]["name"] == "Paper" and l1["supplies"][0]["remaining"] == 31   # lowest first
+    assert any(i["text"] == "Vaping detected" for i in l1["issues"]) and l1["attention"]
+    assert not any(rm["area"] == "Office" for rm in r["rooms"])
+    assert wc.compute_washroom([])["count"] == 0
+
+
+def test_washroom_dashboard_and_tags():
+    import yaml as _yaml
+    w = _yaml.safe_load((PKG.parents[1] / "dashboards" / "washroom.yaml").read_text(encoding="utf-8"))
+    types = {c["type"] for v in w["views"] for s in v["sections"] for c in s["cards"]}
+    assert {"custom:milesight-washroom-band", "custom:milesight-washroom-card", "custom:milesight-page-header"} <= types
+    # washroom devices (odour / supplies / occupancy / vape) and the toilet purpose tag the site "washroom"
+    assert "washroom" in mdl.device_tags("GS301") and "washroom" in mdl.device_tags("WS201")
+    assert "washroom" in mdl.device_tags("VS330") and "washroom" in mdl.device_tags("GS601")
+    assert "washroom" in mdl.device_tags("AM307", {"purpose": "toilet"})
+    assert "washroom" not in mdl.device_tags("AM307")
+    res = (PKG / "resources.py").read_text(encoding="utf-8")
+    assert '"washroom.yaml"' in res and '{"washroom"}' in res
+
+
 def test_retail_dashboard_structure():
     import yaml as _yaml
     r = _yaml.safe_load((PKG.parents[1] / "dashboards" / "retail.yaml").read_text(encoding="utf-8"))
@@ -745,7 +796,7 @@ def test_dashboard_config_and_templates():
     # production command-center landing: status band + alerts + purpose-fit domain grid, by site tags
     ctx = {"title": "Green Acres", "site": "sensor.site", "open_alerts": "sensor.open", "outside": "sensor.out",
            "tags": ["tank", "cold_chain", "pump", "comfort"],
-           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Water Level", "milesight-tanks", "mdi:water-percent")]}
+           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Water", "milesight-water", "mdi:water-percent")]}
     cfg = dcfg.build_config(ctx)
     view = cfg["views"][0]
     assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == ["Outside"]
@@ -764,7 +815,7 @@ def test_dashboard_config_and_templates():
     doms = [c["domain"] for c in by_head["Operations"]["cards"] if c["type"] == "custom:milesight-domain-card"]
     assert doms == ["tanks", "cold_chain", "farm", "climate"], doms      # no coop/energy tag -> not shown
     nav = by_head["Dashboards"]["cards"][1:]
-    assert [n["tap_action"]["navigation_path"] for n in nav] == ["/milesight-farm", "/milesight-tanks"]
+    assert [n["tap_action"]["navigation_path"] for n in nav] == ["/milesight-farm", "/milesight-water"]
     json.dumps(cfg)                                                       # storable
     # the classic-gauge fallback helper still works (used by the Live views)
     dl_ = _load("dashboard_live")
@@ -1616,7 +1667,7 @@ def test_bundled_dashboard_templates_render():
     assert _preset("maintenance", "Service history") == "service"
     assert _preset("maintenance", "Gateways") == "gateways"
     # every non-subview view carries a page header
-    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail"):
+    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail", "washroom"):
         for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]:
             if v.get("subview"):
                 continue
@@ -1864,7 +1915,7 @@ def test_smart_alerts_rota_snooze_summary():
     cfg = alr.AlertSettings(primary=["notify.boss"], rota=rota, backup=["notify.b1", "notify.b2"], escalate_min=10,
                             category_quiet=alr.parse_category_quiet("building: 18-07\nsafety: none"),
                             quiet_start=22, quiet_end=6,
-                            dashboards={"tank": "/milesight-tanks", "*": "/building-farm"})
+                            dashboards={"tank": "/milesight-water", "*": "/building-farm"})
     fri_day, fri_night = datetime(2026, 10, 16, 9, 0, tzinfo=TZ), datetime(2026, 10, 16, 23, 0, tzinfo=TZ)
     sat_early, sat_noon = datetime(2026, 10, 17, 5, 0, tzinfo=TZ), datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
     assert cfg.first_line(fri_day) == ["notify.mobile_app_juan"]
@@ -1892,13 +1943,13 @@ def test_smart_alerts_rota_snooze_summary():
     t = T("2026-10-16 09:00")
     low = {"t1:tank_low": {"title": "Tank low – Diesel", "message": "low", "severity": "warning", "category": "tank"}}
     out = eng.update(low, t, fri_day, cfg)
-    assert out[0]["targets"] == ["notify.mobile_app_juan"] and out[0]["url"] == "/milesight-tanks"
+    assert out[0]["targets"] == ["notify.mobile_app_juan"] and out[0]["url"] == "/milesight-water"
     d = alr.notify_data(out[0])["data"]
     assert [a["title"] for a in d["actions"]] == ["Acknowledge", "Snooze 1 h", "Open dashboard"]
-    assert d["actions"][2] == {"action": "URI", "title": "Open dashboard", "uri": "/milesight-tanks"}
+    assert d["actions"][2] == {"action": "URI", "title": "Open dashboard", "uri": "/milesight-water"}
     assert "url" not in d and "clickAction" not in d                # tapping only opens the notification
     # a device with a location: 'View on map' instead
-    cfg_m = alr.AlertSettings(primary=["notify.a"], dashboards={"tank": "/milesight-tanks", "map": "/milesight-maintenance/map"})
+    cfg_m = alr.AlertSettings(primary=["notify.a"], dashboards={"tank": "/milesight-water", "map": "/milesight-maintenance/map"})
     loc_alert = {"t9:tank_low": {**low["t1:tank_low"], "located": True}}
     m = alr.AlertEngine().update(loc_alert, t, fri_day, cfg_m)[0]
     assert alr.notify_data(m)["data"]["actions"][2] == {"action": "URI", "title": "View on map",
@@ -2221,7 +2272,8 @@ def test_gateway_api():
                  "milesight-coldchain-band", "milesight-building-band", "milesight-air-card",
                  "milesight-retail-band", "milesight-footfall-card", "milesight-zones-card",
                  "milesight-tank-band", "milesight-tank-supply-card", "milesight-trough-card",
-                 "milesight-flood-card", "milesight-fence-card", "milesight-compliance-card"):
+                 "milesight-flood-card", "milesight-fence-card", "milesight-washroom-band",
+                 "milesight-washroom-card", "milesight-compliance-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # shared empty-state + all-offline safety warning helpers are present

@@ -22,15 +22,19 @@ _LOGGER = logging.getLogger(__name__)
 RES = pathlib.Path(__file__).parent / "resources"
 RETIRED = {"milesight-fleet": "milesight-maintenance/devices",      # merged into Maintenance (tabs) in 0.34
            "milesight-signal": "milesight-maintenance/signal"}
+# dashboards whose sidebar slug changed: the old one is removed and a fresh one created under the new slug, so a
+# hand-edited or half-deleted copy under the old slug stops coming back.
+RENAMED = {"milesight-tanks": "milesight-water"}                    # "Tanks & alerts" → "Water" in 0.76
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
-    "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:water-percent", {"tank"}),
+    "tanks_and_alerts.yaml": ("milesight-water", "mdi:water-percent", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),
     "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),
     "energy.yaml": ("milesight-energy", "mdi:lightning-bolt", {"energy", "hvac"}),
     "coop.yaml": ("milesight-coop", "mdi:egg", {"coop"}),
     "retail.yaml": ("milesight-retail", "mdi:storefront-outline", {"retail"}),
+    "washroom.yaml": ("milesight-washroom", "mdi:human-male-female", {"washroom"}),
 }
 
 
@@ -125,6 +129,12 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
         mine = done.pop(url)
         _hide(hass, url)
         result.setdefault("merged", []).append(mine.get("title") or url)
+    # renamed slugs: drop the old dashboard (even a hand-edited / half-deleted one) so the fresh one can appear
+    for old, new in RENAMED.items():
+        if old in done or old in _lovelace_dashboards(hass):
+            done.pop(old, None)
+            _hide(hass, old)
+            result.setdefault("renamed", []).append((old, new))
     for f, (url, icon, _needs) in DASHBOARDS.items():
         config = configs[f]
         title = config.get("title") or url
@@ -254,6 +264,9 @@ def summary(out: dict[str, Any]) -> str:
         lines.append(f"Dashboards in the sidebar: {', '.join(db['written'])}.")
     if db.get("merged"):
         lines.append(f"{' and '.join(db['merged'])} are now tabs of the Maintenance dashboard.")
+    if db.get("renamed"):
+        lines.append("A dashboard was renamed; the old sidebar entry was removed and a fresh one created "
+                     f"({', '.join(f'{o} → {n}' for o, n in db['renamed'])}).")
     if db.get("removed"):
         lines.append(f"Dashboards removed from the sidebar (no devices need them yet): {', '.join(db['removed'])}.")
     if db.get("kept"):

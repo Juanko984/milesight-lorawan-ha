@@ -900,25 +900,34 @@ hass4 = types.SimpleNamespace(config=types.SimpleNamespace(path=lambda *p: str(c
                               data={"lovelace": types.SimpleNamespace(dashboards={})}, async_add_executor_job=_executor,
                               config_entries=types.SimpleNamespace(async_entries=lambda d: SITE))
 out0 = asyncio.run(res.async_install(hass4, "0.21.0"))
-assert "milesight-tanks" not in hass4.data["lovelace"].dashboards          # no tank sensor yet
+assert "milesight-water" not in hass4.data["lovelace"].dashboards          # no tank sensor yet
 assert asyncio.run(res.async_sync(hass4)) == {}                            # nothing changed
 SITE.append(types.SimpleNamespace(data={"entry_type": "device", "deveui": "a2", "model": "EM410-RDL"}, options={}))
 out = asyncio.run(res.async_sync(hass4))                                   # a radar level sensor arrives
-assert out["dashboards"]["written"] == ["Water Level"] and "Water Level" in res.summary(out)
+assert out["dashboards"]["written"] == ["Water"] and "Water" in res.summary(out)
 assert models.device_tags("EM410-RDL") == {"tank"} and models.device_tags("VS121") >= {"people"}
 assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") == frozenset()
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-maintenance", "milesight-tanks", "milesight-analytics"}
-assert dashes["milesight-tanks"].saved["title"] == "Water Level" and "milesight-tanks" in PANELS
+assert set(dashes) == {"milesight-maintenance", "milesight-water", "milesight-analytics"}
+assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
 out = asyncio.run(res.async_sync(hass4))
-assert out["dashboards"]["removed"] == ["Water Level"] and "milesight-tanks" not in dashes
+assert out["dashboards"]["removed"] == ["Water"] and "milesight-water" not in dashes
 SITE.append(types.SimpleNamespace(data={"entry_type": "device", "deveui": "a2", "model": "EM410-RDL"}, options={}))
-assert asyncio.run(res.async_sync(hass4))["dashboards"]["written"] == ["Water Level"] and "milesight-tanks" in dashes
+assert asyncio.run(res.async_sync(hass4))["dashboards"]["written"] == ["Water"] and "milesight-water" in dashes
+# rename cleanup: a leftover pre-0.76 "milesight-tanks" dashboard is removed and reported as renamed
+dmod._register(hass4, "milesight-tanks", "Tanks & alerts", "milesight_milesight_tanks")
+_rstate = STORES["milesight_lorawan.resources"]
+_rstate.setdefault("dashboards", {})["milesight-tanks"] = {"title": "Tanks & alerts", "icon": "mdi:water-percent",
+                                                           "hash": "stale", "hidden": False}
+_rout = asyncio.run(res.async_install_dashboards(hass4, _rstate, {"tank"}))
+assert ("milesight-tanks", "milesight-water") in _rout.get("renamed", [])
+assert "milesight-tanks" not in dashes and "milesight-tanks" not in _rstate["dashboards"]
+print("rename cleanup ok")
 (bp / "leak.yaml").write_text("# my own version\n")                         # user edits a blueprint …
 dashes["milesight-maintenance"].saved = {"title": "Mine", "views": []}       # … and a dashboard
 (bp / "alarm.yaml").unlink()

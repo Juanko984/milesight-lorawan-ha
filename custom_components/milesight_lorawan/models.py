@@ -1943,6 +1943,8 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
         tags.add("retail")
     if {"temperature", "humidity"} <= keys or "co2" in keys:
         tags.add("comfort")
+    if model_key in ("GS301", "GS601", "WS201", "VS330"):   # odour / vape / supplies / bathroom occupancy
+        tags.add("washroom")
     if "load" in model.features and options.get("pump_enabled"):
         tags.add("pump")
     if model_key.startswith(("UC51", "UC52")) or ("at101" in model.features and options.get("pivot_centre")):
@@ -1959,6 +1961,8 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
             tags.add("tank")
         if key == "electric_fence":            # perimeter fence shows on the site landing page
             tags.add("fence")
+        if key == "toilet":                    # a washroom / toilet purpose installs the Washroom dashboard
+            tags.add("washroom")
     return frozenset(tags)
 
 

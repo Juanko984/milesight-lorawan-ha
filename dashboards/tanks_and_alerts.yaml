@@ -2,7 +2,7 @@
 # Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
 # No entity ids to edit: the cards find the devices themselves. Installed by the integration, a "Live" view with
 # per-tank gauges, sliders and the 30-day level history for the site's actual tanks is added after this Overview.
-title: Water Level
+title: Water
 views:
   - title: Overview
     path: tanks
@@ -15,7 +15,7 @@ views:
         cards:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
-            title: Water Level
+            title: Water
             subtitle: Levels, days of supply, usage and leaks across every tank and silo
             icon: mdi:water-percent
       - type: grid
