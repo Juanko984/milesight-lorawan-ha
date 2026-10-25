@@ -1,25 +1,52 @@
-# Milesight LoRaWAN – energy & HVAC (air conditioners, lighting, geysers, compressors, motors, mains)
+# Milesight LoRaWAN – power & energy (air conditioners, lighting, geysers, compressors, motors, mains)
 # Installed by the integration when a clamp or socket is given an energy / HVAC purpose (device → Configure → Purpose).
+# No entity ids to edit: the cards find the loads and the mains board themselves.
 title: Energy & HVAC
 views:
-  - title: Loads
+  - title: Power
     path: loads
     icon: mdi:lightning-bolt
-    cards:
-      - type: custom:milesight-page-header
-        grid_options: {columns: full}
-        title: Energy
-        subtitle: Consumption and demand across the site
-        icon: mdi:lightning-bolt
-      - type: custom:milesight-table-card
-        preset: loads
-      - type: markdown
-        content: |
-          <small>🌙 on outside working hours · 🔧 service due · a red row ran too long or has not run.</small>
-      - type: markdown
-        title: Mains
-        content: |
-          {% set m = states.binary_sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'mains') | list %}
-          {% if not m %}Fit a CT303 / CT310 on the distribution board → Configure → Purpose → Mains for outage and phase-imbalance alerts.{% endif %}
-          {% for s in m %}{% set a = s.attributes %}{% if s.state == 'on' %}<ha-alert alert-type="error" title="{{ a.device }} – power outage">{{ a.area or '' }}{% if a.phase_imbalance is defined and a.phase_imbalance is not none %} · phase imbalance {{ a.phase_imbalance }} %{% endif %}</ha-alert>{% else %}<ha-alert alert-type="success" title="{{ a.device }} – power on">{{ a.area or '' }}{% if a.currents is defined %} · {{ a.currents | join(' / ') }} A{% endif %}</ha-alert>{% endif %}
-          {% endfor %}
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Power & Energy
+            subtitle: Mains, demand and every load
+            icon: mdi:lightning-bolt
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Demand
+            icon: mdi:gauge
+          - type: custom:milesight-load-summary-card
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Mains board
+            icon: mdi:transmission-tower
+          # Live / outage, the three phase currents, phase imbalance and total load — from a CT303 / CT310.
+          - type: custom:milesight-mains-card
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Loads
+            icon: mdi:power-plug
+          - type: custom:milesight-table-card
+            preset: loads
+            title: false
+            grid_options: {columns: full}
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              <small>A red row ran too long or has not run · amber for after-hours or service due.</small>

@@ -1,38 +1,88 @@
 # Milesight LoRaWAN – cold storage (fridges, freezers, cold rooms)
 # Installed by the integration when a device is fitted to a fridge / freezer (device → Configure → Purpose).
 # The cards find the probes, door contacts and compressor clamps themselves – no entity ids to edit.
+# The integration adds Units (per-unit gauges) and Trends tabs in front of these when it generates the dashboard.
 title: Cold storage
 views:
-  - title: Units
+  - title: Overview
     path: cold-chain
-    icon: mdi:fridge-outline
-    cards:
-      - type: custom:milesight-page-header
-        grid_options: {columns: full}
-        title: Cold chain
-        subtitle: Fridge and freezer temperatures and excursions
-        icon: mdi:snowflake-thermometer
-      - type: custom:milesight-table-card
-        preset: cold_chain
-      # Per-unit 7-day log as a phone-friendly day strip (replaces the old wide markdown table).
-      - type: custom:milesight-coldlog-card
-        title: Cold-chain log (last 7 days)
-        days: 7
-      - type: markdown
-        content: |
-          <small>The full 31 days are in each probe's *Time out of range today* attribute (log) and in the history.</small>
+    icon: mdi:snowflake-thermometer
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Cold storage
+            subtitle: Temperatures, excursions and compliance
+            icon: mdi:snowflake-thermometer
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Cold chain status
+            icon: mdi:snowflake-thermometer
+          - type: custom:milesight-coldchain-band
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Units
+            icon: mdi:fridge-outline
+          - type: custom:milesight-table-card
+            preset: cold_chain
+            title: false
+            grid_options: {columns: full}
+          - type: custom:milesight-coldlog-card
+            title: false
+            grid_options: {columns: full}
+  - title: Compliance
+    path: compliance
+    icon: mdi:file-certificate-outline
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Compliance
+            subtitle: Time in range, PDF reports and corrective actions
+            icon: mdi:file-certificate-outline
+      - type: grid
+        column_span: 3
+        cards:
+          # Time in range, one-tap PDF reports (last week / month), corrective actions and the recent reports.
+          - type: custom:milesight-compliance-card
+            title: false
+            grid_options: {columns: full}
   - title: Compressors
     path: compressors
     icon: mdi:heat-pump-outline
-    cards:
-      - type: custom:milesight-page-header
-        grid_options: {columns: full}
-        title: Compressors
-        subtitle: Compressor duty and short-cycling
-        icon: mdi:heat-pump-outline
-      - type: custom:milesight-table-card
-        preset: compressors
-      - type: markdown
-        content: |
-          <small>A compressor at 90–100 % duty or never stopping means it cannot keep up (door, seals, gas,
-          condenser); one that has not run for hours has tripped or failed.</small>
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Compressors
+            subtitle: Compressor duty and short-cycling
+            icon: mdi:heat-pump-outline
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-table-card
+            preset: compressors
+            title: false
+            grid_options: {columns: full}
+          - type: markdown
+            grid_options: {columns: full}
+            content: |
+              <small>A compressor at 90–100 % duty or never stopping means it cannot keep up (door, seals, gas,
+              condenser); one that has not run for hours has tripped or failed.</small>

@@ -697,54 +697,86 @@ def test_compute_building():
     assert empty["health"] is None and empty["alerts"] == [] and empty["systems"] is None
 
 
+def test_compute_retail():
+    rc = _load("retail_calc")
+    devices = [
+        {"name": "Front door", "area": "Store", "kind": "counter", "in_today": 912, "out_today": 890},
+        {"name": "Mall entrance", "area": "Store", "kind": "counter", "in_today": 301, "out_today": 286},
+        {"name": "Promo end-cap", "area": "Store", "kind": "zone", "occ_person_minutes": 160, "occ_sessions": 40,
+         "people_now": 4},
+        {"name": "Checkout", "area": "Store", "kind": "staff", "occ_occupied_s": 6 * 3600 + 12 * 60, "people_now": 1},
+    ]
+    r = rc.compute_retail(devices, person_minutes=18000, peak=118, peak_at="13:00", visitors_yesterday=1150)
+    assert r["visitors_today"] == 1213 and r["out_today"] == 1176 and r["in_store_now"] == 37
+    assert r["peak_today"] == 118 and r["peak_today_at"] == "13:00" and r["compare_pct"] == 5
+    # no measured dwell on these devices -> Little's-Law estimate (person-minutes / visitors)
+    assert r["dwell_source"] == "estimated" and r["avg_dwell"] == "14m"
+    # entrances sorted by footfall, store total is not a row (the card adds it)
+    assert [e["device"] for e in r["entrances"]] == ["Front door", "Mall entrance"]
+    assert r["entrances"][0]["net"] == 22
+    # one customer zone (dwell) and one staff zone (coverage)
+    assert len(r["zones"]) == 1 and r["zones"][0]["avg_dwell"] == "4m 00s"
+    assert r["staff_coverage"] == "6h 12m" and r["staff_zones"][0]["name"] == "Checkout"
+    # a device that reports dwell directly (VS350) switches the source to measured
+    r2 = rc.compute_retail([{"name": "Passage", "kind": "counter", "in_today": 100, "out_today": 90, "dwell_s": 300}],
+                           person_minutes=5000, visitors_yesterday=None)
+    assert r2["dwell_source"] == "measured" and r2["avg_dwell"] == "5m 00s" and r2["compare_pct"] is None
+    empty = rc.compute_retail([])
+    assert empty["visitors_today"] == 0 and empty["avg_dwell"] is None and empty["entrances"] == []
+
+
+def test_retail_dashboard_structure():
+    import yaml as _yaml
+    r = _yaml.safe_load((PKG.parents[1] / "dashboards" / "retail.yaml").read_text(encoding="utf-8"))
+    cards = [c for v in r["views"] for s in v["sections"] for c in s["cards"]]
+    types = {c["type"] for c in cards}
+    assert {"custom:milesight-retail-band", "custom:milesight-footfall-card", "custom:milesight-zones-card"} <= types
+    # it reuses the cold-chain, power and air cards, so a store sees one page for everything
+    assert {"custom:milesight-coldchain-band", "custom:milesight-mains-card", "custom:milesight-air-card"} <= types
+    # retail installs only on a people-counter site, and the people counters tag the site "retail"
+    res = (PKG / "resources.py").read_text(encoding="utf-8")
+    assert '"retail.yaml"' in res and '{"retail"}' in res
+    assert "retail" in mdl.device_tags("VS133") and "retail" in mdl.device_tags("VS121")
+    assert "retail" not in mdl.device_tags("VS341")      # presence-only, not people counting
+
+
 def test_dashboard_config_and_templates():
     import jinja2
-    ctx = {"title": "Building – Head office", "site": "sensor.head_office_site", "health": "sensor.h",
-           "comfort": "sensor.c", "air_quality": "sensor.aq", "systems": "sensor.sys", "people": "sensor.p",
-           "alerts": "sensor.al", "avg": {"co2": "sensor.avg_co2", "pm2_5": "sensor.avg_pm"},
-           "devices_online": "sensor.on", "battery_low": None, "gateways_online": "sensor.gw", "uplinks": None,
-           "outside": None, "co2_alert": 1100, "open_alerts": "sensor.open",
-           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Tanks & alerts", "milesight-tanks", "mdi:storage-tank")],
-           "live": [{"type": "grid", "cards": [{"type": "heading", "heading": "Tanks and silos"},
-                                               {"type": "gauge", "entity": "sensor.t1_tank_fill"}]}],
-           "areas": [{"name": "Board room", "icon": "mdi:table-furniture", "comfort": "sensor.br_c",
-                      "occupancy": "sensor.br_o", "co2": "sensor.br_co2"},
-                     {"name": "Sam's office", "icon": None, "comfort": None, "occupancy": None, "co2": None}]}
+    # production command-center landing: status band + alerts + purpose-fit domain grid, by site tags
+    ctx = {"title": "Green Acres", "site": "sensor.site", "open_alerts": "sensor.open", "outside": "sensor.out",
+           "tags": ["tank", "cold_chain", "pump", "comfort"],
+           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Tanks & alerts", "milesight-tanks", "mdi:storage-tank")]}
     cfg = dcfg.build_config(ctx)
     view = cfg["views"][0]
-    assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == \
-        ["Building health", "People in building", "Devices online", "Alerts"]
+    assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == ["Outside"]
     secs = view["sections"]
     heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
-    assert heads == [None, "Dashboards", "Overall health", "Needs attention", "Air quality", "System health",
-                     "People", "Board room", "Tanks and silos"], heads
+    assert heads == [None, "Status", "Needs attention", "Operations", "Dashboards", "Site"], heads
     by_head = dict(zip(heads, secs))
+    # masthead + first-run checklist lead
+    assert secs[0]["cards"][0]["type"] == "custom:milesight-page-header"
+    assert secs[0]["cards"][1]["type"] == "custom:milesight-onboarding"
+    assert secs[0]["cards"][0].get("grid_options", {}).get("columns") == "full"
+    # self-discovering status band and the actionable alerts card
+    assert any(c["type"] == "custom:milesight-status-band" for c in by_head["Status"]["cards"])
+    assert any(c["type"] == "custom:milesight-alerts-card" for c in by_head["Needs attention"]["cards"])
+    # purpose-fit operations grid: a domain card per domain the tags say the site has, in a fixed order
+    doms = [c["domain"] for c in by_head["Operations"]["cards"] if c["type"] == "custom:milesight-domain-card"]
+    assert doms == ["tanks", "cold_chain", "farm", "climate"], doms      # no coop/energy tag -> not shown
     nav = by_head["Dashboards"]["cards"][1:]
     assert [n["tap_action"]["navigation_path"] for n in nav] == ["/milesight-farm", "/milesight-tanks"]
-    ppl = by_head["People"]["cards"]
-    assert ppl[1]["entity"] == "sensor.p" and ppl[2]["state_content"] == ["people_now", "state"]
-    air = by_head["Air quality"]["cards"]
+    json.dumps(cfg)                                                       # storable
+    # the classic-gauge fallback helper still works (used by the Live views)
     dl_ = _load("dashboard_live")
-    gauges = [dl_.gauge_of(c) for c in air if dl_.gauge_of(c)]
-    co2 = next(c for c in gauges if c["name"] == "CO₂")
-    stack = next(c for c in air if dl_.gauge_of(c) is co2)
-    assert stack["type"] == "vertical-stack" and stack["cards"][1]["card"]["type"] == "tile"      # no data → a tile
-    assert stack["cards"][0]["conditions"][0]["state_not"] == ["unknown", "unavailable", ""]
-    assert co2["segments"][-1]["from"] == 1100 and co2["needle"] is True
-    assert next(c for c in air if c["type"] == "history-graph")["entities"] == [{"entity": "sensor.br_co2",
-                                                                                 "name": "Board room"}]
-    assert by_head["Board room"]["cards"][1]["state_content"] == ["state", "temperature", "humidity", "co2"]
-    assert all(c.get("entity") is None or c["entity"] for s_ in secs for c in s_["cards"])   # no empty entities
-    json.dumps(cfg)                                                                          # storable
-    # gauges use the custom card by default; the 'classic_gauges' option falls back to the built-in gauge
-    assert co2["type"] == "custom:milesight-gauge-card" and co2["shape"] == "arc"
-    assert co2["ticks"] is True                              # generated gauges show their scale labels
-    assert secs[0]["cards"][0].get("grid_options", {}).get("columns") == "full"   # header spans full width
     dc_ = _load("dashboard_config")
     dc_.set_classic(True)
     g2 = dc_._gauge("sensor.x", "T", 0, 100, [(0, "var(--success-color)")])
     dc_.set_classic(False)
     assert dl_.gauge_of(g2)["type"] == "gauge"
+    # a site with no operational tags shows no Operations grid
+    bare = dcfg.build_config({"title": "X", "site": "sensor.s", "tags": [], "nav": []})
+    bare_heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in bare["views"][0]["sections"]]
+    assert "Operations" not in bare_heads
 
     env = jinja2.Environment()
     env.filters["select"] = lambda xs: [x for x in xs if x]
@@ -753,10 +785,8 @@ def test_dashboard_config_and_templates():
             "status": "2 items need attention"}
     class Now:
         def strftime(self, f): return "Wednesday 15 October 2026 · 14:32"
-    # the first section leads with the self-hiding onboarding checklist, then the banner markdown
-    assert secs[0]["cards"][0]["type"] == "custom:milesight-page-header"      # masthead leads every page
-    assert secs[0]["cards"][1]["type"] == "custom:milesight-onboarding"       # then the first-run checklist
-    banner_card = next(c for c in secs[0]["cards"] if "content" in c)
+    # the site banner now lives at the foot of the page, in the "Site" section
+    banner_card = next(c for c in by_head["Site"]["cards"] if "content" in c)
     banner = env.from_string(banner_card["content"]).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme Facilities", now=Now)
     assert "<h2>Acme Facilities</h2>" in banner and "Head office · 1 Main Rd, Cape Town" in banner
@@ -766,22 +796,6 @@ def test_dashboard_config_and_templates():
     banner = env.from_string(banner_card["content"]).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme", now=Now)
     assert "Facilities" not in banner and "<img" not in banner and "All systems normal" in banner
-    md = by_head["Needs attention"]["cards"][2]["content"]
-    al = [{"severity": "serious", "where": "Meeting room 1", "what": "CO₂ 1,340 ppm", "detail": "Above", "since": "14:05"}]
-    out = env.from_string(md).render(state_attr=lambda e, a: al)
-    assert 'alert-type="error" title="Meeting room 1 · CO₂ 1,340 ppm"' in out and "since 14:05" in out
-    heat = ppl[-1]["content"]
-    assert '["Board room", "Sam\'s office"]' in heat                 # names safely quoted
-    S = types.SimpleNamespace
-    sensor = S(state="40", attributes={"area": "Board room", "hourly_today": [None] * 7 + [0, 30, 80] + [None] * 14,
-                                        "occupied_now": True, "people_now": 3})
-    env.tests["defined"] = lambda v: v is not None and not isinstance(v, jinja2.Undefined)
-    out = env.from_string(heat).render(states=S(sensor=[sensor]))
-    assert "**Board room** · 🧑 3 · 40 % today  \n⬜⬛🟨🟥⬜" in out, out
-    oa = env.from_string(by_head["Needs attention"]["cards"][1]["content"]).render(
-        state_attr=lambda e, a: [{"severity": "critical", "title": "Tank low", "message": "12 %", "since": "09:00",
-                                  "status": "open", "acknowledged_by": None}])
-    assert 'alert-type="error" title="Tank low"' in oa and "since 09:00 · open" in oa
 
 
 
@@ -1250,6 +1264,14 @@ def test_purposes_catalogue():
     assert prp.PURPOSES["fridge"].door_noun == "Door" and prp.PURPOSES["gate"].door_noun == "Gate"
     assert prp.resolve("Fridge / cold room") == "fridge" and prp.resolve("fridge") == "fridge"
     assert prp.resolve("gate") == "gate" and prp.resolve("AC") == "ac" and prp.resolve("nonsense") is None
+    # poultry coop purposes: in the dropdown, use existing groups, and a coop purpose tags the site "coop"
+    assert set(prp.COOP_PURPOSES) == {"coop_drinker", "coop_feeder", "coop_door", "coop_climate"}
+    assert prp.get("coop_drinker").group == "tank" and prp.get("coop_feeder").group == "tank"
+    assert prp.get("coop_door").group == "security" and prp.get("coop_climate").group == "comfort"
+    assert prp.get("coop_door").defaults.get("left_open_min") == 15 and prp.get("coop_climate").defaults.get("temp_low") == 2
+    assert "coop" in mdl.device_tags("EM400-MUD", {"purpose": "coop_drinker"})
+    assert "coop" in mdl.device_tags("AM307", {"purpose": "coop_climate"})
+    assert "coop" not in mdl.device_tags("EM400-MUD", {"purpose": "water_tank"})
     assert "temp_low" in prp.setting_fields("fridge", mdl.families("EM300-MCS"))
     assert "left_open_min" in prp.setting_fields("fridge", mdl.families("EM300-MCS"))
     assert "max_run_h" in prp.setting_fields("fridge", {"load"}) and prp.setting_fields("doorbell", {"button"}) == []
@@ -1565,11 +1587,11 @@ def test_bundled_dashboard_templates_render():
     assert _preset("building_analytics", "Comfort per area") == "comfort"
     assert _preset("building_analytics", "Utilisation today (opening hours)") == "utilisation"
     assert _preset("tanks_and_alerts", "Tanks and silos") == "tanks"
-    assert _preset("maintenance", "Batteries") == "batteries"
+    assert _preset("maintenance", "Batteries") == "batteries_due"       # Overview shows only batteries needing attention
     assert _preset("maintenance", "Service history") == "service"
     assert _preset("maintenance", "Gateways") == "gateways"
     # every non-subview view carries a page header
-    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop"):
+    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail"):
         for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]:
             if v.get("subview"):
                 continue
@@ -1588,6 +1610,10 @@ def test_bundled_dashboard_templates_render():
     assert {"custom:milesight-page-header"} <= coop_types
     bp = PKG.parents[1] / "blueprints" / "automation" / "milesight_lorawan"
     assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
+    # the Power & Energy page uses the new mains board + load summary cards
+    energy = yaml.safe_load((PKG.parents[1] / "dashboards" / "energy.yaml").read_text(encoding="utf-8"))
+    energy_types = {c["type"] for v in energy["views"] for s in v["sections"] for c in s["cards"]}
+    assert {"custom:milesight-mains-card", "custom:milesight-load-summary-card", "custom:milesight-table-card"} <= energy_types
 
 
 # ---------------------------------------------------------------- built-in network server (lns/)
@@ -2004,7 +2030,9 @@ def test_maintenance_dashboard_renders():
                     out[head] = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0,
                                                                         dict=dict)
                     assert "|---|" not in out[head], head          # phone-friendly, no wide tables
-    assert "**2 devices** · 🔋 1 batteries due in 90 days · 📴 1 offline > 24 h · 📶 0 weak signal" in out["summary"]
+    # the plain-text summary line is replaced by the self-discovering fleet-health band
+    all_cards = [c for v in cfg["views"] for s in v["sections"] for c in s["cards"]]
+    assert any(c["type"] == "custom:milesight-fleet-band" for c in all_cards)
     # All the fleet lists are now custom table cards with presets, not markdown
     def table_preset(head):
         sec = next(s for v in cfg["views"] for s in v["sections"]
@@ -2014,7 +2042,7 @@ def test_maintenance_dashboard_renders():
     assert table_preset("Offline more than 24 h or never heard") == "offline"
     assert table_preset("Firmware") == "firmware"
     assert table_preset("Weak or lossy devices") == "weak"
-    assert table_preset("Batteries") == "batteries"
+    assert table_preset("Batteries") == "batteries_due"      # Overview: only batteries needing attention
     assert table_preset("Service history") == "service"
     assert table_preset("Gateways") == "gateways"
     # the Devices and Signal views now carry a page header too
@@ -2162,7 +2190,12 @@ def test_gateway_api():
     for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
                  "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
                  "milesight-page-header", "milesight-onboarding", "milesight-alerts-card",
-                 "milesight-coldlog-card", "milesight-alert-summary-card"):
+                 "milesight-coldlog-card", "milesight-alert-summary-card",
+                 "milesight-status-band", "milesight-domain-card",
+                 "milesight-mains-card", "milesight-load-summary-card", "milesight-fleet-band",
+                 "milesight-coldchain-band", "milesight-building-band", "milesight-air-card",
+                 "milesight-retail-band", "milesight-footfall-card", "milesight-zones-card",
+                 "milesight-compliance-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # shared empty-state + all-offline safety warning helpers are present

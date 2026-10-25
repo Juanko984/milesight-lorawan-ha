@@ -2,12 +2,99 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.68.0
+- **New Retail dashboard — one page for a store.** Auto-installs when a VS-series people counter is present.
+  A command-center Overview brings together footfall, dwell, cold-chain compliance, power and air:
+  - **Store insights band** (`milesight-retail-band`): people in today (vs yesterday), in store now (+ peak),
+    average dwell, staff-at-counter coverage, and fridge compliance — self-discovering, tap through to detail.
+  - **Footfall today** (`milesight-footfall-card`): hourly in/out bars with the net-in-store line, plus a
+    per-entrance in / out / net table and a store total.
+  - **Zones** (`milesight-zones-card`): average customer dwell per zone (from VS121/321 AI counters) and
+    staff-coverage time for any sensor set to the new **Counter / staff zone** purpose.
+  - Reuses the cold-chain band + table, the mains / load-summary power cards, and the air-quality gauges, so a
+    store sees fridges, energy and shopper comfort on the same page.
+- **Store-level footfall engine.** A new gateway `retail` sensor aggregates the people counters: visitors today,
+  in-store-now (net in − out), peak and peak time, per-entrance totals, and an hourly in/out series that survives
+  restarts. **Average dwell** is measured directly from passage counters (VS350) when available, otherwise
+  estimated store-wide from footfall and occupancy (Little's Law) — the tile says which.
+- **New purpose: Counter / staff zone.** Assign it to a people/occupancy sensor at the till to track staff
+  coverage; VS-series people counters now also tag a site "retail" so the page installs itself.
+
+## 0.67.0
+- **Grid sizing made correct by default on every always-full-width card.** Audited all eight dashboards:
+  the per-device page (`milesight-device-panel`), the table card (`milesight-table-card`) and the level/fill card
+  (`milesight-level-card`) now declare `getGridOptions` (columns full, min 12) in the card itself — so they size
+  to full width and never show Home Assistant's "this card doesn't support resizing" notice, even when dropped in
+  without `grid_options:` in YAML. The small tiles that belong in multi-column rows (gauge, trend, device, gateway)
+  stay flexible on purpose. No visible change to the shipped dashboards — they already set these explicitly — this
+  just makes the standard hold by default.
+
+## 0.66.0
+- **Building dashboard rebuilt as a command center.** The old single "Areas" view is now an **Overview** that
+  opens with an at-a-glance **building band** of five self-discovering tiles — **Comfort** (with how many areas
+  are comfortable), **Air quality** (worst-pollutant level + score), **People** (occupied areas), **Avg CO₂**,
+  and **Avg temperature** — colour-coded and tapping through to the per-area detail. New `milesight-building-band`.
+- **Air quality, back where it belongs.** The CO₂ / PM2.5 / TVOC / humidity gauges (pulled off the landing page in
+  0.62) return here as a self-discovering **Air quality now** row — new `milesight-air-card` draws a gauge for each
+  average the site actually measures (an AM307 with no PM simply shows fewer), with good / warn / bad zones and ticks.
+- **Comfort, occupancy and utilisation kept.** Comfort-per-area table, the today / yesterday occupancy heatmaps,
+  and the opening-hours utilisation table all stay, now under the new header.
+- **Overview + Live tabs.** The generated per-area gauges (comfort, occupancy, temp, CO₂, 24 h history) move to a
+  second **Live** tab behind the Overview — same two-tier pattern as Cold storage, nothing lost.
+
+## 0.65.0
+- **Cold storage rebuilt — now compliance-first.** The Overview is a cold-chain command center: a **status band**
+  (in range now, excursions today, 7-day time-in-range, compressors, doors) over the units table and day-log.
+  New `milesight-coldchain-band` card.
+- **Compliance brought front and centre.** New `milesight-compliance-card` surfaces the report engine that was
+  buried in markdown: the **time in range**, **one-tap PDF reports** (last week / month), **corrective actions**
+  (excursions needing an action flagged red, click to log one), and the **recent reports** with a PDF link and a
+  compliant / attention status each. Exactly what a food-safety or HACCP audit asks for.
+- **Tabs rationalized.** Cold storage had a duplicate "Units" tab (one from the bundled dashboard, one generated).
+  It's now one clean set — **Overview · Units · Trends · Compliance · Compressors** — and every tab has the
+  full-width header.
+
+## 0.64.0
+- **Maintenance is now a fleet-health command center.** The plain-text summary line on the Overview is replaced
+  by a **fleet-health band** of five self-discovering tiles — online, batteries due (with the soonest date),
+  offline > 24 h (with the longest), weak signal, and firmware (mixed models) — colour-coded and tapping through
+  to the relevant tab. New `milesight-fleet-band` card.
+  - The Overview's **Batteries** table now lists only batteries that **need attention** (low or due within 90
+    days) instead of every device; the full battery list stays on the Devices tab and in the CSV export. New
+    `batteries_due` table preset.
+
+## 0.63.0
+- **Power & Energy page rebuilt.** The energy dashboard was just a loads table and a one-line mains alert; it's
+  now a power command center: a **demand** strip (load now in kW — or total amps when no voltage is set —
+  running loads, after-hours, highest duty) with the **top consumers by run time**, a **mains board** showing
+  live/outage, the three **phase currents** as bars, **phase imbalance** and total load, and the loads table.
+  - New `milesight-mains-card` and `milesight-load-summary-card` — self-discovering by role (`mains`, `load`).
+  - The mains sensor now also reports **total current and total kW** (when the mains voltage is configured), so
+    the cards can show real demand — data the clamp was collecting but the dashboard never showed.
+
+## 0.62.0
+- **Production command-center landing page.** The site overview is rebuilt as an operations dashboard: a
+  **status band** (open alerts, site health, gateways, devices, power/mains) answering "is everything OK right
+  now", the live **alerts** card, and a **purpose-fit operations grid** — one summary card per operational
+  domain the site actually has (tanks, cold chain, energy, climate, farm, coop), each showing a status badge,
+  two headline numbers and the one thing wrong, linking to its dashboard. The site banner moves to the foot.
+  The detailed building / air-quality / per-area views remain on the Building analytics dashboard.
+  - New `milesight-status-band` and `milesight-domain-card` cards — both self-discovering by role, no entity ids.
+  - The grid is driven by the site's device tags, so a site only sees the domains it has.
+- **Every tab now has the header.** The auto-generated **"Live" views** (per-device tank, cold-chain, farm and
+  site gauges) were the last pages without a masthead — they now get the same full-width page-header, so there
+  are no header-less tabs left anywhere.
+
 ## 0.61.0
 - **New Chicken coop dashboard.** A ready-made coop page built from the existing cards: full-width header, open
   alerts (with acknowledge / snooze), **feed & water** levels (the feed renders as a silo, water as a tank),
   **climate** (temperature / humidity / CO₂), **door & light-level** status, a live-controls area card, and
   links to the two coop automations. It installs itself when any device is assigned to a **"Chicken coop"**
   area, and finds the sensors by that area — no entity ids to edit. Add a sensor to the coop area and it appears.
+- **Coop purposes in the dropdown.** Configure → Purpose now offers **Coop drinker (water)**, **Coop feeder
+  (feed)**, **Coop pop-hole / door** and **Coop climate**. They use the usual device groups (so alerts and the
+  cards keep working) but set poultry-friendly defaults — frost alert at 2 °C, pop-hole left-open at 15 min — and
+  tagging any device with one installs the coop page. You can set up the coop by purpose, by area, or both.
 - **Cards can scope to a Home Assistant area.** The level and table cards gained an `area:` option, so the same
   cards can be pointed at one area (coop, nursery, barn 2 …). This is what makes the coop page dynamic.
 - **Two coop automations (blueprints).** *Coop lights by daylight* — the EM500-LGT drives supplemental lights to

@@ -23,21 +23,20 @@ views:
       - type: grid
         column_span: 3
         cards:
-          - type: markdown
+          - type: heading
+            heading: Fleet health
+            icon: mdi:heart-pulse
+          # Self-discovering fleet tiles: online, batteries due, offline, weak signal, firmware.
+          - type: custom:milesight-fleet-band
             grid_options: {columns: full}
-            content: |
-              {% set devs = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'fleet_total') | map(attribute='attributes.devices') | sum(start=[]) %}
-              {% set due = devs | selectattr('battery_days_left', 'ne', none) | selectattr('battery_days_left', 'le', 90) | list %}
-              {% set off = devs | selectattr('offline_hours', 'ne', none) | selectattr('offline_hours', 'ge', 24) | list %}
-              {% set weak = devs | selectattr('signal', 'in', ['poor', 'bad', 'very_poor']) | list %}
-              **{{ devs | count }} devices** · 🔋 {{ due | count }} batteries due in 90 days · 📴 {{ off | count }} offline > 24 h · 📶 {{ weak | count }} weak signal
       - type: grid
         cards:
           - type: heading
             heading: Batteries
             icon: mdi:battery-clock
+          # Only batteries that need attention (low or due within 90 days); the full list is on the Devices tab.
           - type: custom:milesight-table-card
-            preset: batteries
+            preset: batteries_due
             title: false
             grid_options: {columns: full}
       - type: grid

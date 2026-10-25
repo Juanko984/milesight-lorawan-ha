@@ -146,6 +146,15 @@ def _nav(title: str, path: str, icon: str) -> dict:
                "tap_action": {"action": "navigate", "navigation_path": path}}, THIRD, 2)
 
 
+def _header(title: str, icon: str = "mdi:gauge", subtitle: str | None = None, span: int = 4) -> dict:
+    """A full-width page-header section, so every generated Live view has the same masthead as the rest."""
+    card: dict[str, Any] = {"type": "custom:milesight-page-header", "title": title, "icon": icon,
+                            "grid_options": {"columns": "full"}}
+    if subtitle:
+        card["subtitle"] = subtitle
+    return {"type": "grid", "column_span": span, "cards": [card]}
+
+
 # ------------------------------------------------------------------ farm
 def pivot_sections(eid: Resolver, runtimes: list) -> list[dict]:
     out = []
@@ -362,7 +371,14 @@ def cold_chain_views(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
     for rt in units:
         areas.setdefault(rt.entry.data.get("area") or "Other", []).append(rt)
 
-    overview = [_section("Cold storage status", [_md(STATUS_MD)], "mdi:snowflake-thermometer", span=4)]
+    # modern Overview: self-discovering status band + the units table + the day-log (no entity ids needed)
+    overview = [
+        _section("Cold chain status", [{"type": "custom:milesight-coldchain-band", "grid_options": {"columns": "full"}}],
+                 "mdi:snowflake-thermometer", span=4),
+        _section("Units", [{"type": "custom:milesight-table-card", "preset": "cold_chain", "title": False, "grid_options": {"columns": "full"}},
+                           {"type": "custom:milesight-coldlog-card", "title": False, "grid_options": {"columns": "full"}}],
+                 "mdi:fridge-outline", span=4),
+    ]
     for area, rts in areas.items():
         cards = []
         for rt in rts:
@@ -408,40 +424,34 @@ def cold_chain_views(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
             _history([_e(eid, rt, "sensor", "temp_in_range_7d")], "Time in range, 7 days (%)", 24 * 7),
         ], "mdi:chart-bell-curve-cumulative"))
 
+    # Compliance: the self-discovering card (time in range, one-tap PDF reports, corrective actions, recent reports)
     comp = []
-    for hub in hubs:
-        rep = eid("sensor", f"{hub.entry.entry_id}_compliance_reports")
-        if not rep:
-            continue
-        hid = hub.entry.entry_id
-        comp.append(_section("Compliance reports (PDF)", [
-            _press(eid("button", f"{hid}_compliance_week"), "Create: last week", "mdi:file-certificate-outline"),
-            _press(eid("button", f"{hid}_compliance_month"), "Create: last month", "mdi:file-certificate"),
-            _md(REPORTS_MD.replace("{e}", rep)),
-        ], "mdi:file-certificate-outline", span=4))
-    acts = [r for rt in units if (r := _e(eid, rt, "text", "corrective_action"))]
-    if acts:
-        comp.append(_section("Corrective actions", [
-            _md("Type what was done about an excursion (e.g. *door seal replaced, product moved to cold room 2, "
-                "temperature re-checked 3 °C*) and press Enter. It is saved with your name and the time, and "
-                "printed in the unit's compliance report."),
-            _entities([{"entity": r, "name": rt.entry.title} for rt in units
-                       if (r := _e(eid, rt, "text", "corrective_action"))]),
-        ], "mdi:clipboard-edit-outline", span=2))
-    for rt in units:
-        e = _e(eid, rt, "sensor", "temp_out_today")
-        if e:
-            comp.append(_section(f"{rt.entry.title} – daily log", [_md(LOG_MD.replace("{e}", e))],
-                                 "mdi:notebook-outline"))
+    if any(eid("sensor", f"{hub.entry.entry_id}_compliance_reports") for hub in hubs):
+        comp.append(_section("Compliance", [{"type": "custom:milesight-compliance-card", "title": False,
+                                             "grid_options": {"columns": "full"}}], "mdi:file-certificate-outline", span=4))
+        for rt in units:                               # the per-unit daily log stays as a drill-down
+            e = _e(eid, rt, "sensor", "temp_out_today")
+            if e:
+                comp.append(_section(f"{rt.entry.title} – daily log", [_md(LOG_MD.replace("{e}", e))],
+                                     "mdi:notebook-outline"))
+
+    compressors = [_section("Compressors", [{"type": "custom:milesight-table-card", "preset": "compressors",
+                                             "title": False, "grid_options": {"columns": "full"}}],
+                            "mdi:heat-pump-outline", span=4)]
+
+    _SUB = {"Overview": "Every fridge and freezer at a glance", "Units": "Temperature, door and compressor per unit",
+            "Trends": "7- and 30-day min / mean / max", "Compliance": "Time in range, PDF reports and corrective actions",
+            "Compressors": "Compressor duty and short-cycling"}
 
     def view(title: str, path: str, icon: str, sections: list) -> dict | None:
         sections = [x for x in sections if x]
         return {"type": "sections", "title": title, "path": path, "icon": icon, "max_columns": 4,
-                "sections": sections} if sections else None
+                "sections": [_header(title, icon, _SUB.get(title))] + sections} if sections else None
     return [v for v in (view("Overview", "overview", "mdi:view-dashboard-outline", overview),
                         view("Units", "units", "mdi:fridge-outline", detail),
                         view("Trends", "trends", "mdi:chart-line", trends),
-                        view("Compliance", "compliance", "mdi:file-certificate-outline", comp)) if v]
+                        view("Compliance", "compliance", "mdi:file-certificate-outline", comp),
+                        view("Compressors", "compressors", "mdi:heat-pump-outline", compressors)) if v]
 
 
 VIEWS = {"cold_chain.yaml": cold_chain_views}     # builders that make several tabs in front of the bundled ones
@@ -540,8 +550,33 @@ def analytics_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
     return [s for s in out if s]
 
 
+def retail_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
+    """Per-counter detail: one section per people-counter / AI occupancy device, laid out by the device panel."""
+    from .retail import _classify
+    out = []
+    for rt in runtimes:
+        if getattr(rt, "entry", None) is None or not hasattr(rt, "model"):
+            continue
+        kind = _classify(rt.model.key, rt.entry.options.get("purpose"))
+        if kind not in ("counter", "zone"):
+            continue
+        anchor = next((_e(eid, rt, "sensor", k) for k in
+                       ("people_net_today", "people_in_today", "occupancy", "people_count")
+                       if _e(eid, rt, "sensor", k)), None)
+        if not anchor:
+            continue
+        icon = "mdi:door-sliding" if kind == "counter" else "mdi:select-group"
+        out.append(_section(rt.entry.title, [
+            _g({"type": "custom:milesight-device-panel", "entity": anchor}, FULL)], icon))
+    return out
+
+
 BUILDERS = {"farm.yaml": farm_cards, "tanks_and_alerts.yaml": tank_cards, "cold_chain.yaml": cold_chain_cards,
-            "energy.yaml": energy_cards, "building_analytics.yaml": analytics_cards}
+            "energy.yaml": energy_cards, "building_analytics.yaml": analytics_cards, "retail.yaml": retail_cards}
+
+# Dashboards whose bundled view is itself the command-center Overview: the generated "Live" tab goes AFTER it
+# (per-area detail), not in front.
+LIVE_AFTER = {"building_analytics.yaml", "retail.yaml"}
 
 
 def location_entities(eid: Resolver, runtimes: list) -> list[dict]:
@@ -571,15 +606,17 @@ AFTER = {"maintenance.yaml": map_view}     # extra tabs at the end (not a 'Live'
 
 
 def live_view(sections: list[dict], title: str = "Live", path: str = "live", icon: str = "mdi:gauge") -> dict:
-    return {"type": "sections", "title": title, "path": path, "icon": icon, "max_columns": 4, "sections": sections}
+    header = _header(title, icon, "Live gauges, controls and history for this site's devices")
+    return {"type": "sections", "title": title, "path": path, "icon": icon, "max_columns": 4,
+            "sections": [header] + sections}
 
 
 def with_live_view(file: str, config: dict, eid: Resolver, runtimes: list, hubs: list) -> dict:
     """The bundled dashboard plus a first 'Live' view (only when there is something to show)."""
     views = VIEWS.get(file)
     if views is not None:
-        made = views(eid, runtimes, hubs)
-        return {**config, "views": made + list(config.get("views") or [])} if made else config
+        made = views(eid, runtimes, hubs)      # a full tab set that replaces the bundled views (no duplicates)
+        return {**config, "views": made} if made else config
     after = AFTER.get(file)
     if after is not None:
         extra = after(eid, runtimes)
@@ -590,7 +627,9 @@ def with_live_view(file: str, config: dict, eid: Resolver, runtimes: list, hubs:
     sections = builder(eid, runtimes, hubs)
     if not sections:
         return config
-    return {**config, "views": [live_view(sections)] + list(config.get("views") or [])}
+    lv = live_view(sections)
+    views = list(config.get("views") or [])
+    return {**config, "views": (views + [lv]) if file in LIVE_AFTER else ([lv] + views)}
 
 
 # ------------------------------------------------------------------ site landing page

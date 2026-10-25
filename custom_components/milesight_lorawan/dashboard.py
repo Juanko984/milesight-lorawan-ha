@@ -87,6 +87,11 @@ def build_context(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
                       "comfort": find("sensor", f"{eid}_area_{slug}_comfort"),
                       "occupancy": find("sensor", f"{eid}_area_{slug}_occupancy"), "co2": co2})
     ctx["areas"] = areas
+    try:                          # which operational domains this site has (purpose-fit landing page)
+        from .resources import site_tags
+        ctx["tags"] = sorted(site_tags(hass))
+    except Exception:  # noqa: BLE001
+        ctx["tags"] = []
     from .const import CONF_CLASSIC_GAUGES
     classic = bool({**entry.data, **entry.options}.get(CONF_CLASSIC_GAUGES, False))
     ctx["classic_gauges"] = classic

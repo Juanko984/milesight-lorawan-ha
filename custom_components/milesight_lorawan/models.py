@@ -1939,17 +1939,22 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
         tags.add("tank")
     if "occupancy" in model.features or model.occupancy_fn is not None or model.counters:
         tags.add("people")
+    if model.counters or (model.occupancy_fn is not None and model.counting):   # real people counting → retail
+        tags.add("retail")
     if {"temperature", "humidity"} <= keys or "co2" in keys:
         tags.add("comfort")
     if "load" in model.features and options.get("pump_enabled"):
         tags.add("pump")
     if model_key.startswith(("UC51", "UC52")) or ("at101" in model.features and options.get("pivot_centre")):
         tags.add("irrigation")
+    from .purposes import COOP_PURPOSES
     purposes = [options.get("purpose")] + [options.get(f"purpose_{n}") for n in (1, 2, 3)]
     for key in purposes:
         p = _PURPOSES.get(key or "")
         if p is not None and p.group:
             tags.add(p.group)
+        if key in COOP_PURPOSES:               # a coop purpose installs the chicken-coop dashboard
+            tags.add("coop")
     return frozenset(tags)
 
 

@@ -1,0 +1,77 @@
+# Milesight LoRaWAN – retail dashboard
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# Works without editing: every card self-discovers the sensors the integration creates — the gateway "retail"
+# sensor (footfall / dwell / zones), the cold-chain fridges, and the air-quality averages.
+# People counting comes from VS-series sensors (VS121/132/133/135/321/350). Mark a counter at the till with the
+# "Counter / staff zone" purpose to get staff coverage. Installed by the integration, a per-counter "Live" tab
+# with gauges and history is added after this Overview.
+title: Retail
+views:
+  - title: Store
+    path: store
+    icon: mdi:storefront-outline
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Retail
+            subtitle: Footfall, dwell, cold-chain compliance, air and power
+            icon: mdi:storefront-outline
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Store insights
+            icon: mdi:chart-box-outline
+          - type: custom:milesight-retail-band
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Footfall today
+            icon: mdi:chart-timeline-variant
+          - type: custom:milesight-footfall-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Zones — dwell and staff time
+            icon: mdi:select-group
+          - type: custom:milesight-zones-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Cold chain
+            icon: mdi:snowflake-thermometer
+          - type: custom:milesight-coldchain-band
+            grid_options: {columns: full}
+          - type: custom:milesight-table-card
+            preset: cold_chain
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Power and compressors
+            icon: mdi:lightning-bolt
+          - type: custom:milesight-mains-card
+            grid_options: {columns: full}
+          - type: custom:milesight-load-summary-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Shopper comfort and air
+            icon: mdi:air-filter
+          - type: custom:milesight-air-card
+            grid_options: {columns: full}

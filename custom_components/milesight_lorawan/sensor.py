@@ -26,6 +26,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         hub.areas = areas
         hub.building, ents = building_sensors(hass, entry, areas)
         async_add_entities(ents)
+        from .retail import async_setup_retail
+        hub.retail, rents = await async_setup_retail(hass, entry)
+        async_add_entities(rents)
         async_add_entities(hub_extra_sensors(hass, entry))
         from .irrigation_ha import irrigation_entities
         async_add_entities(irrigation_entities(hass, entry, "sensor"))

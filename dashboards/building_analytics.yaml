@@ -1,13 +1,14 @@
 # Milesight LoRaWAN – building analytics dashboard
 # Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
-# Works without editing: it finds every "<area> comfort" / "<area> occupancy" sensor the integration creates.
+# Works without editing: every card self-discovers the sensors the integration creates — the building overview
+# sensors (comfort / air quality / people / averages) and each "<area> comfort" / "<area> occupancy" sensor.
 # Areas come from the Home Assistant area of each device (set during onboarding or on the device page).
-# Installed by the integration, a "Live" view with gauges and graphs for each area is added in front.
+# Installed by the integration, a per-area "Live" tab with gauges and history is added after this Overview.
 title: Building analytics
 views:
-  - title: Areas
+  - title: Overview
     path: areas
-    icon: mdi:texture-box
+    icon: mdi:office-building-outline
     type: sections
     max_columns: 3
     sections:
@@ -16,10 +17,27 @@ views:
         cards:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
-            title: Analytics
-            subtitle: Comfort and occupancy trends
-            icon: mdi:chart-box-outline
+            title: Building
+            subtitle: Comfort, air quality and occupancy across every area
+            icon: mdi:office-building-outline
       - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: At a glance
+            icon: mdi:view-dashboard-outline
+          - type: custom:milesight-building-band
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Air quality now
+            icon: mdi:air-filter
+          - type: custom:milesight-air-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
         cards:
           - type: heading
             heading: Comfort per area
@@ -40,7 +58,7 @@ views:
               {% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'defined') | list %}
               {% set names = names or (rows | map(attribute='attributes.area') | unique | sort | list) %}
               {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
-              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**{% if s.attributes.occupied_now %} · 🧑 {{ s.attributes.people_now if s.attributes.people_now is not none else 'occupied' }}{% elif s.attributes.occupied_now is not none %} · empty{% endif %}{% if s.state not in ('unknown', 'unavailable') %} · {{ s.state }} % today{% endif %}  
+              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**{% if s.attributes.occupied_now %} · 🧑 {{ s.attributes.people_now if s.attributes.people_now is not none else 'occupied' }}{% elif s.attributes.occupied_now is not none %} · empty{% endif %}{% if s.state not in ('unknown', 'unavailable') %} · {{ s.state }} % today{% endif %}
               {% for h in range(6, 22) %}{% set p = s.attributes.hourly_today[h] %}{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}{% endfor %}
 
               {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
@@ -56,7 +74,7 @@ views:
               {% set rows = states.sensor | selectattr('attributes.hourly_yesterday', 'defined') | selectattr('attributes.area', 'defined') | list %}
               {% set names = names or (rows | map(attribute='attributes.area') | unique | sort | list) %}
               {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
-              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**  
+              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**
               {% for h in range(6, 22) %}{% set p = s.attributes.hourly_yesterday[h] %}{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}{% endfor %}
 
               {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}

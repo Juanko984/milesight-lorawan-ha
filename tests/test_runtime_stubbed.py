@@ -683,10 +683,12 @@ assert where == "/building-head-office" and PANELS["building-head-office"]["side
 _first_cards = dash.saved["views"][0]["sections"][0]["cards"]
 assert _first_cards[0]["type"] == "custom:milesight-page-header"                             # masthead leads every page
 assert _first_cards[1]["type"] == "custom:milesight-onboarding"                              # then the first-run checklist
-_banner = next(c for c in _first_cards if "content" in c)
+_all_cards = [c for sec in dash.saved["views"][0]["sections"] for c in sec["cards"]]
+assert any(c["type"] == "custom:milesight-status-band" for c in _all_cards)                 # command-center status band
+_banner = next(c for c in _all_cards if "content" in c)                                     # site banner (now at the foot)
 assert _banner["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
-assert heads[-3:] == ["People", "Meeting room 1", "Open office"], heads
+assert heads[0] == "Status" and heads[-1] == "Site", heads
 saved_hash = dmod._hash(dash.saved)
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None      # up to date
 assert _DashStore.data["own"] is True and _DashStore.data["title"] == "Acme Ltd"
@@ -695,6 +697,31 @@ assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry)) == "/building-head-office"  # the button rewrites
 assert dmod._hash(dash.saved) == saved_hash
 print("building ok")
+
+# ---------------- retail: classification + footfall tracker snapshot ----------------
+rmod = sys.modules.get("milesight_lorawan.retail") or load("retail")
+assert rmod._classify("VS133", None) == "counter"       # ToF people counter: entrance in/out
+assert rmod._classify("VS121", None) == "zone"          # AI people counting in an area
+assert rmod._classify("VS341", None) is None            # presence only, not counting
+assert rmod._classify("AM307", "counter_zone") == "staff"   # any sensor flagged as the till
+# a tracker fed two entrances + a counter zone produces the store snapshot the card reads
+rtk = rmod.RetailTracker(hass2, site_entry)
+rtk._devices = lambda: [
+    {"name": "Front", "area": "Store", "kind": "counter", "in_today": 900, "out_today": 880,
+     "people_now": 20, "dwell_s": None, "occ_person_minutes": None, "occ_sessions": None, "occ_occupied_s": None},
+    {"name": "Side", "area": "Store", "kind": "counter", "in_today": 300, "out_today": 290,
+     "people_now": 10, "dwell_s": None, "occ_person_minutes": None, "occ_sessions": None, "occ_occupied_s": None},
+    {"name": "Aisle", "area": "Store", "kind": "zone", "in_today": None, "out_today": None,
+     "people_now": 3, "dwell_s": None, "occ_person_minutes": 120, "occ_sessions": 40, "occ_occupied_s": None},
+]
+rtk.update()
+d = rtk.data
+assert d["visitors_today"] == 1200 and d["in_store_now"] == 30 and len(d["entrances"]) == 2
+assert len(d["hourly_in"]) == 24 and len(d["zones"]) == 1
+by = {s._attr_unique_id.split("_")[-1]: s for s in [rmod.RetailSensor(hass2, site_entry, rtk)]}
+rs = by["retail"]
+assert rs.native_value == 1200 and rs.extra_state_attributes["milesight_role"] == "retail"
+print("retail ok")
 
 # ---------------- 0.20: channel map, tanks, alert escalation, gateway provisioning ----------------
 def make_with(deveui, model, options, title=None, area=None):
@@ -1553,12 +1580,16 @@ dl = load("dashboard_live")
 eid = lambda plat, uid: f"{plat}.{uid}"
 hubobj = types.SimpleNamespace(entry=types.SimpleNamespace(entry_id="hubX", title="Site"))
 cv = dl.cold_chain_views(eid, [fr, rt], [hubobj])
-assert [v["path"] for v in cv] == ["overview", "units", "trends", "compliance"], [v["path"] for v in cv]
+assert [v["path"] for v in cv] == ["overview", "units", "trends", "compliance", "compressors"], [v["path"] for v in cv]
 flat = json.dumps(cv)
-assert "statistics-graph" in flat and "text.0000000000f00001_corrective_action" in flat and "button.hubX_compliance_week" in flat
-assert "sensor.hubX_compliance_reports" in flat and "Kitchen" in flat and "Pump W" not in flat
+assert "statistics-graph" in flat                                             # trends still use statistics graphs
+assert "custom:milesight-coldchain-band" in flat and "custom:milesight-compliance-card" in flat   # modern self-discovering cards
+assert "custom:milesight-table-card" in flat and "Kitchen" in flat and "Pump W" not in flat
+# every generated cold-chain view carries the page header
+assert all(any(c.get("type") == "custom:milesight-page-header" for s in v["sections"] for c in s["cards"]) for v in cv)
 cfg = dl.with_live_view("cold_chain.yaml", {"views": [{"title": "Table"}]}, eid, [fr], [hubobj])
-assert cfg["views"][0]["path"] == "overview" and cfg["views"][-1]["title"] == "Table"
+assert cfg["views"][0]["path"] == "overview"                                  # generated views replace the bundled ones
+assert all(v.get("title") != "Table" for v in cfg["views"])                   # the bundled placeholder view is dropped
 
 # compliance manager end to end with a stubbed recorder
 import tempfile, time as _time

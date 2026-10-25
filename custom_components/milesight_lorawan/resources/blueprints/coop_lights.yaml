@@ -1,0 +1,83 @@
+blueprint:
+  name: Milesight – Coop lights by daylight
+  description: >
+    Keep a consistent day length in a chicken coop. When natural light (an EM500-LGT or any illuminance sensor)
+    drops below the "on" level during the lighting window, switch the coop lights on (a UC relay output, a smart
+    plug, or any switch / light). They switch off again once it is bright enough, or at the end of the window so
+    the birds get a proper dark period. Uses two thresholds (hysteresis) so the lights don't flicker at dusk.
+  domain: automation
+  source_url: https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/coop_lights.yaml
+  input:
+    lux_sensor:
+      name: Light sensor (lux)
+      description: The EM500-LGT (or any illuminance sensor) inside / above the coop.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: illuminance
+    light_switch:
+      name: Coop lights
+      description: The switch / light to control (a UC relay output, smart plug, or light).
+      selector:
+        target:
+          entity:
+            domain: [switch, light, input_boolean]
+    lux_on:
+      name: Turn on below (lux)
+      default: 50
+      selector:
+        number: {min: 1, max: 2000, unit_of_measurement: lx, mode: box}
+    lux_off:
+      name: Turn off above (lux)
+      description: Must be higher than "turn on below" to avoid flicker at dusk.
+      default: 200
+      selector:
+        number: {min: 1, max: 5000, unit_of_measurement: lx, mode: box}
+    window_start:
+      name: Lighting window start
+      description: Lights may come on from this time.
+      default: "05:00:00"
+      selector:
+        time: {}
+    window_end:
+      name: Lighting window end
+      description: Lights are forced off after this time (the coop's dark period).
+      default: "21:00:00"
+      selector:
+        time: {}
+mode: single
+max_exceeded: silent
+trigger:
+  - trigger: state
+    entity_id: !input lux_sensor
+    id: lux
+  - trigger: time
+    at: !input window_start
+    id: window
+  - trigger: time
+    at: !input window_end
+    id: window
+  - trigger: time_pattern
+    minutes: "/5"
+    id: tick
+variables:
+  lux_sensor: !input lux_sensor
+  lux_on: !input lux_on
+  lux_off: !input lux_off
+  window_start: !input window_start
+  window_end: !input window_end
+  lux: "{{ states(lux_sensor) | float(-1) }}"
+  in_window: "{{ today_at(window_start) <= now() < today_at(window_end) }}"
+action:
+  - choose:
+      # within the lighting window and dark enough -> lights on
+      - conditions: "{{ in_window and lux >= 0 and lux < lux_on }}"
+        sequence:
+          - action: homeassistant.turn_on
+            target: !input light_switch
+      # bright enough, or outside the window -> lights off
+      - conditions: "{{ (not in_window) or (lux >= 0 and lux > lux_off) }}"
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input light_switch

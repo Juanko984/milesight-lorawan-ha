@@ -30,6 +30,7 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
     "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),
     "energy.yaml": ("milesight-energy", "mdi:lightning-bolt", {"energy", "hvac"}),
     "coop.yaml": ("milesight-coop", "mdi:egg", {"coop"}),
+    "retail.yaml": ("milesight-retail", "mdi:storefront-outline", {"retail"}),
 }
 
 

@@ -94,93 +94,61 @@ def _nav(title: str, url: str, icon: str) -> dict:
             "grid_options": {"columns": 3, "rows": 2}}
 
 
+# operational domain -> the site tags that mean "this site has it" (purpose-fit landing page)
+_DOMAIN_TAGS = {"tanks": {"tank"}, "cold_chain": {"cold_chain"}, "energy": {"energy", "hvac"},
+                "climate": {"comfort"}, "farm": {"pump", "irrigation"}, "coop": {"coop"}}
+_DOMAIN_ORDER = ("tanks", "cold_chain", "farm", "coop", "energy", "climate")
+
+
 def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
-    """ctx: title, site, health, comfort, air_quality, systems, people, alerts, open_alerts, avg{measure: id},
-    devices_online, battery_low, gateways_online, uplinks, outside, co2_alert, areas[{name, icon, comfort,
-    occupancy, co2, temperature}], nav[(title, url, icon)], live[sections from dashboard_live.site_sections]."""
+    """A production command-center landing page: a status band, the open alerts, and a purpose-fit grid of the
+    operational domains this site actually has — each linking to its dashboard. ctx: title, site, open_alerts,
+    tags[list], outside, nav[(title, url, icon)]. (The detailed building/air-quality views live on the Building
+    analytics dashboard.)"""
     set_classic(ctx.get("classic_gauges", False))
-    avg = ctx.get("avg", {})
-    co2_alert = ctx.get("co2_alert", 1200)
-    areas = ctx.get("areas", [])
-    badges = [b for b in (
-        {"type": "entity", "entity": ctx.get("outside"), "name": "Outside", "show_name": True} if ctx.get("outside") else None,
-        {"type": "entity", "entity": ctx.get("health"), "name": "Building health", "show_name": True},
-        {"type": "entity", "entity": ctx.get("people"), "name": "People in building", "show_name": True},
-        {"type": "entity", "entity": ctx.get("devices_online"), "name": "Devices online", "show_name": True},
-        {"type": "entity", "entity": ctx.get("alerts"), "name": "Alerts", "show_name": True},
-    ) if b and b.get("entity")]
+    tags = set(ctx.get("tags") or [])
+    domains = [d for d in _DOMAIN_ORDER if _DOMAIN_TAGS[d] & tags]
+    badges = ([{"type": "entity", "entity": ctx["outside"], "name": "Outside", "show_name": True}]
+              if ctx.get("outside") else [])
 
     sections = [
+        # masthead + first-run checklist
         _section([
             {"type": "custom:milesight-page-header", "title": "Overview",
              "subtitle": "Everything at a glance across the site", "icon": "mdi:home-outline",
              "grid_options": {"columns": "full"}},
             {"type": "custom:milesight-onboarding", "grid_options": {"columns": "full"}},
-            {"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}},
+        ], span=4),
+        # "is everything OK right now" — self-discovering status tiles
+        _section([
+            {"type": "heading", "heading": "Status", "icon": "mdi:gauge"},
+            {"type": "custom:milesight-status-band", "grid_options": {"columns": "full"}},
         ], span=4),
     ]
+    # open alerts, with acknowledge / snooze
+    if ctx.get("open_alerts"):
+        sections.append(_section([
+            {"type": "heading", "heading": "Needs attention", "icon": "mdi:bell-alert"},
+            {"type": "custom:milesight-alerts-card", "title": False, "grid_options": {"columns": "full"}},
+        ], span=4))
+    # purpose-fit operations grid: one domain summary card per domain the site has
+    if domains:
+        sections.append(_section(
+            [{"type": "heading", "heading": "Operations", "icon": "mdi:view-dashboard-variant"}]
+            + [{"type": "custom:milesight-domain-card", "domain": d, "grid_options": {"columns": 4}} for d in domains],
+            span=4))
+    # quick links to the generated dashboards
     if ctx.get("nav"):
         sections.append(_section([{"type": "heading", "heading": "Dashboards", "icon": "mdi:view-dashboard"}]
                                  + [_nav(*n) for n in ctx["nav"]], span=4))
-    sections += [
-        _section([
-            {"type": "heading", "heading": "Overall health", "icon": "mdi:heart-pulse"},
-            {**_gauge(ctx.get("health"), "Building health", 0, 100, [(0, RED), (60, YELLOW), (80, GREEN)]),
-             "grid_options": {"columns": "full"}} if ctx.get("health") else None,
-            _tile(ctx.get("comfort"), "Comfort", "mdi:emoticon-happy-outline"),
-            _tile(ctx.get("air_quality"), "Air quality", "mdi:air-filter"),
-            _tile(ctx.get("systems"), "Systems", "mdi:router-network"),
-            _tile(ctx.get("people"), "People now", "mdi:account-group"),
-        ]),
-        _section([
-            {"type": "heading", "heading": "Needs attention", "icon": "mdi:bell-alert"},
-            {"type": "markdown", "content": _open_alerts(ctx["open_alerts"]), "grid_options": {"columns": "full"}}
-            if ctx.get("open_alerts") else None,
-            {"type": "markdown", "content": _attention(ctx["alerts"]), "grid_options": {"columns": "full"}}
-            if ctx.get("alerts") else None,
-        ]),
-        _section([
-            {"type": "heading", "heading": "Air quality", "icon": "mdi:air-filter"},
-            _gauge(avg.get("co2"), "CO₂", 400, 2000, [(400, GREEN), (800, YELLOW), (co2_alert, RED)]),
-            _gauge(avg.get("pm2_5"), "PM2.5", 0, 75, [(0, GREEN), (12, YELLOW), (35, RED)]),
-            _gauge(avg.get("tvoc"), "TVOC", 0, 1000, [(0, GREEN), (300, YELLOW), (500, RED)]),
-            _gauge(avg.get("humidity"), "Humidity", 0, 100, [(0, YELLOW), (30, GREEN), (60, YELLOW)]),
-            {"type": "history-graph", "title": "CO₂ today", "hours_to_show": 24,
-             "entities": [{"entity": a["co2"], "name": a["name"]} for a in areas if a.get("co2")]
-             or [{"entity": avg["co2"], "name": "Building"}], "grid_options": {"columns": "full"}}
-            if avg.get("co2") or any(a.get("co2") for a in areas) else None,
-            _tile(avg.get("temperature"), "Temperature", "mdi:thermometer"),
-            _tile(avg.get("pm10"), "PM10", "mdi:blur"),
-            _tile(avg.get("hcho"), "Formaldehyde", "mdi:molecule"),
-            _tile(avg.get("pressure"), "Pressure", "mdi:gauge"),
-        ]),
-        _section([
-            {"type": "heading", "heading": "System health", "icon": "mdi:router-network"},
-            _tile(ctx.get("devices_online"), "Devices online", "mdi:check-network-outline"),
-            _tile(ctx.get("gateways_online"), "Gateways online", "mdi:router-wireless"),
-            _tile(ctx.get("battery_low"), "Battery low", "mdi:battery-alert-variant-outline"),
-            _tile(ctx.get("uplinks"), "Uplinks today", "mdi:upload-network"),
-        ]),
-    ]
-    people = [a for a in areas if a.get("occupancy")]
-    if areas:
-        sections.append(_section(
-            [{"type": "heading", "heading": "People", "icon": "mdi:account-group"},
-             _tile(ctx.get("people"), "In the building now", "mdi:account-group", columns=12)]
-            + [_tile(a["occupancy"], a["name"], a.get("icon") or "mdi:account-clock", columns=6,
-                     state_content=["people_now", "state"]) for a in people]
-            + [{"type": "markdown", "content": _heatmap([a["name"] for a in areas]),
-                "grid_options": {"columns": "full"}}], span=2))
-    for a in areas:
-        cards = [{"type": "heading", "heading": a["name"], "icon": a.get("icon") or "mdi:texture-box"},
-                 _tile(a.get("comfort"), "Comfort", "mdi:emoticon-happy-outline", columns=12,
-                       state_content=["state", "temperature", "humidity", "co2"]),
-                 _tile(a.get("occupancy"), "Occupied today", "mdi:account-clock"),
-                 _tile(a.get("co2"), "CO₂", "mdi:molecule-co2")]
-        if len(cards) > 1 and any(cards[1:]):
-            sections.append(_section(cards))
-    sections += [s_ for s_ in ctx.get("live") or [] if s_]
-    sections = [s_ for s_ in sections if s_["cards"] and not (len(s_["cards"]) == 1 and s_["cards"][0]["type"] == "heading")]
-    return {"title": ctx.get("title", "Building"), "views": [{
-        "type": "sections", "title": "Overview", "path": "overview", "icon": "mdi:office-building",
+    # site identity, kept for reference at the foot of the page
+    sections.append(_section([
+        {"type": "heading", "heading": "Site", "icon": "mdi:information-outline"},
+        {"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}},
+    ], span=4))
+
+    sections = [s_ for s_ in sections if s_ and s_["cards"]
+                and not (len(s_["cards"]) == 1 and s_["cards"][0]["type"] == "heading")]
+    return {"title": ctx.get("title", "Overview"), "views": [{
+        "type": "sections", "title": "Overview", "path": "overview", "icon": "mdi:view-dashboard",
         "max_columns": 4, "badges": badges, "sections": sections}]}

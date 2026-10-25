@@ -111,6 +111,7 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("counter", "Production / footfall counter", None, "pulse", meter="none"),
     # ---- people
     _p("desk", "Desk", "people", "motion"),
+    _p("counter_zone", "Counter / staff zone (retail)", "people", "motion", icon="mdi:cash-register"),
     _p("toilet", "Toilet / washroom", "facilities", "motion air", icon="mdi:toilet", clean_visits=50),
     _p("intrusion", "Security (intrusion)", "security", "motion", icon="mdi:motion-sensor", after_hours=True),
     # ---- buttons
@@ -131,9 +132,20 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("garden", "Garden / turf", "irrigation", "soil"),
     _p("irrigation_valve", "Irrigation valve", "irrigation", "valve"),
     _p("water_valve", "Water main valve", "water", "valve"),
+    # ---- poultry / chicken coop (use the usual groups so alerts and cards work; the key tags the coop page)
+    _p("coop_drinker", "Coop drinker (water)", "tank", "level", icon="mdi:cup-water"),
+    _p("coop_feeder", "Coop feeder (feed)", "tank", "level temperature", icon="mdi:grain"),
+    _p("coop_door", "Coop pop-hole / door", "security", "contact", "Pop-hole", "mdi:door-sliding",
+       "door", left_open_min=15),
+    _p("coop_climate", "Coop climate", "comfort", "temperature air motion", icon="mdi:home-thermometer",
+       temp_low=2, co2_limit=3000),
 )}
 
 SOIL_PURPOSES = ("field", "greenhouse", "garden")
+# poultry-coop purposes: any of these on a device tags the site "coop" (installs the chicken-coop dashboard)
+COOP_PURPOSES = ("coop_drinker", "coop_feeder", "coop_door", "coop_climate")
+# retail: a staff / counter coverage zone (assigned to a people or occupancy sensor at the till)
+RETAIL_PURPOSES = ("counter_zone",)
 LOAD_ANALYTICS = ("fridge", "freezer", "air_compressor", "motor", "ac", "geyser", "lighting", "mains", "appliance",
                   "washer")
 

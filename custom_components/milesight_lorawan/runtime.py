@@ -703,6 +703,10 @@ class DeviceRuntime:
                     v["phase_imbalance"] = imb
                     v["phase_imbalance_high"] = bool(imb is not None and imb > 25)
                     self.attrs["mains_outage"].update(phase_imbalance=imb, currents=ph)
+            if isinstance(v.get("current_total"), (int, float)):      # total site load (sum of phases)
+                self.attrs["mains_outage"]["current_total"] = v["current_total"]
+            if isinstance(v.get("power"), (int, float)):              # total kW, when the mains voltage is set
+                self.attrs["mains_outage"]["power_w"] = v["power"]
         if self._pkey == "bin":
             fill = bin_fill(v.get("distance"), float(self.pcfg.get("bin_depth_mm") or 0))
             rate = self.trend.rate_per_h(ts, 24) if self.trend else None

@@ -1,7 +1,10 @@
 # Milesight LoRaWAN – Chicken coop
-# Dynamic by Home Assistant area. Create an area called "Chicken coop" and assign the coop's devices to it
-# (temperature / CO2 / humidity, water + feed level sensors, a door contact, an EM500-LGT light sensor, and the
-# UC relay that switches the lights / heater). Everything below finds them by that area — no entity ids to edit.
+# Set up each coop device two ways and this page fills itself in:
+#   1. Purpose (device → Configure → Purpose): Coop drinker (water), Coop feeder (feed), Coop pop-hole / door,
+#      Coop climate (temp / CO2 / humidity). These set poultry-friendly alert defaults (frost at 2 °C, pop-hole
+#      left-open 15 min) and make this page install itself.
+#   2. Area: put those same devices (plus the EM500-LGT light sensor and the UC relay for lights / heater) in a
+#      Home Assistant area called "Chicken coop". The cards below find the devices by that area — no ids to edit.
 # Using a different area name? Change every `area: Chicken coop` below, and the `area:` on the live-controls card
 # (that one wants the area's id, e.g. my_coop). Lights and heating are automated by the two coop blueprints
 # (Settings → Automations → Blueprints → Import).
