@@ -2,6 +2,31 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.72.0
+- **Flood / drain early-warning sensor — new fit-for-purpose use case.** Set a level sensor (EM500-UDL, radar …)
+  mounted over a drain, culvert, under a bridge or on a river to the **Flood / drain level (early warning)**
+  purpose. It reports water level (cm) and rate of rise, and now has a **danger level** setting:
+  - New **Flood & early warning** section on the Water Level dashboard with a `milesight-flood-card`: a dam /
+    channel visual showing the water rising toward a dashed **danger line**, the level, the rate of rise
+    (↑ cm/h) and a **Normal / Rising / DANGER** status per sensor.
+  - Alerts: **"Flood warning"** (critical) when the level reaches the danger mark — early warning to act — on top
+    of the existing "Water rising fast" rate alarm.
+  - A flood sensor installs the Water Level dashboard on its own.
+- **Dam / water-body visual.** The animated level vessel already draws tanks, silos and bins; this confirms and
+  uses the **dam** shape for open water bodies (dams, pools, rivers) and the flood channel, so a dam renders as a
+  banked water body, not a cylinder.
+
+## 0.71.0
+- **Water troughs for livestock on the Water Level dashboard.** A new **Water trough (float switch)** purpose
+  (fit-for-purpose dropdown) turns an EM300-MCS magnetic contact into a drinking-trough monitor: wire a float
+  switch so the contact **opens when the trough is empty**.
+  - New **Drinking troughs** card (`milesight-trough-card`): one tile per trough, Empty (red, with how long) or
+    OK (green), self-discovering and area-scopeable.
+  - The supply band gains a **Troughs** tile (e.g. "2/3 · 1 empty") when any trough is set up.
+  - Alerts: a trough empty beyond its debounce raises **"Water trough empty"** (tank category) with
+    acknowledge / snooze, instead of a generic "left open".
+  - A trough tags the site for the Water Level dashboard, so the page installs itself for a trough-only site too.
+
 ## 0.70.0
 - **"Tanks & alerts" is now "Water Level" — rebuilt as a production command center.** Same dashboard
   (URL unchanged, so existing links keep working), reworked from the ground up for tank / water-level operations,

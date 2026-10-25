@@ -529,7 +529,11 @@ def _purpose_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> di
     if v.get("temp_hot_spot") is True:
         add("hot_spot", "Hot spot", f"{where}: temperature up {_num(v.get('temp_rise_24h'))} °C in 24 h – "
             f"check for spoilage / heating.", "tank")
-    if what and v.get("door_left_open") is True:
+    if v.get("is_trough") and v.get("door_left_open") is True:
+        add("trough_empty", "Water trough empty", f"{where}: the float switch shows the trough empty for "
+            f"{_num((v.get('door_current_s') or 0) / 60, '{:.0f}')} min – check the water supply.", "tank",
+            severity=sev)
+    elif what and not v.get("is_trough") and v.get("door_left_open") is True:
         add("left_open", f"{what} left open", f"{where} has been open for "
             f"{_num((v.get('door_current_s') or 0) / 60, '{:.0f}')} min.")
     if v.get("after_hours_activity") is True:
@@ -563,6 +567,9 @@ def _purpose_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> di
             "energy")
     if v.get("bin_full") is True:
         add("bin_full", "Bin full", f"{where} is {_num(v.get('bin_fill'))} % full – time to collect.", "facilities")
+    if v.get("water_danger") is True:
+        add("flood_level", "Flood warning", f"{where}: water level {_num(v.get('water_level'))} cm – at or above the "
+            f"danger level. Early warning – act now.", "safety", "critical")
     if v.get("water_rising") is True:
         add("flood", "Water rising fast", f"{where}: level {_num(v.get('water_level'))} cm, rising "
             f"{_num(v.get('water_rise_rate'))} cm/h.", "safety", "critical")

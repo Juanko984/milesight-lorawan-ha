@@ -442,6 +442,7 @@
           "p_full_pct": "Full at",
           "p_empty_distance_mm": "Distance at the lowest water level",
           "p_rise_cm_h": "Rising-fast alarm at",
+          "p_flood_danger_cm": "Flood danger level at",
           "p_co2_limit": "CO₂ limit",
           "p_clean_visits": "Cleaning due after",
           "p_latch_min": "Alarm stays on for",

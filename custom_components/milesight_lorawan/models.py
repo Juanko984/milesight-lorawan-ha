@@ -1955,6 +1955,8 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
             tags.add(p.group)
         if key in COOP_PURPOSES:               # a coop purpose installs the chicken-coop dashboard
             tags.add("coop")
+        if key == "flood":                     # flood / drain early-warning shows on the Water Level dashboard
+            tags.add("tank")
     return frozenset(tags)
 
 

@@ -58,3 +58,23 @@ views:
             icon: mdi:calendar-clock
           - type: custom:milesight-tank-supply-card
             grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Flood and early warning
+            icon: mdi:home-flood
+          # Water-body level in drains, culverts, under bridges or rivers (EM500-UDL / radar). Set the device's
+          # purpose to "Flood / drain level". Rises toward a danger line; raises a flood warning in time to act.
+          - type: custom:milesight-flood-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Drinking troughs
+            icon: mdi:water-well
+          # Animal water troughs: a float switch on an EM300-MCS contact (open = empty). Set the device's
+          # purpose to "Water trough". Shows nothing until a trough is set up.
+          - type: custom:milesight-trough-card
+            grid_options: {columns: full}

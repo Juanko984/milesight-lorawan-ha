@@ -2614,7 +2614,8 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _watch() { return null; }
     _tiles() {
-      const S = this._hass.states, t = byRole(S, "tank"); if (!t.length) return [];
+      const S = this._hass.states, t = byRole(S, "tank"), troughs = byRoleBin(S, "water_trough");
+      if (!t.length && !troughs.length) return [];
       const base = "/milesight-tanks/tanks", a = (x) => x.attributes;
       const litres = t.map((x) => num(x.state)).filter((v) => v != null);
       const total = litres.length ? litres.reduce((s, v) => s + v, 0) : null;
@@ -2628,7 +2629,8 @@
       const soonestLow = low.map((x) => num(a(x).days_left)).filter((v) => v != null);
       const drops = t.filter((x) => a(x).sudden_drop);
       const drop0 = drops[0];
-      return [
+      const emptyTr = troughs.filter((x) => a(x).empty === true || ["on", "true", "open"].includes(String(x.state).toLowerCase()));
+      const out = t.length ? [
         { icon: "mdi:storage-tank", label: "Total stored", value: hasMass ? `${massTot.toLocaleString()} t` : fmtQty(total),
           tone: "info", sub: `across ${t.length} tank${t.length === 1 ? "" : "s"}`, nav: base },
         { icon: "mdi:arrow-down-bold", label: "Lowest tank", value: lowest ? `${Math.round(lowest.v)}%` : "—",
@@ -2643,7 +2645,12 @@
         { icon: "mdi:water-alert", label: "Leaks / drops", value: String(drops.length),
           tone: drops.length ? "bad" : "good",
           sub: drop0 ? `${drop0.attributes.device || "Tank"}${a(drop0).drop_amount_l != null ? ` · −${Math.round(a(drop0).drop_amount_l)} L` : ""}` : "none detected", nav: base },
-      ];
+      ] : [];
+      if (troughs.length) out.push({ icon: "mdi:water-well", label: "Troughs",
+        value: `${troughs.length - emptyTr.length}/${troughs.length}`, tone: emptyTr.length ? "bad" : "good",
+        sub: emptyTr.length ? `${emptyTr.length} empty · ${emptyTr.map((x) => a(x).device).filter(Boolean)[0] || "check"}` : "all full",
+        nav: "/milesight-tanks/tanks" });
+      return out;
     }
     _render() {
       if (!this._hass) return;
@@ -2719,6 +2726,120 @@
         h("div", {}, [h("p", { class: "sh" }, "Days of supply"), ...supplyRows]),
         h("div", {}, [h("p", { class: "sh" }, "Recent refills"), ...refillRows]),
       ])]));
+    }
+  }
+
+  // ================================================================ water troughs (animal drinking)
+  // A boolean per trough: a float switch on an EM300-MCS (contact open = empty). Self-discovers role 'water_trough'.
+  class TroughCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _render() {
+      if (!this._hass) return;
+      const S = this._hass.states;
+      let troughs = byRoleBin(S, "water_trough");
+      if (this._cfg.area) troughs = troughs.filter((x) => areaEq(x.attributes.area, this._cfg.area));
+      this._css = `
+        .tg{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+        .t{display:flex;align-items:center;gap:12px;border:1px solid var(--ms-line);border-radius:13px;padding:12px 14px}
+        .t.empty{border-color:color-mix(in srgb,var(--ms-bad) 50%,var(--ms-line))}
+        .t .ic{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-good) 16%,transparent)}
+        .t.empty .ic{background:color-mix(in srgb,var(--ms-bad) 16%,transparent)}
+        .t .ic ha-icon{--mdc-icon-size:21px;color:var(--ms-good)} .t.empty .ic ha-icon{color:var(--ms-bad)}
+        .t .nm{font-size:14px;font-weight:600;color:var(--ms-ink)}
+        .t .ar{font-size:12px;color:var(--ms-ink2)}
+        .t .st{margin-left:auto;text-align:right}
+        .t .pill{font-size:12px;font-weight:650;padding:2px 10px;border-radius:999px;background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+        .t.empty .pill{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .t .sub{font-size:11px;color:var(--ms-ink2);margin-top:3px}
+      `;
+      if (!troughs.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:water-well-outline",
+          title: "No water troughs yet", hint: "Fit a float switch to an EM300-MCS contact and set its purpose to “Water trough”." })]));
+      }
+      const empty = (x) => x.attributes.empty === true || ["on", "true", "open"].includes(String(x.state).toLowerCase());
+      troughs.sort((a, b) => (empty(b) ? 1 : 0) - (empty(a) ? 1 : 0));
+      const cell = (x) => {
+        const e = empty(x), a = x.attributes, since = num(a.since);
+        return h("div", { class: "t" + (e ? " empty" : ""), onclick: () => fireMoreInfo(this, Object.keys(S).find((id) => S[id] === x)) }, [
+          h("div", { class: "ic" }, [h("ha-icon", { icon: e ? "mdi:water-well" : "mdi:water-check" })]),
+          h("div", {}, [h("div", { class: "nm" }, esc(a.device || "Trough")),
+            a.area ? h("div", { class: "ar" }, esc(a.area)) : null]),
+          h("div", { class: "st" }, [h("span", { class: "pill" }, e ? "Empty" : "OK"),
+            e && since ? h("div", { class: "sub" }, "for " + ago(since * 1000).replace(" ago", "")) : null]),
+        ]);
+      };
+      this._card(h("div", { class: "tg" }, troughs.map(cell)));
+    }
+  }
+
+  // ================================================================ flood / drain early warning
+  // Water-body level sensors (drains, culverts, under bridges, rivers, dams). Self-discovers role 'flood'. Shows a
+  // dam visual with the water rising toward a danger line, the level, the rate of rise, and a danger status.
+  class FloodCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _dam(pct, dangerPct, state) {
+      const W = 150, H = 96, t = 10, b = H - 16;
+      const col = state === "bad" ? "var(--ms-bad)" : state === "warn" ? "var(--ms-warn)" : "var(--ms-accent)";
+      const waterY = b - Math.max(0, Math.min(1, pct / 100)) * (b - t);
+      const dY = dangerPct != null ? b - Math.max(0, Math.min(1, dangerPct / 100)) * (b - t) : null;
+      // banks: a trapezoid channel; clip the water to it
+      const banks = `M8,${t + 12} L34,${b} H116 L142,${t + 12}`;
+      const cid = "ch" + Math.random().toString(36).slice(2, 8);
+      return svgNS(`<svg viewBox="0 0 ${W} ${H}" width="128" style="display:block;flex:none">
+        <defs><clipPath id="${cid}"><path d="M8,${t + 12} L34,${b} H116 L142,${t + 12} Z"/></clipPath></defs>
+        <g clip-path="url(#${cid})">
+          <rect x="0" y="${waterY.toFixed(1)}" width="${W}" height="${H}" fill="${col}" fill-opacity="0.85"/>
+          <rect x="0" y="${waterY.toFixed(1)}" width="${W}" height="3" fill="${col}"/>
+        </g>
+        <path d="${banks}" fill="none" stroke="var(--ms-ink2)" stroke-width="2"/>
+        ${dY != null ? `<line x1="8" y1="${dY.toFixed(1)}" x2="142" y2="${dY.toFixed(1)}" stroke="var(--ms-bad)" stroke-width="1.4" stroke-dasharray="5 4"/>
+          <text x="140" y="${(dY - 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--ms-bad)">danger</text>` : ""}
+      </svg>`);
+    }
+    _render() {
+      if (!this._hass) return;
+      const S = this._hass.states, items = byRole(S, "flood");
+      this._css = `
+        .fg{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+        .f{border:1px solid var(--ms-line);border-radius:14px;padding:14px;display:flex;gap:14px;align-items:center}
+        .f.bad{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line))}
+        .f .meta{flex:1;min-width:0}
+        .f .nm{font-size:14px;font-weight:650;color:var(--ms-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .f .ar{font-size:12px;color:var(--ms-ink2)}
+        .f .lvl{font-size:26px;font-weight:760;margin-top:8px;line-height:1}
+        .f .lvl small{font-size:13px;color:var(--ms-ink2);font-weight:500}
+        .f .rate{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .f .pill{display:inline-block;margin-top:9px;font-size:12px;font-weight:650;padding:2px 10px;border-radius:999px;background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+        .f .pill.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .f .pill.bad{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
+      `;
+      if (!items.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:home-flood",
+          title: "No flood sensors yet", hint: "Mount a level sensor (EM500-UDL / radar) over a drain, culvert or river and set its purpose to “Flood / drain level”." })]));
+      }
+      const cell = (x) => {
+        const a = x.attributes, lvl = num(a.level_cm), danger = num(a.danger_cm), rate = num(a.rate_cm_h);
+        const state = a.danger ? "bad" : a.rising ? "warn" : "good";
+        const top = danger ? danger * 1.25 : (a.empty_distance_mm ? a.empty_distance_mm / 10 : Math.max(50, (lvl || 0) * 1.5));
+        const pct = lvl != null && top ? (lvl / top) * 100 : 0;
+        const dPct = danger && top ? (danger / top) * 100 : null;
+        const status = a.danger ? "DANGER" : a.rising ? "Rising" : "Normal";
+        return h("div", { class: "f " + (a.danger ? "bad" : ""), onclick: () => fireMoreInfo(this, Object.keys(S).find((id) => S[id] === x)) }, [
+          this._dam(pct, dPct, state),
+          h("div", { class: "meta" }, [
+            h("div", { class: "nm" }, esc(a.device || "Flood sensor")),
+            a.area ? h("div", { class: "ar" }, esc(a.area)) : null,
+            h("div", { class: "lvl" }, lvl == null ? "—" : [String(lvl), h("small", {}, " cm")]),
+            h("div", { class: "rate" }, rate != null && rate !== 0 ? `${rate > 0 ? "↑" : "↓"} ${Math.abs(rate)} cm/h${danger ? " · danger " + danger + " cm" : ""}` : (danger ? `danger at ${danger} cm` : "steady")),
+            h("div", { class: "pill " + (state === "good" ? "" : state) }, status),
+          ]),
+        ]);
+      };
+      this._card(h("div", { class: "fg" }, items.map(cell)));
     }
   }
 
@@ -2884,6 +3005,8 @@
     "milesight-zones-card": [],
     "milesight-tank-band": [],
     "milesight-tank-supply-card": [],
+    "milesight-trough-card": [{ name: "area", selector: { text: {} } }],
+    "milesight-flood-card": [{ name: "area", selector: { text: {} } }],
     "milesight-compliance-card": [{ name: "title", selector: { text: {} } }],
     "milesight-mains-card": [{ name: "title", selector: { text: {} } }],
     "milesight-load-summary-card": [{ name: "title", selector: { text: {} } }],
@@ -2905,6 +3028,7 @@
         BLDBAND_TAG = "milesight-building-band", AIR_TAG = "milesight-air-card",
         RETAIL_TAG = "milesight-retail-band", FOOTFALL_TAG = "milesight-footfall-card", ZONES_TAG = "milesight-zones-card",
         TANKBAND_TAG = "milesight-tank-band", TANKSUPPLY_TAG = "milesight-tank-supply-card",
+        TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card",
         COMPLIANCE_TAG = "milesight-compliance-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
@@ -2932,6 +3056,8 @@
     [ZONES_TAG, ZonesCard, "Milesight Retail Zones", "Per-zone customer dwell and staff-counter coverage"],
     [TANKBAND_TAG, TankBand, "Milesight Tank Band", "Water/tank tiles: total stored, lowest, needs refill, days of supply, leaks"],
     [TANKSUPPLY_TAG, TankSupplyCard, "Milesight Tank Supply", "Days-of-supply bars and recent refills"],
+    [TROUGH_TAG, TroughCard, "Milesight Water Troughs", "Animal drinking troughs: empty / full from a float switch"],
+    [FLOOD_TAG, FloodCard, "Milesight Flood Warning", "Flood / drain / river level with rate of rise and a danger line"],
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
   ];
   window.customCards = window.customCards || [];

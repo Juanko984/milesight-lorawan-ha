@@ -1578,9 +1578,20 @@ def test_bundled_dashboard_templates_render():
     ta = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
     alerts_sec = next(s for v in ta["views"] for s in v["sections"] if any(c.get("heading") == "Needs attention" for c in s["cards"]))
     assert any(c["type"] == "custom:milesight-alerts-card" for c in alerts_sec["cards"])
-    # the Water Level Overview leads with the self-discovering tank status band and days-of-supply / refills card
+    # the Water Level Overview leads with the self-discovering tank band, supply/refills card and water troughs
     ta_types = {c["type"] for v in ta["views"] for s in v["sections"] for c in s["cards"]}
-    assert {"custom:milesight-tank-band", "custom:milesight-tank-supply-card"} <= ta_types
+    assert {"custom:milesight-tank-band", "custom:milesight-tank-supply-card", "custom:milesight-trough-card",
+            "custom:milesight-flood-card"} <= ta_types
+    # the water-trough purpose is a tank-group contact (installs Water Level) — "fit for purpose" dropdown entry
+    _pur = _load("purposes")
+    wt = _pur.get("water_trough")
+    assert wt is not None and wt.group == "tank" and "contact" in wt.families
+    assert "tank" in mdl.device_tags("EM300-MCS", {"purpose": "water_trough"})
+    # the flood / drain early-warning purpose: level family, critical, carries a danger-level setting, installs Water Level
+    fl = _pur.get("flood")
+    assert fl is not None and fl.severity == "critical" and "level" in fl.families
+    assert "flood_danger_cm" in _pur.setting_fields("flood", {"level"})
+    assert "tank" in mdl.device_tags("EM500-UDL", {"purpose": "flood"})
     # Record-style lists are now table cards, not markdown. Check each converted section carries the right preset.
     def _preset(dash, head):
         sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]
@@ -2198,8 +2209,8 @@ def test_gateway_api():
                  "milesight-mains-card", "milesight-load-summary-card", "milesight-fleet-band",
                  "milesight-coldchain-band", "milesight-building-band", "milesight-air-card",
                  "milesight-retail-band", "milesight-footfall-card", "milesight-zones-card",
-                 "milesight-tank-band", "milesight-tank-supply-card",
-                 "milesight-compliance-card"):
+                 "milesight-tank-band", "milesight-tank-supply-card", "milesight-trough-card",
+                 "milesight-flood-card", "milesight-compliance-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # shared empty-state + all-offline safety warning helpers are present

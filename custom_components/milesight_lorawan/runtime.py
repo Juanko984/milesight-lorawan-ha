@@ -652,6 +652,12 @@ class DeviceRuntime:
             return
         if p is not None:
             v["purpose_group"], v["purpose_severity"] = p.group, p.severity
+        if self._pkey == "water_trough" and "door" in self.binary:   # float switch: contact open = trough empty
+            empty = v.get("door_active")
+            v["is_trough"] = True
+            self.attrs["door_active"] = {"milesight_role": "water_trough", "device": self.entry.title,
+                                         "area": self.entry.data.get("area"), "empty": empty,
+                                         "since": v.get("door_since"), "empty_confirmed": bool(v.get("door_left_open"))}
         for prefix, (tr, cfg, key, ch) in self.loads.items():
             v.update(tr.values(ts, cfg, prefix))
             pl = _purposes.get(key)
@@ -718,9 +724,16 @@ class DeviceRuntime:
         if self._pkey == "flood":
             lvl = water_level_cm(v.get("distance"), float(self.pcfg.get("empty_distance_mm") or 0))
             rate = self.trend.rate_per_h(ts, 1) if self.trend else None
+            danger = float(self.pcfg.get("flood_danger_cm") or 0)
             v["water_level"] = lvl
             v["water_rise_rate"] = round(rate, 1) if rate is not None else None
             v["water_rising"] = bool(rate is not None and rate >= float(self.pcfg.get("rise_cm_h") or 10))
+            v["water_danger"] = bool(lvl is not None and danger > 0 and lvl >= danger)
+            self.attrs["water_level"] = {"milesight_role": "flood", "device": self.entry.title,
+                                         "area": self.entry.data.get("area"), "level_cm": lvl,
+                                         "rate_cm_h": v["water_rise_rate"], "rising": v["water_rising"],
+                                         "danger": v["water_danger"], "danger_cm": danger or None,
+                                         "empty_distance_mm": float(self.pcfg.get("empty_distance_mm") or 0) or None}
         if self._pkey == "rain_gauge" and isinstance(v.get("meter_reading"), (int, float)):
             mm = v["meter_reading"]
             day = self._day(ts)

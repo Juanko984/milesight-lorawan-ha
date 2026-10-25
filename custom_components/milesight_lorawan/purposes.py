@@ -26,7 +26,7 @@ GROUPS = {
 # settings a purpose can set (defaults) and the user can override (option "p_<name>")
 SETTINGS = ("temp_low", "temp_high", "temp_delay_min", "temp_rise_day", "left_open_min", "after_hours",
             "max_run_h", "no_run_h", "service_h", "run_w", "bin_depth_mm", "full_pct", "empty_distance_mm",
-            "rise_cm_h", "co2_limit", "clean_visits", "latch_min")
+            "rise_cm_h", "flood_danger_cm", "co2_limit", "clean_visits", "latch_min")
 
 
 @dataclass(frozen=True)
@@ -98,11 +98,13 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("basement", "Basement / sump", "water", "leak", icon="mdi:home-flood", severity="critical"),
     _p("roof", "Roof / ceiling", "water", "leak", icon="mdi:home-roof"),
     _p("water_tank", "Water tank", "tank", "level", icon="mdi:water-pump"),
+    _p("water_trough", "Water trough (float switch)", "tank", "contact", "Trough", "mdi:water-well", "problem",
+       contact_noun="Trough", left_open_min=10),
     _p("fuel_tank", "Fuel tank", "tank", "level", icon="mdi:fuel"),
     _p("silo", "Silo / grain / feed", "tank", "level temperature", icon="mdi:silo", temp_rise_day=3),
     _p("bin", "Waste bin", "facilities", "level", icon="mdi:trash-can", bin_depth_mm=1000, full_pct=80),
-    _p("flood", "River / flood level", "water", "level", icon="mdi:waves-arrow-up", severity="critical",
-       empty_distance_mm=3000, rise_cm_h=10),
+    _p("flood", "Flood / drain level (early warning)", "water", "level", icon="mdi:home-flood", severity="critical",
+       empty_distance_mm=3000, rise_cm_h=10, flood_danger_cm=50),
     # ---- meters
     _p("water_meter", "Water meter", "water", "pulse", meter="water"),
     _p("electricity_meter", "Electricity meter", "energy", "pulse", meter="energy"),
@@ -209,7 +211,7 @@ def setting_fields(purpose: str | None, families: frozenset[str] | set[str]) -> 
     if "level" in fam and p.key == "bin":
         out += ["bin_depth_mm", "full_pct"]
     if "level" in fam and p.key == "flood":
-        out += ["empty_distance_mm", "rise_cm_h"]
+        out += ["empty_distance_mm", "rise_cm_h", "flood_danger_cm"]
     if "air" in fam:
         out.append("co2_limit")
     if "button" in fam and p.key in ("panic", "service"):

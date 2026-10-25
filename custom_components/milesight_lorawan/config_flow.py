@@ -1414,6 +1414,7 @@ class MilesightOptionsFlow(OptionsFlow):
                  "no_run_h": ("h", 0, 168), "service_h": ("h", 0, 100000), "run_w": ("W", 0, 10000),
                  "bin_depth_mm": ("mm", 100, 5000), "full_pct": ("%", 10, 100),
                  "empty_distance_mm": ("mm", 100, 20000), "rise_cm_h": ("cm/h", 0.5, 500),
+                 "flood_danger_cm": ("cm", 1, 2000),
                  "co2_limit": ("ppm", 400, 5000), "clean_visits": ("visits", 1, 10000), "latch_min": ("min", 1, 1440)}
         schema: dict = {}
         for f in fields:
