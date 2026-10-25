@@ -1,12 +1,12 @@
-# Milesight LoRaWAN – tanks, silos and alerts
+# Milesight LoRaWAN – water level (tanks, silos, dams) and alerts
 # Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
 # No entity ids to edit: the cards find the devices themselves. Installed by the integration, a "Live" view with
-# gauges, sliders, history graphs (and the pivot map) for the site's actual devices is added in front.
-title: Tanks & alerts
+# per-tank gauges, sliders and the 30-day level history for the site's actual tanks is added after this Overview.
+title: Water Level
 views:
   - title: Overview
     path: tanks
-    icon: mdi:storage-tank
+    icon: mdi:water-percent
     type: sections
     max_columns: 3
     sections:
@@ -15,30 +15,33 @@ views:
         cards:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
-            title: Tanks & Alerts
-            subtitle: Levels, usage and open alerts
-            icon: mdi:storage-tank
+            title: Water Level
+            subtitle: Levels, days of supply, usage and leaks across every tank and silo
+            icon: mdi:water-percent
       - type: grid
+        column_span: 3
         cards:
           - type: heading
-            heading: Open alerts
+            heading: Supply at a glance
+            icon: mdi:view-dashboard-outline
+          - type: custom:milesight-tank-band
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Needs attention
             icon: mdi:bell-alert
-          # Live open alerts with acknowledge / snooze buttons and who is on call (same actions as the phone push).
+          # Live open alerts (low / critical level, leak / sudden drop, sensor offline) with acknowledge / snooze.
           - type: custom:milesight-alerts-card
             title: false
             grid_options: {columns: full}
-          # How the alerting is doing: count, how fast they're acknowledged, which sensors are noisiest.
-          - type: custom:milesight-alert-summary-card
-            title: false
-            grid_options: {columns: full}
       - type: grid
+        column_span: 3
         cards:
           - type: heading
             heading: Tanks and silos
             icon: mdi:storage-tank
-          - type: custom:milesight-level-card
-            title: false
-            grid_options: {columns: full}
           - type: custom:milesight-table-card
             preset: tanks
             title: false
@@ -48,20 +51,10 @@ views:
             content: |
               <small>A row turns red on a sudden drop (theft or leak) and amber when low – press the tank's *Clear sudden-drop alarm* button once checked.</small>
       - type: grid
+        column_span: 3
         cards:
           - type: heading
-            heading: Devices on the gateway
-            icon: mdi:router-wireless
-          - type: markdown
+            heading: Supply and refills
+            icon: mdi:calendar-clock
+          - type: custom:milesight-tank-supply-card
             grid_options: {columns: full}
-            content: |
-              {% set gw = states.sensor | selectattr('attributes.milesight_role', 'defined') | selectattr('attributes.milesight_role', 'eq', 'net_registered') | list %}
-              {% if not gw %}Set up gateway → Configure → Add devices to the gateway, then press *Sync devices with gateway*.{% else %}
-              {% for g in gw %}{% if g.state in ('unknown', 'unavailable') %}**{{ g.attributes.site }}**: not read yet – press *Sync devices with gateway* on the gateway device (it also syncs by itself every 6 hours).{% else %}**{{ g.state }} devices** registered on {{ g.attributes.site }}  
-              <small>last sync {{ as_timestamp(g.attributes.last_sync) | timestamp_custom('%d %b %H:%M') if g.attributes.last_sync else 'never' }}</small>{% endif %}{% if g.attributes.error %}<ha-alert alert-type="warning">{{ g.attributes.error }}</ha-alert>{% endif %}
-
-              {% set missing = (g.attributes.devices or []) | rejectattr('in_home_assistant') | list %}
-              {% if missing %}Not in Home Assistant yet (Settings → Devices & services → Discovered):
-              {% for d in missing %}- {{ d.name or '' }} `{{ d.deveui | upper }}`
-              {% endfor %}{% elif g.state not in ('unknown', 'unavailable') %}All registered devices are in Home Assistant ✅{% endif %}
-              {% endfor %}{% endif %}

@@ -904,7 +904,7 @@ assert "milesight-tanks" not in hass4.data["lovelace"].dashboards          # no 
 assert asyncio.run(res.async_sync(hass4)) == {}                            # nothing changed
 SITE.append(types.SimpleNamespace(data={"entry_type": "device", "deveui": "a2", "model": "EM410-RDL"}, options={}))
 out = asyncio.run(res.async_sync(hass4))                                   # a radar level sensor arrives
-assert out["dashboards"]["written"] == ["Tanks & alerts"] and "Tanks & alerts" in res.summary(out)
+assert out["dashboards"]["written"] == ["Water Level"] and "Water Level" in res.summary(out)
 assert models.device_tags("EM410-RDL") == {"tank"} and models.device_tags("VS121") >= {"people"}
 assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") == frozenset()
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
@@ -912,13 +912,13 @@ assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
 assert set(dashes) == {"milesight-maintenance", "milesight-tanks", "milesight-analytics"}
-assert dashes["milesight-tanks"].saved["title"] == "Tanks & alerts" and "milesight-tanks" in PANELS
+assert dashes["milesight-tanks"].saved["title"] == "Water Level" and "milesight-tanks" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
 out = asyncio.run(res.async_sync(hass4))
-assert out["dashboards"]["removed"] == ["Tanks & alerts"] and "milesight-tanks" not in dashes
+assert out["dashboards"]["removed"] == ["Water Level"] and "milesight-tanks" not in dashes
 SITE.append(types.SimpleNamespace(data={"entry_type": "device", "deveui": "a2", "model": "EM410-RDL"}, options={}))
-assert asyncio.run(res.async_sync(hass4))["dashboards"]["written"] == ["Tanks & alerts"] and "milesight-tanks" in dashes
+assert asyncio.run(res.async_sync(hass4))["dashboards"]["written"] == ["Water Level"] and "milesight-tanks" in dashes
 (bp / "leak.yaml").write_text("# my own version\n")                         # user edits a blueprint …
 dashes["milesight-maintenance"].saved = {"title": "Mine", "views": []}       # … and a dashboard
 (bp / "alarm.yaml").unlink()
@@ -1258,6 +1258,15 @@ assert "phase_imbalance" in energy and "load2_duty_24h" in energy
 cfg = dl.with_live_view("farm.yaml", {"title": "Farm", "views": [{"title": "Farm"}]}, eid, rts, [])
 assert cfg["views"][0]["path"] == "live" and cfg["views"][1]["title"] == "Farm"
 assert dl.with_live_view("fleet_overview.yaml", {"views": []}, eid, rts, []) == {"views": []}
+# every GENERATED Live view carries the page-header masthead (farm / tanks / energy / retail)
+def _generated_has_header(view):
+    return any(c.get("type") == "custom:milesight-page-header" for s in view.get("sections", []) for c in s.get("cards", []))
+assert _generated_has_header(cfg["views"][0]), "farm Live view missing header"
+for fn in ("tanks_and_alerts.yaml", "energy.yaml", "retail.yaml"):
+    gen = dl.with_live_view(fn, {"views": [{"title": "Bundled", "sections": []}]}, eid, rts, [])
+    live = next((v for v in gen["views"] if v.get("path") == "live"), None)
+    if live is not None:
+        assert _generated_has_header(live), f"{fn} Live view missing header"
 # setpoint sliders change the options
 num = load("number")
 tank_rt = next(e for e in entries.items if e.data["deveui"] == "0000000000400001").runtime_data
@@ -1480,8 +1489,11 @@ assert trk.latitude == -33.91234 and trk.longitude == 18.41234 and trk.location_
 assert trk.extra_state_attributes["milesight_role"] == "device_location" and rt_b.values["fixed_location"] == "fixed"
 dlive = sys.modules["milesight_lorawan.dashboard_live"]
 mv = dlive.map_view(lambda plat, uid: f"{plat}.{uid}", [rt_a, rt_b])
-assert mv["type"] == "panel" and mv["cards"][0]["entities"] == [{"entity": "device_tracker.00000000000b0002_fixed_location",
-                                                                 "name": "Fridge B"}]
+# the Map tab is a sections view with the page-header masthead and the map card full width
+assert mv["type"] == "sections"
+assert any(c.get("type") == "custom:milesight-page-header" for s in mv["sections"] for c in s["cards"])
+mapcard = next(c for s in mv["sections"] for c in s["cards"] if c.get("type") == "map")
+assert mapcard["entities"] == [{"entity": "device_tracker.00000000000b0002_fixed_location", "name": "Fridge B"}]
 assert dlive.with_live_view("maintenance.yaml", {"views": [{"path": "maintenance"}]}, lambda p_, u: f"{p_}.{u}",
                          [rt_b], [])["views"][-1]["path"] == "map"
 fb = fleet.maintenance_fields(rt_b, e_b, time.time())

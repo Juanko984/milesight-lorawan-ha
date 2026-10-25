@@ -2600,6 +2600,128 @@
     }
   }
 
+  // ================================================================ tank / water-level status band
+  // Total stored, lowest tank, needs-refill count, days of supply and leaks/drops. Self-discovers the 'tank' role.
+  function fmtQty(litres, mass) {   // auto per-tank unit: tonnes (silo w/ density) → m³ (large) → litres
+    if (mass != null) return `${(+mass).toLocaleString()} t`;
+    if (litres == null) return "—";
+    const l = +litres;
+    return l >= 10000 ? `${(l / 1000).toFixed(1)} m³` : `${Math.round(l).toLocaleString()} L`;
+  }
+  function fmtDays(d) { if (d == null) return "—"; return d < 1 ? "<1d" : `${Math.round(d)}d`; }
+  class TankBand extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _tiles() {
+      const S = this._hass.states, t = byRole(S, "tank"); if (!t.length) return [];
+      const base = "/milesight-tanks/tanks", a = (x) => x.attributes;
+      const litres = t.map((x) => num(x.state)).filter((v) => v != null);
+      const total = litres.length ? litres.reduce((s, v) => s + v, 0) : null;
+      const hasMass = t.every((x) => a(x).mass_t != null) && t.length > 0;
+      const massTot = hasMass ? t.reduce((s, x) => s + (num(a(x).mass_t) || 0), 0) : null;
+      const fills = t.map((x) => ({ v: num(a(x).fill), n: a(x).device, low: a(x).low })).filter((x) => x.v != null);
+      const lowest = fills.length ? fills.sort((p, q) => p.v - q.v)[0] : null;
+      const low = t.filter((x) => a(x).low);
+      const daysArr = t.map((x) => num(a(x).days_left)).filter((v) => v != null);
+      const soonest = daysArr.length ? Math.min(...daysArr) : null;
+      const soonestLow = low.map((x) => num(a(x).days_left)).filter((v) => v != null);
+      const drops = t.filter((x) => a(x).sudden_drop);
+      const drop0 = drops[0];
+      return [
+        { icon: "mdi:storage-tank", label: "Total stored", value: hasMass ? `${massTot.toLocaleString()} t` : fmtQty(total),
+          tone: "info", sub: `across ${t.length} tank${t.length === 1 ? "" : "s"}`, nav: base },
+        { icon: "mdi:arrow-down-bold", label: "Lowest tank", value: lowest ? `${Math.round(lowest.v)}%` : "—",
+          tone: !lowest ? "mut" : lowest.low || lowest.v < 10 ? "bad" : lowest.v < 25 ? "warn" : "good",
+          sub: lowest ? `${lowest.n || "tank"}${lowest.low ? " · refill" : ""}` : "no data", nav: base },
+        { icon: "mdi:reload", label: "Needs refill", value: String(low.length),
+          tone: low.length ? (soonestLow.length && Math.min(...soonestLow) <= 3 ? "bad" : "warn") : "good",
+          sub: low.length ? (soonestLow.length ? `soonest in ${Math.round(Math.min(...soonestLow))}d` : "low now") : "all stocked", nav: base },
+        { icon: "mdi:calendar-clock", label: "Days of supply", value: fmtDays(soonest),
+          tone: soonest == null ? "mut" : soonest <= 3 ? "bad" : soonest <= 7 ? "warn" : "good",
+          sub: soonest == null ? "learning usage" : "soonest to empty", nav: base },
+        { icon: "mdi:water-alert", label: "Leaks / drops", value: String(drops.length),
+          tone: drops.length ? "bad" : "good",
+          sub: drop0 ? `${drop0.attributes.device || "Tank"}${a(drop0).drop_amount_l != null ? ` · −${Math.round(a(drop0).drop_amount_l)} L` : ""}` : "none detected", nav: base },
+      ];
+    }
+    _render() {
+      if (!this._hass) return;
+      const tiles = this._tiles();
+      this._css = `
+        .band{display:grid;grid-template-columns:repeat(${Math.max(1, tiles.length)},1fr);gap:12px}
+        @media (max-width:760px){.band{grid-template-columns:repeat(2,1fr)}}
+        .stat{position:relative;overflow:hidden;border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px;cursor:pointer}
+        .stat:hover{border-color:var(--ms-accent)}
+        .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ms-good)}
+        .stat.bad::before{background:var(--ms-bad)} .stat.warn::before{background:var(--ms-warn)} .stat.mut::before{background:var(--ms-line)} .stat.info::before{background:var(--ms-accent)}
+        .stat .k{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ms-ink2)}
+        .stat .k ha-icon{--mdc-icon-size:17px}
+        .stat .v{font-size:24px;font-weight:720;margin-top:9px;line-height:1;color:var(--ms-ink)}
+        .stat.bad .v{color:var(--ms-bad)} .stat.warn .v{color:var(--ms-warn)} .stat.good .v{color:var(--ms-good)} .stat.info .v{color:var(--ms-accent)}
+        .stat .s{font-size:12px;color:var(--ms-ink2);margin-top:4px}
+      `;
+      if (!tiles.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:storage-tank-outline",
+          title: "No tanks or silos yet", hint: "Open a level sensor's device → Configure → Tank or silo." })]));
+      }
+      const tileEl = (t) => h("div", { class: "stat " + t.tone, onclick: () => navigate(t.nav) }, [
+        h("div", { class: "k" }, [h("ha-icon", { icon: t.icon }), t.label]),
+        h("div", { class: "v" }, t.value), h("div", { class: "s" }, t.sub)]);
+      this._card(h("div", { class: "band" }, tiles.map(tileEl)));
+    }
+  }
+
+  // ================================================================ tank supply & refills
+  // Days-of-supply bars (soonest first) and a recent-refills list. Reads the 'tank' role.
+  class TankSupplyCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _render() {
+      if (!this._hass) return;
+      const S = this._hass.states, t = byRole(S, "tank"), a = (x) => x.attributes;
+      this._css = `
+        .cols{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+        @media (max-width:760px){.cols{grid-template-columns:1fr}}
+        .sh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:0 0 10px;font-weight:700}
+        .srow{display:flex;align-items:center;gap:11px;padding:7px 0;border-bottom:1px solid var(--ms-line)}
+        .srow:last-child{border-bottom:none}
+        .sn{width:120px;font-size:13px;color:var(--ms-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .sb{flex:1;height:8px;border-radius:5px;background:var(--ms-line);overflow:hidden}
+        .sb > i{display:block;height:100%;border-radius:5px}
+        .sv{width:120px;text-align:right;font-size:12px;color:var(--ms-ink2);font-variant-numeric:tabular-nums}
+        .rrow{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ms-line)}
+        .rrow:last-child{border-bottom:none} .rrow .rn{color:var(--ms-ink)} .rrow .rw{color:var(--ms-ink2)} .rrow .ra{color:var(--ms-good);font-variant-numeric:tabular-nums}
+      `;
+      if (!t.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:calendar-clock",
+          title: "No tanks yet", hint: "Days of supply and refills appear once a tank or silo is set up." })]));
+      }
+      const withDays = t.filter((x) => num(a(x).days_left) != null)
+        .sort((p, q) => num(a(p).days_left) - num(a(q).days_left));
+      const maxD = Math.max(7, ...withDays.map((x) => num(a(x).days_left)));
+      const supplyRows = withDays.length ? withDays.map((x) => {
+        const d = num(a(x).days_left), low = a(x).low;
+        const col = d <= 3 ? "var(--ms-bad)" : d <= 7 ? "var(--ms-warn)" : "var(--ms-good)";
+        return h("div", { class: "srow" }, [
+          h("div", { class: "sn" }, esc(a(x).device || "Tank")),
+          h("div", { class: "sb" }, [h("i", { style: { width: Math.max(3, Math.round(100 * d / maxD)) + "%", background: col } })]),
+          h("div", { class: "sv" }, `~${Math.round(d)} day${Math.round(d) === 1 ? "" : "s"}${low && d <= 3 ? " · reorder" : ""}`)]);
+      }) : [h("div", { class: "srow" }, [h("div", { class: "sv", style: { width: "auto" } }, "Learning usage — needs a few days of readings.")])];
+      const refills = t.filter((x) => a(x).last_refill != null)
+        .map((x) => ({ n: a(x).device, ts: num(a(x).last_refill), added: num(a(x).last_refill_added_l), mass: a(x).mass_t != null }))
+        .sort((p, q) => q.ts - p.ts).slice(0, 6);
+      const refillRows = refills.length ? refills.map((r) => h("div", { class: "rrow" }, [
+        h("span", { class: "rn" }, esc(r.n || "Tank")), h("span", { class: "rw" }, ago(r.ts * 1000)),
+        h("span", { class: "ra" }, r.added != null ? `+${fmtQty(r.added)}` : "refill")])) : [h("div", { class: "rrow" }, [h("span", { class: "rw" }, "No refills recorded yet.")])];
+      this._card(h("div", { class: "wrap" }, [h("div", { class: "cols" }, [
+        h("div", {}, [h("p", { class: "sh" }, "Days of supply"), ...supplyRows]),
+        h("div", {}, [h("p", { class: "sh" }, "Recent refills"), ...refillRows]),
+      ])]));
+    }
+  }
+
   // ================================================================ cold-chain compliance (HACCP / food safety)
   // Time in range, one-tap PDF reports, corrective actions and the recent reports — surfacing the report engine.
   class ComplianceCard extends Base {
@@ -2760,6 +2882,8 @@
     "milesight-retail-band": [],
     "milesight-footfall-card": [],
     "milesight-zones-card": [],
+    "milesight-tank-band": [],
+    "milesight-tank-supply-card": [],
     "milesight-compliance-card": [{ name: "title", selector: { text: {} } }],
     "milesight-mains-card": [{ name: "title", selector: { text: {} } }],
     "milesight-load-summary-card": [{ name: "title", selector: { text: {} } }],
@@ -2780,6 +2904,7 @@
         FLEET_TAG = "milesight-fleet-band", CCBAND_TAG = "milesight-coldchain-band",
         BLDBAND_TAG = "milesight-building-band", AIR_TAG = "milesight-air-card",
         RETAIL_TAG = "milesight-retail-band", FOOTFALL_TAG = "milesight-footfall-card", ZONES_TAG = "milesight-zones-card",
+        TANKBAND_TAG = "milesight-tank-band", TANKSUPPLY_TAG = "milesight-tank-supply-card",
         COMPLIANCE_TAG = "milesight-compliance-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
@@ -2805,6 +2930,8 @@
     [RETAIL_TAG, RetailBand, "Milesight Retail Band", "Retail tiles: people in today, in store now, dwell, staff, fridge compliance"],
     [FOOTFALL_TAG, FootfallCard, "Milesight Footfall", "Hourly in/out footfall chart with net-in-store line and entrances table"],
     [ZONES_TAG, ZonesCard, "Milesight Retail Zones", "Per-zone customer dwell and staff-counter coverage"],
+    [TANKBAND_TAG, TankBand, "Milesight Tank Band", "Water/tank tiles: total stored, lowest, needs refill, days of supply, leaks"],
+    [TANKSUPPLY_TAG, TankSupplyCard, "Milesight Tank Supply", "Days-of-supply bars and recent refills"],
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
   ];
   window.customCards = window.customCards || [];

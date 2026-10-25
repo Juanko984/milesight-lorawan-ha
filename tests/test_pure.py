@@ -745,7 +745,7 @@ def test_dashboard_config_and_templates():
     # production command-center landing: status band + alerts + purpose-fit domain grid, by site tags
     ctx = {"title": "Green Acres", "site": "sensor.site", "open_alerts": "sensor.open", "outside": "sensor.out",
            "tags": ["tank", "cold_chain", "pump", "comfort"],
-           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Tanks & alerts", "milesight-tanks", "mdi:storage-tank")]}
+           "nav": [("Farm", "milesight-farm", "mdi:tractor-variant"), ("Water Level", "milesight-tanks", "mdi:water-percent")]}
     cfg = dcfg.build_config(ctx)
     view = cfg["views"][0]
     assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == ["Outside"]
@@ -1574,10 +1574,13 @@ def test_bundled_dashboard_templates_render():
     # Occupancy stays a per-hour heatmap, irrigation stays a status card
     assert "**Lab** · 🧑 2 · 40 % today" in out["building_analytics:Occupancy today"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
-    # Open alerts is now the interactive alerts card (acknowledge / snooze), not a markdown list
+    # Needs attention is the interactive alerts card (acknowledge / snooze), not a markdown list
     ta = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
-    alerts_sec = next(s for v in ta["views"] for s in v["sections"] if any(c.get("heading") == "Open alerts" for c in s["cards"]))
+    alerts_sec = next(s for v in ta["views"] for s in v["sections"] if any(c.get("heading") == "Needs attention" for c in s["cards"]))
     assert any(c["type"] == "custom:milesight-alerts-card" for c in alerts_sec["cards"])
+    # the Water Level Overview leads with the self-discovering tank status band and days-of-supply / refills card
+    ta_types = {c["type"] for v in ta["views"] for s in v["sections"] for c in s["cards"]}
+    assert {"custom:milesight-tank-band", "custom:milesight-tank-supply-card"} <= ta_types
     # Record-style lists are now table cards, not markdown. Check each converted section carries the right preset.
     def _preset(dash, head):
         sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]
@@ -2195,6 +2198,7 @@ def test_gateway_api():
                  "milesight-mains-card", "milesight-load-summary-card", "milesight-fleet-band",
                  "milesight-coldchain-band", "milesight-building-band", "milesight-air-card",
                  "milesight-retail-band", "milesight-footfall-card", "milesight-zones-card",
+                 "milesight-tank-band", "milesight-tank-supply-card",
                  "milesight-compliance-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards

@@ -328,7 +328,9 @@ class AreaTracker:
         if new:
             self.add(new)
         if self.store is not None:
-            self.store.async_delay_save(lambda: self.data, 120)
+            # delay must be shorter than the 60 s sample interval, or each sample resets the timer and it never
+            # fires — the hourly history would then only ever persist on a clean shutdown (lost on a crash).
+            self.store.async_delay_save(lambda: self.data, 30)
         from homeassistant.helpers.dispatcher import async_dispatcher_send
         async_dispatcher_send(self.hass, f"{DOMAIN}_areas_{self.entry.entry_id}")
 

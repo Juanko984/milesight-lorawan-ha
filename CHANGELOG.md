@@ -2,6 +2,36 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.70.0
+- **"Tanks & alerts" is now "Water Level" — rebuilt as a production command center.** Same dashboard
+  (URL unchanged, so existing links keep working), reworked from the ground up for tank / water-level operations,
+  informed by how industrial tank-monitoring systems present this data:
+  - **Supply band** (`milesight-tank-band`): **total stored** (auto-scaled L → m³, or tonnes for silos with a
+    density), **lowest tank**, **needs refill** (with soonest days), **days of supply** (soonest to empty), and
+    **leaks / drops** — self-discovering, colour-coded, tap through to the tanks.
+  - **Needs attention**: the interactive open-alerts card (low / critical level, leak / sudden drop, offline) with
+    acknowledge / snooze.
+  - **Tanks & silos** table and a new **Supply & refills** card (`milesight-tank-supply-card`): days-of-supply
+    bars sorted soonest-first with a reorder flag, plus a recent-refills list (when + amount added).
+  - **Overview + Live tabs**: the Overview leads; the per-tank gauges, sliders and a combined **30-day level
+    history** (native Home Assistant graph) move to the Live tab.
+- Tank sensors now expose free space, mass, empty-at time and last-refill (time + amount) on the `tank` role, so
+  the cards can show supply and refills without extra setup.
+
+## 0.69.0
+- **Fixed: occupancy history was lost on a crash / hard restart.** The hourly occupancy heat-map (and the new
+  retail footfall series) scheduled its save with a 120 s delay, but the tracker samples every 60 s — so the
+  timer was reset on every sample and *never fired*. The data only reached disk on a clean shutdown; a crash or a
+  hard restart lost the day's history. The save delay is now shorter than the sample interval, so the history
+  persists continuously (every ~30 s) and survives restarts. Per-device occupancy analytics (peak, sessions,
+  person-minutes, people in/out) were already saved on every uplink and were not affected.
+- **Every generated tab now has the full-width header.** The Maintenance **Map** tab was a panel view with no
+  masthead; it is now a sections view with the standard page header. (The farm / tanks / energy / retail "Live"
+  tabs already carry it — a regression test now locks that in for all of them.)
+  - Note: a dashboard you edited by hand in Home Assistant is kept as-is and not regenerated. If a tab is missing
+    its header, delete that dashboard (Settings → Dashboards) and reload the Milesight integration — it rebuilds
+    fresh with the current layout.
+
 ## 0.68.0
 - **New Retail dashboard — one page for a store.** Auto-installs when a VS-series people counter is present.
   A command-center Overview brings together footfall, dwell, cold-chain compliance, power and air:

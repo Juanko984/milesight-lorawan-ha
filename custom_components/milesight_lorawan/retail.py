@@ -121,7 +121,9 @@ class RetailTracker:
         snap["hourly_out"] = list(s["hourly_out"])
         self.data = snap
         if self.store is not None:
-            self.store.async_delay_save(lambda: self.s, 120)
+            # shorter than the 60 s update interval, or each update resets the timer and the hourly footfall
+            # series only ever persists on a clean shutdown (same pitfall as the area tracker).
+            self.store.async_delay_save(lambda: self.s, 30)
         async_dispatcher_send(self.hass, SIGNAL_RETAIL.format(self.entry.entry_id))
 
     @callback

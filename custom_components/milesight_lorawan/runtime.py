@@ -1365,7 +1365,12 @@ class DeviceRuntime:
                                          "area": self.entry.data.get("area"), "capacity_l": v["tank_capacity"],
                                          "shape": self.tank_cfg.shape, "fill": v["tank_fill"],
                                          "usage_per_day": v["tank_usage_per_day"], "days_left": v["tank_days_left"],
-                                         "low": v["tank_low"], "sudden_drop": v["tank_sudden_drop"]}
+                                         "low": v["tank_low"], "sudden_drop": v["tank_sudden_drop"],
+                                         "free_l": v.get("tank_free"), "mass_t": v.get("tank_mass"),
+                                         "empty_at": v.get("tank_empty_at"), "last_refill": v.get("tank_last_refill"),
+                                         "last_refill_added_l": v.get("tank_last_refill_added"),
+                                         "drop_amount_l": v.get("tank_drop_amount"),
+                                         "low_pct": self.tank_cfg.low_pct}
             self.attrs["tank_last_refill"] = {"added_l": v.get("tank_last_refill_added")}
             self.attrs["tank_sudden_drop"] = {"amount_l": v.get("tank_drop_amount"),
                                               "window_min": self.tank_cfg.drop_minutes}

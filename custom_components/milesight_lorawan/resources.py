@@ -24,7 +24,7 @@ RETIRED = {"milesight-fleet": "milesight-maintenance/devices",      # merged int
            "milesight-signal": "milesight-maintenance/signal"}
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
-    "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:storage-tank", {"tank"}),
+    "tanks_and_alerts.yaml": ("milesight-tanks", "mdi:water-percent", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),
     "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),

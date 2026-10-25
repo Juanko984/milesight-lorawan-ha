@@ -249,9 +249,11 @@ def farm_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
 # ------------------------------------------------------------------ tanks
 def tank_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
     out = []
-    for rt in runtimes:
-        if getattr(rt, "tank", None) is None:
-            continue
+    tanks = [rt for rt in runtimes if getattr(rt, "tank", None) is not None]
+    vols = [v for v in (_e(eid, rt, "sensor", "tank_volume") for rt in tanks) if v]
+    if len(vols) > 1:      # a combined 30-day level history across every tank leads the Live view
+        out.append(_section("Levels, last 30 days", [_history(vols, None, 720)], "mdi:chart-line"))
+    for rt in tanks:
         low = rt.tank_cfg.low_pct or 0
         vol = _e(eid, rt, "sensor", "tank_volume")
         out.append(_section(rt.entry.title, [
@@ -576,7 +578,7 @@ BUILDERS = {"farm.yaml": farm_cards, "tanks_and_alerts.yaml": tank_cards, "cold_
 
 # Dashboards whose bundled view is itself the command-center Overview: the generated "Live" tab goes AFTER it
 # (per-area detail), not in front.
-LIVE_AFTER = {"building_analytics.yaml", "retail.yaml"}
+LIVE_AFTER = {"building_analytics.yaml", "retail.yaml", "tanks_and_alerts.yaml"}
 
 
 def location_entities(eid: Resolver, runtimes: list) -> list[dict]:
@@ -597,9 +599,12 @@ def map_view(eid: Resolver, runtimes: list) -> dict | None:
     ents = location_entities(eid, runtimes)
     if not ents:
         return None
-    return {"title": "Map", "path": "map", "icon": "mdi:map-marker-radius", "type": "panel",
-            "cards": [{"type": "map", "entities": ents, "theme_mode": "auto", "default_zoom": 16,
-                       "hours_to_show": 0}]}
+    # a sections view (not panel) so it carries the same full-width header as every other tab
+    return {"title": "Map", "path": "map", "icon": "mdi:map-marker-radius", "type": "sections", "max_columns": 1,
+            "sections": [_header("Map", "mdi:map-marker-radius", "Device and asset locations"),
+                         {"type": "grid", "cards": [{"type": "map", "entities": ents, "theme_mode": "auto",
+                                                      "default_zoom": 16, "hours_to_show": 0,
+                                                      "grid_options": {"columns": "full"}}]}]}
 
 
 AFTER = {"maintenance.yaml": map_view}     # extra tabs at the end (not a 'Live' tab in front)

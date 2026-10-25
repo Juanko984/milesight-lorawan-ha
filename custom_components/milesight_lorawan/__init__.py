@@ -175,7 +175,7 @@ async def _async_install_resources(hass: HomeAssistant) -> None:
 
 def _schedule_sync(hass: HomeAssistant) -> None:
     """A device was added, removed or changed model: a few seconds later, show / hide the dashboards that
-    depend on the site's devices (Tanks & alerts only with a tank or silo sensor …) and label the device."""
+    depend on the site's devices (Water Level only with a tank or silo sensor …) and label the device."""
     from homeassistant.helpers.event import async_call_later
     data = hass.data.setdefault(DOMAIN, {"hubs": {}})
     if data.get("sync_pending") or not data.get("resources_started"):

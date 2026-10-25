@@ -342,13 +342,13 @@ integration and it puts them in place itself:
 
 * **After every update** (first start of a new version) the blueprints are copied to
   `config/blueprints/automation/milesight_lorawan/` and the dashboards appear in the sidebar: **Maintenance**
-  (tabs Overview, Devices, Signal, Map), **Tanks & alerts**, **Building analytics**, **Farm**, **Cold storage** and
+  (tabs Overview, Devices, Signal, Map), **Water Level**, **Building analytics**, **Farm**, **Cold storage** and
   **Energy & HVAC** (each only when the site
   needs it, see below). A notification lists what changed.
 * **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
   (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL), *People & occupancy* (VS range, people
   counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). Maintenance is always
-  there; **Tanks & alerts** appears when the first tank / silo sensor is added and
+  there; **Water Level** appears when the first tank / silo sensor is added and
   **Building analytics** with the first comfort or occupancy sensor, **Farm** with the first pump, pivot, valve
   controller or the gateway's irrigation forecast, **Cold chain** with the first fridge / freezer and **Energy &
   HVAC** with the first air conditioner, lighting circuit, geyser or mains clamp (see [Purposes](#purposes--what-a-device-is-fitted-to)). *Pump / motor* and *Irrigation* also follow a device's options
@@ -398,7 +398,7 @@ A ready-made landing page for each site (sidebar: the site's name), built from H
 (no HACS):
 * a **banner** with the site name, company, address, facilities contact and logo, and an *all normal* / *needs
   attention* strip;
-* **buttons to the other dashboards** in the sidebar (Farm, Tanks & alerts, Building analytics, Cold chain …);
+* **buttons to the other dashboards** in the sidebar (Farm, Water Level, Building analytics, Cold chain …);
 * overall health gauge, **open alerts** and *Needs attention*, air quality gauges, system health;
 * **People**: in the building now, people per area and a compact occupancy heat map (one row of squares per area,
   fits a phone);
@@ -929,7 +929,7 @@ last seen and the walk-test result, with signature lines. *Print / save as PDF* 
 
 ## Live dashboard views (gauges, sliders, maps)
 
-The Farm, Tanks & alerts, Cold chain and Energy & HVAC dashboards get a first **Live** view built from your
+The Farm, Water Level, Cold chain and Energy & HVAC dashboards get a first **Live** view built from your
 devices: the pivot on a map (AT101 track and pivot centre) with a *Round done* gauge, gauges for pump current,
 tank fill, soil moisture, cold-chain temperatures and duty cycles (coloured from each device's own limits), and
 **sliders** for the limits themselves – tank low alarm, pump normal current and starts per hour, pivot stall time,
@@ -953,7 +953,7 @@ later under device → **Configure → Purpose**. The purpose:
   0–5 °C after 15 min, a freezer outside −25…−15 °C after 20 min. Change them on the *Alarm limits* page that
   follows (empty a box to switch that alarm off);
 * adds **analytics and alerts** (below) and puts the device on the right **dashboard** (*Cold chain*,
-  *Energy & HVAC*, *Farm*, *Tanks & alerts*).
+  *Energy & HVAC*, *Farm*, *Water Level*).
 
 One purpose per device – the same one for every sensor on one thing: the fridge's probe, its door contact and the
 clamp on its compressor are all *Fridge / cold room*. 3-channel clamps (CT303 / CT305 / CT310) can give each
