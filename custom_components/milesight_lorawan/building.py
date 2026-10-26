@@ -7,7 +7,9 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .const import (
+    CONF_BRAND_SIDEBAR,
     CONF_CO2_ALERT,
+    CONF_SIDEBAR_TITLE,
     CONF_SITE_ADDRESS,
     CONF_SITE_AREAS,
     CONF_SITE_COMPANY,
@@ -56,8 +58,14 @@ def site_info(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     cfg = hass.config
     contact_id = o.get(CONF_SITE_CONTACT) or None
     contact = hass.states.get(contact_id) if contact_id else None
+    company = (o.get(CONF_SITE_COMPANY) or "").strip() or cfg.location_name
+    # the text the sidebar header shows instead of "Home Assistant" (custom override, else the company name);
+    # "" means the feature is off and the frontend leaves the default title alone
+    brand = o.get(CONF_BRAND_SIDEBAR, True)
+    sidebar_title = (((o.get(CONF_SIDEBAR_TITLE) or "").strip() or company) if brand else "")
     return {
-        "company": (o.get(CONF_SITE_COMPANY) or "").strip() or cfg.location_name,
+        "company": company,
+        "sidebar_title": sidebar_title,
         "site": entry.title,
         "address": o.get(CONF_SITE_ADDRESS) or None,
         "contact": (contact.attributes.get("friendly_name") if contact else None) or None,

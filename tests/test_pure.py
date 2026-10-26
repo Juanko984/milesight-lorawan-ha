@@ -2299,6 +2299,8 @@ def test_gateway_api():
                  "milesight-washroom-card", "milesight-compliance-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
+    # the sidebar-branding routine that sets the top-left title to the site name
+    assert "_msBrandSidebar" in cards and "sidebar_title" in cards and "ha-sidebar" in cards
     # shared empty-state + all-offline safety warning helpers are present
     assert "function emptyState" in cards and "function emptyOpts" in cards and "allStale" in cards
     # cross-page navigation in the page header

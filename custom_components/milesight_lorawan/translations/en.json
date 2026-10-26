@@ -204,7 +204,9 @@
           "co2_alert": "CO₂ alert above (ppm)",
           "classic_gauges": "Use Home Assistant's built-in gauges (classic look)",
           "update_dashboard": "Regenerate the site landing page now (replaces your edits)",
-          "set_ha_name": "Use the company name as Home Assistant's name (top-left)"
+          "brand_sidebar": "Show the site name in the sidebar header (replaces 'Home Assistant')",
+          "sidebar_title": "Custom sidebar title (optional — defaults to the company name)",
+          "set_ha_name": "Also rename the Home Assistant instance (browser tab, app title)"
         },
         "data_description": {
           "site_company": "Leave empty to use the Home Assistant name. The site name is this gateway's name (rename it on the integration page).",

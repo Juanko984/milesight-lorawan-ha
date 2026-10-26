@@ -3831,6 +3831,39 @@
       { value: "farm", label: "Farm" }, { value: "coop", label: "Chicken coop" }] } } }],
   };
 
+  // ---------------------------------------------------------------- site branding (sidebar header)
+  // Home Assistant has no built-in setting for the top-left sidebar title; since this module already loads
+  // frontend-wide, we set it ourselves to the site name. Driven by the Site sensor's `sidebar_title` attribute
+  // (empty string = feature off → leave the default "Home Assistant"). Re-applied on an interval because the
+  // sidebar re-renders on navigation / theme changes.
+  function _msSiteTitle(hass) {
+    if (!hass || !hass.states) return undefined;
+    const S = hass.states;
+    for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "site" && "sidebar_title" in a) return a.sidebar_title; }
+    for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role && (a.company || a.site)) return a.company || a.site; }
+    return (hass.config && hass.config.location_name) || undefined;
+  }
+  function _msSidebarTitleEl() {
+    try {
+      const ha = document.querySelector("home-assistant"); if (!ha || !ha.shadowRoot) return null;
+      const main = ha.shadowRoot.querySelector("home-assistant-main"); if (!main || !main.shadowRoot) return null;
+      const drawer = main.shadowRoot.querySelector("ha-drawer");
+      const sb = main.shadowRoot.querySelector("ha-sidebar") || (drawer && drawer.querySelector("ha-sidebar"));
+      if (!sb || !sb.shadowRoot) return null;
+      return sb.shadowRoot.querySelector(".menu .title") || sb.shadowRoot.querySelector(".title");
+    } catch (e) { return null; }
+  }
+  function _msBrandSidebar() {
+    try {
+      const ha = document.querySelector("home-assistant"); if (!ha) return;
+      const name = _msSiteTitle(ha.hass);
+      if (name == null || name === "") return;            // off / not configured → keep the default title
+      const el = _msSidebarTitleEl();
+      if (el && el.textContent !== name) { el.textContent = name; el.setAttribute("title", name); }
+    } catch (e) { /* frontend structure changed across a HA version */ }
+  }
+  try { setInterval(_msBrandSidebar, 1500); window.addEventListener("location-changed", _msBrandSidebar); _msBrandSidebar(); } catch (e) { /* no window */ }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",

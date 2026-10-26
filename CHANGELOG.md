@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.83.0
+- **Site name in the sidebar header (top-left), at last.** Home Assistant has no built-in setting for that
+  "Home Assistant" title — it's hard-coded in the frontend, and the earlier "use the company name as HA's name"
+  option only changed the instance name (browser tab), not the sidebar. Because this integration already loads
+  its card bundle across the whole frontend, it now sets the sidebar title itself:
+  - **On by default**, showing your **Site company name** (Gateway → Configure → Site), falling back to the Home
+    Assistant instance name if no company is set.
+  - **Set a custom title** or **turn it off** under Gateway → Configure → Site ("Show the site name in the
+    sidebar header" + an optional custom title).
+  - Applied for every user and re-applied after navigation/theme changes; it degrades silently if a future HA
+    frontend changes the sidebar's structure (your dashboards are unaffected).
+
 ## 0.82.0
 - **Richer device pages (all device types).** Opening a device now shows:
   - **Key metrics as a row of gauges** — the 4–5 most important readings for that device type, each colour-zoned

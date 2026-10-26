@@ -70,7 +70,9 @@ from .const import (
     DEFAULT_NS_REQUEST_TOPIC,
     DEFAULT_NS_RESPONSE_TOPIC,
     CONF_AUTO_BACKFILL,
+    CONF_BRAND_SIDEBAR,
     CONF_CLASSIC_GAUGES,
+    CONF_SIDEBAR_TITLE,
     CONF_CO2_ALERT,
     CONF_SITE_ADDRESS,
     CONF_SITE_AREAS,
@@ -227,7 +229,7 @@ def _schedule_dashboard(hass, entry: ConfigEntry, auto: bool = False) -> None:
 
 
 _SITE_KEYS = (CONF_SITE_COMPANY, CONF_SITE_ADDRESS, CONF_SITE_CONTACT, CONF_SITE_PHONE, CONF_SITE_EMAIL, CONF_SITE_LOGO,
-              CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT)
+              CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT, CONF_BRAND_SIDEBAR, CONF_SIDEBAR_TITLE)
 
 
 PUMP_KEYS = ("pump_enabled", "pump_normal_a", "pump_dry_pct", "pump_overload_pct", "pump_max_starts",
@@ -866,6 +868,9 @@ class MilesightOptionsFlow(OptionsFlow):
                 EntitySelector(EntitySelectorConfig(domain=["sensor", "weather"])),
             vol.Required(CONF_CO2_ALERT, default=o.get(CONF_CO2_ALERT, DEFAULT_CO2_ALERT)): _int_box(600, 5000),
             vol.Required(CONF_CLASSIC_GAUGES, default=o.get(CONF_CLASSIC_GAUGES, False)): BooleanSelector(),
+            # show the site name in the sidebar header (top-left) instead of "Home Assistant"
+            vol.Required(CONF_BRAND_SIDEBAR, default=o.get(CONF_BRAND_SIDEBAR, True)): BooleanSelector(),
+            vol.Optional(CONF_SIDEBAR_TITLE, description=sv(CONF_SIDEBAR_TITLE)): TextSelector(),
             vol.Required("set_ha_name", default=False): BooleanSelector(),
             vol.Required(CONF_UPDATE_DASHBOARD, default=False): BooleanSelector(),
         }

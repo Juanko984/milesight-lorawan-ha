@@ -1640,6 +1640,15 @@ sys.modules["homeassistant.helpers.event"].async_track_time_change = lambda h, f
 async def _call(domain, name, data, blocking=False): CALLS.append((domain, name, data))
 tmp = tempfile.mkdtemp()
 bld = load("building")
+# sidebar branding: site_info exposes the sidebar title (custom → company → "" when off)
+_si_cfg = types.SimpleNamespace(location_name="Home", country="ZA", time_zone="Africa/Johannesburg",
+                                latitude=0, longitude=0)
+_si_hass = types.SimpleNamespace(config=_si_cfg, states=types.SimpleNamespace(get=lambda e: None))
+_mk = lambda opts: types.SimpleNamespace(title="Water", options=opts)
+assert bld.site_info(_si_hass, _mk({"site_company": "Green Acres"}))["sidebar_title"] == "Green Acres"
+assert bld.site_info(_si_hass, _mk({}))["sidebar_title"] == "Home"                       # falls back to HA name
+assert bld.site_info(_si_hass, _mk({"brand_sidebar": False}))["sidebar_title"] == ""       # off → leave default
+assert bld.site_info(_si_hass, _mk({"sidebar_title": "Farm HQ"}))["sidebar_title"] == "Farm HQ"
 bld.site_info = lambda h, e: {"company": "Korb Farms", "site": "Packhouse"}
 hub_e = types.SimpleNamespace(entry_id="hubX", title="Site", options={"compliance_notify": "smtp_haccp"})
 hass_c = types.SimpleNamespace(
