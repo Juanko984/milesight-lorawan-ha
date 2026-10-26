@@ -87,6 +87,10 @@
    "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
    "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
    "sensor.level1": { state: "62", last_changed: new Date().toISOString(), attributes: { milesight_role: "tank", device: "Water tank", fill: 62, capacity_l: 10000 } },
+   "sensor.tltemp": { state: "9.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Fridge 1", ms_model: "TS301 · cold chain", unit_of_measurement: "°C", ms_limit_high: 8, ms_limit_low: 2, ms_trend: "cold_chain" } },
+   "sensor.tltemp2": { state: "4.1", last_changed: new Date().toISOString(), attributes: { friendly_name: "Freezer", ms_model: "TS301", unit_of_measurement: "°C", ms_limit_high: -15, ms_limit_low: -25, ms_trend: "cold_chain" } },
+   "sensor.tlco2": { state: "640", last_changed: new Date().toISOString(), attributes: { friendly_name: "Barn CO₂", ms_model: "AM308", unit_of_measurement: "ppm", ms_limit_high: 1200, ms_trend: "air" } },
+   "sensor.tlfill": { state: "14", last_changed: new Date().toISOString(), attributes: { friendly_name: "Diesel tank", unit_of_measurement: "%", ms_limit_low: 20, ms_trend: "tank" } },
  };
  const hass = {
    config: { location_name: "Acme Farm" },
@@ -94,7 +98,16 @@
              "milesight-maintenance": { url_path: "milesight-maintenance", title: "Maintenance" },
              "milesight-water": { url_path: "milesight-water", title: "Tanks" } },
    states: S, entities: {}, devices: {},
-   callService: () => {}, callWS: () => Promise.resolve({}),
+   callService: () => {},
+   callWS: (msg) => {
+     if (msg && msg.type === "history/history_during_period") {
+       const id = msg.entity_ids[0]; const cur = parseFloat(S[id] && S[id].state); const c = isFinite(cur) ? cur : 10;
+       const base = c * 0.45, n = 32, start = Date.parse(msg.start_time), end = Date.now(), arr = [];
+       for (let i = 0; i < n; i++) { const f = i / (n - 1); arr.push({ lu: (start + (end - start) * f) / 1000, s: (base + (c - base) * f * f).toFixed(2) }); }
+       return Promise.resolve({ [id]: arr });
+     }
+     return Promise.resolve({});
+   },
  };
 
  const root = document.getElementById("root");
@@ -110,6 +123,10 @@
    ["milesight-gateway-card", { entity: "sensor.gw" }],
    ["milesight-device-card", { entity: "sensor.temp" }],
    ["milesight-trend-card", { entity: "sensor.temp" }],
+   ["milesight-trendline-card", { entity: "sensor.tltemp" }],
+   ["milesight-trendline-card", { entity: "sensor.tlco2", color: "#4aa3ff" }],
+   ["milesight-trendline-grid-card", { trend: "cold_chain", columns: 2 }],
+   ["milesight-trendline-grid-card", { trend: "tank", columns: 2 }],
    ["milesight-level-card", {}],
    ["milesight-gauge-card", { entity: "sensor.temp", min: 0, max: 10, shape: "arc" }],
    ["milesight-page-header", { title: "Maintenance", subtitle: "Health", icon: "mdi:wrench-clock" }],

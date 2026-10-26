@@ -27,6 +27,7 @@ RETIRED = {"milesight-fleet": "milesight-maintenance/devices",      # merged int
 RENAMED = {"milesight-tanks": "milesight-water"}                    # "Tanks & alerts" → "Water" in 0.76
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
     "alerts.yaml": ("milesight-alerts", "mdi:bell-ring", None),
+    "devices.yaml": ("milesight-devices", "mdi:format-list-bulleted", None),
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
     "tanks_and_alerts.yaml": ("milesight-water", "mdi:water-percent", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),

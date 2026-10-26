@@ -697,8 +697,10 @@ class DeviceRuntime:
                                         "peak": (self.tempw.s["alarm"] or {}).get("peak")}
             # expose the alarm band on the temperature entity itself, so a gauge can draw green/amber/red zones
             band = {"alarm_low": self.pcfg.get("temp_low"), "alarm_high": self.pcfg.get("temp_high"),
+                    "ms_limit_low": self.pcfg.get("temp_low"), "ms_limit_high": self.pcfg.get("temp_high"),
                     "min_today": self.tempw.s["min"], "max_today": self.tempw.s["max"]}
             band = {k: val for k, val in band.items() if val is not None}
+            band["ms_trend"] = "cold_chain" if (p and p.group == "cold_chain") else "temperature"
             for _tk in ("temperature", "temperature_1"):
                 if band:
                     self.attrs[_tk] = {**(self.attrs.get(_tk) or {}), **band}
@@ -1367,6 +1369,9 @@ class DeviceRuntime:
             v["feels_like"] = _heat_index(v["temperature"], v["humidity"])
         if "co2" in v:
             v["co2_status"] = _co2_text(v["co2"])
+            co2_lim = self.limits.get("co2")        # tag CO₂ for the trendline grid; expose its limit to flash on
+            self.attrs["co2"] = {**(self.attrs.get("co2") or {}), "ms_trend": "air",
+                                 **({"ms_limit_high": co2_lim} if co2_lim else {})}
         height = float(self._opt(CONF_INSTALL_HEIGHT_MM, 0) or 0)
         if "em400" in self.model.features and height > 0 and isinstance(v.get("distance"), (int, float)):
             # distance = sensor to surface; full when the surface reaches the sensor
@@ -1394,6 +1399,9 @@ class DeviceRuntime:
             self.attrs["tank_last_refill"] = {"added_l": v.get("tank_last_refill_added")}
             self.attrs["tank_sudden_drop"] = {"amount_l": v.get("tank_drop_amount"),
                                               "window_min": self.tank_cfg.drop_minutes}
+            # tag tank fill for the trendline grid; expose the low-level limit so it can flash on it
+            self.attrs["tank_fill"] = {**(self.attrs.get("tank_fill") or {}), "ms_trend": "tank",
+                                       **({"ms_limit_low": self.tank_cfg.low_pct} if self.tank_cfg.low_pct > 0 else {})}
         if "ct" in self.model.features:
             self._ct_values(v)
         if self.distance is not None:

@@ -1,0 +1,56 @@
+# Milesight LoRaWAN – Devices: a single, always-visible page listing every device on the fleet, with quick
+# filters, sortable columns, row highlighting and a click-through to each device's page.
+# Settings → Dashboards → Add dashboard → "New dashboard from scratch" → ⋮ → Raw configuration editor → paste.
+# No entity ids to edit: everything comes from the gateway's sensors.
+title: Devices
+views:
+  - title: Devices
+    path: devices
+    icon: mdi:format-list-bulleted
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          # First-run setup checklist – hides itself once the gateway, devices and data are in place.
+          - type: custom:milesight-onboarding
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Devices
+            subtitle: Every device on the fleet — battery, last update, signal and firmware
+            icon: mdi:format-list-bulleted
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Fleet health
+            icon: mdi:heart-pulse
+          # Self-discovering fleet tiles: online, batteries due, offline, weak signal, firmware.
+          - type: custom:milesight-fleet-band
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: All devices
+            icon: mdi:access-point-network
+          # Quick-filter chips (All / Online / Offline / Low battery / Weak signal) and an area dropdown sit above
+          # a sortable table. Rows tint red when a device is offline, amber when its battery is low; click a row to
+          # open that device's page. Cells past a threshold (weak RSSI/SNR, high SF, packet loss) are emphasised.
+          - type: custom:milesight-table-card
+            preset: devices
+            title: false
+            grid_options: {columns: full}
+  # Per-device page: opened when you click a device in the table (a sub-view, so it has a back button and no tab
+  # of its own). The panel reads ?device=<id> from the URL and lays itself out by the device's type.
+  - title: Device
+    path: device
+    subview: true
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:milesight-device-panel

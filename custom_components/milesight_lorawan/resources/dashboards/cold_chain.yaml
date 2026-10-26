@@ -39,6 +39,17 @@ views:
           - type: custom:milesight-coldlog-card
             title: false
             grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Temperature trends
+            icon: mdi:chart-line
+          # One trendline per fridge/freezer — flashes when the temperature leaves its allowed band.
+          - type: custom:milesight-trendline-grid-card
+            trend: cold_chain
+            columns: 2
+            grid_options: {columns: full}
   - title: Compliance
     path: compliance
     icon: mdi:file-certificate-outline

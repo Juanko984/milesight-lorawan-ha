@@ -2,6 +2,48 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.81.0
+- **Trendlines wired into the dashboards + device pages.**
+  - **New self-discovering grid (`custom:milesight-trendline-grid-card`)** — drops a small grid of trendlines, one
+    per matching sensor, found automatically (no entity ids to type). It's placed on:
+    - **Cold chain → "Temperature trends"** — one per fridge/freezer.
+    - **Water → "Level trends"** — one per tank.
+    - **Building analytics → "CO₂ trends"** — one per CO₂ sensor.
+  - **Device pages** now show the full trendline (threshold flash + day min/max) for the primary reading when that
+    sensor has a purpose limit (fridge temp, tank %, CO₂); other sensors keep the compact sparkline.
+  - Sensors that carry a purpose limit are tagged (`ms_trend` = `cold_chain` / `temperature` / `tank` / `air`) so
+    the grid can find them; the grid also accepts a custom `match`, an `area` filter, `columns` and a `window`.
+
+## 0.80.0
+- **New trendline card (`custom:milesight-trendline-card`) with threshold flashing.** A compact daily trendline
+  for any sensor:
+  - **Flashes when the value crosses a threshold** — a red glow + pulsing value for a high limit, amber for a low
+    one. The breached part of the line turns the alert colour with a pulsing marker at the live point, and an
+    `OVER` / `UNDER` pill appears next to the reading.
+  - **Day min and max with the time each happened**, marked on the line (blue = min, orange = max).
+  - **Thresholds are reused from the device's purpose limits** — the cold-chain temperature alarm band, the tank
+    low-level %, and the CO₂ limit are exposed on their entities (`ms_limit_high` / `ms_limit_low`) so the card
+    flashes on the same limits your alerts use. Both a high and a low limit together draw a band (flash when
+    outside either edge). You can also set `max` / `min` directly on the card.
+  - **Window toggle** — Today (midnight→now) by default, with Last 24 h and Last 7 d; min/max follow the window.
+  - The existing mini `milesight-trend-card` sparkline is unchanged.
+
+## 0.79.0
+- **New dedicated "Devices" page.** The full device list used to be a tab buried under Maintenance (and before
+  that, a standalone page that was merged away); it's now back as its own always-visible sidebar page, installed
+  on every site.
+  - **Header + fleet-health band** at the top (online, batteries due, offline, weak signal, firmware).
+  - **Every device in one sortable table** — Device, Model, Area, **Battery %**, **Last update**, RSSI, SNR, SF,
+    packet loss and firmware. "Last update" shows a relative time for the last day (e.g. "4m ago") and the date
+    beyond that.
+  - **Filters at the top:** quick-filter chips (All / Online / Offline / Low battery / Weak signal), an **area
+    dropdown**, and the free-text filter box. Click any column header to sort (your choice is remembered).
+  - **Row highlighting** — a row tints amber for a low battery and red when a device is offline, with an icon in
+    the first cell; individual cells past their threshold (weak RSSI/SNR, high SF, packet loss) are emphasised.
+  - **Click a row to open that device's page** (signal history, battery forecast, service log and its sensors).
+  - The table card gained reusable **filter chips** (`filters:`) and an **area dropdown** (`area_filter:`) that
+    any dashboard can use.
+
 ## 0.78.1
 - **Ecowitt WS90 wind now reads in km/h, with a readable compass direction.**
   - **Wind speed and gust default to km/h.** The station's register is 0.1 m/s; the template now scales it ×3.6

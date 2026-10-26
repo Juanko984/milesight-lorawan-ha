@@ -40,6 +40,17 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: CO₂ trends
+            icon: mdi:chart-line
+          # One trendline per CO₂ sensor — flashes when CO₂ climbs over its limit.
+          - type: custom:milesight-trendline-grid-card
+            trend: air
+            columns: 2
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Comfort per area
             icon: mdi:emoticon-happy-outline
           - type: custom:milesight-table-card

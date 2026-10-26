@@ -911,7 +911,7 @@ bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-alerts", "milesight-maintenance", "milesight-water", "milesight-analytics"}
+assert set(dashes) == {"milesight-alerts", "milesight-devices", "milesight-maintenance", "milesight-water", "milesight-analytics"}
 assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …

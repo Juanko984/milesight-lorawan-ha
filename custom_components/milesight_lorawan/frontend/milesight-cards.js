@@ -1,5 +1,5 @@
 /*! Milesight LoRaWAN — self-contained Lovelace cards (no external dependencies).
- *  Cards: milesight-gateway-card, milesight-device-card, milesight-trend-card, milesight-level-card.
+ *  Cards: milesight-gateway-card, milesight-device-card, milesight-trend-card, milesight-trendline-card, milesight-level-card.
  *  Colours come from the Home Assistant theme (CSS custom properties) so the cards match the user's
  *  dashboard in both light and dark mode; status colours are always paired with an icon + label. */
 (function () {
@@ -32,6 +32,13 @@
     if (s < 3600) return `${Math.round(s / 60)}m ago`;
     if (s < 86400) return `${Math.round(s / 3600)}h ago`;
     return `${Math.round(s / 86400)}d ago`;
+  }
+  // "Last update": relative for the last day (scannable), then the date (for older entries)
+  function fmtAgo(iso) {
+    if (!iso) return "—";
+    const t = typeof iso === "number" ? iso : Date.parse(iso);
+    if (!Number.isFinite(t)) return "—";
+    return (Date.now() - t) < 86400000 ? ago(iso) : fmtTime(iso);
   }
 
   // entities on the same device as `entityId`, so a card pointed at one sensor can find its siblings
@@ -345,6 +352,259 @@
     }
   }
 
+  // ================================================================ trendline (threshold flash + day min/max)
+  // A daily trendline that flashes the whole card when the value crosses a threshold (red for a high limit, amber
+  // for a low one), and shows the day's min/max with the time each happened. Thresholds are reused from the
+  // device's purpose limits (temperature alarm band, tank low %, CO₂ limit) via entity attributes, or set per card
+  // with `max` / `min`. Window defaults to today (midnight→now) with a 24h / 7d toggle.
+  const TL_WINDOWS = [["today", "Today"], ["24h", "24 h"], ["7d", "7 d"]];
+  class TrendlineCard extends Base {
+    static getStubConfig() { return { entity: "" }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    setConfig(cfg) {
+      this._cfg = cfg || {}; this._data = null; this._loadedFor = null; this._lastSig = null;
+      this._win = cfg && cfg.window;
+      try { const s = localStorage.getItem(this._wkey()); if (s) this._win = s; } catch (e) { /* private */ }
+      this._render();
+    }
+    _wkey() { return "msTrendWin:" + ((this._cfg && this._cfg.entity) || ""); }
+    _window() { return this._win || this._cfg.window || "today"; }
+    _watch() { return this._cfg && this._cfg.entity ? [this._cfg.entity] : null; }
+    set hass(hass) {
+      const first = !this._hass; this._hass = hass;
+      if (first || this._loadedFor !== this._cfg.entity + ":" + this._window()) this._load();
+      const sig = this._sig();
+      if (!first && sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _start() {
+      const w = this._window();
+      if (w === "7d") return Date.now() - 7 * 864e5;
+      if (w === "24h") return Date.now() - 864e5;
+      const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();   // today: local midnight
+    }
+    async _load() {
+      const id = this._cfg.entity; if (!id || !this._hass) return;
+      this._loadedFor = id + ":" + this._window();
+      const start = new Date(this._start()).toISOString();
+      try {
+        const r = await this._hass.callWS({ type: "history/history_during_period", start_time: start,
+          entity_ids: [id], minimal_response: true, no_attributes: true });
+        const series = (r && (r[id] || (Array.isArray(r) && r[0]))) || [];
+        this._data = series.map((p) => [p.lu ? p.lu * 1000 : Date.parse(p.last_changed || p.lc), num(p.s != null ? p.s : p.state)])
+          .filter((p) => p[1] != null);
+        this._render();
+      } catch (e) { this._data = []; this._render(); }
+    }
+    _setWin(w) { this._win = w; try { localStorage.setItem(this._wkey(), w); } catch (e) { /* private */ } this._load(); this._render(); }
+    // resolve {high, low} from per-card config, then the purpose-limit attributes on the entity
+    _limits(a) {
+      const g = (k) => { const v = num(this._cfg[k]); return v != null ? v : null; };
+      let high = g("max"), low = g("min");
+      if (high == null) high = num(a.ms_limit_high != null ? a.ms_limit_high : a.alarm_high);
+      if (low == null) low = num(a.ms_limit_low != null ? a.ms_limit_low : a.alarm_low);
+      return { high, low };
+    }
+    _tlabel(ts, isNow, w) {
+      if (isNow) return "now";
+      try {
+        const d = new Date(ts);
+        if (w === "7d") return d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+        return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      } catch (e) { return ago(ts); }
+    }
+    _render() {
+      if (!this._hass) return;
+      const cfg = this._cfg, id = cfg.entity, st = this._st(id), a = st ? st.attributes : {};
+      if (!id) { this._err("Pick a sensor in the card settings."); return; }
+      const unit = cfg.unit || a.unit_of_measurement || "";
+      const name = cfg.name || a.friendly_name || id;
+      const sub = cfg.sub || (a.ms_model || a.model || "");
+      const color = cfg.color || "var(--ms-accent)";
+      const curV = st ? num(st.state) : null;
+      const now = Date.now();
+      let pts = (this._data || []).slice();
+      if (curV != null) pts.push([now, curV]);              // live point drives the current value + breach
+      const { high, low } = this._limits(a);
+      const W = 1000, H = 120;
+      // window toggle (persisted)
+      const toggle = h("div", { class: "tlwin" }, TL_WINDOWS.map(([w, lbl]) =>
+        h("button", { class: "twb" + (this._window() === w ? " on" : ""), onclick: () => this._setWin(w) }, lbl)));
+      if (pts.length < 2) {
+        this._css = this._style(color);
+        this._card(h("div", { class: "wrap" }, [
+          h("div", { class: "tlhead" }, [h("div", {}, [h("p", { class: "tltitle", onclick: () => fireMoreInfo(this, id) }, esc(name)),
+            sub ? h("div", { class: "tlsub" }, esc(sub)) : null]), toggle]),
+          h("div", { class: "muted", style: { fontSize: "12px", padding: "18px 2px" } }, this._data ? "No history in this window yet." : "Loading…"),
+        ]));
+        return;
+      }
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+      const t0 = Math.min(...xs), t1 = Math.max(...xs);
+      const vmin = Math.min(...ys), vmax = Math.max(...ys), dspan = (vmax - vmin) || Math.abs(vmax) || 1, pad = dspan * 0.22;
+      const lo = vmin - pad, hi = vmax + pad;
+      const fx = (t) => (t - t0) / (t1 - t0 || 1), fy = (v) => (v - lo) / (hi - lo || 1);
+      const SX = (t) => (fx(t) * W).toFixed(1), SY = (v) => ((1 - fy(v)) * H).toFixed(1);
+      const minI = ys.indexOf(vmin), maxI = ys.indexOf(vmax), lastI = pts.length - 1;
+      // breach of the live value
+      const overHi = high != null && curV != null && curV >= high;
+      const underLo = low != null && curV != null && curV <= low;
+      const breach = overHi ? "hi" : underLo ? "lo" : null;
+      const alertCol = breach === "hi" ? "var(--ms-bad)" : "var(--ms-warn)";
+      const line = pts.map((p, i) => `${i ? "L" : "M"}${SX(p[0])},${SY(p[1])}`).join(" ");
+      const area = `${line} L${SX(t1)},${H} L${SX(t0)},${H} Z`;
+      // breached segments drawn over the base line (points over high / under low)
+      const segs = []; let cur = [];
+      for (const p of pts) {
+        const bad = (high != null && p[1] >= high) || (low != null && p[1] <= low);
+        if (bad) cur.push(p); else { if (cur.length > 1) segs.push(cur); cur = []; }
+      }
+      if (cur.length > 1) segs.push(cur);
+      const segPaths = segs.map((s) => s.map((p, i) => `${i ? "L" : "M"}${SX(p[0])},${SY(p[1])}`).join(" "));
+      const uid = "t" + Math.random().toString(36).slice(2, 7);
+      const thLines = [];
+      const thMark = (v, col, lbl) => {
+        if (v == null) return;
+        const yf = Math.max(0, Math.min(1, 1 - fy(v)));
+        thLines.push({ yf, col, lbl, off: v > hi ? " ↑" : v < lo ? " ↓" : "" });
+      };
+      thMark(high, "var(--ms-bad)", "threshold " + high + (unit ? " " + unit : ""));
+      if (low != null && low !== high) thMark(low, "var(--ms-warn)", "min " + low + (unit ? " " + unit : ""));
+      const svg = svgNS(`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:120px;display:block">
+        <defs><linearGradient id="${uid}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${color}" stop-opacity="0.30"/><stop offset="1" stop-color="${color}" stop-opacity="0.015"/></linearGradient></defs>
+        <path d="${area}" fill="url(#${uid})"/>
+        ${thLines.map((t) => `<line x1="0" y1="${(t.yf * H).toFixed(1)}" x2="${W}" y2="${(t.yf * H).toFixed(1)}" stroke="${t.col}" stroke-width="1.2" stroke-dasharray="6 5" opacity="0.8"/>`).join("")}
+        <path d="${line}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" opacity="${breach ? 0.5 : 1}"/>
+        ${segPaths.map((d) => `<path class="tlflash" d="${d}" fill="none" stroke="${alertCol}" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>`).join("")}
+      </svg>`);
+      // crisp HTML-overlay markers (stay round) + threshold labels (text would stretch inside the SVG)
+      const mk = (cls, t, v, extra) => h("span", { class: "tlmk " + cls + (extra || ""),
+        style: { left: (1 + fx(t) * 98).toFixed(2) + "%", top: ((1 - fy(v)) * 100).toFixed(2) + "%" } });
+      const overlay = [
+        ...thLines.map((t) => h("span", { class: "tlth", style: { top: (t.yf * 100).toFixed(2) + "%", color: t.col } }, esc(t.lbl + t.off))),
+        mk("min", pts[minI][0], vmin), mk("max", pts[maxI][0], vmax),
+        mk("cur", pts[lastI][0], ys[lastI], breach ? " ping" : ""),
+      ];
+      const pill = overHi ? h("span", { class: "tlpill hi" }, "over " + high + (unit ? " " + unit : ""))
+        : underLo ? h("span", { class: "tlpill lo" }, "under " + low + (unit ? " " + unit : "")) : null;
+      const stat = (cls, k, v, ts, i) => h("div", { class: "tlstat" }, [
+        h("span", { class: "tldot " + cls }), h("div", {}, [h("div", { class: "tlk" }, k),
+          h("div", { class: "tlv" }, esc((v == null ? "—" : v) + (unit ? " " + unit : "")))]),
+        h("div", { class: "tlt" }, "at " + this._tlabel(ts, i === lastI, this._window())),
+      ]);
+      const wl = { today: "today", "24h": "24 h", "7d": "7 d" }[this._window()] || "today";
+      this._css = this._style(color);
+      this._card(h("div", { class: "wrap tlcard " + (breach === "hi" ? "tlbreach-hi" : breach === "lo" ? "tlbreach-lo" : "") }, [
+        h("div", { class: "tlhead" }, [
+          h("div", {}, [h("p", { class: "tltitle", onclick: () => fireMoreInfo(this, id) }, esc(name)),
+            sub ? h("div", { class: "tlsub" }, esc(sub)) : null]),
+          toggle,
+        ]),
+        h("div", { class: "tlval" }, [h("b", {}, curV == null ? "—" : esc(st.state)), unit ? h("u", {}, esc(unit)) : null, pill]),
+        h("div", { class: "tlchart" }, [svg, ...overlay]),
+        h("div", { class: "tlfoot" }, [
+          stat("min", "Min " + wl, vmin, pts[minI][0], minI),
+          stat("max", "Max " + wl, vmax, pts[maxI][0], maxI),
+        ]),
+      ]));
+    }
+    _style(color) {
+      return `
+        .tlcard{position:relative;overflow:hidden;border-radius:14px;transition:box-shadow .2s}
+        .tlhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+        .tltitle{margin:0;font-size:13px;font-weight:600;color:var(--ms-ink);cursor:pointer}
+        .tlsub{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .tlwin{display:flex;gap:2px;background:color-mix(in srgb,var(--ms-ink) 6%,transparent);border:1px solid var(--ms-line);border-radius:9px;padding:2px}
+        .twb{font:inherit;font-size:11.5px;color:var(--ms-ink2);background:none;border:none;border-radius:7px;padding:3px 9px;cursor:pointer}
+        .twb:hover{color:var(--ms-ink)}
+        .twb.on{color:var(--ms-ink);background:color-mix(in srgb,${color} 20%,transparent);font-weight:600}
+        .tlval{display:flex;align-items:baseline;gap:6px;margin:8px 0 2px}
+        .tlval b{font-size:32px;font-weight:720;line-height:1;letter-spacing:-.01em;color:var(--ms-ink)}
+        .tlval u{font-size:13px;color:var(--ms-ink2);font-style:normal}
+        .tlpill{margin-left:6px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.04em}
+        .tlpill.hi{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
+        .tlpill.lo{background:color-mix(in srgb,var(--ms-warn) 22%,transparent);color:var(--ms-warn)}
+        .tlchart{position:relative;margin-top:4px;height:120px}
+        .tlmk{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);border:1.5px solid var(--ms-card);box-sizing:border-box}
+        .tlmk.min{background:#4aa3ff}.tlmk.max{background:var(--ms-accent)}.tlmk.cur{background:${color}}
+        .tlbreach-hi .tlmk.cur{background:var(--ms-bad)}.tlbreach-lo .tlmk.cur{background:var(--ms-warn)}
+        .tlmk.ping{animation:tlping 1.25s ease-in-out infinite}
+        .tlth{position:absolute;right:3px;transform:translateY(-130%);font-size:10.5px;font-weight:600;white-space:nowrap;opacity:.85}
+        .tlfoot{display:flex;gap:20px;margin-top:11px;padding-top:11px;border-top:1px solid var(--ms-line);flex-wrap:wrap}
+        .tlstat{display:flex;align-items:center;gap:8px}
+        .tldot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+        .tldot.min{background:#4aa3ff}.tldot.max{background:var(--ms-accent)}
+        .tlk{font-size:11px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em}
+        .tlv{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+        .tlt{font-size:11.5px;color:var(--ms-ink2);font-variant-numeric:tabular-nums}
+        .tlcard.tlbreach-hi{animation:tlPulseHi 1.25s ease-in-out infinite}
+        .tlcard.tlbreach-lo{animation:tlPulseLo 1.25s ease-in-out infinite}
+        .tlbreach-hi .tlval b{color:var(--ms-bad);animation:tlFade 1.25s ease-in-out infinite}
+        .tlbreach-lo .tlval b{color:var(--ms-warn)}
+        @keyframes tlPulseHi{0%,100%{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ms-bad) 30%,transparent)}50%{box-shadow:inset 0 0 0 1px var(--ms-bad),0 0 22px 1px color-mix(in srgb,var(--ms-bad) 40%,transparent)}}
+        @keyframes tlPulseLo{0%,100%{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ms-warn) 30%,transparent)}50%{box-shadow:inset 0 0 0 1px var(--ms-warn),0 0 22px 1px color-mix(in srgb,var(--ms-warn) 40%,transparent)}}
+        @keyframes tlFade{0%,100%{opacity:1}50%{opacity:.55}}
+        @keyframes tlping{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ms-bad) 50%,transparent)}50%{box-shadow:0 0 0 7px transparent}}
+        .tlflash{animation:tlLineFade 1.25s ease-in-out infinite}
+        @keyframes tlLineFade{0%,100%{opacity:1}50%{opacity:.4}}
+      `;
+    }
+  }
+
+  // ================================================================ trendline grid (self-discovering)
+  // A responsive grid of trendline cards, one per matching sensor — tanks, fridges/freezers or CO₂ — discovered by
+  // the `ms_trend` tag the integration puts on those entities. Sub-cards are cached so their history isn't re-fetched
+  // on every state update.
+  class TrendlineGridCard extends Base {
+    static getStubConfig() { return { trend: "cold_chain" }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    setConfig(cfg) { this._cfg = cfg || {}; this._subs = {}; this._lastSig = null; this._render(); }
+    _match() { return this._cfg.match || (this._cfg.trend ? { attr: "ms_trend", eq: this._cfg.trend } : null); }
+    _discover() {
+      const S = (this._hass && this._hass.states) || {}, m = this._match(), area = this._cfg.area, out = [];
+      if (!m) return out;
+      for (const id in S) {
+        if (!id.startsWith("sensor.")) continue;
+        const a = S[id].attributes;
+        if (m.attr && a[m.attr] !== m.eq) continue;
+        if (m.has && a[m.has] === undefined) continue;
+        if (m.unit && a.unit_of_measurement !== m.unit) continue;
+        if (area && !areaEq(a.area, area)) continue;
+        out.push(id);
+      }
+      out.sort((x, y) => String(S[x].attributes.friendly_name || x).localeCompare(String(S[y].attributes.friendly_name || y)));
+      return out;
+    }
+    _watch() { return this._discover(); }
+    _render() {
+      if (!this._hass) return;
+      const ids = this._discover(), cols = Math.max(1, this._cfg.columns || 2);
+      this._css = `
+        .tgrid{display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:14px}
+        @media (max-width:720px){.tgrid{grid-template-columns:1fr}}
+        .tgtitle{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--ms-ink)}
+      `;
+      if (!ids.length) {
+        this._card(emptyState(emptyOpts(this._cfg.empty || {
+          icon: "mdi:chart-line", title: "No trends to show yet",
+          hint: "Trends appear once the matching sensors report and their purpose is set." }, "mdi:chart-line")));
+        return;
+      }
+      const next = {};
+      const cells = ids.map((id) => {
+        let el = this._subs[id];
+        if (!el) { el = h("milesight-trendline-card"); el.setConfig({ entity: id, window: this._cfg.window, color: this._cfg.color }); }
+        el.hass = this._hass; next[id] = el; return el;
+      });
+      this._subs = next;                                   // drop sub-cards whose entity disappeared
+      this._card(h("div", { class: "wrap" }, [
+        this._cfg.title && this._cfg.title !== false ? h("p", { class: "tgtitle" }, esc(this._cfg.title)) : null,
+        h("div", { class: "tgrid" }, cells),
+      ]));
+    }
+  }
+
   // ================================================================ animated level (tank / silo / dam / bin)
   const PURPOSE_SHAPE = { water_tank: "tank", fuel_tank: "tank", silo: "silo", bin: "bin", flood: "dam", pool: "dam" };
   const LIQUID = { water_tank: "water", pool: "water", flood: "water", fuel_tank: "fuel", silo: "grain", bin: "waste" };
@@ -537,14 +797,29 @@
     if ("truthy" in rule) return !!v === rule.truthy;
     return false;
   }
+  // a quick-filter chip's {field, <op>:value} condition against a row
+  function matchWhen(when, r) {
+    if (!when) return true;
+    const op = Object.keys(when).find((k) => k !== "field");
+    return breach({ [op]: when[op] }, r[when.field]);
+  }
   const PRESETS = {
     devices: {
       role: "fleet_total", path: "devices", title: "Devices",
+      filters: [
+        { label: "All" },
+        { label: "Online", when: { field: "online", eq: true } },
+        { label: "Offline", when: { field: "online", eq: false } },
+        { label: "Low battery", when: { field: "battery_low", truthy: true } },
+        { label: "Weak signal", when: { field: "signal", in: ["poor", "fair", "bad", "very_poor"] } },
+      ],
+      area_filter: true,
       columns: [
         { key: "name", label: "Device", grow: true },
         { key: "model", label: "Model", muted: true },
         { key: "area", label: "Area", muted: true },
         { key: "battery", label: "Batt", unit: "%", align: "right", warn: { lt: 25 }, bad: { lt: 15 } },
+        { key: "last_seen", label: "Last update", align: "right", fmt: (v) => v ? fmtAgo(v) : "never" },
         { key: "rssi", label: "RSSI", unit: "dBm", align: "right", warn: { lt: -110 }, bad: { lt: -120 } },
         { key: "snr", label: "SNR", unit: "dB", align: "right", warn: { lt: -7 } },
         { key: "sf", label: "SF", align: "right", fmt: (v) => v == null ? "—" : "SF" + v, warn: { gt: 10 } },
@@ -934,6 +1209,14 @@
       let rows = this._rows();
       if (cfg.only_issues) rows = rows.filter((r) => rowLevel(r));
       const total = rows.length;
+      // quick-filter chips (status) and an area dropdown, applied before the free-text filter
+      const chips = cfg.filters || p.filters || [];
+      const areaFilter = (cfg.area_filter != null ? cfg.area_filter : p.area_filter) && !cfg.area;
+      const areas = areaFilter ? [...new Set(rows.map((r) => r.area).filter((a) => a != null && a !== ""))]
+        .sort((a, b) => String(a).localeCompare(String(b))) : [];
+      if (this._area && areas.includes(this._area)) rows = rows.filter((r) => r.area === this._area);
+      const activeChip = chips[this._filterIdx || 0] || chips[0];
+      if (activeChip && activeChip.when) rows = rows.filter((r) => matchWhen(activeChip.when, r));
       const q = (this._q || "").trim().toLowerCase();
       if (q) rows = rows.filter((r) => cols.some((c) => String(this._disp(c, r)).toLowerCase().includes(q)));
       const sortable = cfg.sortable !== false;
@@ -978,6 +1261,16 @@
         .csv{flex:0 0 auto;font:inherit;font-size:12px;color:var(--ms-ink2);cursor:pointer;
           background:none;border:1px solid var(--ms-line);border-radius:8px;padding:5px 10px}
         .csv:hover{color:var(--ms-ink);border-color:var(--ms-accent)}
+        .fb{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px}
+        .chip{font:inherit;font-size:12.5px;color:var(--ms-ink2);cursor:pointer;background:none;
+          border:1px solid var(--ms-line);border-radius:20px;padding:5px 12px;white-space:nowrap}
+        .chip:hover{color:var(--ms-ink);border-color:var(--ms-accent)}
+        .chip.on{color:var(--ms-accent);border-color:var(--ms-accent);
+          background:color-mix(in srgb, var(--ms-accent) 12%, transparent);font-weight:600}
+        .fsel{margin-left:auto;font:inherit;font-size:12.5px;color:var(--ms-ink);cursor:pointer;
+          background:color-mix(in srgb, var(--ms-ink) 5%, transparent);border:1px solid var(--ms-line);
+          border-radius:8px;padding:5px 10px;outline:none}
+        .fsel:focus{border-color:var(--ms-accent)}
       `;
       this._css = css;
       const showSearch = cfg.search !== false && total > 5;
@@ -986,9 +1279,21 @@
       const toolbar = (showSearch || showCsv) ? h("div", { class: "tb" }, [
         showSearch ? (searchInput = h("input", { class: "search", type: "text", value: this._q || "",
           placeholder: "Filter…", oninput: (e) => { this._q = e.target.value; this._focusSearch = true; this._render(); } })) : h("div", { style: { flex: "1" } }),
-        (q && rows.length !== total) ? h("span", { class: "count" }, `${rows.length}/${total}`) : null,
+        (rows.length !== total) ? h("span", { class: "count" }, `${rows.length}/${total}`) : null,
         showCsv ? h("button", { class: "csv", onclick: () => this._exportCsv(cols, rows), title: "Download CSV" }, "⭳ CSV") : null,
       ]) : null;
+      // quick-filter chips + area dropdown row (only when there is data and something to filter by)
+      const showChips = chips.length > 1 && total > 0;
+      const showArea = areas.length > 1;
+      const fbKids = [];
+      if (showChips) chips.forEach((f, i) => fbKids.push(h("button",
+        { class: "chip" + ((this._filterIdx || 0) === i ? " on" : ""),
+          onclick: () => { this._filterIdx = i; this._render(); } }, esc(f.label))));
+      if (showArea) fbKids.push(h("select", { class: "fsel",
+        onchange: (e) => { this._area = e.target.value || null; this._render(); } },
+        [h("option", { value: "" }, "All areas")].concat(areas.map((a) =>
+          h("option", { value: a, selected: this._area === a ? "selected" : null }, esc(a))))));
+      const filterbar = fbKids.length ? h("div", { class: "fb" }, fbKids) : null;
       const head = h("tr", {}, cols.map((c) => {
         const active = this._sort && this._sort.key === c.key;
         const th = h("th", { class: (c.align === "right" ? "r " : "") + (sortable ? "s" : "") },
@@ -1021,18 +1326,19 @@
       const staleMsg = (!q && p.allStale) ? p.allStale(rows) : null;
       const warnbar = staleMsg ? h("div", { class: "warnbar" },
         [h("ha-icon", { icon: "mdi:alert" }), h("span", {}, staleMsg)]) : null;
+      const filtered = q || (this._area && areas.includes(this._area)) || (activeChip && activeChip.when);
       let table;
       if (rows.length) {
         table = h("div", { class: "cw" }, [h("table", {}, [h("thead", {}, head), h("tbody", {}, body)])]);
-      } else if (q) {
+      } else if (filtered) {
         table = emptyState({ icon: "mdi:magnify", title: "Nothing matches your filter",
-          action: { label: "Clear filter", onClick: () => { this._q = ""; this._render(); } } });
+          action: { label: "Clear filters", onClick: () => { this._q = ""; this._filterIdx = 0; this._area = null; this._render(); } } });
       } else {
         table = emptyState(emptyOpts(cfg.empty || p.empty, "mdi:table-search"));
       }
       this._card(h("div", { class: "wrap" }, [
         title === false ? null : h("p", { class: "title", style: { marginBottom: "8px" } }, title || "Devices"),
-        toolbar, warnbar, table,
+        filterbar, toolbar, warnbar, table,
       ]));
       if (this._focusSearch && searchInput) {              // keep the caret in the filter box while typing
         const el = this.shadowRoot.querySelector(".search");
@@ -1444,7 +1750,14 @@
       }
 
       // trend of the primary metric
-      const trend = info.primary ? this._sub("milesight-trend-card", { entity: info.primary, hours: this._cfg.hours || 24 }) : null;
+      // trend of the primary reading: a full trendline (threshold flash + day min/max) when the sensor carries a
+      // purpose limit, otherwise the compact sparkline
+      const pa = (info.primary && S[info.primary] && S[info.primary].attributes) || {};
+      const hasLimit = pa.ms_limit_high != null || pa.ms_limit_low != null;
+      const trend = info.primary
+        ? (hasLimit ? this._sub("milesight-trendline-card", { entity: info.primary })
+          : this._sub("milesight-trend-card", { entity: info.primary, hours: this._cfg.hours || 24 }))
+        : null;
 
       // secondary metric tiles (numeric entities not already shown)
       const shown = new Set([info.primary, info.battery, info.signal, info.hum, info.temp && info.type === "air" ? info.temp : null].filter(Boolean));
@@ -1518,7 +1831,7 @@
     // sibling Milesight dashboards in the sidebar, so the pages feel like one app (site landing pages first)
     _pages() {
       const panels = (this._hass && this._hass.panels) || {};
-      const order = ["alerts", "maintenance", "water", "analytics", "farm", "cold-chain", "energy", "retail", "washroom", "coop"];
+      const order = ["alerts", "devices", "maintenance", "water", "analytics", "farm", "cold-chain", "energy", "retail", "washroom", "coop"];
       const list = [];
       for (const key in panels) {
         const p = panels[key] || {}, url = p.url_path || key;
@@ -3242,6 +3555,21 @@
       { name: "battery", selector: ENTITY_SEL }, { name: "signal", selector: ENTITY_SEL },
       sel.hours, { name: "sparkline", selector: { boolean: {} } }],
     "milesight-trend-card": [sel.entity, sel.name, sel.hours, { name: "color", selector: { text: {} } }],
+    "milesight-trendline-card": [sel.entity, sel.name, { name: "sub", selector: { text: {} } },
+      { name: "window", selector: { select: { mode: "dropdown", options: [
+        { value: "today", label: "Today (midnight → now)" }, { value: "24h", label: "Last 24 hours" },
+        { value: "7d", label: "Last 7 days" }] } } },
+      { name: "max", selector: { number: { mode: "box" } } },
+      { name: "min", selector: { number: { mode: "box" } } },
+      { name: "unit", selector: { text: {} } }, { name: "color", selector: { text: {} } }],
+    "milesight-trendline-grid-card": [
+      { name: "trend", selector: { select: { mode: "dropdown", options: [
+        { value: "tank", label: "Tanks (level %)" }, { value: "cold_chain", label: "Fridges & freezers (°C)" },
+        { value: "temperature", label: "Temperatures (°C)" }, { value: "air", label: "CO₂ (ppm)" }] } } },
+      { name: "area", selector: { text: {} } }, { name: "title", selector: { text: {} } },
+      { name: "columns", selector: { number: { min: 1, max: 4, mode: "box" } } },
+      { name: "window", selector: { select: { mode: "dropdown", options: [
+        { value: "today", label: "Today" }, { value: "24h", label: "24 hours" }, { value: "7d", label: "7 days" }] } } }],
     "milesight-level-card": [sel.entity, sel.name,
       { name: "shape", selector: { select: { mode: "dropdown", options: [
         { value: "tank", label: "Tank (cylinder)" }, { value: "silo", label: "Silo" },
@@ -3308,7 +3636,9 @@
 
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
-        MINI_TAG = "milesight-trend-card", LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
+        MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
+        TGRID_TAG = "milesight-trendline-grid-card",
+        LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
         GAUGE_TAG = "milesight-gauge-card", PANEL_TAG = "milesight-device-panel", HEADER_TAG = "milesight-page-header",
         ONBOARD_TAG = "milesight-onboarding", ALERTS_TAG = "milesight-alerts-card",
         COLDLOG_TAG = "milesight-coldlog-card", ALSUM_TAG = "milesight-alert-summary-card",
@@ -3326,6 +3656,8 @@
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
     [MINI_TAG, TrendCard, "Milesight Trend", "Self-contained mini trend chart for any sensor"],
+    [TLINE_TAG, TrendlineCard, "Milesight Trendline", "Daily trendline that flashes over a threshold, with the day's min/max and the time each happened"],
+    [TGRID_TAG, TrendlineGridCard, "Milesight Trendline Grid", "A self-discovering grid of trendlines — one per tank, fridge/freezer or CO₂ sensor"],
     [LVL_TAG, LevelCard, "Milesight Level", "Animated tank / silo / dam / bin fill, by purpose"],
     [TBL_TAG, TableCard, "Milesight Table", "Device/status table that faintly highlights rows and cells with issues"],
     [GAUGE_TAG, GaugeCard, "Milesight Gauge", "Animated gauge for any value — arc, half, ring or bar, switchable live"],

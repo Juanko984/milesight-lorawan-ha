@@ -1673,8 +1673,9 @@ def test_bundled_dashboard_templates_render():
     assert _preset("maintenance", "Batteries") == "batteries_due"       # Overview shows only batteries needing attention
     assert _preset("maintenance", "Service history") == "service"
     assert _preset("maintenance", "Gateways") == "gateways"
+    assert _preset("devices", "All devices") == "devices"               # the standalone Devices page
     # every non-subview view carries a page header
-    for dash in ("alerts", "maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail", "washroom"):
+    for dash in ("alerts", "devices", "maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail", "washroom"):
         for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]:
             if v.get("subview"):
                 continue
@@ -2283,7 +2284,8 @@ def test_gateway_api():
     # the bundled Lovelace cards ship and register all four custom elements
     import pathlib as _pl
     cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
-    for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card",
+    for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card", "milesight-trendline-card",
+                 "milesight-trendline-grid-card",
                  "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
                  "milesight-page-header", "milesight-onboarding", "milesight-alerts-card",
                  "milesight-coldlog-card", "milesight-alert-summary-card",

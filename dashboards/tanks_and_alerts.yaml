@@ -44,6 +44,17 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Level trends
+            icon: mdi:chart-line
+          # One trendline per tank — flashes amber when the level drops below its low threshold.
+          - type: custom:milesight-trendline-grid-card
+            trend: tank
+            columns: 2
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Supply and refills
             icon: mdi:calendar-clock
           - type: custom:milesight-tank-supply-card
