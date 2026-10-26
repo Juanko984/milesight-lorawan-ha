@@ -1916,9 +1916,15 @@ def tank_specs(density: bool = False, low: bool = True, drop: bool = False) -> l
 
 def channel_specs(channels: dict) -> list[EntitySpec]:
     """Entities for the channels named in a controller's channel map (same keys = same entities, history kept)."""
-    return [EntitySpec(c.key, c.name, unit=c.unit, device_class=c.device_class, state_class=c.state_class,
-                       icon=None if c.device_class else ("mdi:lan" if c.key.startswith("modbus") else "mdi:sine-wave"),
-                       precision=c.decimals) for c in channels.values()]
+    specs = []
+    for c in channels.values():
+        specs.append(EntitySpec(c.key, c.name, unit=c.unit, device_class=c.device_class, state_class=c.state_class,
+                                icon=None if c.device_class else ("mdi:lan" if c.key.startswith("modbus")
+                                                                  else "mdi:sine-wave"),
+                                precision=c.decimals))
+        if c.compass:   # a bearing in degrees -> a readable 16-point compass text sensor alongside it
+            specs.append(EntitySpec(f"{c.key}_compass", f"{c.name} (compass)", kind="text", icon="mdi:compass"))
+    return specs
 
 
 # ------------------------------------------------------------------ solution tags

@@ -35,6 +35,7 @@ class Reg:
     words: int = 1         # 2 = a 32-bit value over two registers (quantity 2)
     byte: str | None = None  # "lo" / "hi": the value is one byte of the register (e.g. SOC / SOH packed)
     group: str = ""        # shown in the value list (PV, Battery, Grid …)
+    compass: bool = False  # a bearing in degrees -> also expose a 16-point compass text sensor
 
 
 @dataclass(frozen=True)
@@ -65,10 +66,12 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
             Reg("temperature", 0x0167, "Temperature", "°C", "0.1", -40, "temperature", 1, invalid=0xFFFF,
                 note="raw value has 400 added: (raw − 400) × 0.1"),
             Reg("humidity", 0x0168, "Humidity", "%", "1", 0, "humidity", 0, invalid=0xFFFF),
-            Reg("wind_speed", 0x0169, "Wind speed", "m/s", "0.1", 0, "wind_speed", 1, invalid=0xFFFF),
-            Reg("gust", 0x016A, "Gust speed", "m/s", "0.1", 0, "wind_speed", 1, invalid=0xFFFF),
-            Reg("wind_direction", 0x016B, "Wind direction", "°", "1", 0, None, 0, invalid=0xFFFF,
-                note="0–359°"),
+            Reg("wind_speed", 0x0169, "Wind speed", "km/h", "0.36", 0, "wind_speed", 1, invalid=0xFFFF,
+                note="register is 0.1 m/s; 0.36 = 0.1 × 3.6 gives km/h (for m/s use scale 0.1, unit m/s)"),
+            Reg("gust", 0x016A, "Gust speed", "km/h", "0.36", 0, "wind_speed", 1, invalid=0xFFFF,
+                note="register is 0.1 m/s; 0.36 = 0.1 × 3.6 gives km/h (for m/s use scale 0.1, unit m/s)"),
+            Reg("wind_direction", 0x016B, "Wind direction", "°", "1", 0, None, 0, invalid=0xFFFF, compass=True,
+                note="0–359°; a companion 'Wind direction (compass)' sensor shows N/NE/… (258° → WSW)"),
             Reg("rain", 0x016C, "Rainfall", "mm", "0.1", 0, "precipitation", 1),
             Reg("pressure", 0x016D, "Pressure", "hPa", "0.1", 0, "atmospheric_pressure", 1,
                 invalid=0xFFFF),
@@ -78,7 +81,9 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
         ("Factory address 0x90 (144) – many units are set to 1; use the address your station answers on. "
          "9600 baud 8N1 – every probe on one RS485 bus must use the same baud rate.",
          "Registers 0x0165–0x016E (357–366) – read them as one block if your firmware supports it.",
-         "Wind speed is in m/s; Home Assistant can show it in km/h (entity settings → unit)."),
+         "Wind speed and gust are shown in km/h (the register is 0.1 m/s; the template scales ×3.6). For m/s, "
+         "edit those channel-map lines to scale 0.1, unit m/s. Wind direction adds a readable compass sensor "
+         "(N/NE/…) next to the degrees."),
     ),
     Template(
         "cwt_soil_thcph", "CWT 7-in-1 soil / NPK sensor (THCPH-S, RS485)", "ComWinTop (CWT)", 1, 9600, "8N1",
@@ -241,6 +246,8 @@ def channel_line(reg: Reg, channel: int, prefix: str = "") -> str:
         opts.append("s32" if reg.words == 2 else "s16")
     if reg.byte:
         opts.append(f"{reg.byte}8")
+    if reg.compass:
+        opts.append("compass")
     if reg.invalid is not None:
         opts.append(f"invalid={reg.invalid}")
     cols = [str(channel), f"{prefix}{reg.name}", reg.unit or "-", reg.scale,

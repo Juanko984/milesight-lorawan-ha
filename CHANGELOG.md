@@ -2,6 +2,38 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.78.1
+- **Ecowitt WS90 wind now reads in km/h, with a readable compass direction.**
+  - **Wind speed and gust default to km/h.** The station's register is 0.1 m/s; the template now scales it ×3.6
+    (scale `0.36`, unit `km/h`) so the entities read in km/h out of the box. For example 0.5 m/s now shows as
+    **1.8 km/h**. (Prefer m/s? Edit those two channel-map lines back to scale `0.1`, unit `m/s`.)
+  - **Wind direction gets a companion "Wind direction (compass)" sensor** showing the 16-point compass point
+    (N, NNE, NE, … — e.g. 258° → **WSW**). The numeric degrees sensor stays, so wind-rose history and graphs are
+    unaffected.
+  - New channel-map option **`compass`**: mark any bearing-in-degrees channel with it to get the readable
+    compass text sensor alongside the degrees.
+
+  **To apply to an already-configured WS90:** re-apply the Ecowitt WS90 template (integration → Configure →
+  Modbus templates), or edit the stored channel-map lines — set the wind-speed/gust lines to `… ; km/h ; 0.36`
+  and append ` ; compass` to the wind-direction line.
+
+## 0.78.0
+- **Overview landing page decluttered.** The masthead was repeating what the page already showed below it, and
+  carried stale labels now that the dashboards have been reorganised:
+  - **Removed the duplicate stat chips and nav tabs from the Overview masthead.** Those online/gateway/alert chips
+    duplicated the Status band directly beneath them, and the sidebar nav tabs duplicated the Dashboards grid at
+    the foot of the page. The masthead is now just the title and subtitle; the Status band and Dashboards grid are
+    the single source for each. (Operational dashboards keep their masthead chips and nav — only the landing page
+    drops them.)
+  - **"Tanks & water" → "Water"** on the Operations domain card and its editor dropdown, matching the renamed
+    Water dashboard.
+  - **Open-alerts count now matches the Status band.** The masthead and the band disagreed (e.g. "19" vs "6")
+    because the masthead counted every open alert including acknowledged ones. Both now count unacknowledged
+    alerts, so the number is consistent everywhere.
+  - **Refreshed the sibling-dashboard nav order** (`alerts, maintenance, water, analytics, farm, cold-chain,
+    energy, retail, washroom, coop`) — the old order still referenced the retired `tanks` slug and omitted the
+    newer Alerts, Retail and Washroom pages.
+
 ## 0.77.0
 - **New dedicated Alerts dashboard — one home for every alert.** The open-alerts card was repeated on Water, Coop,
   Washroom and the landing page, all showing the same site-wide list. It's now consolidated onto a single

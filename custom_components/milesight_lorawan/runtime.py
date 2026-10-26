@@ -64,7 +64,7 @@ from .decoders import (Uplink, ds3604_frames, encode_ds3604, encode_ds3604_conte
                        encode_wt, encode_ws_switch)
 from .link import LinkStats, PendingCommands, link_advice, link_margin, link_quality
 from .alerts import device_alerts
-from .channel_map import parse_channel_map
+from .channel_map import parse_channel_map, compass_point as _compass_point
 from .models import (MODELS, Model, channel_specs, downlinks, entity_specs, meter_spec, output_for_key, pivot_specs,
                      pump_capable, pump_specs, setting_spec, tank_source, tank_specs)
 from .pivot import PivotTracker, pivot_config
@@ -1375,6 +1375,8 @@ class DeviceRuntime:
         for key, ch in self.channels.items():
             if key in v:
                 v[key] = ch.apply(v[key])
+                if ch.compass and isinstance(v[key], (int, float)):
+                    v[f"{key}_compass"] = _compass_point(v[key])
         if self.tank is not None:
             lvl, litres = self._tank_litres(v)
             v["tank_level"] = lvl

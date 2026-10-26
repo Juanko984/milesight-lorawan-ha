@@ -1453,9 +1453,17 @@ def test_modbus_templates():
     raw = {1: 4409, 2: 30, 3: 629, 4: 43, 5: 12, 6: 25, 7: 202, 8: 3, 9: 8576}
     got = {m[f"modbus_chn_{c}"].name: m[f"modbus_chn_{c}"].apply(v) for c, v in raw.items()}
     assert got["Light"] == 44090 and got["UV index"] == 3.0 and got["Temperature"] == 22.9 and got["Humidity"] == 43
-    assert got["Wind speed"] == 1.2 and got["Wind direction"] == 202 and got["Gust speed"] == 2.5
+    # wind speed/gust default to km/h (register 0.1 m/s × 3.6): raw 12 -> 4.3 km/h, raw 25 -> 9.0 km/h
+    assert got["Wind speed"] == 4.3 and got["Wind direction"] == 202 and got["Gust speed"] == 9.0
+    assert m["modbus_chn_5"].unit == "km/h" and m["modbus_chn_5"].device_class == "wind_speed"
     assert got["Rainfall"] == 0.3 and got["Pressure"] == 857.6
     assert m["modbus_chn_3"].apply(65535) is None and m["modbus_chn_3"].device_class == "temperature"
+    # wind direction carries the compass flag, and a companion text sensor shows N/NE/… (202° -> SSW)
+    assert m["modbus_chn_7"].compass is True
+    assert chm.compass_point(0) == "N" and chm.compass_point(202) == "SSW" and chm.compass_point(258) == "WSW"
+    assert chm.compass_point(90) == "E" and chm.compass_point(359) == "N" and chm.compass_point(None) is None
+    comp = {s.key: s for s in mdl.channel_specs(m)}
+    assert comp["modbus_chn_7_compass"].name == "Wind direction (compass)" and comp["modbus_chn_7_compass"].kind == "text"
     tb = mtp.toolbox_table(mtp.TEMPLATES["ecowitt_ws90"], rows)
     assert "| 1 | Light | 144 | 357 | 1 | Holding Register(INT16) | AB | ☐ |" in tb
 

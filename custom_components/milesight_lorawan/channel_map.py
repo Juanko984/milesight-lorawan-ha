@@ -15,7 +15,9 @@ One line per channel, columns separated by ';' (or '|' / tab):
 * scale – a multiplier, or a range 'a-b>c-d' that maps the raw span a…b onto c…d (4-20>0-10)
 * options – 's16' (the register is a signed 16-bit number: 65535 = -1), 's32', 'lo8' / 'hi8' (one byte of a
   packed register, e.g. SOC / SOH), 'invalid=65535' (the sensor sends
-  this when it has no reading: the entity shows unknown); several separated by spaces or commas
+  this when it has no reading: the entity shows unknown), 'compass' (the channel is a wind/heading bearing in
+  degrees – a companion text sensor shows the 16-point compass point, e.g. 258° → WSW); several separated by
+  spaces or commas
 * empty columns (or '-') keep the default. Lines starting with '#' are ignored.
 """
 from __future__ import annotations
@@ -61,6 +63,7 @@ class Channel:
     signed: int = 0                        # 16 / 32: the raw register is a signed number
     invalid: tuple = ()                    # raw values that mean 'no reading'
     byte: str | None = None                # "lo" / "hi": use one byte of the register (packed values)
+    compass: bool = False                  # a bearing in degrees -> also expose a 16-point compass text sensor
 
     def apply(self, raw: object) -> object:
         """Scaled value (non-numbers pass through)."""
@@ -74,6 +77,19 @@ class Channel:
             raw = raw - 2 ** self.signed
         v = raw * self.scale + self.offset
         return round(v, self.decimals) if self.decimals is not None else round(v, 6)
+
+
+_COMPASS = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+
+
+def compass_point(deg: object) -> str | None:
+    """16-point compass label for a bearing in degrees (258° -> 'WSW'). Non-numbers -> None."""
+    try:
+        d = float(deg) % 360
+    except (TypeError, ValueError):
+        return None
+    return _COMPASS[int((d + 11.25) % 360 // 22.5)]
 
 
 def _num(s: str) -> float:
@@ -148,7 +164,7 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
         if dc in ("volume_storage", "energy_storage") and sc != "measurement":
             errors.append(f"line {n}: {dc} needs the state class measurement")
             continue
-        signed, invalid, bad, byte = 0, [], None, None
+        signed, invalid, bad, byte, compass = 0, [], None, None, False
         for tok in re.split(r"[\s,]+", cols[8].lower()):
             if not tok:
                 continue
@@ -158,6 +174,8 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
                 signed = 32
             elif tok in ("lo8", "hi8"):
                 byte = tok[:2]
+            elif tok == "compass":
+                compass = True
             elif tok.startswith("invalid="):
                 try:
                     invalid += [int(x, 0) for x in tok.split("=", 1)[1].split("/") if x]
@@ -166,10 +184,10 @@ def parse_channel_map(text: str) -> tuple[dict[str, Channel], list[str]]:
             else:
                 bad = tok
         if bad:
-            errors.append(f"line {n}: unknown option '{bad}' (use s16, s32, lo8, hi8, invalid=65535)")
+            errors.append(f"line {n}: unknown option '{bad}' (use s16, s32, lo8, hi8, compass, invalid=65535)")
             continue
         out[key] = Channel(key, name or _default_name(key), unit, scale, offset, dc, decimals, sc, signed,
-                           tuple(invalid), byte)
+                           tuple(invalid), byte, compass)
     return out, errors
 
 

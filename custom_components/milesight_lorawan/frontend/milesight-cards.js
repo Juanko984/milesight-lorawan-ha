@@ -1510,14 +1510,15 @@
       if (gw) { const g = S[gw].attributes.gateways || [], on = g.filter((x) => x.online).length;
         out.push({ icon: "mdi:router-wireless", value: `${on}/${g.length}`, label: g.length === 1 ? "gateway" : "gateways", entity: gw, level: on < g.length ? "bad" : "good" }); }
       const al = this._findRole("alerts_open");
-      if (al) { const a = S[al].attributes.alerts || [], crit = a.some((x) => x.severity === "critical");
-        out.push({ icon: "mdi:bell", value: String(a.length), label: a.length === 1 ? "alert" : "alerts", entity: al, level: a.length ? (crit ? "bad" : "warn") : "good" }); }
+      if (al) { const a = (S[al].attributes.alerts || []).filter((x) => x.status !== "acknowledged"),
+        crit = a.some((x) => x.severity === "critical"), n = a.length;
+        out.push({ icon: "mdi:bell", value: String(n), label: n === 1 ? "alert" : "alerts", entity: al, level: n ? (crit ? "bad" : "warn") : "good" }); }
       return out;
     }
     // sibling Milesight dashboards in the sidebar, so the pages feel like one app (site landing pages first)
     _pages() {
       const panels = (this._hass && this._hass.panels) || {};
-      const order = ["maintenance", "tanks", "analytics", "farm", "cold-chain", "energy"];
+      const order = ["alerts", "maintenance", "water", "analytics", "farm", "cold-chain", "energy", "retail", "washroom", "coop"];
       const list = [];
       for (const key in panels) {
         const p = panels[key] || {}, url = p.url_path || key;
@@ -2111,7 +2112,7 @@
   // A compact card for one operational domain (tanks, cold chain, energy, climate, farm, coop). Self-discovers by
   // role, shows a status badge + two headline numbers + the one thing wrong, and taps through to its dashboard.
   const DOMAINS = {
-    tanks: { name: "Tanks & water", icon: "mdi:storage-tank", path: "/milesight-water/tanks",
+    tanks: { name: "Water", icon: "mdi:storage-tank", path: "/milesight-water/tanks",
       compute(S) {
         const t = byRole(S, "tank"); if (!t.length) return null;
         const fills = t.map((x) => num(x.attributes.fill)).filter((v) => v != null);
@@ -3300,7 +3301,7 @@
     "milesight-mains-card": [{ name: "title", selector: { text: {} } }],
     "milesight-load-summary-card": [{ name: "title", selector: { text: {} } }],
     "milesight-domain-card": [{ name: "domain", selector: { select: { mode: "dropdown", options: [
-      { value: "tanks", label: "Tanks & water" }, { value: "cold_chain", label: "Cold chain" },
+      { value: "tanks", label: "Water" }, { value: "cold_chain", label: "Cold chain" },
       { value: "energy", label: "Energy" }, { value: "climate", label: "Climate" },
       { value: "farm", label: "Farm" }, { value: "coop", label: "Chicken coop" }] } } }],
   };

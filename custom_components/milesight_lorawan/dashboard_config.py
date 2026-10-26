@@ -116,7 +116,7 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
         _section([
             {"type": "custom:milesight-page-header", "title": "Overview",
              "subtitle": "Everything at a glance across the site", "icon": "mdi:home-outline",
-             "grid_options": {"columns": "full"}},
+             "stats": False, "nav": False, "grid_options": {"columns": "full"}},
             {"type": "custom:milesight-onboarding", "grid_options": {"columns": "full"}},
         ], span=4),
         # "is everything OK right now" — self-discovering status tiles
