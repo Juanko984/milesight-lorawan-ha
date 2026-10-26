@@ -125,12 +125,7 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
             {"type": "custom:milesight-status-band", "grid_options": {"columns": "full"}},
         ], span=4),
     ]
-    # open alerts, with acknowledge / snooze
-    if ctx.get("open_alerts"):
-        sections.append(_section([
-            {"type": "heading", "heading": "Needs attention", "icon": "mdi:bell-alert"},
-            {"type": "custom:milesight-alerts-card", "title": False, "grid_options": {"columns": "full"}},
-        ], span=4))
+    # (Open alerts live on the dedicated Alerts page now — the status band above links there.)
     # perimeter security: electric fences at a glance (energized / fault)
     if "fence" in tags:
         sections.append(_section([

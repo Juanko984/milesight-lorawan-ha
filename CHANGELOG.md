@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.77.0
+- **New dedicated Alerts dashboard — one home for every alert.** The open-alerts card was repeated on Water, Coop,
+  Washroom and the landing page, all showing the same site-wide list. It's now consolidated onto a single
+  **always-visible Alerts page**:
+  - **Status band** (`milesight-alerts-band`): open now, escalated, acknowledged, average ack time, who's on call.
+  - **Open alerts** — the interactive acknowledge / snooze card.
+  - **Last 7 days** — the alert summary (count, MTTA, by category, noisiest sources).
+  - **Escalation & notifications** (`milesight-escalation-card`): who's on call, the escalation chain, escalate-after
+    time, quiet hours, snooze window and the notify channels — read from the gateway — with a **Configure
+    notifications** button that opens the integration's settings.
+  - The duplicated alerts card was removed from the other dashboards; their status bands' "Open alerts" tile now
+    links to the Alerts page. The Alerts page installs on every site.
+
 ## 0.76.0
 - **"Water Level" renamed to "Water" under a fresh sidebar slug (`milesight-water`).** If you'd hand-edited or
   half-deleted the old "Tanks & alerts" dashboard, it could come back blank and refuse to delete because the old

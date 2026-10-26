@@ -802,15 +802,16 @@ def test_dashboard_config_and_templates():
     assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == ["Outside"]
     secs = view["sections"]
     heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
-    assert heads == [None, "Status", "Needs attention", "Operations", "Dashboards", "Site"], heads
+    # open alerts moved to the dedicated Alerts page; the landing keeps the status band (which links there)
+    assert heads == [None, "Status", "Operations", "Dashboards", "Site"], heads
     by_head = dict(zip(heads, secs))
+    assert not any(c["type"] == "custom:milesight-alerts-card" for s_ in secs for c in s_["cards"])
     # masthead + first-run checklist lead
     assert secs[0]["cards"][0]["type"] == "custom:milesight-page-header"
     assert secs[0]["cards"][1]["type"] == "custom:milesight-onboarding"
     assert secs[0]["cards"][0].get("grid_options", {}).get("columns") == "full"
-    # self-discovering status band and the actionable alerts card
+    # self-discovering status band
     assert any(c["type"] == "custom:milesight-status-band" for c in by_head["Status"]["cards"])
-    assert any(c["type"] == "custom:milesight-alerts-card" for c in by_head["Needs attention"]["cards"])
     # purpose-fit operations grid: a domain card per domain the tags say the site has, in a fixed order
     doms = [c["domain"] for c in by_head["Operations"]["cards"] if c["type"] == "custom:milesight-domain-card"]
     assert doms == ["tanks", "cold_chain", "farm", "climate"], doms      # no coop/energy tag -> not shown
@@ -1625,12 +1626,10 @@ def test_bundled_dashboard_templates_render():
     # Occupancy stays a per-hour heatmap, irrigation stays a status card
     assert "**Lab** · 🧑 2 · 40 % today" in out["building_analytics:Occupancy today"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
-    # Needs attention is the interactive alerts card (acknowledge / snooze), not a markdown list
+    # open alerts moved to the dedicated Alerts page — the Water dashboard no longer carries the alerts card
     ta = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
-    alerts_sec = next(s for v in ta["views"] for s in v["sections"] if any(c.get("heading") == "Needs attention" for c in s["cards"]))
-    assert any(c["type"] == "custom:milesight-alerts-card" for c in alerts_sec["cards"])
-    # the Water Level Overview leads with the self-discovering tank band, supply/refills card and water troughs
     ta_types = {c["type"] for v in ta["views"] for s in v["sections"] for c in s["cards"]}
+    assert "custom:milesight-alerts-card" not in ta_types
     assert {"custom:milesight-tank-band", "custom:milesight-tank-supply-card", "custom:milesight-trough-card",
             "custom:milesight-flood-card"} <= ta_types
     # the water-trough purpose is a tank-group contact (installs Water Level) — "fit for purpose" dropdown entry
@@ -1667,7 +1666,7 @@ def test_bundled_dashboard_templates_render():
     assert _preset("maintenance", "Service history") == "service"
     assert _preset("maintenance", "Gateways") == "gateways"
     # every non-subview view carries a page header
-    for dash in ("maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail", "washroom"):
+    for dash in ("alerts", "maintenance", "tanks_and_alerts", "farm", "cold_chain", "energy", "building_analytics", "coop", "retail", "washroom"):
         for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]:
             if v.get("subview"):
                 continue
@@ -1677,7 +1676,8 @@ def test_bundled_dashboard_templates_render():
     coop = yaml.safe_load((PKG.parents[1] / "dashboards" / "coop.yaml").read_text(encoding="utf-8"))
     coop_cards = [c for v in coop["views"] for s in v["sections"] for c in s["cards"]]
     coop_types = {c["type"] for c in coop_cards}
-    assert {"custom:milesight-level-card", "custom:milesight-table-card", "custom:milesight-alerts-card"} <= coop_types
+    assert {"custom:milesight-level-card", "custom:milesight-table-card"} <= coop_types
+    assert "custom:milesight-alerts-card" not in coop_types      # open alerts live on the Alerts page now
     assert all(c.get("area") == "Chicken coop" for c in coop_cards
                if c["type"] in ("custom:milesight-level-card",) or (c["type"] == "custom:milesight-table-card"))
     assert not any("|---|" in c.get("content", "") for c in coop_cards)
@@ -1690,6 +1690,18 @@ def test_bundled_dashboard_templates_render():
     energy = yaml.safe_load((PKG.parents[1] / "dashboards" / "energy.yaml").read_text(encoding="utf-8"))
     energy_types = {c["type"] for v in energy["views"] for s in v["sections"] for c in s["cards"]}
     assert {"custom:milesight-mains-card", "custom:milesight-load-summary-card", "custom:milesight-table-card"} <= energy_types
+    # the dedicated Alerts page owns open alerts, the 7-day summary and escalation / notifications
+    al = yaml.safe_load((PKG.parents[1] / "dashboards" / "alerts.yaml").read_text(encoding="utf-8"))
+    al_types = {c["type"] for v in al["views"] for s in v["sections"] for c in s["cards"]}
+    assert {"custom:milesight-alerts-band", "custom:milesight-alerts-card",
+            "custom:milesight-alert-summary-card", "custom:milesight-escalation-card"} <= al_types
+    # and the duplicated open-alerts card is gone from the operational dashboards
+    for _d in ("tanks_and_alerts", "coop", "washroom"):
+        _dd = yaml.safe_load((PKG.parents[1] / "dashboards" / f"{_d}.yaml").read_text(encoding="utf-8"))
+        assert not any(c["type"] == "custom:milesight-alerts-card"
+                       for v in _dd["views"] for s in v["sections"] for c in s["cards"]), _d
+    # alerts.yaml installs on every site (no tag gate)
+    assert '"alerts.yaml": ("milesight-alerts", "mdi:bell-ring", None)' in (PKG / "resources.py").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- built-in network server (lns/)
@@ -2267,6 +2279,7 @@ def test_gateway_api():
                  "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
                  "milesight-page-header", "milesight-onboarding", "milesight-alerts-card",
                  "milesight-coldlog-card", "milesight-alert-summary-card",
+                 "milesight-alerts-band", "milesight-escalation-card",
                  "milesight-status-band", "milesight-domain-card",
                  "milesight-mains-card", "milesight-load-summary-card", "milesight-fleet-band",
                  "milesight-coldchain-band", "milesight-building-band", "milesight-air-card",

@@ -30,16 +30,6 @@ views:
         column_span: 3
         cards:
           - type: heading
-            heading: Needs attention
-            icon: mdi:bell-alert
-          # Live open alerts (low / critical level, leak / sudden drop, sensor offline) with acknowledge / snooze.
-          - type: custom:milesight-alerts-card
-            title: false
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
             heading: Tanks and silos
             icon: mdi:storage-tank
           - type: custom:milesight-table-card

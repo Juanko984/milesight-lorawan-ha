@@ -31,15 +31,6 @@ views:
         column_span: 3
         cards:
           - type: heading
-            heading: Needs attention
-            icon: mdi:bell-alert
-          - type: custom:milesight-alerts-card
-            title: false
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
             heading: Washrooms
             icon: mdi:human-male-female
           - type: custom:milesight-washroom-card

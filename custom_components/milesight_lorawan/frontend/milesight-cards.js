@@ -1932,6 +1932,116 @@
     }
   }
 
+  // ================================================================ alerts status band (the Alerts page hero row)
+  class AlertsBand extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _role(role) { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return S[id]; return null; }
+    _watch() { return null; }
+    _tiles() {
+      const alo = this._role("alerts_open"), sum = this._role("alerts_summary");
+      if (!alo && !sum) return [];
+      const a = (alo && alo.attributes.alerts) || [];
+      const crit = a.filter((x) => x.severity === "critical").length;
+      const warn = a.filter((x) => x.severity !== "critical").length;
+      const esc = a.filter((x) => x.status === "escalated").length;
+      const acked = a.filter((x) => x.acknowledged_by).length;
+      const s = sum ? sum.attributes : {};
+      const onCall = (alo && (alo.attributes.on_call || [])[0]) || null;
+      const backup = (alo && (alo.attributes.backup || [])[0]) || null;
+      return [
+        { icon: "mdi:bell-ring", label: "Open now", value: String(a.length),
+          tone: crit ? "bad" : a.length ? "warn" : "good", sub: a.length ? `${crit} critical · ${warn} warning` : "all clear" },
+        { icon: "mdi:bell-alert", label: "Escalated", value: String(esc), tone: esc ? "bad" : "good",
+          sub: esc ? "nobody acked in time" : "none" },
+        { icon: "mdi:check-circle-outline", label: "Acknowledged", value: `${acked}/${a.length}`, tone: "good",
+          sub: a.length ? "of open alerts" : "nothing open" },
+        { icon: "mdi:timer-outline", label: "Avg ack", value: num(s.mtta_min) != null ? `${s.mtta_min}m` : "—",
+          tone: "good", sub: "last 7 days" },
+        { icon: "mdi:account-badge", label: "On call", value: onCall || "—", tone: "info",
+          sub: backup ? `backup: ${backup}` : (onCall ? "no backup set" : "no rota set") },
+      ];
+    }
+    _render() {
+      if (!this._hass) return;
+      const tiles = this._tiles();
+      this._css = `
+        .band{display:grid;grid-template-columns:repeat(${Math.max(1, tiles.length)},1fr);gap:12px}
+        @media (max-width:760px){.band{grid-template-columns:repeat(2,1fr)}}
+        .stat{position:relative;overflow:hidden;border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ms-good)}
+        .stat.bad::before{background:var(--ms-bad)} .stat.warn::before{background:var(--ms-warn)} .stat.info::before{background:var(--ms-accent)}
+        .stat .k{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ms-ink2)}
+        .stat .k ha-icon{--mdc-icon-size:17px}
+        .stat .v{font-size:24px;font-weight:720;margin-top:9px;line-height:1;color:var(--ms-ink)}
+        .stat.bad .v{color:var(--ms-bad)} .stat.warn .v{color:var(--ms-warn)} .stat.good .v{color:var(--ms-good)} .stat.info .v{color:var(--ms-accent)}
+        .stat .s{font-size:12px;color:var(--ms-ink2);margin-top:4px}
+      `;
+      if (!tiles.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ tone: "ok", icon: "mdi:bell-check",
+          title: "Alerting is set up", hint: "Open alerts and escalation appear here once the gateway raises one." })]));
+      }
+      this._card(h("div", { class: "band" }, tiles.map((t) => h("div", { class: "stat " + t.tone }, [
+        h("div", { class: "k" }, [h("ha-icon", { icon: t.icon }), t.label]),
+        h("div", { class: "v" }, t.value), h("div", { class: "s" }, t.sub)]))));
+    }
+  }
+
+  // ================================================================ escalation & notifications
+  // Surfaces the gateway's notification setup: who is on call, the escalation chain, quiet hours, snooze and the
+  // notify channels — read from the alerts sensors — with a button to open the integration's settings to change it.
+  class EscalationCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _role(role) { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return S[id]; return null; }
+    _watch() { return null; }
+    _render() {
+      if (!this._hass) return;
+      const alo = this._role("alerts_open"), sum = this._role("alerts_summary");
+      const a = alo ? alo.attributes : {}, s = sum ? sum.attributes : {};
+      this._css = `
+        .sh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:0 0 9px;font-weight:700}
+        .sh.mt{margin-top:16px}
+        .nrow{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ms-line)}
+        .nrow:last-of-type{border-bottom:none}
+        .nrow .l{color:var(--ms-ink2)} .nrow .r{color:var(--ms-ink);text-align:right}
+        .nrow .r.mut{color:var(--ms-ink2)}
+        .btns{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap}
+        .cbtn{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:13px;font-weight:600;color:var(--ms-ink);cursor:pointer;
+          background:color-mix(in srgb,var(--ms-accent) 14%,transparent);border:1px solid color-mix(in srgb,var(--ms-accent) 40%,var(--ms-line));border-radius:10px;padding:9px 15px}
+        .cbtn:hover{border-color:var(--ms-accent)} .cbtn ha-icon{--mdc-icon-size:17px}
+        .off{color:var(--ms-ink2)}
+      `;
+      if (!alo) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:bell-cog-outline",
+          title: "No gateway yet", hint: "Escalation and notifications are set on the gateway device." })]));
+      }
+      const chain = (a.backup && a.backup.length) ? a.backup.join(" → ") : null;
+      const onCall = (a.on_call && a.on_call.length) ? a.on_call.join(", ") : (a.has_rota ? "nobody on call now" : "—");
+      const primary = (a.primary && a.primary.length) ? a.primary.join(", ") : null;
+      const last = a.last_notification;
+      const row = (l, r, mut) => h("div", { class: "nrow" }, [h("span", { class: "l" }, l),
+        h("span", { class: "r" + (mut ? " mut" : "") }, r == null ? h("span", { class: "off" }, "not set") : r)]);
+      this._card(h("div", { class: "wrap" }, [
+        a.escalation_enabled ? null : h("div", { class: "off", style: { marginBottom: "10px" } }, "Escalation is off — alerts still show here but no one is paged."),
+        h("p", { class: "sh" }, "Who gets alerted"),
+        row("On call now", onCall),
+        row("Escalation chain", chain),
+        row("Escalate after", num(a.escalate_min) != null ? `${a.escalate_min} min unacked` : null),
+        h("p", { class: "sh mt" }, "When"),
+        row("Quiet hours", a.quiet_hours ? `${a.quiet_hours} (non-critical held)` : "off", true),
+        row("Snooze window", num(a.snooze_min) != null ? `${a.snooze_min} min` : null, true),
+        h("p", { class: "sh mt" }, "Channels"),
+        row("Primary", primary),
+        last ? row("Last sent", `${last.title || "alert"} → ${(last.targets || a.on_call || []).join(", ") || "—"}${last.at ? " · " + last.at : ""}`, true) : null,
+        h("div", { class: "btns" }, [
+          h("button", { class: "cbtn", onclick: () => navigate("/config/integrations/integration/milesight_lorawan") },
+            [h("ha-icon", { icon: "mdi:cog" }), "Configure notifications"]),
+        ]),
+      ]));
+    }
+  }
+
   // ================================================================ status band (command-center hero row)
   // Five self-discovering tiles answering "is everything OK right now": open alerts, site health, gateways,
   // devices, power. Each tile is colour-coded and taps through to the page that explains it.
@@ -1949,7 +2059,7 @@
         warn = a.filter((x) => x.severity !== "critical" && x.status !== "acknowledged").length, n = a.filter((x) => x.status !== "acknowledged").length;
         add({ key: "alerts", icon: "mdi:bell", label: "Open alerts", value: String(n),
           tone: crit ? "bad" : n ? "warn" : "good",
-          sub: n ? `${crit} critical · ${warn} warning` : "All clear", nav: "/milesight-water/tanks" }); }
+          sub: n ? `${crit} critical · ${warn} warning` : "All clear", nav: "/milesight-alerts/alerts" }); }
       const hp = this._role("building_health");
       if (hp) { const v = num(hp.state);
         add({ key: "health", icon: "mdi:heart-pulse", label: "Site health", value: v == null ? "—" : `${Math.round(v)}%`,
@@ -3169,6 +3279,8 @@
     "milesight-coldlog-card": [{ name: "title", selector: { text: {} } },
       { name: "days", selector: { number: { min: 3, max: 31, mode: "box" } } }],
     "milesight-alert-summary-card": [{ name: "title", selector: { text: {} } }],
+    "milesight-alerts-band": [],
+    "milesight-escalation-card": [],
     "milesight-status-band": [],
     "milesight-fleet-band": [],
     "milesight-coldchain-band": [],
@@ -3200,6 +3312,7 @@
         ONBOARD_TAG = "milesight-onboarding", ALERTS_TAG = "milesight-alerts-card",
         COLDLOG_TAG = "milesight-coldlog-card", ALSUM_TAG = "milesight-alert-summary-card",
         BAND_TAG = "milesight-status-band", DOMAIN_TAG = "milesight-domain-card",
+        ALBAND_TAG = "milesight-alerts-band", ESC_TAG = "milesight-escalation-card",
         MAINS_TAG = "milesight-mains-card", LOADSUM_TAG = "milesight-load-summary-card",
         FLEET_TAG = "milesight-fleet-band", CCBAND_TAG = "milesight-coldchain-band",
         BLDBAND_TAG = "milesight-building-band", AIR_TAG = "milesight-air-card",
@@ -3221,6 +3334,8 @@
     [ALERTS_TAG, AlertsCard, "Milesight Alerts", "Open alerts with acknowledge / snooze and who is on call"],
     [COLDLOG_TAG, ColdLogCard, "Milesight Cold-chain Log", "Per-unit day strip of fridge/freezer min/max and excursions"],
     [ALSUM_TAG, AlertSummaryCard, "Milesight Alert Summary", "Last 7 days: how many alerts, ack time, noisiest sources"],
+    [ALBAND_TAG, AlertsBand, "Milesight Alerts Band", "Alerts tiles: open now, escalated, acknowledged, avg ack, on call"],
+    [ESC_TAG, EscalationCard, "Milesight Escalation", "Who's on call, escalation chain, quiet hours and notify channels"],
     [BAND_TAG, StatusBand, "Milesight Status Band", "Command-center tiles: alerts, health, gateways, devices, power"],
     [DOMAIN_TAG, DomainCard, "Milesight Domain Summary", "One operational domain at a glance, links to its dashboard"],
     [MAINS_TAG, MainsCard, "Milesight Mains Board", "Mains power: live/outage, phase currents, imbalance, total load"],

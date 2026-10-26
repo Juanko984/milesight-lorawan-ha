@@ -369,10 +369,18 @@ class OpenAlertsSensor(SensorEntity):
                 n = t.split(".", 1)[-1]
                 out.append(n[len("mobile_app_"):] if n.startswith("mobile_app_") else n)
             return out
+        def hhmm(hour: int | None) -> str | None:
+            return f"{int(hour):02d}:00" if isinstance(hour, (int, float)) else None
+        quiet = (f"{hhmm(cfg.quiet_start)} – {hhmm(cfg.quiet_end)}"
+                 if cfg.quiet_start is not None and cfg.quiet_end is not None else None)
         return {"milesight_role": "alerts_open", "site": self.entry.title, "alerts": alerts,
                 "escalation_enabled": cfg.enabled,
                 "on_call": who(cfg.first_line(now_local)) if cfg.enabled else [],
                 "backup": who(list(cfg.backup)),
+                "primary": who(list(cfg.primary)),
+                "escalate_min": cfg.escalate_min,
+                "quiet_hours": quiet,
+                "has_rota": bool(cfg.rota),
                 "snooze_min": cfg.snooze_min,
                 "last_notification": {**last, "at": fmt(last["at"])} if last else None}
 
