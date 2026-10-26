@@ -273,8 +273,8 @@ def _float_box(lo: float, hi: float, unit: str | None = None, step: Any = "any")
 
 
 def _purpose_selector(model: str | None = None, load_only: bool = False) -> SelectSelector:
-    """Purposes for the model (all when the model is not known yet), grouped by label group."""
-    items = purposes_for(model) if model else list(_purposes.PURPOSES.values())
+    """Purposes for the model (all when the model is not known yet, or the model matches none), grouped by group."""
+    items = (purposes_for(model) or list(_purposes.PURPOSES.values())) if model else list(_purposes.PURPOSES.values())
     if load_only:
         items = [p for p in items if "load" in p.families and (p.key in _purposes.LOAD_ANALYTICS or p.key == "pump")]
     opts = [{"value": "none", "label": "– not set –"}] + [
@@ -888,7 +888,7 @@ class MilesightOptionsFlow(OptionsFlow):
                                                                       "provisioning", "network_server",
                                                                       "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
-        sections = ((["purpose"] if purposes_for(model) else [])
+        sections = (["purpose"]                                  # fit-for-purpose is offered on every device
                     + (["channels", "channel_template"] if MODELS[model].dynamic else [])
                     + (["tank"] if tank_source(model) else [])
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))

@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.84.0
+- **"Purpose (what it is fitted to)" now shows on every device.** The step used to appear only when the model had
+  a matching purpose, so sensors like the EM500-PP (pipe pressure) or EM500-LGT (light) showed no Purpose option
+  at all. It's now offered on every device; when a model matches no specific purpose, the selector falls back to
+  the full catalogue so you can still categorise it.
+  - Note: the EM500 / level range (EM500-UDL, EM500-SWL, EM310-UDL, EM410-RDL, EM400-UDL) already map to the tank
+    & level purposes (water tank, fuel tank, silo, flood…). If a level device wasn't showing Purpose before, it
+    will now.
+  - A purpose only *takes effect* when it suits the device's sensor type (a temperature purpose needs a
+    temperature sensor); the dashboards and alerts it drives stay correct, so an unmatched pick simply does
+    nothing rather than creating broken cards.
+
 ## 0.83.0
 - **Site name in the sidebar header (top-left), at last.** Home Assistant has no built-in setting for that
   "Home Assistant" title — it's hard-coded in the frontend, and the earlier "use the company name as HA's name"

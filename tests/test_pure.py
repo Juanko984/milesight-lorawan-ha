@@ -1305,6 +1305,10 @@ def test_purposes_catalogue():
     keys = [p.key for p in mdl.purposes_for("WS301")]
     assert {"door", "window", "gate", "fridge", "cabinet"} <= set(keys) and "pump" not in keys
     assert {"fridge", "ac", "pump", "mains"} <= {p.key for p in mdl.purposes_for("CT303")} and mdl.load_channels("CT303") == 3
+    # the EM500 / level range offers tank & level purposes (fit-for-purpose, not just the Tank section)
+    for _m in ("EM500-UDL", "EM500-SWL", "EM310-UDL", "EM410-RDL", "EM400-UDL"):
+        assert {"water_tank", "fuel_tank", "silo", "flood"} <= {p.key for p in mdl.purposes_for(_m)}, _m
+    assert mdl.purposes_for("EM500-PP") == []        # some sensors map to no purpose → selector falls back to the full list
     for k, p in prp.PURPOSES.items():
         assert p.group is None or p.group in prp.GROUPS, k
         assert set(p.defaults) <= set(prp.SETTINGS), k
