@@ -352,6 +352,33 @@
     }
   }
 
+  // shared history fetch for several entities in one call → { id: [[tsMs, value], …] }
+  async function fetchSeries(hass, ids, startMs) {
+    if (!hass || !ids || !ids.length) return {};
+    const start = new Date(startMs).toISOString();
+    const r = await hass.callWS({ type: "history/history_during_period", start_time: start,
+      entity_ids: ids, minimal_response: true, no_attributes: true });
+    const out = {};
+    for (const id of ids) {
+      const s = (r && r[id]) || [];
+      out[id] = s.map((p) => [p.lu ? p.lu * 1000 : Date.parse(p.last_changed || p.lc), num(p.s != null ? p.s : p.state)])
+        .filter((p) => p[1] != null);
+    }
+    return out;
+  }
+  const TREND_PALETTE = ["#4aa3ff", "#f0883e", "#3fb950", "#d29922", "#a371f7", "#56d4dd"];
+  const WIN_LABEL = { today: "today", "24h": "24 h", "7d": "7 d" };
+  function winStart(w) {
+    if (w === "7d") return Date.now() - 7 * 864e5;
+    if (w === "24h") return Date.now() - 864e5;
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
+  }
+  const shortName = (a, id) => {           // a friendly name trimmed of its device prefix, for compact legends
+    let s = String((a && a.friendly_name) || id);
+    if (a && a.ms_device && s.startsWith(a.ms_device + " ")) s = s.slice(a.ms_device.length + 1);
+    return s;
+  };
+
   // ================================================================ trendline (threshold flash + day min/max)
   // A daily trendline that flashes the whole card when the value crosses a threshold (red for a high limit, amber
   // for a low one), and shows the day's min/max with the time each happened. Thresholds are reused from the
@@ -602,6 +629,140 @@
         this._cfg.title && this._cfg.title !== false ? h("p", { class: "tgtitle" }, esc(this._cfg.title)) : null,
         h("div", { class: "tgrid" }, cells),
       ]));
+    }
+  }
+
+  // ================================================================ multi-property trend (normalised overlay)
+  // Several properties on one chart, each auto-scaled to its own range so the shapes are comparable; a legend
+  // shows the real current value of each. Used on the device page to trend the 4–5 key readings at once.
+  class MultiTrendCard extends Base {
+    static getStubConfig() { return { entities: [] }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    setConfig(cfg) { this._cfg = cfg || {}; this._data = null; this._loadedFor = null; this._lastSig = null; this._win = cfg && cfg.window; this._render(); }
+    _ents() { return (this._cfg.entities || []).filter((e) => e); }
+    _window() { return this._win || this._cfg.window || "today"; }
+    _watch() { return this._ents(); }
+    set hass(hass) {
+      const first = !this._hass; this._hass = hass;
+      const key = this._ents().join(",") + ":" + this._window();
+      if (first || this._loadedFor !== key) this._load();
+      const sig = this._sig();
+      if (!first && sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    async _load() {
+      const ids = this._ents(); this._loadedFor = ids.join(",") + ":" + this._window();
+      try { this._data = await fetchSeries(this._hass, ids, winStart(this._window())); } catch (e) { this._data = {}; }
+      this._render();
+    }
+    _setWin(w) { this._win = w; this._load(); this._render(); }
+    _render() {
+      if (!this._hass) return;
+      const ids = this._ents(), S = this._hass.states, labels = this._cfg.labels || [], colors = this._cfg.colors || TREND_PALETTE;
+      const toggle = h("div", { class: "mtwin" }, [["today", "Today"], ["24h", "24 h"], ["7d", "7 d"]].map(([w, l]) =>
+        h("button", { class: "mtwb" + (this._window() === w ? " on" : ""), onclick: () => this._setWin(w) }, l)));
+      this._css = this._style();
+      const data = this._data || {};
+      const t0 = winStart(this._window()), t1 = Date.now(), W = 1000, Hh = 140;
+      const lines = [], legend = [];
+      ids.forEach((id, i) => {
+        const st = S[id]; if (!st) return;
+        const col = colors[i % colors.length], a = st.attributes, unit = a.unit_of_measurement || "";
+        let pts = (data[id] || []).slice(); const cv = num(st.state); if (cv != null) pts.push([t1, cv]);
+        legend.push(h("span", { class: "mtlg" }, [h("span", { class: "sw", style: { background: col } }),
+          esc(labels[i] || shortName(a, id)), h("b", {}, cv == null ? "—" : esc(st.state)), unit ? h("span", { class: "u" }, esc(unit)) : null]));
+        if (pts.length < 2) return;
+        const ys = pts.map((p) => p[1]), mn = Math.min(...ys), mx = Math.max(...ys), sp = (mx - mn) || 1;
+        const d = pts.map((p, j) => `${j ? "L" : "M"}${(((p[0] - t0) / (t1 - t0 || 1)) * W).toFixed(1)},${((Hh - 8) - ((p[1] - mn) / sp) * (Hh - 16)).toFixed(1)}`).join(" ");
+        lines.push(`<path d="${d}" fill="none" stroke="${col}" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round" opacity="0.92"/>`);
+        const last = pts[pts.length - 1];
+        lines.push(`<circle cx="${(((last[0] - t0) / (t1 - t0 || 1)) * W).toFixed(1)}" cy="${((Hh - 8) - ((last[1] - mn) / sp) * (Hh - 16)).toFixed(1)}" r="2.8" fill="${col}"/>`);
+      });
+      const body = [
+        h("div", { class: "mthead" }, [this._cfg.title && this._cfg.title !== false ? h("p", { class: "mttitle" }, esc(this._cfg.title)) : h("span", {}), toggle]),
+        h("div", { class: "mtleg" }, legend),
+        lines.length ? svgNS(`<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" style="width:100%;height:150px;display:block">${lines.join("")}</svg>`)
+          : h("div", { class: "muted", style: { fontSize: "12px", padding: "16px 2px" } }, this._data ? "No history in this window yet." : "Loading…"),
+      ];
+      this._card(h("div", { class: "wrap" }, body));
+    }
+    _style() {
+      return `
+        .mthead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+        .mttitle{margin:0;font-size:13px;font-weight:600;color:var(--ms-ink)}
+        .mtwin{display:flex;gap:2px;background:color-mix(in srgb,var(--ms-ink) 6%,transparent);border:1px solid var(--ms-line);border-radius:9px;padding:2px}
+        .mtwb{font:inherit;font-size:11.5px;color:var(--ms-ink2);background:none;border:none;border-radius:7px;padding:3px 9px;cursor:pointer}
+        .mtwb.on{color:var(--ms-ink);background:color-mix(in srgb,var(--ms-accent) 20%,transparent);font-weight:600}
+        .mtleg{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:9px}
+        .mtlg{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ms-ink2)}
+        .mtlg .sw{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+        .mtlg b{font-weight:700;color:var(--ms-ink)}
+        .mtlg .u{font-size:11px}
+      `;
+    }
+  }
+
+  // ================================================================ readings log (time-aligned value table)
+  // A table of recent readings: Time + one column per key property, most recent first, each row a sample.
+  class ReadingsTableCard extends Base {
+    static getStubConfig() { return { entities: [] }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    setConfig(cfg) { this._cfg = cfg || {}; this._data = null; this._loadedFor = null; this._lastSig = null; this._render(); }
+    _ents() { return (this._cfg.entities || []).filter((e) => e); }
+    _window() { return this._cfg.window || "today"; }
+    _watch() { return this._ents(); }
+    set hass(hass) {
+      const first = !this._hass; this._hass = hass;
+      const key = this._ents().join(",") + ":" + this._window();
+      if (first || this._loadedFor !== key) this._load();
+      const sig = this._sig();
+      if (!first && sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    async _load() {
+      const ids = this._ents(); this._loadedFor = ids.join(",") + ":" + this._window();
+      try { this._data = await fetchSeries(this._hass, ids, winStart(this._window())); } catch (e) { this._data = {}; }
+      this._render();
+    }
+    _at(series, ts) { let v = null; for (const p of series) { if (p[0] <= ts) v = p[1]; else break; } return v; }
+    _fmt(v) { return v == null ? "—" : (Number.isInteger(v) ? String(v) : (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1))); }
+    _render() {
+      if (!this._hass) return;
+      const ids = this._ents(), S = this._hass.states, labels = this._cfg.labels || [];
+      const rows = Math.max(4, this._cfg.rows || 12), data = this._data || {};
+      this._css = `
+        table{width:100%;border-collapse:collapse;font-size:13px}
+        th{font:600 11px system-ui;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em;text-align:right;padding:7px 10px;border-bottom:1px solid var(--ms-line);white-space:nowrap}
+        th:first-child{text-align:left}
+        th .u{text-transform:none;font-weight:500;opacity:.85}
+        td{padding:7px 10px;border-bottom:1px solid var(--ms-line);text-align:right;color:var(--ms-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+        td:first-child{text-align:left;color:var(--ms-ink2)}
+        tr:last-child td{border-bottom:none}
+        td.hot{color:var(--ms-bad);font-weight:700} td.cool{color:var(--ms-warn);font-weight:700}
+        .cw{overflow-x:auto}
+      `;
+      const anyData = ids.some((id) => (data[id] || []).length);
+      if (!anyData) {
+        this._card(h("div", { class: "wrap" }, [h("div", { class: "muted", style: { fontSize: "12px", padding: "16px 2px" } },
+          this._data ? "No readings in this window yet." : "Loading…")]));
+        return;
+      }
+      const t0 = winStart(this._window()), t1 = Date.now(), step = (t1 - t0) / rows;
+      const times = []; for (let i = 0; i < rows; i++) times.push(t0 + step * (i + 1));
+      times.reverse();                                       // most recent first
+      const fmtT = (ts) => { try { return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+      const head = h("tr", {}, [h("th", {}, "Time")].concat(ids.map((id, i) => {
+        const lbl = labels[i] || shortName(S[id] ? S[id].attributes : {}, id);
+        const u = S[id] && S[id].attributes.unit_of_measurement;
+        return h("th", {}, u ? [esc(lbl) + " ", h("span", { class: "u" }, "(" + u + ")")] : esc(lbl));
+      })));
+      const body = times.map((ts) => h("tr", {}, [h("td", {}, fmtT(ts))].concat(ids.map((id) => {
+        const v = this._at(data[id] || [], ts), a = (S[id] && S[id].attributes) || {};
+        const hi = num(a.ms_limit_high), lo = num(a.ms_limit_low);
+        const cls = v == null ? "" : (hi != null && v >= hi ? "hot" : lo != null && v <= lo ? "cool" : "");
+        return h("td", { class: cls }, this._fmt(v));
+      }))));
+      this._card(h("div", { class: "wrap" }, [h("div", { class: "cw" }, [h("table", {}, [h("thead", {}, head), h("tbody", {}, body)])])]));
     }
   }
 
@@ -1591,6 +1752,63 @@
       else { primary = ents.find((e) => num(S[e].state) != null && S[e].attributes.unit_of_measurement && !["battery", "signal_strength"].includes(S[e].attributes.device_class)); }
       return { type, primary, level, co2, temp, hum, battery, signal, current, running };
     }
+    // the 4–5 key readings to gauge / trend / tabulate, chosen by device type
+    _keyMetrics(info, ents) {
+      const S = this._hass.states, used = new Set(), pick = [];
+      const okNum = (e) => e && S[e] && num(S[e].state) != null && !used.has(e);
+      const take = (e) => { if (okNum(e)) { used.add(e); pick.push(e); } };
+      const dc = (c) => ents.find((e) => S[e].attributes.device_class === c && okNum(e));
+      const nm = (re) => ents.find((e) => re.test(String(S[e].attributes.friendly_name || e)) && okNum(e));
+      if (info.type === "tank") { take(info.level); take(nm(/volume|contents/i)); take(nm(/usage|per day/i)); take(nm(/days|empty/i)); }
+      else if (info.type === "air") { take(info.co2); take(info.temp); take(info.hum); take(nm(/pm ?2\.?5/i)); take(dc("atmospheric_pressure") || dc("pressure") || nm(/pressure/i)); }
+      else if (info.type === "climate") { take(info.temp); take(info.hum); take(info.co2); take(dc("atmospheric_pressure") || nm(/pressure/i)); }
+      else if (info.type === "pump") { take(info.current); take(dc("power")); take(nm(/duty/i)); take(nm(/energy|today/i)); }
+      else { take(info.primary); }
+      const derived = /max today|min today|above limit|feels like|\bsnr\b|packet loss|rssi|signal|battery|forecast|days left|replace/i;
+      for (const e of ents) {                                 // top up to 5 with other real readings (skip derived/diagnostic)
+        if (pick.length >= 5) break;
+        const a = S[e].attributes;
+        if (okNum(e) && a.unit_of_measurement && !["battery", "signal_strength"].includes(a.device_class) && !derived.test(String(a.friendly_name || e))) take(e);
+      }
+      return pick.slice(0, 5);
+    }
+    _metricLabel(e) {
+      const a = this._st(e).attributes, dc = a.device_class, nm = String(a.friendly_name || e);
+      if (dc === "carbon_dioxide" || a.unit_of_measurement === "ppm") return "CO₂";
+      if (dc === "temperature") return "Temp";
+      if (dc === "humidity") return "Humidity";
+      if (/pm ?2\.?5/i.test(nm)) return "PM2.5";
+      if (/pm ?10/i.test(nm)) return "PM10";
+      if (dc === "atmospheric_pressure" || dc === "pressure") return "Pressure";
+      if (dc === "current") return "Current";
+      if (dc === "power") return "Power";
+      if (/fill|level/i.test(nm)) return "Level";
+      return shortName(a, e);
+    }
+    _gaugeSpec(e) {
+      const st = this._st(e), a = st.attributes, dc = a.device_class, unit = a.unit_of_measurement, nm = String(a.friendly_name || e);
+      const cv = num(st.state), base = { entity: e, shape: "arc", switchable: false, name: this._metricLabel(e) };
+      const hi = num(a.ms_limit_high), lo = num(a.ms_limit_low), mn = num(a.min_today), mx = num(a.max_today);
+      if (dc === "temperature") return { ...this._climateGauge(e), name: base.name };
+      if (dc === "carbon_dioxide" || unit === "ppm") {
+        const lim = hi != null ? hi : 1000;
+        return { ...base, min: 400, max: Math.max(2000, Math.ceil(lim * 1.4)),
+          segments: [{ from: 400, color: "good" }, { from: lim, color: "warn" }, { from: Math.round(lim * 1.3), color: "bad" }] };
+      }
+      if (dc === "humidity" || (unit === "%" && /humid/i.test(nm)))
+        return { ...base, min: 0, max: 100, segments: [{ from: 0, color: "warn" }, { from: 30, color: "good" }, { from: 60, color: "warn" }] };
+      if (/pm ?2\.?5|pm ?10/i.test(nm) || unit === "µg/m³")
+        return { ...base, min: 0, max: 60, segments: [{ from: 0, color: "good" }, { from: 15, color: "warn" }, { from: 35, color: "bad" }] };
+      if (dc === "atmospheric_pressure" || dc === "pressure" || unit === "hPa") {
+        const base0 = cv != null ? cv : 1000;
+        return { ...base, min: Math.floor((mn != null ? mn : base0 - 30) - 10), max: Math.ceil((mx != null ? mx : base0 + 30) + 10), color: "accent" };
+      }
+      if (dc === "current" || unit === "A") { const nrm = num(a.normal_current); return { ...base, min: 0, max: nrm ? Math.ceil(nrm * 1.6) : (num(a.max) || 20), color: "accent" }; }
+      if (dc === "power" || unit === "W" || unit === "kW") return { ...base, min: 0, max: num(a.max) || Math.max(1000, Math.ceil(((cv || 0) * 1.5) / 100) * 100), color: "accent" };
+      if (unit === "%") return lo != null ? { ...base, min: 0, max: 100, segments: [{ from: 0, color: "bad" }, { from: lo, color: "good" }] } : { ...base, min: 0, max: 100, color: "accent" };
+      const top = num(a.max) != null ? num(a.max) : (cv > 0 ? Math.ceil(cv * 1.5) : 100);
+      return { ...base, min: Math.min(0, num(a.min) || 0), max: top, color: "accent" };
+    }
     _tile(e, click) {
       const st = this._st(e); if (!st) return null;
       const a = st.attributes;
@@ -1672,6 +1890,8 @@
         .back:hover{color:var(--ms-accent)}
         .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--ms-line);color:var(--ms-ink2)}
         .hero{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+        .gaugerow{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}
+        .gtile{border:1px solid var(--ms-line);border-radius:13px;padding:8px 6px 6px}
         .alerts{display:flex;flex-wrap:wrap;gap:8px}
         .achip{display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:7px 12px;border-radius:9px}
         .achip.bad{background:color-mix(in srgb,var(--ms-bad) 12%,transparent);color:var(--ms-bad);box-shadow:inset 3px 0 0 var(--ms-bad)}
@@ -1718,55 +1938,27 @@
         ]),
       ]);
 
-      // hero (type-specific)
+      // key metrics the device type cares about — drives the gauges, the multi-trend and the readings log
+      const key = this._keyMetrics(info, ents);
+      const keyLabels = key.map((e) => this._metricLabel(e));
+
+      // hero: a tank keeps its animated level; everything else gets a row of gauges for its key readings
       let hero = null;
       if (info.type === "tank" && info.level) hero = this._sub("milesight-level-card", { entity: info.level });
-      else if (info.type === "air" && info.co2) {
-        const a = this._st(info.co2).attributes;
-        hero = h("div", { class: "hero" }, [
-          this._sub("milesight-gauge-card", { entity: info.co2, min: 400, max: 2000, shape: "arc", switchable: false,
-            segments: [{ from: 400, color: "good" }, { from: 800, color: "warn" }, { from: 1200, color: "bad" }] }),
-          info.temp || info.hum ? h("div", { class: "tiles", style: { flex: "1", minWidth: "140px" } },
-            [info.temp, info.hum].filter(Boolean).map((e) => this._tile(e))) : null,
-        ]);
-      } else if (info.type === "climate" && info.temp) {
-        hero = h("div", { class: "hero" }, [
-          this._sub("milesight-gauge-card", this._climateGauge(info.temp)),
-          info.hum ? h("div", { class: "tiles", style: { flex: "1", minWidth: "140px" } }, [this._tile(info.hum)]) : null,
-        ]);
-      } else if (info.type === "pump") {
-        const run = info.running ? this._st(info.running) : null;
-        const runOn = run ? ["on", "true", "running"].includes(String(run.state).toLowerCase()) : null;
-        hero = h("div", { class: "hero" }, [
-          h("div", { style: { textAlign: "center", minWidth: "120px" } }, [
-            h("div", { class: "big", style: { color: runOn ? "var(--ms-good)" : "var(--ms-ink)" } }, runOn == null ? "—" : runOn ? "Running" : "Idle"),
-            h("div", { class: "sub" }, "status"),
-          ]),
-          info.current ? this._sub("milesight-gauge-card", { entity: info.current, min: 0, max: this._cfg.max != null ? this._cfg.max : 20, shape: "semicircle", switchable: false, name: "Current" }) : null,
-        ]);
-      } else if (info.primary) {
-        const a = this._st(info.primary).attributes;
-        hero = this._sub("milesight-gauge-card", { entity: info.primary, min: 0, max: num(a.max) != null ? num(a.max) : 100, shape: "arc", switchable: false });
-      }
+      else if (key.length) hero = h("div", { class: "gaugerow" },
+        key.map((e) => h("div", { class: "gtile" }, [this._sub("milesight-gauge-card", this._gaugeSpec(e))])));
 
-      // trend of the primary metric
-      // trend of the primary reading: a full trendline (threshold flash + day min/max) when the sensor carries a
-      // purpose limit, otherwise the compact sparkline
-      const pa = (info.primary && S[info.primary] && S[info.primary].attributes) || {};
-      const hasLimit = pa.ms_limit_high != null || pa.ms_limit_low != null;
-      const trend = info.primary
-        ? (hasLimit ? this._sub("milesight-trendline-card", { entity: info.primary })
-          : this._sub("milesight-trend-card", { entity: info.primary, hours: this._cfg.hours || 24 }))
-        : null;
+      // multi-property trend + readings-log table over the same key metrics
+      const trend = key.length ? this._sub("milesight-multitrend-card", { entities: key, labels: keyLabels, window: "today" }) : null;
+      const log = key.length ? this._sub("milesight-readings-table-card", { entities: key, labels: keyLabels, rows: 12, window: "today" }) : null;
 
-      // secondary metric tiles (numeric entities not already shown)
-      const shown = new Set([info.primary, info.battery, info.signal, info.hum, info.temp && info.type === "air" ? info.temp : null].filter(Boolean));
-      const metrics = ents.filter((e) => e.startsWith("sensor.") && num(S[e].state) != null && !shown.has(e)
+      // the remaining numeric readings (not already gauged) stay in a compact grid
+      const inKey = new Set(key);
+      const other = ents.filter((e) => e.startsWith("sensor.") && num(S[e].state) != null && !inKey.has(e)
+        && ![info.battery, info.signal].includes(e)
         && !["battery", "signal_strength"].includes(S[e].attributes.device_class) && S[e].attributes.unit_of_measurement);
       const controls = ents.filter((e) => /^(switch|button|number|select)\./.test(e));
       const alerts = this._alerts(ents);
-      if (deviceId) this._loadLog(deviceId, ents);          // one-shot per device
-      const tl = this._logFor === deviceId ? (this._log || []) : [];
 
       // walk-test quick action
       const walk = h("button", { class: "act", onclick: () => {
@@ -1778,18 +1970,14 @@
         head,
         alerts.length ? h("div", { class: "sect" }, [h("div", { class: "alerts" },
           alerts.map((al) => h("div", { class: "achip " + al.level }, [h("span", {}, al.level === "bad" ? "⛔" : "⚠"), esc(al.text)])))]) : null,
-        hero ? h("div", { class: "sect" }, [hero]) : null,
-        (trend || metrics.length) ? h("div", { class: "sect" }, [h("div", { class: "cols" }, [
-          trend ? h("div", {}, [h("p", { class: "sh" }, "Trend"), trend]) : null,
-          metrics.length ? h("div", {}, [h("p", { class: "sh" }, "Readings"), h("div", { class: "tiles" }, metrics.map((e) => this._tile(e)))]) : null,
-        ])]) : null,
-        h("div", { class: "sect" }, [h("p", { class: "sh" }, "Controls"),
-          h("div", { class: "acts" }, controls.map((e) => this._control(e)).concat([walk]))]),
-        tl.length ? h("div", { class: "sect" }, [h("p", { class: "sh" }, "Activity"),
-          h("ul", { class: "tl" }, tl.map((ev) => h("li", {}, [
-            h("span", { class: "tlw" }, ago(typeof ev.when === "number" ? (ev.when < 1e12 ? ev.when * 1000 : ev.when) : ev.when)),
-            h("span", { class: "tlm" }, esc((ev.name ? ev.name + ": " : "") + (ev.message || ev.state || ""))),
-          ])))]) : null,
+        hero ? h("div", { class: "sect" }, [info.type === "tank" ? null : h("p", { class: "sh" }, "Key metrics"), hero]) : null,
+        trend ? h("div", { class: "sect" }, [h("p", { class: "sh" }, "Trend"), trend]) : null,
+        log ? h("div", { class: "sect" }, [h("p", { class: "sh" }, "Readings log"), log]) : null,
+        other.length ? h("div", { class: "sect" }, [h("p", { class: "sh" }, "Other readings"),
+          h("div", { class: "tiles" }, other.map((e) => this._tile(e)))]) : null,
+        controls.length ? h("div", { class: "sect" }, [h("p", { class: "sh" }, "Controls"),
+          h("div", { class: "acts" }, controls.map((e) => this._control(e)).concat([walk]))])
+          : h("div", { class: "sect" }, [h("div", { class: "acts" }, [walk])]),
       ]));
       return card;
     }
@@ -3562,6 +3750,15 @@
       { name: "max", selector: { number: { mode: "box" } } },
       { name: "min", selector: { number: { mode: "box" } } },
       { name: "unit", selector: { text: {} } }, { name: "color", selector: { text: {} } }],
+    "milesight-multitrend-card": [
+      { name: "entities", selector: { entity: { multiple: true } } }, { name: "title", selector: { text: {} } },
+      { name: "window", selector: { select: { mode: "dropdown", options: [
+        { value: "today", label: "Today" }, { value: "24h", label: "24 hours" }, { value: "7d", label: "7 days" }] } } }],
+    "milesight-readings-table-card": [
+      { name: "entities", selector: { entity: { multiple: true } } }, { name: "title", selector: { text: {} } },
+      { name: "rows", selector: { number: { min: 4, max: 48, mode: "box" } } },
+      { name: "window", selector: { select: { mode: "dropdown", options: [
+        { value: "today", label: "Today" }, { value: "24h", label: "24 hours" }, { value: "7d", label: "7 days" }] } } }],
     "milesight-trendline-grid-card": [
       { name: "trend", selector: { select: { mode: "dropdown", options: [
         { value: "tank", label: "Tanks (level %)" }, { value: "cold_chain", label: "Fridges & freezers (°C)" },
@@ -3637,7 +3834,8 @@
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
-        TGRID_TAG = "milesight-trendline-grid-card",
+        TGRID_TAG = "milesight-trendline-grid-card", MTREND_TAG = "milesight-multitrend-card",
+        RTABLE_TAG = "milesight-readings-table-card",
         LVL_TAG = "milesight-level-card", TBL_TAG = "milesight-table-card",
         GAUGE_TAG = "milesight-gauge-card", PANEL_TAG = "milesight-device-panel", HEADER_TAG = "milesight-page-header",
         ONBOARD_TAG = "milesight-onboarding", ALERTS_TAG = "milesight-alerts-card",
@@ -3658,6 +3856,8 @@
     [MINI_TAG, TrendCard, "Milesight Trend", "Self-contained mini trend chart for any sensor"],
     [TLINE_TAG, TrendlineCard, "Milesight Trendline", "Daily trendline that flashes over a threshold, with the day's min/max and the time each happened"],
     [TGRID_TAG, TrendlineGridCard, "Milesight Trendline Grid", "A self-discovering grid of trendlines — one per tank, fridge/freezer or CO₂ sensor"],
+    [MTREND_TAG, MultiTrendCard, "Milesight Multi-trend", "Several properties on one chart, each auto-scaled, with a live legend"],
+    [RTABLE_TAG, ReadingsTableCard, "Milesight Readings Log", "A time-aligned table of recent readings across several properties"],
     [LVL_TAG, LevelCard, "Milesight Level", "Animated tank / silo / dam / bin fill, by purpose"],
     [TBL_TAG, TableCard, "Milesight Table", "Device/status table that faintly highlights rows and cells with issues"],
     [GAUGE_TAG, GaugeCard, "Milesight Gauge", "Animated gauge for any value — arc, half, ring or bar, switchable live"],

@@ -2,6 +2,21 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.82.0
+- **Richer device pages (all device types).** Opening a device now shows:
+  - **Key metrics as a row of gauges** — the 4–5 most important readings for that device type, each colour-zoned
+    (e.g. an air sensor: CO₂, temperature, humidity, PM2.5, pressure; a fridge: temperature band; a pump: current,
+    power, duty). The gauges carry the alert colour, so a value out of range is obvious at a glance. (A tank keeps
+    its animated level visual.)
+  - **A multi-property trend** (`custom:milesight-multitrend-card`) — those same key readings on one chart, each
+    auto-scaled so the shapes are comparable, with a live legend showing each one's current value, and a
+    Today / 24 h / 7 d toggle.
+  - **A "Readings log" table** (`custom:milesight-readings-table-card`) — the raw Activity timestamp list is
+    replaced with a time-aligned table of the actual values (Time + one column per key property, ~12 rows, most
+    recent first). Values past a limit are highlighted.
+  - The remaining readings stay in a compact **"Other readings"** grid; controls and the walk-test action are
+    unchanged. These two new cards can also be dropped onto any dashboard on their own.
+
 ## 0.81.0
 - **Trendlines wired into the dashboards + device pages.**
   - **New self-discovering grid (`custom:milesight-trendline-grid-card`)** — drops a small grid of trendlines, one

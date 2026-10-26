@@ -2285,7 +2285,7 @@ def test_gateway_api():
     import pathlib as _pl
     cards = (_pl.Path(ga.__file__).parent / "frontend" / "milesight-cards.js").read_text(encoding="utf-8")
     for _tag in ("milesight-gateway-card", "milesight-device-card", "milesight-trend-card", "milesight-trendline-card",
-                 "milesight-trendline-grid-card",
+                 "milesight-trendline-grid-card", "milesight-multitrend-card", "milesight-readings-table-card",
                  "milesight-level-card", "milesight-table-card", "milesight-gauge-card", "milesight-device-panel",
                  "milesight-page-header", "milesight-onboarding", "milesight-alerts-card",
                  "milesight-coldlog-card", "milesight-alert-summary-card",
