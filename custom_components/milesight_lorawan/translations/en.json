@@ -273,32 +273,39 @@
         }
       },
       "tank": {
-        "title": "Tank or silo",
-        "description": "Turns the level reading into litres, fill %, usage per day and days until empty, and spots refills and sudden drops (theft or a leak). Capacity with these settings: **{capacity}**.\n\nUpright cylinder: diameter + height. Lying cylinder: diameter + length. Rectangular: length + width + height. Silo with a cone: diameter + total height + cone height. Any other shape: capacity + height (litres follow the level).",
+        "title": "Tank or silo · step 1 of 2",
+        "description": "Turn the level reading into litres, fill %, usage per day and days until empty — and spot refills and sudden drops (theft or a leak).\n\nPick the tank shape. The next step asks only for that shape’s measurements.",
         "data": {
-          "tank_shape": "Shape",
-          "install_height_mm": "Distance reading when empty",
-          "tank_height_mm": "Height when full (level)",
+          "tank_shape": "Shape"
+        }
+      },
+      "tank_size": {
+        "title": "Tank or silo · step 2 of 2",
+        "description": "{guide}\n\nCapacity with these settings: **{capacity}**\n\n_The alerts below are optional — the defaults are fine for most tanks._",
+        "data": {
+          "install_height_mm": "Sensor reading when empty",
+          "tank_probe_offset_mm": "Probe height above the floor",
+          "tank_height_mm": "Height when full",
           "tank_diameter_mm": "Diameter",
           "tank_length_mm": "Length",
           "tank_width_mm": "Width",
-          "tank_cone_mm": "Cone height (silo)",
-          "tank_capacity_l": "Capacity (optional override)",
-          "tank_probe_offset_mm": "Probe height above the floor",
-          "tank_density": "Density for weight (optional)",
-          "tank_low_pct": "Low below",
-          "tank_refill_pct": "Refill when it rises by",
-          "tank_drop_pct": "Sudden-drop alarm when it falls by",
-          "tank_drop_minutes": "… within"
+          "tank_cone_mm": "Cone height",
+          "tank_capacity_l": "Capacity",
+          "tank_low_pct": "Low alert below",
+          "tank_refill_pct": "Count a refill when it rises by",
+          "tank_drop_pct": "Theft / leak alert when it falls by",
+          "tank_drop_minutes": "… within",
+          "tank_density": "Density (for a weight reading)"
         },
         "data_description": {
-          "install_height_mm": "What the sensor measures when the tank is empty (sensor to floor).",
-          "tank_height_mm": "Liquid level when the tank is full. Leave 0 to use the empty distance (sensor at the top of a full tank). A lying cylinder uses its diameter.",
-          "tank_capacity_l": "Leave 0 to calculate it from the size. Set it for 'Any other shape', or to match the tank's label.",
-          "tank_density": "kg/m³, e.g. diesel 840, water 1000, feed pellets 650. Adds a 'Contents weight' sensor. 0 = off.",
-          "tank_low_pct": "The 'Tank low' sensor turns on below this fill. 0 = off.",
-          "tank_refill_pct": "A rise of at least this share of the capacity counts as a refill (event milesight_lorawan_tank).",
-          "tank_drop_pct": "Diesel / theft protection: a fall of at least this share of the capacity within the time below turns on 'Sudden drop'. 0 = off."
+          "install_height_mm": "What the sensor shows when the tank is empty (distance down to the floor).",
+          "tank_height_mm": "The liquid level when the tank is full.",
+          "tank_capacity_l": "Full capacity in litres. Leave 0 to work it out from the measurements above; set it to match the tank’s label.",
+          "tank_low_pct": "Turns on the ‘Tank low’ sensor below this fill %. 0 = off.",
+          "tank_refill_pct": "A rise of at least this share of capacity is logged as a refill. 0 = off.",
+          "tank_drop_pct": "Diesel / theft protection: a fall of at least this share within the time below raises a ‘Sudden drop’ alert. 0 = off.",
+          "tank_drop_minutes": "The window for the sudden-drop alert.",
+          "tank_density": "kg/m³ — e.g. water 1000, diesel 840, feed pellets 650. Adds a ‘Contents weight’ sensor. 0 = off."
         }
       },
       "alerts": {
@@ -562,8 +569,8 @@
     },
     "error": {
       "channel_map_invalid": "Some lines could not be read – see the list above.",
-      "tank_dimensions": "Fill in the size for this shape (see above).",
-      "tank_empty_distance": "Enter what the sensor measures when the tank is empty.",
+      "tank_dimensions": "Enter the measurements for this shape (they must be more than 0).",
+      "tank_empty_distance": "Set the sensor reading when the tank is empty.",
       "ns_topics": "The response topic must be set and different from the request topic.",
       "invalid_app_key": "The AppKey must be 32 hex digits.",
       "ns_no_answer": "The gateway did not answer: {error}. Check the topics on the gateway (application → MQTT) and that it uses the same broker.",

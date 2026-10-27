@@ -1317,50 +1317,97 @@ class MilesightOptionsFlow(OptionsFlow):
                                         "problems": ("\n\n" + "\n".join(problems)) if problems else ""})
 
     # ---------------------------------------------------------------- tank
+    # which measurements each shape actually needs (so the form only ever asks for those)
+    _TANK_DIMS = {
+        "vertical_cylinder": (CONF_TANK_HEIGHT, CONF_TANK_DIAMETER),
+        "horizontal_cylinder": (CONF_TANK_DIAMETER, CONF_TANK_LENGTH),
+        "rectangular": (CONF_TANK_HEIGHT, CONF_TANK_LENGTH, CONF_TANK_WIDTH),
+        "cone_bottom": (CONF_TANK_HEIGHT, CONF_TANK_DIAMETER, CONF_TANK_CONE),
+        "linear": (CONF_TANK_HEIGHT, CONF_TANK_CAPACITY),
+    }
+    _TANK_RANGE = {CONF_TANK_HEIGHT: (0, 30000, "mm"), CONF_TANK_DIAMETER: (0, 30000, "mm"),
+                   CONF_TANK_LENGTH: (0, 50000, "mm"), CONF_TANK_WIDTH: (0, 50000, "mm"),
+                   CONF_TANK_CONE: (0, 30000, "mm"), CONF_TANK_CAPACITY: (0, 10_000_000, "L")}
+
     async def async_step_tank(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Level / distance sensors: tank or silo shape and size → litres, usage, days left, refills, theft."""
+        """Step 1 of 2: pick the tank/silo shape. The next step asks only for that shape's measurements."""
+        entry = self.config_entry
+        if user_input is not None:
+            shape = user_input.get(CONF_TANK_SHAPE, "none")
+            if shape == "none":                                 # not a tank → clear any old tank config
+                data = {k: v for k, v in entry.options.items()
+                        if k not in self._TANK_RANGE and k not in (CONF_TANK_SHAPE, CONF_TANK_DENSITY,
+                        CONF_TANK_LOW_PCT, CONF_TANK_REFILL_PCT, CONF_TANK_DROP_PCT, CONF_TANK_DROP_MIN)}
+                data[CONF_TANK_SHAPE] = "none"
+                return self.async_create_entry(data=data)
+            self._tank_shape = shape
+            return await self.async_step_tank_size()
+        schema = {vol.Required(CONF_TANK_SHAPE, default=entry.options.get(CONF_TANK_SHAPE, "none")): SelectSelector(
+            SelectSelectorConfig(options=list(SHAPES), translation_key="tank_shape"))}
+        return self.async_show_form(step_id="tank", data_schema=vol.Schema(schema))
+
+    async def async_step_tank_size(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Step 2 of 2: the measurements for the chosen shape, then optional low / refill / theft alerts."""
         entry = self.config_entry
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         src = tank_source(model)
+        shape = getattr(self, "_tank_shape", None) or entry.options.get(CONF_TANK_SHAPE, "vertical_cylinder")
+        dims = self._TANK_DIMS.get(shape, ())
+        mount = CONF_TANK_PROBE_OFFSET if src == "depth" else (CONF_INSTALL_HEIGHT_MM if src == "distance" else None)
         errors: dict[str, str] = {}
-        placeholders = {"capacity": "–"}
-        o = {**entry.options, **(user_input or {})}
+        o = {**entry.options, CONF_TANK_SHAPE: shape, **(user_input or {})}
         if user_input is not None:
+            # zero any measurement not used by this shape, so stale values can't skew the maths
+            for k in self._TANK_RANGE:
+                if k not in dims:
+                    o[k] = 0
             cfg = tank_config(o)
-            shape = o.get(CONF_TANK_SHAPE, "none")
-            need = {"vertical_cylinder": (cfg.diameter_mm,), "horizontal_cylinder": (cfg.diameter_mm, cfg.length_mm),
-                    "rectangular": (cfg.length_mm, cfg.width_mm), "cone_bottom": (cfg.diameter_mm, cfg.cone_mm),
-                    "linear": (cfg.capacity_l,)}.get(shape, ())
-            if shape != "none" and (cfg.height_mm <= 0 or any(v <= 0 for v in need)):
+            if cfg.height_mm <= 0 or any(float(o.get(k) or 0) <= 0 for k in dims):
                 errors["base"] = "tank_dimensions"
-            elif shape != "none" and src == "distance" and cfg.empty_distance_mm <= 0:
-                errors["install_height_mm"] = "tank_empty_distance"
+            elif mount == CONF_INSTALL_HEIGHT_MM and float(o.get(CONF_INSTALL_HEIGHT_MM) or 0) <= 0:
+                errors["base"] = "tank_empty_distance"
             else:
-                return self.async_create_entry(data={**entry.options, **user_input})
+                data = {**entry.options, **o}
+                return self.async_create_entry(data=data)
         cfg = tank_config(o)
-        if cfg.enabled:
-            placeholders["capacity"] = f"{capacity_l(cfg):,.0f} L"
+        capacity = f"{capacity_l(cfg):,.0f} L" if cfg.enabled else "–"
+        guide = {
+            "vertical_cylinder": "**Upright cylinder** — measure the inside **diameter** and the **height** of "
+                                 "liquid when it's full.",
+            "horizontal_cylinder": "**Lying cylinder** — measure the inside **diameter** (that is also the full "
+                                   "depth) and the **length**.",
+            "rectangular": "**Rectangular tank** — measure the inside **height** (when full), **length** and "
+                           "**width**.",
+            "cone_bottom": "**Silo with a cone bottom** — measure the inside **diameter**, the **total height** "
+                           "(straight part + cone) and the **cone height**.",
+            "linear": "**Any other shape** — just enter the tank's full **capacity** in litres and the **height** "
+                      "of the level when full. Litres follow the level in proportion.",
+        }.get(shape, "")
+        if mount == CONF_INSTALL_HEIGHT_MM:
+            guide += "\n\nAlso set **Sensor reading when empty** — what the sensor shows with an empty tank " \
+                     "(the distance down to the floor)."
+        elif mount == CONF_TANK_PROBE_OFFSET:
+            guide += "\n\nAlso set **Probe height above the floor**."
 
-        def num(key: str, default: float, lo: float, hi: float, unit: str | None = None) -> None:
+        schema: dict = {}
+
+        def fld(key: str, default: float) -> None:
+            lo, hi, unit = self._TANK_RANGE.get(key, (0, 1_000_000, None))
             schema[vol.Required(key, default=o.get(key, default))] = _float_box(lo, hi, unit)
-        schema: dict = {vol.Required(CONF_TANK_SHAPE, default=o.get(CONF_TANK_SHAPE, "none")): SelectSelector(
-            SelectSelectorConfig(options=list(SHAPES), translation_key="tank_shape"))}
-        if src == "distance":
-            num(CONF_INSTALL_HEIGHT_MM, 0, 0, 30000, "mm")
-        num(CONF_TANK_HEIGHT, 0, 0, 30000, "mm")
-        num(CONF_TANK_DIAMETER, 0, 0, 30000, "mm")
-        num(CONF_TANK_LENGTH, 0, 0, 50000, "mm")
-        num(CONF_TANK_WIDTH, 0, 0, 50000, "mm")
-        num(CONF_TANK_CONE, 0, 0, 30000, "mm")
-        num(CONF_TANK_CAPACITY, 0, 0, 10_000_000, "L")
-        if src == "depth":
-            num(CONF_TANK_PROBE_OFFSET, 0, 0, 30000, "mm")
-        num(CONF_TANK_DENSITY, 0, 0, 3000, "kg/m³")
-        num(CONF_TANK_LOW_PCT, 20, 0, 99, "%")
-        num(CONF_TANK_REFILL_PCT, 5, 1, 100, "%")
-        num(CONF_TANK_DROP_PCT, 0, 0, 100, "%")
-        num(CONF_TANK_DROP_MIN, 60, 5, 1440, "min")
-        return self.async_show_form(step_id="tank", errors=errors, description_placeholders=placeholders,
+        if mount:
+            schema[vol.Required(mount, default=o.get(mount, 0))] = _float_box(0, 30000, "mm")
+        for k in dims:                                          # only this shape's measurements
+            fld(k, 0)
+        # optional alerts (sensible defaults; leave as-is unless you want them)
+        schema[vol.Optional(CONF_TANK_LOW_PCT, default=o.get(CONF_TANK_LOW_PCT, 20))] = _float_box(0, 99, "%")
+        schema[vol.Optional(CONF_TANK_REFILL_PCT, default=o.get(CONF_TANK_REFILL_PCT, 5))] = _float_box(1, 100, "%")
+        schema[vol.Optional(CONF_TANK_DROP_PCT, default=o.get(CONF_TANK_DROP_PCT, 0))] = _float_box(0, 100, "%")
+        schema[vol.Optional(CONF_TANK_DROP_MIN, default=o.get(CONF_TANK_DROP_MIN, 60))] = _float_box(5, 1440, "min")
+        schema[vol.Optional(CONF_TANK_DENSITY, default=o.get(CONF_TANK_DENSITY, 0))] = _float_box(0, 3000, "kg/m³")
+        if shape != "linear":                                   # linear already sets capacity as a measurement
+            schema[vol.Optional(CONF_TANK_CAPACITY, default=o.get(CONF_TANK_CAPACITY, 0))] = _float_box(0, 10_000_000, "L")
+        return self.async_show_form(step_id="tank_size", errors=errors,
+                                    description_placeholders={"capacity": capacity, "shape": shape, "guide": guide},
                                     data_schema=vol.Schema(schema))
 
     # ------------------------------------------------------------- purpose

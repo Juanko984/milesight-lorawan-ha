@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.85.0
+- **Much simpler "Tank or silo" setup.** The old form showed every field at once (Length, Width, Cone height,
+  density, theft settings…) no matter the shape — confusing, since an upright cylinder only needs a diameter and a
+  height. It's now a short two-step flow:
+  1. **Pick the shape.**
+  2. **Enter only that shape's measurements** — e.g. an upright cylinder asks for diameter + height only; a silo
+     adds the cone height; "any other shape" just asks for capacity. Each step shows plain guidance for what to
+     measure, and the live capacity so you can sanity-check it.
+  - The **optional alerts** (low level, refill detection, theft/sudden-drop, density-for-weight) come after the
+    measurements, clearly marked optional with sensible defaults — no need to touch them for a basic tank.
+  - Measurements that don't apply to the chosen shape are cleared automatically, so switching shape can't leave
+    stale values skewing the capacity.
+
 ## 0.84.0
 - **"Purpose (what it is fitted to)" now shows on every device.** The step used to appear only when the model had
   a matching purpose, so sensors like the EM500-PP (pipe pressure) or EM500-LGT (light) showed no Purpose option
