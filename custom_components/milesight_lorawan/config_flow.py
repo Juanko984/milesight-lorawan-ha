@@ -56,6 +56,7 @@ from .const import (
     CONF_REGISTER,
     CONF_TANK_CAPACITY,
     CONF_TANK_CONE,
+    CONF_TANK_CONTENTS,
     CONF_TANK_DENSITY,
     CONF_TANK_DIAMETER,
     CONF_TANK_DROP_MIN,
@@ -151,7 +152,7 @@ from .const import (CONF_ALERT_CATEGORY_QUIET, CONF_ALERT_ROTA, CONF_ALERT_SNOOZ
 from .alerts import DAYS as _DAYS, RotaError, parse_category_quiet, parse_rota
 from .const import (CONF_LNS_APP_KEY, CONF_LNS_ENABLED, CONF_LNS_FARM_ID, CONF_LNS_JOIN_EUI, CONF_LNS_PORT,
                     CONF_LNS_REGION, CONF_LNS_RX1_DELAY, DEFAULT_LNS_PORT, DEFAULT_LNS_RX1_DELAY)
-from .tank import SHAPES, capacity_l, tank_config
+from .tank import CONTENTS as TANK_CONTENTS, SHAPES, capacity_l, tank_config
 
 _DEVEUI_RE = re.compile(r"^[0-9a-f]{16}$")
 
@@ -1330,20 +1331,25 @@ class MilesightOptionsFlow(OptionsFlow):
                    CONF_TANK_CONE: (0, 30000, "mm"), CONF_TANK_CAPACITY: (0, 10_000_000, "L")}
 
     async def async_step_tank(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Step 1 of 2: pick the tank/silo shape. The next step asks only for that shape's measurements."""
+        """Step 1 of 2: what it holds + the tank/silo shape. The next step asks only for that shape's measurements."""
         entry = self.config_entry
         if user_input is not None:
             shape = user_input.get(CONF_TANK_SHAPE, "none")
             if shape == "none":                                 # not a tank → clear any old tank config
                 data = {k: v for k, v in entry.options.items()
-                        if k not in self._TANK_RANGE and k not in (CONF_TANK_SHAPE, CONF_TANK_DENSITY,
-                        CONF_TANK_LOW_PCT, CONF_TANK_REFILL_PCT, CONF_TANK_DROP_PCT, CONF_TANK_DROP_MIN)}
+                        if k not in self._TANK_RANGE and k not in (CONF_TANK_SHAPE, CONF_TANK_CONTENTS,
+                        CONF_TANK_DENSITY, CONF_TANK_LOW_PCT, CONF_TANK_REFILL_PCT, CONF_TANK_DROP_PCT, CONF_TANK_DROP_MIN)}
                 data[CONF_TANK_SHAPE] = "none"
                 return self.async_create_entry(data=data)
             self._tank_shape = shape
+            self._tank_contents = user_input.get(CONF_TANK_CONTENTS, "water")
             return await self.async_step_tank_size()
-        schema = {vol.Required(CONF_TANK_SHAPE, default=entry.options.get(CONF_TANK_SHAPE, "none")): SelectSelector(
-            SelectSelectorConfig(options=list(SHAPES), translation_key="tank_shape"))}
+        schema = {
+            vol.Required(CONF_TANK_CONTENTS, default=entry.options.get(CONF_TANK_CONTENTS, "water")): SelectSelector(
+                SelectSelectorConfig(options=list(TANK_CONTENTS), translation_key="tank_contents")),
+            vol.Required(CONF_TANK_SHAPE, default=entry.options.get(CONF_TANK_SHAPE, "none")): SelectSelector(
+                SelectSelectorConfig(options=list(SHAPES), translation_key="tank_shape")),
+        }
         return self.async_show_form(step_id="tank", data_schema=vol.Schema(schema))
 
     async def async_step_tank_size(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -1352,10 +1358,11 @@ class MilesightOptionsFlow(OptionsFlow):
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         src = tank_source(model)
         shape = getattr(self, "_tank_shape", None) or entry.options.get(CONF_TANK_SHAPE, "vertical_cylinder")
+        contents = getattr(self, "_tank_contents", None) or entry.options.get(CONF_TANK_CONTENTS, "water")
         dims = self._TANK_DIMS.get(shape, ())
         mount = CONF_TANK_PROBE_OFFSET if src == "depth" else (CONF_INSTALL_HEIGHT_MM if src == "distance" else None)
         errors: dict[str, str] = {}
-        o = {**entry.options, CONF_TANK_SHAPE: shape, **(user_input or {})}
+        o = {**entry.options, CONF_TANK_SHAPE: shape, CONF_TANK_CONTENTS: contents, **(user_input or {})}
         if user_input is not None:
             # zero any measurement not used by this shape, so stale values can't skew the maths
             for k in self._TANK_RANGE:

@@ -15,7 +15,7 @@ views:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
             title: Farm
-            subtitle: Pumps, pivots and irrigation
+            subtitle: Pumps, pivots, irrigation and silos
             icon: mdi:tractor-variant
       - type: grid
         cards:
@@ -55,4 +55,28 @@ views:
           - type: custom:milesight-table-card
             preset: pivots
             title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Silos
+            icon: mdi:silo
+          # Grain / feed silos (level sensors set to 'Grain or feed'). Water & fuel tanks live on the Water page.
+          - type: custom:milesight-tank-band
+            silo: true
+            grid_options: {columns: full}
+          - type: custom:milesight-table-card
+            preset: silos
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Silo level trends
+            icon: mdi:chart-line
+          - type: custom:milesight-trendline-grid-card
+            trend: silo
+            columns: 2
             grid_options: {columns: full}

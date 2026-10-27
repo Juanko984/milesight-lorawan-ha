@@ -1673,7 +1673,12 @@ def test_bundled_dashboard_templates_render():
     assert _preset("farm", "Pumps") == "pumps" and _preset("farm", "Centre pivots") == "pivots"
     assert _preset("building_analytics", "Comfort per area") == "comfort"
     assert _preset("building_analytics", "Utilisation today (opening hours)") == "utilisation"
-    assert _preset("tanks_and_alerts", "Tanks and silos") == "tanks"
+    assert _preset("tanks_and_alerts", "Tanks") == "tanks"
+    assert _preset("farm", "Silos") == "silos"
+    # grain/feed silos tag as 'silo' (→ Farm); water/fuel tanks tag as 'tank' (→ Water)
+    assert "silo" in mdl.device_tags("EM500-UDL", {"tank_shape": "cone_bottom", "tank_contents": "feed"})
+    assert "tank" in mdl.device_tags("EM500-UDL", {"tank_shape": "vertical_cylinder", "tank_contents": "water"})
+    assert "tank" in mdl.device_tags("EM500-UDL", {"tank_shape": "vertical_cylinder", "tank_contents": "fuel"})
     assert _preset("maintenance", "Batteries") == "batteries_due"       # Overview shows only batteries needing attention
     assert _preset("maintenance", "Service history") == "service"
     assert _preset("maintenance", "Gateways") == "gateways"

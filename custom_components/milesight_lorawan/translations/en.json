@@ -276,7 +276,11 @@
         "title": "Tank or silo · step 1 of 2",
         "description": "Turn the level reading into litres, fill %, usage per day and days until empty — and spot refills and sudden drops (theft or a leak).\n\nPick the tank shape. The next step asks only for that shape’s measurements.",
         "data": {
+          "tank_contents": "What it holds",
           "tank_shape": "Shape"
+        },
+        "data_description": {
+          "tank_contents": "Water, fuel and other liquids show on the Water dashboard; grain or feed silos show on the Farm dashboard."
         }
       },
       "tank_size": {
@@ -644,6 +648,14 @@
         "lns": "Semtech → Home Assistant network server",
         "mqtt": "Embedded network server + MQTT",
         "both": "Both"
+      }
+    },
+    "tank_contents": {
+      "options": {
+        "water": "Water",
+        "fuel": "Fuel / diesel",
+        "feed": "Grain or feed (silo)",
+        "other": "Other liquid"
       }
     }
   },

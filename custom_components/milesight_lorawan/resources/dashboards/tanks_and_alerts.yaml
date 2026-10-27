@@ -16,7 +16,7 @@ views:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
             title: Water
-            subtitle: Levels, days of supply, usage and leaks across every tank and silo
+            subtitle: Levels, days of supply, usage and leaks across your water and fuel tanks
             icon: mdi:water-percent
       - type: grid
         column_span: 3
@@ -30,8 +30,9 @@ views:
         column_span: 3
         cards:
           - type: heading
-            heading: Tanks and silos
+            heading: Tanks
             icon: mdi:storage-tank
+          # Water, fuel and other liquid tanks. Grain/feed silos live on the Farm dashboard.
           - type: custom:milesight-table-card
             preset: tanks
             title: false

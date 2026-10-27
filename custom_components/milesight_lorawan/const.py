@@ -98,6 +98,7 @@ CONF_RUN_THRESHOLD_A = "run_threshold_a"
 CONF_CHANNEL_MAP = "channel_map"                # UC controllers: names / units / scale per Modbus or analog channel
 # Tank / silo (level & distance sensors)
 CONF_TANK_SHAPE = "tank_shape"
+CONF_TANK_CONTENTS = "tank_contents"         # water / fuel / feed (grain-feed silo) / other — routes water vs silo
 CONF_TANK_HEIGHT = "tank_height_mm"
 CONF_TANK_DIAMETER = "tank_diameter_mm"
 CONF_TANK_LENGTH = "tank_length_mm"

@@ -10,7 +10,7 @@ import logging
 from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
@@ -80,6 +80,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime.async_start()
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     _schedule_sync(hass)
+
+    # keep the "main name" (the entry title) in sync when the user renames the device in Home Assistant, so the
+    # new name shows everywhere — the group header, the cards and the dashboards (which read the entry title).
+    from homeassistant.helpers import device_registry as dr
+
+    @callback
+    def _sync_title(event) -> None:
+        data = event.data
+        if data.get("action") != "update" or "name_by_user" not in (data.get("changes") or {}):
+            return
+        dev = dr.async_get(hass).async_get(data["device_id"])
+        if not dev or entry.entry_id not in dev.config_entries:
+            return
+        name = (dev.name_by_user or "").strip()
+        if name and name != entry.title:
+            hass.config_entries.async_update_entry(entry, title=name)
+
+    entry.async_on_unload(hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, _sync_title))
     return True
 
 

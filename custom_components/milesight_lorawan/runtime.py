@@ -1386,9 +1386,11 @@ class DeviceRuntime:
             lvl, litres = self._tank_litres(v)
             v["tank_level"] = lvl
             v.update(self.tank.values(self.tank_cfg, ts, litres))
+            is_silo = self.tank_cfg.is_silo            # grain/feed → Farm; water/fuel/other → Water
             self.attrs["tank_volume"] = {"milesight_role": "tank", "device": self.entry.title,
                                          "area": self.entry.data.get("area"), "capacity_l": v["tank_capacity"],
                                          "shape": self.tank_cfg.shape, "fill": v["tank_fill"],
+                                         "contents": self.tank_cfg.contents, "is_silo": is_silo,
                                          "usage_per_day": v["tank_usage_per_day"], "days_left": v["tank_days_left"],
                                          "low": v["tank_low"], "sudden_drop": v["tank_sudden_drop"],
                                          "free_l": v.get("tank_free"), "mass_t": v.get("tank_mass"),
@@ -1399,8 +1401,8 @@ class DeviceRuntime:
             self.attrs["tank_last_refill"] = {"added_l": v.get("tank_last_refill_added")}
             self.attrs["tank_sudden_drop"] = {"amount_l": v.get("tank_drop_amount"),
                                               "window_min": self.tank_cfg.drop_minutes}
-            # tag tank fill for the trendline grid; expose the low-level limit so it can flash on it
-            self.attrs["tank_fill"] = {**(self.attrs.get("tank_fill") or {}), "ms_trend": "tank",
+            # tag tank fill for the trendline grid (silo → its own grid on Farm); expose the low-level limit to flash
+            self.attrs["tank_fill"] = {**(self.attrs.get("tank_fill") or {}), "ms_trend": "silo" if is_silo else "tank",
                                        **({"ms_limit_low": self.tank_cfg.low_pct} if self.tank_cfg.low_pct > 0 else {})}
         if "ct" in self.model.features:
             self._ct_values(v)

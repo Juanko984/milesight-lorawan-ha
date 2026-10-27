@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.86.0
+- **Water tanks and grain/feed silos are now separated.** The tank setup gained a **"What it holds"** choice —
+  Water, Fuel/diesel, Grain or feed (silo), or Other liquid. Water, fuel and other liquids stay on the **Water**
+  dashboard; **grain/feed silos move to a new "Silos" section on the Farm dashboard** (with their own band,
+  table and level trends, and contents shown in tonnes). So silos no longer clutter the Water page.
+  - Existing tanks default to "Water", so nothing moves until you set a tank to "Grain or feed".
+- **Renaming a device now updates the main name everywhere.** Previously the discovered name was baked into the
+  config-entry title, and renaming the device in Home Assistant only changed the device-registry name — the group
+  header, cards and dashboards kept the old name. Now, when you rename a Milesight device, the integration syncs
+  that name to the entry title, so the new name shows across the group header, the cards and every dashboard.
+
 ## 0.85.0
 - **Much simpler "Tank or silo" setup.** The old form showed every field at once (Length, Width, Cone height,
   density, theft settings…) no matter the shape — confusing, since an upright cylinder only needs a diameter and a

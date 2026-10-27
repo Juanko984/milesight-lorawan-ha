@@ -71,7 +71,8 @@
        { area: "Lobby WC", odour: "Fresh", odour_bad: false, co2: 540, co2_high: false, sound_db: 38, occupied: false, people: null, supply_min: 72, clean_due: false, clean_visits: 80, visits_since_clean: 12, vape: false, leak: false, smoke: false, attention: false,
          supplies: [{ name: "Soap", remaining: 88 }, { name: "Paper", remaining: 72 }], issues: [] } ] } },
    "sensor.ld2": { state: "6", attributes: { milesight_role: "load", device: "Packshed lights", purpose_label: "Lighting", area: "Packshed", running: true, duty_today: 60, duty_24h: 35, starts_today: 2, after_hours: true } },
-   "sensor.tank1": { state: "1200", attributes: { milesight_role: "tank", device: "Diesel", area: "Yard", fill: 14, low: true, sudden_drop: true, capacity_l: 5000, usage_per_day: 120, days_left: 5, low_pct: 20, free_l: 3800, drop_amount_l: 210, empty_at: Date.now() / 1000 + 5 * 86400, last_refill: Date.now() / 1000 - 4 * 86400, last_refill_added_l: 4000 } },
+   "sensor.tank1": { state: "1200", attributes: { milesight_role: "tank", device: "Diesel", area: "Yard", contents: "fuel", fill: 14, low: true, sudden_drop: true, capacity_l: 5000, usage_per_day: 120, days_left: 5, low_pct: 20, free_l: 3800, drop_amount_l: 210, empty_at: Date.now() / 1000 + 5 * 86400, last_refill: Date.now() / 1000 - 4 * 86400, last_refill_added_l: 4000 } },
+   "sensor.silo1": { state: "9800", attributes: { milesight_role: "tank", device: "Feed silo A", area: "Barn", contents: "feed", is_silo: true, fill: 18, low: true, capacity_l: 20000, mass_t: 12.7, usage_per_day: 900, days_left: 3, low_pct: 20 } },
    "sensor.tank3": { state: "13500", attributes: { milesight_role: "tank", device: "Header tank", area: "Roof", fill: 86, low: false, sudden_drop: false, capacity_l: 16000, usage_per_day: 420, days_left: 20, low_pct: 20, free_l: 2500, last_refill: Date.now() / 1000 - 9 * 86400, last_refill_added_l: 7900 } },
    "sensor.coopwater": { state: "80", attributes: { milesight_role: "tank", device: "Coop water", area: "Chicken coop", fill: 80, low: false, sudden_drop: false, capacity_l: 50, usage_per_day: 8, days_left: 6 } },
    "sensor.pump1": { state: "3", attributes: { milesight_role: "pump", device: "Borehole", running: true, dry_run: true, current: 2.1, normal_current: 9.8, starts_last_hour: 1 } },
@@ -145,6 +146,7 @@
    ["milesight-footfall-card", {}],
    ["milesight-zones-card", {}],
    ["milesight-tank-band", {}],
+   ["milesight-tank-band", { silo: true }],
    ["milesight-tank-supply-card", {}],
    ["milesight-trough-card", {}],
    ["milesight-flood-card", {}],
@@ -162,7 +164,7 @@
  cards.forEach(([t, c]) => mount(t, c, t));
 
  ["devices", "offline", "weak", "firmware", "cold_chain", "compressors", "loads", "pumps", "pivots",
-  "batteries", "service", "gateways", "tanks", "comfort", "utilisation"].forEach((p) =>
+  "batteries", "service", "gateways", "tanks", "silos", "comfort", "utilisation"].forEach((p) =>
    mount("milesight-table-card", { preset: p, title: false }, "table: " + p));
 
  // area-scoped (coop page) — filters to one HA area

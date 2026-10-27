@@ -1209,7 +1209,7 @@
         hint: "Gateways appear with the first uplink that lists them." },
     },
     tanks: {
-      source: "entities", role: "tank", title: "Tanks & silos",
+      source: "entities", role: "tank", title: "Tanks", filter: (r) => !r.is_silo,
       columns: [
         { key: "device", label: "Tank", grow: true },
         { key: "area", label: "Area", muted: true },
@@ -1221,8 +1221,24 @@
       ],
       row: [{ when: { field: "sudden_drop", truthy: true }, level: "bad" }, { when: { field: "low", truthy: true }, level: "warn" }],
       issue: (r) => r.sudden_drop ? "sudden drop" : (r.low ? "low" : null),
-      empty: { icon: "mdi:storage-tank-outline", title: "No tanks or silos yet",
-        hint: "Open a level sensor's device → Configure → Tank or silo." },
+      empty: { icon: "mdi:storage-tank-outline", title: "No water or fuel tanks yet",
+        hint: "Open a level sensor's device → Configure → Tank or silo, and set what it holds." },
+    },
+    silos: {                                                 // grain / feed silos (Farm dashboard)
+      source: "entities", role: "tank", title: "Silos", filter: (r) => !!r.is_silo,
+      columns: [
+        { key: "device", label: "Silo", grow: true },
+        { key: "area", label: "Area", muted: true },
+        { key: "fill", label: "Fill", align: "right", unit: "%", warn: { lt: 20 } },
+        { key: "_state", label: "Contents", align: "right",
+          fmt: (v, r) => r.mass_t != null ? `${r.mass_t} t` : ((v == null || v === "unknown") ? "—" : `${v} / ${r.capacity_l != null ? Math.round(r.capacity_l) : "–"} L`) },
+        { key: "usage_per_day", label: "Used/day", align: "right", fmt: (v) => v == null ? "—" : `${Math.round(v)} L` },
+        { key: "days_left", label: "Days left", align: "right", fmt: (v) => v == null ? "—" : v },
+      ],
+      row: [{ when: { field: "sudden_drop", truthy: true }, level: "bad" }, { when: { field: "low", truthy: true }, level: "warn" }],
+      issue: (r) => r.sudden_drop ? "sudden drop" : (r.low ? "low" : null),
+      empty: { icon: "mdi:silo", title: "No silos yet",
+        hint: "Open a level sensor's device → Configure → Tank or silo, and set 'Grain or feed'." },
     },
     // ---- building analytics (sensors tagged by `kind`, grouped by HA area) ----
     comfort: {
@@ -3226,9 +3242,11 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _watch() { return null; }
     _tiles() {
-      const S = this._hass.states, t = byRole(S, "tank"), troughs = byRoleBin(S, "water_trough");
+      const S = this._hass.states, a = (x) => x.attributes, silo = !!this._cfg.silo;
+      const t = byRole(S, "tank").filter((x) => silo ? !!a(x).is_silo : !a(x).is_silo);
+      const troughs = silo ? [] : byRoleBin(S, "water_trough");
       if (!t.length && !troughs.length) return [];
-      const base = "/milesight-water/tanks", a = (x) => x.attributes;
+      const base = silo ? "/milesight-farm/farm" : "/milesight-water/tanks", noun = silo ? "silo" : "tank";
       const litres = t.map((x) => num(x.state)).filter((v) => v != null);
       const total = litres.length ? litres.reduce((s, v) => s + v, 0) : null;
       const hasMass = t.every((x) => a(x).mass_t != null) && t.length > 0;
@@ -3244,8 +3262,8 @@
       const emptyTr = troughs.filter((x) => a(x).empty === true || ["on", "true", "open"].includes(String(x.state).toLowerCase()));
       const out = t.length ? [
         { icon: "mdi:storage-tank", label: "Total stored", value: hasMass ? `${massTot.toLocaleString()} t` : fmtQty(total),
-          tone: "info", sub: `across ${t.length} tank${t.length === 1 ? "" : "s"}`, nav: base },
-        { icon: "mdi:arrow-down-bold", label: "Lowest tank", value: lowest ? `${Math.round(lowest.v)}%` : "—",
+          tone: "info", sub: `across ${t.length} ${noun}${t.length === 1 ? "" : "s"}`, nav: base },
+        { icon: "mdi:arrow-down-bold", label: silo ? "Lowest silo" : "Lowest tank", value: lowest ? `${Math.round(lowest.v)}%` : "—",
           tone: !lowest ? "mut" : lowest.low || lowest.v < 10 ? "bad" : lowest.v < 25 ? "warn" : "good",
           sub: lowest ? `${lowest.n || "tank"}${lowest.low ? " · refill" : ""}` : "no data", nav: base },
         { icon: "mdi:reload", label: "Needs refill", value: String(low.length),
@@ -3299,7 +3317,8 @@
     _watch() { return null; }
     _render() {
       if (!this._hass) return;
-      const S = this._hass.states, t = byRole(S, "tank"), a = (x) => x.attributes;
+      const S = this._hass.states, a = (x) => x.attributes, silo = !!this._cfg.silo;
+      const t = byRole(S, "tank").filter((x) => silo ? !!a(x).is_silo : !a(x).is_silo);
       this._css = `
         .cols{display:grid;grid-template-columns:1fr 1fr;gap:22px}
         @media (max-width:760px){.cols{grid-template-columns:1fr}}
@@ -3761,7 +3780,8 @@
         { value: "today", label: "Today" }, { value: "24h", label: "24 hours" }, { value: "7d", label: "7 days" }] } } }],
     "milesight-trendline-grid-card": [
       { name: "trend", selector: { select: { mode: "dropdown", options: [
-        { value: "tank", label: "Tanks (level %)" }, { value: "cold_chain", label: "Fridges & freezers (°C)" },
+        { value: "tank", label: "Tanks (level %)" }, { value: "silo", label: "Silos (level %)" },
+        { value: "cold_chain", label: "Fridges & freezers (°C)" },
         { value: "temperature", label: "Temperatures (°C)" }, { value: "air", label: "CO₂ (ppm)" }] } } },
       { name: "area", selector: { text: {} } }, { name: "title", selector: { text: {} } },
       { name: "columns", selector: { number: { min: 1, max: 4, mode: "box" } } },
@@ -3785,7 +3805,8 @@
         { value: "pivots", label: "Centre pivots" }, { value: "batteries", label: "Batteries" },
         { value: "batteries_due", label: "Batteries due" },
         { value: "service", label: "Service history" }, { value: "gateways", label: "Gateways" },
-        { value: "tanks", label: "Tanks & silos" }, { value: "comfort", label: "Comfort per area" },
+        { value: "tanks", label: "Tanks (water/fuel)" }, { value: "silos", label: "Silos (grain/feed)" },
+        { value: "comfort", label: "Comfort per area" },
         { value: "utilisation", label: "Utilisation" }] } } },
       { name: "entity", selector: ENTITY_SEL }, { name: "title", selector: { text: {} } },
       { name: "area", selector: { text: {} } },

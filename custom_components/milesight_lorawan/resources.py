@@ -31,7 +31,7 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
     "tanks_and_alerts.yaml": ("milesight-water", "mdi:water-percent", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people"}),
-    "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation"}),
+    "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation", "silo"}),
     "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),
     "energy.yaml": ("milesight-energy", "mdi:lightning-bolt", {"energy", "hvac"}),
     "coop.yaml": ("milesight-coop", "mdi:egg", {"coop"}),

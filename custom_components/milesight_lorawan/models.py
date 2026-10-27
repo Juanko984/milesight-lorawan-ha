@@ -1942,7 +1942,9 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
     keys = {s.key for s in entity_specs(model_key)}
     tags = set()
     if tank_source(model_key):
-        tags.add("tank")
+        # grain/feed silos go on the Farm dashboard; water/fuel/other liquid tanks go on Water
+        tags.add("silo" if (options.get("tank_contents") == "feed" and options.get("tank_shape") not in (None, "", "none"))
+                 else "tank")
     if "occupancy" in model.features or model.occupancy_fn is not None or model.counters:
         tags.add("people")
     if model.counters or (model.occupancy_fn is not None and model.counting):   # real people counting → retail

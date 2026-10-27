@@ -30,10 +30,20 @@ class TankConfig:
     refill_pct: float = 5         # a rise of at least this share of capacity is a refill
     drop_pct: float = 0           # sudden-drop alarm: fall of at least this share …
     drop_minutes: float = 60      # … within this many minutes; 0 % = off
+    contents: str = "water"       # water / fuel / feed (grain-feed silo) / other → water vs silo routing
 
     @property
     def enabled(self) -> bool:
         return self.shape in SHAPES[1:] and self.height_mm > 0
+
+    @property
+    def is_silo(self) -> bool:
+        """A grain/feed silo (routed to the Farm dashboard, not Water)."""
+        return self.contents == "feed"
+
+
+CONTENTS = ("water", "fuel", "feed", "other")       # what the tank holds
+DEFAULT_DENSITY = {"water": 1000, "fuel": 840, "feed": 650, "other": 0}   # kg/m³, used when density left at 0
 
 
 def tank_config(opts: dict[str, Any]) -> TankConfig:
@@ -51,11 +61,14 @@ def tank_config(opts: dict[str, Any]) -> TankConfig:
     empty = f("install_height_mm")
     if height <= 0 and empty > 0 and shape != "none":
         height = empty                          # sensor mounted at the top of the tank
+    contents = opts.get("tank_contents") or "water"
+    if contents not in CONTENTS:
+        contents = "water"
     return TankConfig(shape=shape if shape in SHAPES else "none", height_mm=height, diameter_mm=diameter,
                       length_mm=f("tank_length_mm"), width_mm=f("tank_width_mm"), cone_mm=f("tank_cone_mm"),
                       capacity_l=f("tank_capacity_l"), empty_distance_mm=empty, probe_offset_mm=f("tank_probe_offset_mm"),
                       density=f("tank_density"), low_pct=f("tank_low_pct", 20), refill_pct=f("tank_refill_pct", 5) or 5,
-                      drop_pct=f("tank_drop_pct"), drop_minutes=f("tank_drop_minutes", 60) or 60)
+                      drop_pct=f("tank_drop_pct"), drop_minutes=f("tank_drop_minutes", 60) or 60, contents=contents)
 
 
 def volume_l(cfg: TankConfig, level_mm: float) -> float:
