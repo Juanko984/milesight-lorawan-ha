@@ -109,7 +109,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "dashboard_config", "dashboard"]:
+for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "costs_calc", "costs", "dashboard_config", "dashboard"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -1575,6 +1575,56 @@ e_nv, rt2 = make_with("24e124746e359612", "CT103", {}, title="No voltage")
 send("24e124746e359612", base64.b64decode("A5d1hw4ABJgtAAln//8="))
 assert rt2.values.get("energy") is None and rt2.limits["run_a"] == 0.2
 print("ct103 energy ok")
+
+# ---------------- running costs: device metering, tracker tick, sensor attributes ----------------
+costs = sys.modules["milesight_lorawan.costs"]
+# a CT clamp with a cumulative kWh reading → one electricity meter (icon by purpose)
+_, cost_pump = make_with("24e124746e35cc01", "CT103", {"pump_enabled": True, "mains_voltage": 230}, title="Borehole pump")
+cost_pump.values["energy"] = 100.0
+pm = costs.device_meters(cost_pump)
+assert len(pm) == 1 and pm[0]["res"] == "electricity" and pm[0]["kind"] == "accum"
+assert pm[0]["reading"] == 100.0 and pm[0]["icon"] == "⚙️"
+# a water meter (meter_type=water) → a water accumulator; a fuel tank → a diesel drain; a feed silo → a feed drain
+water_rt = types.SimpleNamespace(deveui="watercc02", values={"meter_reading": 12.5},
+                                 entry=types.SimpleNamespace(title="Municipal", options={"meter_type": "water"}),
+                                 model=types.SimpleNamespace(features=frozenset()), tank_cfg=None)
+wm = costs.device_meters(water_rt)
+assert len(wm) == 1 and wm[0]["res"] == "water" and wm[0]["kind"] == "accum" and wm[0]["reading"] == 12.5
+_, cost_fuel = make_with("0000000000cc0f01", "EM400-UDL",
+                         {"tank_shape": "vertical_cylinder", "tank_diameter_mm": 1000, "tank_height_mm": 2000,
+                          "install_height_mm": 2100, "tank_density": 840, "tank_contents": "fuel"}, title="Genset fuel")
+_, cost_feed = make_with("0000000000cc0f02", "EM400-UDL",
+                         {"tank_shape": "vertical_cylinder", "tank_diameter_mm": 2000, "tank_height_mm": 3000,
+                          "install_height_mm": 3100, "tank_density": 650, "tank_contents": "feed"}, title="Feed silo A")
+cost_fuel.values["tank_volume"] = 500.0
+cost_feed.values["tank_mass"] = 2000.0                 # kg
+fm, gm = costs.device_meters(cost_fuel), costs.device_meters(cost_feed)
+assert len(fm) == 1 and fm[0]["res"] == "diesel" and fm[0]["kind"] == "drain" and fm[0]["reading"] == 500.0
+assert len(gm) == 1 and gm[0]["res"] == "feed" and gm[0]["kind"] == "drain" and gm[0]["reading"] == 2.0  # 2000 kg → 2 t
+
+# tracker over the whole fleet: baseline, then real consumption on the three loads
+hub_cost = types.SimpleNamespace(options={"tariff_elec_c_kwh": 285, "tariff_water_kl": 18.5,
+                                          "tariff_diesel_l": 23.4, "tariff_feed_t": 6400},
+                                 entry_id="hubcost", title="Green Acres")
+tracker = costs.CostsTracker(hass, hub_cost)
+tracker.update()                                       # baselines everything
+cost_pump.values["energy"] = 112.0                     # +12 kWh  → 34.20
+cost_fuel.values["tank_volume"] = 499.0                # −1 L     → 23.40
+cost_feed.values["tank_mass"] = 1950.0                 # −0.05 t  → 320.00
+tracker.update()
+d = tracker.data
+by = {r["id"]: r for r in d["leaderboard"]}
+assert by[cost_pump.deveui + ":elec"]["today"] == 34.20, by
+assert by[cost_fuel.deveui + ":diesel"]["today"] == 23.40
+assert by[cost_feed.deveui + ":feed"]["today"] == 320.00
+assert d["currency"] == "R" and d["rate_per_h"] is not None and d["today"] >= 377.60
+# the sensor exposes it under the costs role
+cs = costs.CostSensor(hass, hub_cost, tracker)
+assert cs.extra_state_attributes["milesight_role"] == "costs" and cs.native_value == d["today"]
+# has_costs: true with a tariff + a billable device, false with no tariffs
+assert costs.has_costs(hass, hub_cost) is True
+assert costs.any_tariff(types.SimpleNamespace(options={})) is False
+print("running costs ok")
 
 # ---------------- 0.36: power in W, cold storage views, corrective actions, compliance reports ----------------
 e_w, rt = make_with("24e124746e359614", "CT103", {"mains_voltage": 230, "power_factor": 0.9}, title="Pump W")

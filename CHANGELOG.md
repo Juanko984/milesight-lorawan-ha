@@ -2,6 +2,35 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.88.0
+- **Running costs. 💰** Set four tariffs on the gateway (Gateway → Configure → **Running costs**) — electricity
+  (c/kWh), water (per kL), diesel (per litre) and feed (per tonne) — and the integration turns the meters you
+  already have into money. No new hardware.
+  - A **Running costs** card on the **Energy** dashboard: a big **spend-today** figure with a **live ticker**
+    (it ticks up at the current R/hour rate between readings, then snaps to the true meter total), **today /
+    this month / projected month-end** tiles with vs-yesterday and vs-last-month trends, and a **cost
+    leaderboard** ranking every load and resource by what it's costing today.
+  - A small **water / diesel / feed cost-today strip** on the **Water** dashboard.
+  - How it's worked out: electricity from each device's own kWh meter × your tariff (real metered energy);
+    diesel and feed from how much the tank / silo level dropped × your per-litre / per-tonne price (refills and
+    counter resets are never billed); water from metered flow. Currency follows your Home Assistant locale
+    (defaults to **R**) and is overridable. Leave any tariff blank to hide that resource.
+- **The Energy dashboard now installs for plain CT clamps and meters.** Any electricity-monitoring device
+  (CT clamp, smart socket, electricity/gas meter) now adds the Energy dashboard automatically, even before you
+  set a purpose on it — previously it stayed hidden until a device was given an energy/HVAC purpose. (Pump-wired
+  clamps stay on the Farm dashboard.)
+
+## 0.87.0
+- **A few little touches. 🎃** Entirely optional, self-contained, and off-switchable (Gateway → Configure → Site
+  → "Fun touches").
+  - **Party mode** — type the Konami code (↑ ↑ ↓ ↓ ← → ← → B A) on any Milesight dashboard for a confetti burst
+    and a hidden card showing your live fleet stats (devices, gateways online, uplinks today), the version and a
+    cheeky one-liner.
+  - **Seasonal micro-touches** — a small emoji joins the page-header titles around Halloween, the winter holidays
+    and New Year's, with matching confetti/greeting in party mode (and a gentle snow drift in deep December).
+  - Reads only data you already have; nothing is sent anywhere, and it never touches your sensors or dashboards'
+    data. Turn it off and it all vanishes.
+
 ## 0.86.0
 - **Water tanks and grain/feed silos are now separated.** The tank setup gained a **"What it holds"** choice —
   Water, Fuel/diesel, Grain or feed (silo), or Other liquid. Water, fuel and other liquids stay on the **Water**

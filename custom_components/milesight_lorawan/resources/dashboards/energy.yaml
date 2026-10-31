@@ -21,6 +21,17 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Running costs
+            icon: mdi:cash-multiple
+          # Spend today / this month / projected with a live ticker and a cost leaderboard.
+          # Set the tariffs on the gateway → Configure → Running costs. Hidden until a tariff is set.
+          - type: custom:milesight-running-costs-card
+            title: false
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Demand
             icon: mdi:gauge
           - type: custom:milesight-load-summary-card

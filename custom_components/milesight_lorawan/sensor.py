@@ -32,6 +32,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         from .washroom import washroom_sensors
         hub.washroom, wents = washroom_sensors(hass, entry)
         async_add_entities(wents)
+        from .costs import async_setup_costs
+        hub.costs, cents = await async_setup_costs(hass, entry)
+        async_add_entities(cents)
         async_add_entities(hub_extra_sensors(hass, entry))
         from .irrigation_ha import irrigation_entities
         async_add_entities(irrigation_entities(hass, entry, "sensor"))

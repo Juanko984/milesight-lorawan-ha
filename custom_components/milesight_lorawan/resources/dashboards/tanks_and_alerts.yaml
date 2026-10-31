@@ -30,6 +30,16 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Running cost today
+            icon: mdi:cash-multiple
+          # Water, diesel and feed cost today (from the gateway tariffs). Hidden until a tariff is set.
+          - type: custom:milesight-cost-strip-card
+            resources: [water, diesel, feed]
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Tanks
             icon: mdi:storage-tank
           # Water, fuel and other liquid tanks. Grain/feed silos live on the Farm dashboard.

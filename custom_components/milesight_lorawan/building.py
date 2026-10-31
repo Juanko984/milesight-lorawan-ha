@@ -9,6 +9,7 @@ from typing import Any
 from .const import (
     CONF_BRAND_SIDEBAR,
     CONF_CO2_ALERT,
+    CONF_PARTY_MODE,
     CONF_SIDEBAR_TITLE,
     CONF_SITE_ADDRESS,
     CONF_SITE_AREAS,
@@ -66,6 +67,7 @@ def site_info(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     return {
         "company": company,
         "sidebar_title": sidebar_title,
+        "ms_party": bool(o.get(CONF_PARTY_MODE, True)),     # fun touches (seasonal icons + Konami surprise)
         "site": entry.title,
         "address": o.get(CONF_SITE_ADDRESS) or None,
         "contact": (contact.attributes.get("friendly_name") if contact else None) or None,

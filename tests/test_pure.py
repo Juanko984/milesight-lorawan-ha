@@ -22,6 +22,7 @@ def _load(name):
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
+cst = _load("costs_calc")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1291,6 +1292,11 @@ def test_pump_pivot_alerts_and_categories():
     assert "irrigation" not in mdl.device_tags("AT101")
     assert "irrigation" in mdl.device_tags("AT101", {"pivot_centre": {"latitude": 1, "longitude": 2}})
     assert "irrigation" in mdl.device_tags("UC511")
+    # electricity-monitoring devices install the Energy dashboard even with no purpose set…
+    assert "energy" in mdl.device_tags("CT101") and "energy" in mdl.device_tags("CT103")
+    assert "energy" in mdl.device_tags("WS302", {"meter_type": "energy"})
+    # …but a CT wired as a pump lives on the Farm dashboard, not Energy
+    assert "energy" not in mdl.device_tags("CT101", {"pump_enabled": True})
     assert mdl.pump_capable("CT103") and not mdl.pump_capable("AM307")
     assert {s.key for s in mdl.pump_specs(True)} >= {"pump_m3_per_kwh", "pump_dry_run"}
     assert "cmd_pivot_stop" in {s.key for s in mdl.pivot_specs()}
@@ -2305,7 +2311,8 @@ def test_gateway_api():
                  "milesight-retail-band", "milesight-footfall-card", "milesight-zones-card",
                  "milesight-tank-band", "milesight-tank-supply-card", "milesight-trough-card",
                  "milesight-flood-card", "milesight-fence-card", "milesight-washroom-band",
-                 "milesight-washroom-card", "milesight-compliance-card"):
+                 "milesight-washroom-card", "milesight-compliance-card",
+                 "milesight-running-costs-card", "milesight-cost-strip-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # the sidebar-branding routine that sets the top-left title to the site name
@@ -2345,6 +2352,70 @@ def test_gateway_api():
     a = ga.application_body("Home Assistant", "f6f7d81d-647f-4c7f-8409-3e5218c0c523")
     assert set(a) >= set(k for k in fix["app_body"] if k != "id") and a["serviceProfileID"] == fix["app_body"]["serviceProfileID"]
     # device registration on the NS is handled by ns_api.py (keyed by profileID); see its own test in this file
+
+
+def test_running_costs():
+    # r_per_unit: electricity is cents/kWh (÷100), the rest are currency per unit; blank / 0 hides the resource
+    assert cst.r_per_unit("electricity", 285) == 2.85
+    assert cst.r_per_unit("water", 18.5) == 18.5 and cst.r_per_unit("diesel", 23.4) == 23.4
+    assert cst.r_per_unit("feed", None) is None and cst.r_per_unit("feed", 0) is None and cst.r_per_unit("feed", "") is None
+
+    tr = cst.CostTracker(CAL)
+    meta = {"d1:elec": {"label": "Borehole pump", "icon": "⚙️", "res": "electricity"},
+            "d2:diesel": {"label": "Genset", "icon": "⛽", "res": "diesel"},
+            "d3:feed": {"label": "Silo A", "icon": "🌾", "res": "feed"},
+            "d4:water": {"label": "Municipal", "icon": "🚰", "res": "water"}}
+    tariffs = {"electricity": 285, "water": 18.5, "diesel": 23.4, "feed": 6400}
+
+    t0 = T("2026-10-13T06:00:00")
+    tr.roll(t0)
+    tr.observe("d1:elec", "electricity", "accum", 100.0)   # baselines — no spend yet
+    tr.observe("d2:diesel", "diesel", "drain", 500.0)
+    tr.observe("d3:feed", "feed", "drain", 2.0)
+    tr.observe("d4:water", "water", "accum", 10.0)
+    assert tr.report(tariffs, meta, t0)["today"] == 0.0
+
+    t1 = T("2026-10-13T12:00:00")
+    tr.roll(t1)
+    tr.observe("d1:elec", "electricity", "accum", 112.0)   # +12 kWh → 12×2.85 = 34.20
+    tr.observe("d2:diesel", "diesel", "drain", 499.0)      # −1 L  → 23.40
+    tr.observe("d3:feed", "feed", "drain", 1.95)           # −0.05 t → 320.00
+    tr.observe("d4:water", "water", "accum", 10.26)        # +0.26 kL → 4.81
+    rep = tr.report(tariffs, meta, t1, currency="R")
+    assert rep["currency"] == "R"
+    assert rep["by_resource_today"]["electricity"] == 34.20
+    assert rep["by_resource_today"]["diesel"] == 23.40 and rep["by_resource_today"]["feed"] == 320.00
+    assert abs(rep["by_resource_today"]["water"] - 4.81) < 0.001
+    assert rep["today"] == round(34.20 + 23.40 + 320.00 + 4.81, 2)
+    # leaderboard sorted by today's spend, feed first
+    assert [r["id"] for r in rep["leaderboard"]][0] == "d3:feed"
+    assert rep["leaderboard"][0]["unit"] == "t" and abs(rep["leaderboard"][0]["qty_today"] - 0.05) < 1e-6
+    # projection runs this month's spend to month-end (13th of 31 days)
+    assert rep["day_of_month"] == 13 and rep["days_in_month"] == 31
+    assert rep["projected"] == round(rep["month"] / 13 * 31, 2) and rep["projected"] > rep["month"]
+
+    # a blank tariff hides that resource everywhere
+    rep2 = tr.report({**tariffs, "feed": None}, meta, t1)
+    assert "feed" not in rep2["priced_resources"] and "feed" not in rep2["by_resource_today"]
+    assert all(r["resource"] != "feed" for r in rep2["leaderboard"])
+    assert rep2["today"] == round(34.20 + 23.40 + 4.81, 2)
+
+    # counter reset (new < last) banks the new value; a tank refill (level rises) banks nothing
+    tr.observe("d1:elec", "electricity", "accum", 3.0)     # reset → +3 kWh
+    tr.observe("d2:diesel", "diesel", "drain", 520.0)      # refill → ignored
+    rep3 = tr.report(tariffs, meta, t1)
+    assert rep3["by_resource_today"]["electricity"] == round((12.0 + 3.0) * 2.85, 2)
+    assert rep3["by_resource_today"]["diesel"] == 23.40   # unchanged by the refill
+
+    # day then month rollover: yesterday / last-month totals come from the archived buckets
+    t_next = T("2026-10-14T06:00:00")
+    tr.roll(t_next)
+    assert tr.report(tariffs, meta, t_next)["yesterday"] == rep3["today"]
+    assert tr.report(tariffs, meta, t_next)["today"] == 0.0
+    oct_month = tr.report(tariffs, meta, t_next)["month"]
+    t_nov = T("2026-11-01T06:00:00")
+    tr.roll(t_nov)
+    assert tr.report(tariffs, meta, t_nov)["last_month"] == oct_month
 
 
 if __name__ == "__main__":

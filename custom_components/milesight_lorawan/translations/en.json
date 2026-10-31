@@ -154,6 +154,7 @@
         "title": "Configure",
         "menu_options": {
           "site": "Site information",
+          "costs": "Running costs (tariffs)",
           "alerts": "Alert escalation",
           "provisioning": "Add devices to the gateway",
           "connection": "Gateway connection",
@@ -206,6 +207,7 @@
           "update_dashboard": "Regenerate the site landing page now (replaces your edits)",
           "brand_sidebar": "Show the site name in the sidebar header (replaces 'Home Assistant')",
           "sidebar_title": "Custom sidebar title (optional — defaults to the company name)",
+          "party_mode": "Fun touches (seasonal icons + a little hidden surprise 🎃)",
           "set_ha_name": "Also rename the Home Assistant instance (browser tab, app title)"
         },
         "data_description": {
@@ -218,6 +220,17 @@
           "co2_alert": "Areas above this level appear in Needs attention and the banner.",
           "update_dashboard": "Generates the site landing page (site banner, dashboards, people, alerts, areas, tanks, farm, cold chain, energy). It also refreshes by itself unless you edited it; the gateway's 'Update site dashboard' button regenerates it.",
           "set_ha_name": "Renames this Home Assistant instance (Settings → System → Home information) to the company name above."
+        }
+      },
+      "costs": {
+        "title": "Running costs (tariffs)",
+        "description": "Set the four prices and the cards turn your metered energy, water, fuel and feed into money — spend today, this month and projected, plus a live spend ticker on the Energy page. Each device already knows what it is, so you only set the prices here. Leave any tariff blank to hide that resource.",
+        "data": {
+          "cost_currency": "Currency symbol",
+          "tariff_elec_c_kwh": "Electricity (cents per kWh)",
+          "tariff_water_kl": "Water (per kL / m³)",
+          "tariff_diesel_l": "Diesel / fuel (per litre)",
+          "tariff_feed_t": "Feed (per tonne)"
         }
       },
       "general": {

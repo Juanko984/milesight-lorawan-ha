@@ -73,6 +73,7 @@ from .const import (
     CONF_AUTO_BACKFILL,
     CONF_BRAND_SIDEBAR,
     CONF_CLASSIC_GAUGES,
+    CONF_PARTY_MODE,
     CONF_SIDEBAR_TITLE,
     CONF_CO2_ALERT,
     CONF_SITE_ADDRESS,
@@ -230,7 +231,8 @@ def _schedule_dashboard(hass, entry: ConfigEntry, auto: bool = False) -> None:
 
 
 _SITE_KEYS = (CONF_SITE_COMPANY, CONF_SITE_ADDRESS, CONF_SITE_CONTACT, CONF_SITE_PHONE, CONF_SITE_EMAIL, CONF_SITE_LOGO,
-              CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT, CONF_BRAND_SIDEBAR, CONF_SIDEBAR_TITLE)
+              CONF_SITE_AREAS, CONF_SITE_OUTSIDE, CONF_CO2_ALERT, CONF_BRAND_SIDEBAR, CONF_SIDEBAR_TITLE,
+              CONF_PARTY_MODE)
 
 
 PUMP_KEYS = ("pump_enabled", "pump_normal_a", "pump_dry_pct", "pump_overload_pct", "pump_max_starts",
@@ -872,6 +874,8 @@ class MilesightOptionsFlow(OptionsFlow):
             # show the site name in the sidebar header (top-left) instead of "Home Assistant"
             vol.Required(CONF_BRAND_SIDEBAR, default=o.get(CONF_BRAND_SIDEBAR, True)): BooleanSelector(),
             vol.Optional(CONF_SIDEBAR_TITLE, description=sv(CONF_SIDEBAR_TITLE)): TextSelector(),
+            # fun touches: a seasonal emoji on the headers + a hidden Konami-code surprise
+            vol.Required(CONF_PARTY_MODE, default=o.get(CONF_PARTY_MODE, True)): BooleanSelector(),
             vol.Required("set_ha_name", default=False): BooleanSelector(),
             vol.Required(CONF_UPDATE_DASHBOARD, default=False): BooleanSelector(),
         }
@@ -879,14 +883,39 @@ class MilesightOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="site", data_schema=vol.Schema(schema),
                                     description_placeholders={"ha_name": hass_name or "Home"})
 
+    async def async_step_costs(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Gateway: the four running-cost tariffs. Blank a tariff to hide that resource from costs."""
+        from .const import (CONF_CURRENCY, CONF_TARIFF_DIESEL, CONF_TARIFF_ELEC, CONF_TARIFF_FEED,
+                            CONF_TARIFF_WATER, DEFAULT_CURRENCY)
+        entry = self.config_entry
+        _tariff_keys = (CONF_CURRENCY, CONF_TARIFF_ELEC, CONF_TARIFF_WATER, CONF_TARIFF_DIESEL, CONF_TARIFF_FEED)
+        if user_input is not None:
+            data = {k: v for k, v in entry.options.items() if k not in _tariff_keys}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+            _schedule_dashboard(self.hass, entry, auto=True)       # tariffs may make the Energy page worth installing
+            return self.async_create_entry(data=data)
+        o = entry.options
+        cur = o.get(CONF_CURRENCY) or getattr(self.hass.config, "currency", None) or DEFAULT_CURRENCY
+
+        def sv(key: str, default: Any = None) -> dict:
+            return {"suggested_value": o.get(key, default)}
+        schema = {
+            vol.Optional(CONF_CURRENCY, description=sv(CONF_CURRENCY, cur)): TextSelector(),
+            vol.Optional(CONF_TARIFF_ELEC, description=sv(CONF_TARIFF_ELEC)): _float_box(0, 100000, "c/kWh"),
+            vol.Optional(CONF_TARIFF_WATER, description=sv(CONF_TARIFF_WATER)): _float_box(0, 100000, "/kL"),
+            vol.Optional(CONF_TARIFF_DIESEL, description=sv(CONF_TARIFF_DIESEL)): _float_box(0, 100000, "/L"),
+            vol.Optional(CONF_TARIFF_FEED, description=sv(CONF_TARIFF_FEED)): _float_box(0, 10000000, "/t"),
+        }
+        return self.async_show_form(step_id="costs", data_schema=vol.Schema(schema))
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         entry = self.config_entry
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
         if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-            return self.async_show_menu(step_id="init", menu_options=["site", "alerts", "compliance", "irrigation",
-                                                                      "provisioning", "network_server",
+            return self.async_show_menu(step_id="init", menu_options=["site", "costs", "alerts", "compliance",
+                                                                      "irrigation", "provisioning", "network_server",
                                                                       "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         sections = (["purpose"]                                  # fit-for-purpose is offered on every device

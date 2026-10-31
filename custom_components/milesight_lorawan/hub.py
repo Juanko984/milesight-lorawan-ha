@@ -75,6 +75,7 @@ class Hub:
         self._last_push = 0.0
         self.areas = None       # fleet.AreaTracker, set by the sensor platform
         self.building = None    # building.BuildingTracker
+        self.costs = None       # costs.CostsTracker, set by the sensor platform
         self.ns = None          # provisioning.NsApiClient when the ns-api topics are set
         if cfg.get(CONF_NS_REQUEST_TOPIC) and cfg.get(CONF_NS_RESPONSE_TOPIC):
             from .provisioning import NsApiClient

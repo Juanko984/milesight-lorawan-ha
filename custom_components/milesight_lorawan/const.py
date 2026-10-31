@@ -35,6 +35,7 @@ CONF_UPDATE_DASHBOARD = "update_dashboard"   # form-only: regenerate the Buildin
 CONF_CLASSIC_GAUGES = "classic_gauges"       # use Home Assistant's built-in gauge instead of the milesight gauge card
 CONF_BRAND_SIDEBAR = "brand_sidebar"         # show the site name in the sidebar header instead of "Home Assistant"
 CONF_SIDEBAR_TITLE = "sidebar_title"         # optional custom text for the sidebar header (default: company name)
+CONF_PARTY_MODE = "party_mode"               # fun touches: seasonal icons + a hidden Konami surprise
 DEFAULT_SITE_LOGO = "/local/logo.png"
 DEFAULT_CO2_ALERT = 1200
 # Gateway provisioning (Milesight ns-api over MQTT)
@@ -112,6 +113,14 @@ CONF_TANK_REFILL_PCT = "tank_refill_pct"
 CONF_TANK_DROP_PCT = "tank_drop_pct"
 CONF_TANK_DROP_MIN = "tank_drop_minutes"
 CONF_MAINS_VOLTAGE = "mains_voltage"
+
+# Running costs: four tariffs on the gateway turn metered energy / water / fuel / feed into money
+CONF_CURRENCY = "cost_currency"              # symbol shown on the cards (defaults to HA locale, else "R")
+CONF_TARIFF_ELEC = "tariff_elec_c_kwh"       # electricity, cents per kWh
+CONF_TARIFF_WATER = "tariff_water_kl"        # municipal water, currency per kL (m³)
+CONF_TARIFF_DIESEL = "tariff_diesel_l"       # diesel / fuel, currency per litre
+CONF_TARIFF_FEED = "tariff_feed_t"           # feed, currency per tonne
+DEFAULT_CURRENCY = "R"
 
 DEFAULT_MAX_GAP_MIN = 120
 DEFAULT_LEFT_OPEN_MIN = 10

@@ -2092,7 +2092,7 @@
           h("div", { class: "phi" }, [h("ha-icon", { icon: cfg.icon || "mdi:view-dashboard" })]),
           h("div", { class: "pht" }, [
             site ? h("div", { class: "eye" }, esc(site)) : null,
-            h("div", { class: "h1" }, esc(cfg.title || "Overview")),
+            h("div", { class: "h1" }, _msSeasonTitle(this._hass, cfg.title || "Overview")),
             cfg.subtitle ? h("div", { class: "sub" }, esc(cfg.subtitle)) : null,
           ]),
           stats.length ? h("div", { class: "phs" }, stats.map(statEl)) : null,
@@ -3846,6 +3846,10 @@
     "milesight-compliance-card": [{ name: "title", selector: { text: {} } }],
     "milesight-mains-card": [{ name: "title", selector: { text: {} } }],
     "milesight-load-summary-card": [{ name: "title", selector: { text: {} } }],
+    "milesight-running-costs-card": [{ name: "title", selector: { text: {} } }],
+    "milesight-cost-strip-card": [{ name: "resources", selector: { select: { multiple: true, options: [
+      { value: "electricity", label: "Electricity" }, { value: "water", label: "Water" },
+      { value: "diesel", label: "Diesel" }, { value: "feed", label: "Feed" }] } } }],
     "milesight-domain-card": [{ name: "domain", selector: { select: { mode: "dropdown", options: [
       { value: "tanks", label: "Water" }, { value: "cold_chain", label: "Cold chain" },
       { value: "energy", label: "Energy" }, { value: "climate", label: "Climate" },
@@ -3885,6 +3889,290 @@
   }
   try { setInterval(_msBrandSidebar, 1500); window.addEventListener("location-changed", _msBrandSidebar); _msBrandSidebar(); } catch (e) { /* no window */ }
 
+  // ---------------------------------------------------------------- fun touches (seasonal + a hidden surprise)
+  // Little delights: a seasonal emoji on the page header, and a Konami-code "party mode" (confetti + a secret
+  // stats card). Self-contained, harmless, and opt-out via the Site sensor's `ms_party` attribute.
+  function _msHass() { try { const ha = document.querySelector("home-assistant"); return ha && ha.hass; } catch (e) { return null; } }
+  function _msSeason() {                                    // date-aware badge / greeting / ambient flake
+    const d = new Date(), m = d.getMonth(), day = d.getDate();
+    if (m === 9 && day >= 24) return { badge: "🎃", greet: "🎃 Happy Halloween from the fleet!", flake: null };
+    if (m === 11 && day >= 20) return { badge: "🎄", greet: "❄️ Season's greetings — stay warm out there.", flake: "❄" };
+    if (m === 0 && day === 1) return { badge: "🎉", greet: "🎉 Happy New Year! Here's to clean uplinks.", flake: null };
+    return { badge: null, greet: "", flake: null };
+  }
+  function _msFunOn(hass) {                                 // default on; Site sensor can switch it off
+    hass = hass || _msHass(); if (!hass || !hass.states) return true;
+    for (const id in hass.states) { const a = hass.states[id].attributes; if (a && a.milesight_role === "site" && "ms_party" in a) return !!a.ms_party; }
+    return true;
+  }
+  function _msSeasonTitle(hass, title) {                     // a small seasonal emoji beside a page-header title
+    const s = _msSeason();
+    if (!s.badge || !_msFunOn(hass)) return esc(title);
+    return [esc(title), h("span", { style: { marginLeft: "8px", fontSize: "0.9em" } }, s.badge)];
+  }
+  function _msVersion() {
+    if (window.__msVersion) return window.__msVersion;
+    try { const sc = [...document.querySelectorAll('script[src*="milesight-cards.js"]')].pop();
+      const m = sc && sc.src.match(/[?&]v=([\d.]+)/); if (m) { window.__msVersion = m[1]; return m[1]; } } catch (e) { /* */ }
+    return "";
+  }
+  function _msRole(hass, role) { const S = hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return S[id]; return null; }
+  function _msSiteName(hass) {
+    const s = _msRole(hass, "site"); if (s && (s.attributes.company || s.state)) return s.attributes.company || s.state;
+    return (hass.config && hass.config.location_name) || "your site";
+  }
+  // confetti — a self-contained canvas burst (pumpkins mixed in at Halloween), no dependencies
+  const _MS_COLORS = ["#f0883e", "#4aa3ff", "#3fb950", "#d29922", "#a371f7", "#f85149", "#e9eef2"];
+  function _msConfetti(n, pumpkin) {
+    try {
+      let cv = document.getElementById("ms-confetti");
+      if (!cv) { cv = document.createElement("canvas"); cv.id = "ms-confetti";
+        cv.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:99998"; document.body.appendChild(cv); }
+      const ctx = cv.getContext("2d"); cv.width = innerWidth; cv.height = innerHeight;
+      const parts = cv._p = (cv._p || []); const cx = innerWidth / 2, cy = innerHeight * 0.42;
+      for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, sp = 4 + Math.random() * 9;
+        parts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 4, g: 0.18 + Math.random() * 0.12,
+          s: 5 + Math.random() * 7, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.4,
+          c: _MS_COLORS[i % _MS_COLORS.length], life: 90 + Math.random() * 50, pk: pumpkin && Math.random() < 0.25 }); }
+      if (!cv._raf) { const tick = () => {
+        ctx.clearRect(0, 0, cv.width, cv.height); cv._p = cv._p.filter((p) => p.life > 0);
+        for (const p of cv._p) { p.vy += p.g; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life--;
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.life / 40);
+          if (p.pk) { ctx.font = (p.s * 2.4) + "px serif"; ctx.fillText("🎃", -p.s, p.s); }
+          else { ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6); } ctx.restore(); }
+        if (cv._p.length) cv._raf = requestAnimationFrame(tick); else { cv._raf = 0; ctx.clearRect(0, 0, cv.width, cv.height); cv.remove(); } };
+        cv._raf = requestAnimationFrame(tick); }
+    } catch (e) { /* canvas blocked */ }
+  }
+  function _msBat() {
+    try { const b = document.createElement("div"); b.textContent = "🦇";
+      b.style.cssText = "position:fixed;top:14%;left:-60px;font-size:30px;z-index:99997;filter:drop-shadow(0 4px 6px rgba(0,0,0,.5))";
+      document.body.appendChild(b); let x = -60;
+      const t = setInterval(() => { x += 9; b.style.left = x + "px"; b.style.top = (innerHeight * 0.14 + Math.sin(x / 40) * 40) + "px";
+        if (x > innerWidth + 60) { clearInterval(t); b.remove(); } }, 16);
+    } catch (e) { /* */ }
+  }
+  const _MS_LINES = ["Still counting electrons so you don't have to.", "47 sensors walk into a gateway…",
+    "Your tanks say hi. 👋", "No packets were harmed in the making of this dashboard.",
+    "Somewhere, a cow is being monitored responsibly.", "LoRa, long may she range."];
+  function _msParty() {
+    const hass = _msHass(); if (!hass || !_msFunOn(hass)) return;
+    if (document.getElementById("ms-egg")) return;
+    const s = _msSeason();
+    const fleet = _msRole(hass, "fleet_total"), gw = _msRole(hass, "net_gateways_online");
+    const devs = fleet ? (fleet.attributes.devices || []) : [];
+    const gws = gw ? (gw.attributes.gateways || []) : [];
+    const gwOn = gws.filter((x) => x.online).length;
+    const upl = gws.reduce((t, x) => t + (num(x.packets_today) || 0), 0);
+    const ver = _msVersion();
+    const line = _MS_LINES[Math.floor(Math.random() * _MS_LINES.length)];
+    const scrim = h("div", { id: "ms-egg" });
+    scrim.style.cssText = "position:fixed;inset:0;background:rgba(6,9,11,.55);display:flex;align-items:center;justify-content:center;z-index:99999";
+    const st = (v, l) => `<div style="border:1px solid var(--ms-line);border-radius:12px;padding:9px 6px"><b style="display:block;font-size:19px;font-weight:720">${v}</b><span style="font-size:10.5px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em">${l}</span></div>`;
+    const card = document.createElement("div");
+    card.style.cssText = "width:360px;max-width:92vw;background:linear-gradient(180deg,#1b2026,#141a1f);border:1px solid var(--ms-line);border-radius:20px;padding:24px 22px 20px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.6)";
+    card.innerHTML =
+      `<div style="width:66px;height:66px;border-radius:19px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:34px;background:color-mix(in srgb,var(--ms-accent) 18%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--ms-accent) 40%,transparent)">${s.badge || "🛰️"}</div>
+       <h2 style="margin:0;font-size:18px;font-weight:720">Milesight LoRaWAN</h2>
+       <div style="font:600 12px ui-monospace,monospace;color:var(--ms-accent);margin-top:2px">${ver ? "v" + esc(ver) + " · " : ""}party mode</div>
+       <div style="font-size:13.5px;color:var(--ms-ink2);margin:12px 4px;line-height:1.5">${esc(line)}</div>
+       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 4px">
+         ${st(String(devs.length), "devices")}${st(gwOn + "/" + gws.length, "gateways")}${st(upl ? upl.toLocaleString() : "—", "uplinks today")}</div>
+       ${s.greet ? `<div style="margin-top:12px;font-size:13px;font-weight:600;color:var(--ms-accent)">${esc(s.greet)}</div>` : ""}
+       <div style="margin-top:14px;font-size:11.5px;color:var(--ms-ink2)">Built with ⚡ for <b>${esc(_msSiteName(hass))}</b></div>
+       <div style="margin-top:12px;font-size:12px;color:var(--ms-ink2);cursor:pointer">press any key or click to close</div>`;
+    scrim.appendChild(card); document.body.appendChild(scrim);
+    const close = () => { try { scrim.remove(); } catch (e) { /* */ } document.removeEventListener("keydown", onKey, true); };
+    const onKey = () => close();
+    scrim.addEventListener("click", close);
+    setTimeout(() => document.addEventListener("keydown", onKey, true), 120);
+    _msConfetti(160, s.badge === "🎃"); setTimeout(() => _msConfetti(90, s.badge === "🎃"), 250);
+    if (s.badge === "🎃") _msBat();
+  }
+  // Konami listener (↑↑↓↓←→←→ B A), global but harmless
+  (function () {
+    const CODE = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
+    let pos = 0;
+    try {
+      window.addEventListener("keydown", (e) => {
+        if (document.getElementById("ms-egg")) return;
+        const k = e.key && e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        if (k === CODE[pos]) { pos++; if (pos === CODE.length) { pos = 0; _msParty(); } }
+        else { pos = (k === CODE[0]) ? 1 : 0; }
+      });
+    } catch (e) { /* no window */ }
+  })();
+  // gentle ambient flakes in deep winter (very light; disabled outside the season or when fun is off)
+  (function () {
+    try {
+      const s = _msSeason(); if (!s.flake) return;
+      let started = false;
+      const start = () => { if (started || !_msFunOn()) return; started = true;
+        const cv = document.createElement("canvas"); cv.id = "ms-flakes";
+        cv.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.5"; document.body.appendChild(cv);
+        const ctx = cv.getContext("2d"); const F = [];
+        const size = () => { cv.width = innerWidth; cv.height = innerHeight; }; size(); addEventListener("resize", size);
+        for (let i = 0; i < 16; i++) F.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, r: 6 + Math.random() * 8, sp: 0.3 + Math.random() * 0.6, dr: Math.random() * 6 });
+        const tick = () => { ctx.clearRect(0, 0, cv.width, cv.height); ctx.font = "14px serif";
+          for (const f of F) { f.y += f.sp; f.x += Math.sin((f.y + f.dr) / 40) * 0.4; if (f.y > innerHeight + 10) { f.y = -10; f.x = Math.random() * innerWidth; }
+            ctx.fillText(s.flake, f.x, f.y); } requestAnimationFrame(tick); }; tick(); };
+      setTimeout(start, 2500);
+    } catch (e) { /* */ }
+  })();
+
+  // ================================================================ running costs
+  // Reads the single "costs" role sensor on the gateway. A live spend ticker (ticks up at the sensor's
+  // R/hour rate between the 60 s updates, then snaps to the true total), today/month/projected tiles and a
+  // cost leaderboard. No entity ids: it finds the costs sensor itself.
+  function fmtMoney(cur, v, dec) {
+    if (v == null || !Number.isFinite(v)) return "—";
+    dec = dec == null ? 2 : dec;
+    return (cur || "R") + " " + v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  }
+  const RES_ICON = { electricity: "⚡", water: "🚰", diesel: "⛽", feed: "🌾" };
+  const RES_NAME = { electricity: "Electricity", water: "Water", diesel: "Diesel", feed: "Feed" };
+  function fmtQty(qty, unit) {
+    if (qty == null || !Number.isFinite(qty)) return "";
+    if (unit === "t" && qty < 1) return Math.round(qty * 1000).toLocaleString() + " kg";   // small feed draw reads in kg
+    const dec = qty < 10 ? 2 : qty < 100 ? 1 : 0;
+    return qty.toLocaleString(undefined, { maximumFractionDigits: dec }) + (unit ? " " + unit : "");
+  }
+
+  class RunningCostsCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "costs") return id; return null; }
+    _watch() { const id = this._find(); return id ? [id] : null; }
+    disconnectedCallback() { if (this._timer) { clearInterval(this._timer); this._timer = 0; } }
+    _startTicker() {
+      if (this._timer) return;
+      this._timer = setInterval(() => {
+        if (!this._tickEl || this._rate == null) return;
+        const elapsed = (Date.now() - this._tickBase) / 1000;
+        const v = this._todayBase + (this._rate / 3600) * elapsed;
+        this._tickEl.textContent = fmtMoney(this._cur, v, 2).replace((this._cur || "R") + " ", "");
+      }, 1000);
+    }
+    _render() {
+      if (!this._hass) return;
+      const id = this._find(), st = id ? this._st(id) : null;
+      this._css = `
+        .rc-hero{display:flex;align-items:flex-end;gap:22px;padding:2px 0 15px;border-bottom:1px solid var(--ms-line);margin-bottom:15px;flex-wrap:wrap}
+        .rc-big{font-size:42px;font-weight:760;letter-spacing:-1px;font-variant-numeric:tabular-nums;line-height:1;color:var(--ms-ink)}
+        .rc-big .c{color:var(--ms-ink2);font-size:25px;font-weight:600;margin-right:3px}
+        .rc-lab{font-size:12px;color:var(--ms-ink2);margin-top:8px}
+        .rc-live{display:inline-flex;align-items:center;gap:6px;color:var(--ms-good);margin-left:4px}
+        .rc-live .d{width:7px;height:7px;border-radius:50%;background:var(--ms-good);animation:rcpulse 1.6s infinite}
+        @keyframes rcpulse{0%{box-shadow:0 0 0 0 rgba(63,185,80,.6)}70%{box-shadow:0 0 0 7px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
+        .rc-rate{margin-left:auto;text-align:right}
+        .rc-rate .v{font-size:23px;font-weight:720;color:var(--ms-accent);font-variant-numeric:tabular-nums}
+        .rc-rate .k{font-size:11.5px;color:var(--ms-ink2)}
+        .rc-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .rc-t{border:1px solid var(--ms-line);border-radius:13px;padding:12px 14px;position:relative;overflow:hidden}
+        .rc-t::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--bar,var(--ms-line))}
+        .rc-t .k{font-size:11.5px;color:var(--ms-ink2)}
+        .rc-t .v{font-size:24px;font-weight:730;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--ms-ink)}
+        .rc-t .s{font-size:11.5px;color:var(--ms-ink2);margin-top:5px}
+        .rc-up{color:var(--ms-bad)} .rc-dn{color:var(--ms-good)}
+        .rc-lh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:18px 0 10px}
+        .rc-row{display:flex;align-items:center;gap:11px;padding:9px 2px;border-bottom:1px solid var(--ms-line);font-size:13.5px}
+        .rc-row:last-child{border-bottom:none}
+        .rc-ic{font-size:15px;width:20px;text-align:center}
+        .rc-nm{color:var(--ms-ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .rc-bar{height:7px;border-radius:4px;background:#222a30;overflow:hidden;flex:1;max-width:190px;min-width:60px}
+        .rc-bar>i{display:block;height:100%;border-radius:4px;background:var(--ms-accent)}
+        .rc-m{margin-left:auto;font-weight:680;font-variant-numeric:tabular-nums;color:var(--ms-ink)}
+        .rc-q{font-size:11.5px;color:var(--ms-ink2);font-variant-numeric:tabular-nums;width:64px;text-align:right}
+        @media(max-width:560px){.rc-tiles{grid-template-columns:1fr}.rc-q{display:none}}
+      `;
+      if (!st) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:cash-remove",
+          title: "No running costs yet", hint: "Gateway → Configure → Running costs: set a tariff (electricity c/kWh, water, diesel, feed) and the spend appears here." })]));
+      }
+      const a = st.attributes, cur = a.currency || "R";
+      this._cur = cur; this._rate = num(a.rate_per_h); this._todayBase = num(a.today) || 0; this._tickBase = Date.now();
+      const board = Array.isArray(a.leaderboard) ? a.leaderboard : [];
+      const maxToday = board.reduce((m, r) => Math.max(m, num(r.today) || 0), 0) || 1;
+
+      const tick = h("div", { class: "rc-big" }, [h("span", { class: "c" }, cur),
+        h("span", { class: "tv" }, fmtMoney(cur, this._todayBase, 2).replace(cur + " ", ""))]);
+      const hero = h("div", { class: "rc-hero" }, [
+        h("div", {}, [tick,
+          h("div", { class: "rc-lab" }, ["spent today",
+            this._rate != null ? h("span", { class: "rc-live" }, [h("span", { class: "d" }), "live · updating"]) : null])]),
+        this._rate != null ? h("div", { class: "rc-rate" }, [
+          h("div", { class: "v" }, fmtMoney(cur, this._rate, 2) + "/h"), h("div", { class: "k" }, "burning right now")]) : null,
+      ]);
+
+      const trend = (now, was, lower_good) => {
+        if (now == null || was == null || !was) return null;
+        const pct = Math.round((now - was) / was * 100);
+        if (!pct) return h("span", {}, "level with ");
+        const up = pct > 0, cls = (up === !lower_good) ? "rc-up" : "rc-dn";
+        return h("span", { class: cls }, (up ? "▲ " : "▼ ") + Math.abs(pct) + "% ");
+      };
+      const tiles = h("div", { class: "rc-tiles" }, [
+        h("div", { class: "rc-t", style: { "--bar": "var(--ms-accent)" } }, [h("div", { class: "k" }, "Today"),
+          h("div", { class: "v" }, fmtMoney(cur, num(a.today), 2)),
+          h("div", { class: "s" }, [trend(num(a.today), num(a.yesterday), true), "vs yesterday (" + fmtMoney(cur, num(a.yesterday), 0) + ")"])]),
+        h("div", { class: "rc-t", style: { "--bar": "var(--blue)" } }, [h("div", { class: "k" }, "This month"),
+          h("div", { class: "v" }, fmtMoney(cur, num(a.month), 0)),
+          h("div", { class: "s" }, a.day_of_month ? ("day " + a.day_of_month + " of " + a.days_in_month + " · " + fmtMoney(cur, num(a.month) / a.day_of_month, 0) + "/day") : "")]),
+        h("div", { class: "rc-t", style: { "--bar": "#e3b341" } }, [h("div", { class: "k" }, "Projected month-end"),
+          h("div", { class: "v" }, fmtMoney(cur, num(a.projected), 0)),
+          h("div", { class: "s" }, [trend(num(a.projected), num(a.last_month), true), "vs last month (" + fmtMoney(cur, num(a.last_month), 0) + ")"])]),
+      ]);
+
+      const rows = board.length ? board.map((r) => h("div", { class: "rc-row" }, [
+        h("span", { class: "rc-ic" }, r.icon || RES_ICON[r.resource] || "•"),
+        h("span", { class: "rc-nm" }, esc(r.label)),
+        h("span", { class: "rc-bar" }, [h("i", { style: { width: Math.max(2, Math.round((num(r.today) || 0) / maxToday * 100)) + "%" } })]),
+        h("span", { class: "rc-q" }, fmtQty(num(r.qty_today), r.unit)),
+        h("span", { class: "rc-m" }, fmtMoney(cur, num(r.today), 2)),
+      ])) : [h("div", { class: "muted", style: { fontSize: "13px", padding: "6px 2px" } }, "No priced loads yet — set a tariff for the resources you meter.")];
+
+      this._card(h("div", { class: "wrap" }, [hero, tiles,
+        h("div", { class: "rc-lh" }, "What's costing the most · today"), h("div", {}, rows)]));
+      this._tickEl = this.shadowRoot.querySelector(".tv");
+      this._startTicker();
+    }
+  }
+
+  // ================================================================ cost strip (water / fuel / feed)
+  // A small per-resource cost row for a page other than Energy (e.g. the Water page shows water/diesel/feed).
+  class CostStripCard extends Base {
+    static getStubConfig() { return { resources: ["water", "diesel", "feed"] }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "costs") return id; return null; }
+    _watch() { const id = this._find(); return id ? [id] : null; }
+    _render() {
+      if (!this._hass) return;
+      const id = this._find(), st = id ? this._st(id) : null;
+      this._css = `
+        .cs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .cs-t{border:1px solid var(--ms-line);border-radius:13px;padding:12px 14px;position:relative;overflow:hidden}
+        .cs-t::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--bar,var(--ms-line))}
+        .cs-t .k{font-size:11.5px;color:var(--ms-ink2)}
+        .cs-t .v{font-size:23px;font-weight:730;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--ms-ink)}
+        .cs-t .s{font-size:11.5px;color:var(--ms-ink2);margin-top:4px}
+        @media(max-width:560px){.cs{grid-template-columns:1fr}}
+      `;
+      const want = (this._cfg.resources && this._cfg.resources.length) ? this._cfg.resources : ["water", "diesel", "feed"];
+      if (!st) { return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:cash-remove",
+        title: "No costs yet", hint: "Set the matching tariff on the gateway (Configure → Running costs)." })])); }
+      const a = st.attributes, cur = a.currency || "R", by = a.by_resource_today || {};
+      const priced = (a.priced_resources || []);
+      const bars = { water: "var(--blue)", diesel: "var(--ms-warn)", feed: "var(--ms-good)", electricity: "var(--ms-accent)" };
+      const tiles = want.filter((r) => priced.includes(r)).map((r) => h("div", { class: "cs-t", style: { "--bar": bars[r] || "var(--ms-line)" } }, [
+        h("div", { class: "k" }, (RES_ICON[r] || "") + " " + (RES_NAME[r] || r) + " today"),
+        h("div", { class: "v" }, fmtMoney(cur, num(by[r]), 2)),
+      ]));
+      if (!tiles.length) { return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:cash-remove",
+        title: "No costs for these resources", hint: "Set a tariff for " + want.join(" / ") + " on the gateway." })])); }
+      this._card(h("div", { class: "wrap" }, [h("div", { class: "cs" }, tiles)]));
+    }
+  }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
@@ -3903,7 +4191,8 @@
         TANKBAND_TAG = "milesight-tank-band", TANKSUPPLY_TAG = "milesight-tank-supply-card",
         TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card", FENCE_TAG = "milesight-fence-card",
         WASHBAND_TAG = "milesight-washroom-band", WASHROOM_TAG = "milesight-washroom-card",
-        COMPLIANCE_TAG = "milesight-compliance-card";
+        COMPLIANCE_TAG = "milesight-compliance-card",
+        COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -3942,6 +4231,8 @@
     [WASHBAND_TAG, WashroomBand, "Milesight Washroom Band", "Washroom tiles: need cleaning, low supplies, odour, alerts, occupied"],
     [WASHROOM_TAG, WashroomCard, "Milesight Washrooms", "One card per restroom: cleanliness, supplies, traffic, air, events"],
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
+    [COSTS_TAG, RunningCostsCard, "Milesight Running Costs", "Spend today/month/projected with a live ticker and a cost leaderboard, from your tariffs"],
+    [COSTSTRIP_TAG, CostStripCard, "Milesight Cost Strip", "A small water / diesel / feed cost-today strip for a page other than Energy"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

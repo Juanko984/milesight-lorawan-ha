@@ -1971,6 +1971,11 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
             tags.add("fence")
         if key == "toilet":                    # a washroom / toilet purpose installs the Washroom dashboard
             tags.add("washroom")
+    # any electricity-monitoring device (CT clamp, smart socket, electricity/gas meter) installs the Energy
+    # dashboard — even before a specific purpose is set — unless it's already a pump (that lives on Farm)
+    if ("pump" not in tags and (model.features & {"ct", "load", "socket"}
+                                or options.get("meter_type") in ("energy", "gas"))):
+        tags.add("energy")
     return frozenset(tags)
 
 
