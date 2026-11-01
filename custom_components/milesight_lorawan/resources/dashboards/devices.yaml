@@ -23,6 +23,12 @@ views:
       - type: grid
         column_span: 3
         cards:
+          - type: custom:milesight-recipe-strip-card
+            category: [devices]
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
           - type: heading
             heading: Fleet health
             icon: mdi:heart-pulse

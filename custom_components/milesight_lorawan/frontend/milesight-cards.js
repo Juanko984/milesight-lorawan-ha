@@ -3850,6 +3850,11 @@
     "milesight-cost-strip-card": [{ name: "resources", selector: { select: { multiple: true, options: [
       { value: "electricity", label: "Electricity" }, { value: "water", label: "Water" },
       { value: "diesel", label: "Diesel" }, { value: "feed", label: "Feed" }] } } }],
+    "milesight-recipes-card": [],
+    "milesight-recipe-strip-card": [{ name: "category", selector: { select: { multiple: true, options: [
+      { value: "water", label: "Water" }, { value: "pumps", label: "Pumps" }, { value: "cold_chain", label: "Cold chain" },
+      { value: "energy", label: "Energy" }, { value: "devices", label: "Devices" }, { value: "farm", label: "Farm" },
+      { value: "security", label: "Security" }] } } }],
     "milesight-domain-card": [{ name: "domain", selector: { select: { mode: "dropdown", options: [
       { value: "tanks", label: "Water" }, { value: "cold_chain", label: "Cold chain" },
       { value: "energy", label: "Energy" }, { value: "climate", label: "Climate" },
@@ -4173,6 +4178,258 @@
     }
   }
 
+  // ================================================================ recipes (plain-language automations)
+  // Reads the single "recipes" role sensor; toggles / tunes / adds via the recipe WebSocket. The engine runs
+  // on the gateway — this card is just the face of it.
+  const DUR_OPTS = [[0, "immediately"], [5, "5 min"], [15, "15 min"], [30, "30 min"], [60, "1 h"], [120, "2 h"], [240, "4 h"], [360, "6 h"]];
+  const NOTIFY_OPTS = [["on_call", "on-call"], ["primary", "primary"], ["maintenance", "maintenance"], ["farm_manager", "farm manager"]];
+  const CAT_LABEL = { water: "Water", pumps: "Pumps", cold_chain: "Cold chain", energy: "Energy & cost", devices: "Devices", farm: "Farm", security: "Security" };
+  const ACTION_TEXT = (x) => ({ raise_alert: "+ raise an alert", press: "+ switch a device", log: "+ log" }[x.type] || ("+ " + x.type));
+
+  class RecipesCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    constructor() { super(); this._open = null; this._adding = false; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "recipes") return id; return null; }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._open || this._adding) return;                 // don't clobber an open editor / library on a refresh
+      const id = this._find(), s = id ? hass.states[id] : null;
+      const sig = s ? s.entity_id + s.last_updated : "none";
+      if (sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    async _ws(type, extra) {
+      const id = this._find(), hub = id && this._hass.states[id].attributes.hub;
+      try { return await this._hass.callWS({ type: "milesight_lorawan/recipes/" + type, hub, ...(extra || {}) }); }
+      catch (e) { return { error: String(e && e.message || e) }; }
+    }
+    _reopen() { this._open = null; this._adding = false; this._lastSig = null; this.set_hass_refresh(); }
+    set_hass_refresh() { const h = this._hass; this._lastSig = null; this.hass = h; }
+    _recipe(id) { const st = this._st(this._find()); const l = (st && st.attributes.recipes) || []; return l.find((r) => r.id === id); }
+
+    _css_block() {
+      this._css = `
+        .rc2-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+        .rc2-head .ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;background:color-mix(in srgb,var(--ms-accent) 15%,transparent)}
+        .rc2-head .ti{font-size:16px;font-weight:700}.rc2-head .sub{font-size:12px;color:var(--ms-ink2);margin-top:1px}
+        .rc2-head .sp{flex:1}
+        .mbtn{font:inherit;font-size:12.5px;border-radius:9px;padding:7px 13px;border:1px solid var(--ms-line);background:#12181d;color:var(--ms-ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+        .mbtn.p{background:var(--ms-accent);border-color:var(--ms-accent);color:#160d05;font-weight:650}
+        .mbtn.d{color:var(--ms-bad);border-color:color-mix(in srgb,var(--ms-bad) 50%,var(--ms-line))}
+        .grp{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:8px 2px 8px}
+        .rx{display:flex;align-items:center;gap:13px;padding:12px 2px;border-bottom:1px solid var(--ms-line)}
+        .rx:last-child{border-bottom:none}.rx .ri{font-size:18px;width:24px;text-align:center;flex:0 0 auto}
+        .rx .body{flex:1;min-width:0}.rx .sent{font-size:13.5px;line-height:1.5;color:var(--ms-ink)}
+        .rx.off .sent{color:var(--ms-ink2)}
+        .rx .meta{font-size:11.5px;color:var(--ms-ink2);margin-top:4px;display:flex;gap:11px;flex-wrap:wrap}
+        .rx .meta .fire{color:var(--ms-good)}
+        .rx .tune{font-size:12px;color:var(--ms-accent);flex:0 0 auto;cursor:pointer}
+        .tog{width:40px;height:23px;border-radius:999px;background:#2a333a;position:relative;flex:0 0 auto;cursor:pointer;transition:.15s}
+        .tog i{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#8a97a0;transition:.15s}
+        .tog.on{background:color-mix(in srgb,var(--ms-good) 55%,transparent)}.tog.on i{left:19px;background:#eafff0}
+        .ed{border:1px solid var(--ms-accent);border-radius:13px;padding:14px 15px;margin:4px 0;background:var(--ms-card);box-shadow:0 0 0 1px color-mix(in srgb,var(--ms-accent) 22%,transparent)}
+        .ed .etitle{font-size:14px;font-weight:650;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+        .wt{display:flex;gap:11px;margin:8px 0}
+        .wt .tag{flex:0 0 46px;font:700 10.5px system-ui;letter-spacing:.06em;padding-top:9px;color:var(--ms-ink2)}
+        .wt.when .tag{color:var(--ms-accent)} .wt.then .tag{color:var(--ms-good)}
+        .clause{flex:1;background:#12181d;border:1px solid var(--ms-line);border-radius:11px;padding:9px 12px;font-size:13.5px;line-height:2.1}
+        .ichip{display:inline-flex;align-items:center;gap:2px;background:color-mix(in srgb,var(--ms-accent) 12%,transparent);border:1px solid var(--ms-accent);color:var(--ms-accent);border-radius:7px;padding:0 6px;margin:0 2px;font-weight:650;font-size:12.5px;vertical-align:middle}
+        .ichip .cin{background:transparent;border:none;color:var(--ms-accent);font:inherit;font-weight:650;width:46px;padding:3px 0;text-align:right}
+        .ichip .cin.tx{width:118px;text-align:left}
+        .ichip .suf{font-size:11.5px;opacity:.85;margin-left:1px}
+        select.ichip{appearance:auto;padding:3px 4px;cursor:pointer}
+        .achip{display:inline-flex;align-items:center;background:#0f1418;border:1px solid var(--ms-line);border-radius:7px;padding:1px 8px;margin:0 2px;font-size:12.5px;color:var(--ms-ink2);vertical-align:middle}
+        .scope{display:inline-flex;gap:3px;vertical-align:middle}
+        .ahint{font-size:11.5px;color:var(--ms-ink2);margin-left:4px}
+        .prow2{display:flex;align-items:center;gap:9px;margin:9px 2px 0;font-size:12.5px;flex-wrap:wrap}
+        .prow2 .lbl{color:var(--ms-ink2);min-width:112px}
+        .prow2 .pin{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:8px;padding:6px 9px;min-width:210px;font:inherit;font-size:13px}
+        .gline{font-size:12.5px;color:var(--ms-ink2);margin:11px 2px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .gline select{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:7px;padding:4px 7px;font:inherit;font-size:12.5px}
+        .gline input{width:auto;accent-color:var(--ms-accent)}
+        .ed .foot{display:flex;gap:9px;margin-top:14px;border-top:1px solid var(--ms-line);padding-top:12px;align-items:center}
+        .catrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px}
+        .cat{font-size:12px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:5px 12px;cursor:pointer}
+        .cat.on{color:var(--ms-accent);border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent)}
+        .lib{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .libc{border:1px solid var(--ms-line);border-radius:13px;padding:13px 14px}
+        .libc .lh{display:flex;align-items:center;gap:9px;margin-bottom:7px}.libc .lh .e{font-size:17px}.libc .lh .n{font-size:13.5px;font-weight:650}
+        .libc .d{font-size:12px;color:var(--ms-ink2);line-height:1.45;min-height:40px}
+        .libc .add{margin-top:10px;width:100%;justify-content:center}.libc.have{opacity:.5}
+        @media(max-width:620px){.lib{grid-template-columns:1fr}.ed input[type=text]{min-width:120px}}
+      `;
+    }
+
+    _render() {
+      if (!this._hass) return;
+      this._css_block();
+      const st = this._st(this._find());
+      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:script-text-outline",
+        title: "Recipes not ready", hint: "The gateway sets this up automatically — give it a moment after a restart." })]));
+      const a = st.attributes, recipes = a.recipes || [];
+      const head = h("div", { class: "rc2-head" }, [
+        h("div", { class: "ic" }, "📋"),
+        h("div", {}, [h("div", { class: "ti" }, "Recipes"),
+          h("div", { class: "sub" }, `${a.running || 0} running · ${a.paused || 0} paused · fired ${a.fired_today || 0}× today`)]),
+        h("div", { class: "sp" }),
+        h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._open = null; this._render(); } }, "＋ Add recipe"),
+      ]);
+      if (this._adding) return this._card(h("div", { class: "wrap" }, [head, this._library(a)]));
+
+      const on = recipes.filter((r) => r.enabled), off = recipes.filter((r) => !r.enabled);
+      const body = [head];
+      if (!recipes.length) body.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "10px 2px" } }, "No recipes yet — press “Add recipe”."));
+      const section = (title, list) => { if (!list.length) return; body.push(h("div", { class: "grp" }, title)); list.forEach((r) => body.push(this._row(r))); };
+      section("Running", on); section("Paused", off);
+      this._card(h("div", { class: "wrap" }, body));
+    }
+
+    _row(r) {
+      if (this._open === r.id) return this._editor(r);
+      const last = r.last_fire ? h("span", { class: "fire" }, "● fired " + ago(r.last_fire * 1000)) : h("span", {}, r.fired_today ? `fired ${r.fired_today}× today` : "never fired");
+      return h("div", { class: "rx" + (r.enabled ? "" : " off") }, [
+        h("span", { class: "ri" }, r.icon || "•"),
+        h("div", { class: "body" }, [h("div", { class: "sent" }, esc(r.sentence)),
+          h("div", { class: "meta" }, [h("span", {}, CAT_LABEL[r.category] || r.category), last,
+            h("span", {}, `covers ${r.covers}`)])]),
+        h("span", { class: "tune", onclick: () => { this._open = r.id; this._render(); } }, "Tune"),
+        h("div", { class: "tog" + (r.enabled ? " on" : ""), onclick: async () => { await this._ws("toggle", { id: r.id, enabled: !r.enabled }); this.set_hass_refresh(); } }, [h("i")]),
+      ]);
+    }
+
+    _editor(r) {
+      const self = this, ct = r.cond || {}, t = ct.type, p = r.params || {};
+      const DAY_OPTS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+      // inline chip builders — a <select>/<input> styled as a chip, carrying data-param so _save reads it
+      const cSel = (param, opts, val, isStr, cls) => { const s = h("select", { class: "ichip " + (cls || "") }, opts.map(([v, l]) => h("option", { value: String(v), selected: String(v) === String(val) }, l))); if (param) s.setAttribute("data-param", param); if (isStr) s.setAttribute("data-str", "1"); return s; };
+      const dNum = (param, val, suf) => { const i = h("input", { type: "number", value: val == null ? "" : val, class: "cin" }); i.setAttribute("data-param", param); return h("span", { class: "ichip" }, [i, suf ? h("span", { class: "suf" }, suf) : null]); };
+      // scope chip (hidden name box reveals when not "any")
+      const mode = (r.scope && r.scope.mode) || "any", scopeVal = (r.scope && (r.scope.area || r.scope.device)) || "";
+      const nameBox = h("span", { class: "ichip scwrap", style: { display: mode === "any" ? "none" : "inline-flex" } }, [h("input", { type: "text", class: "cin tx f-scopeval", placeholder: "name", value: scopeVal })]);
+      const modeSel = h("select", { class: "ichip f-mode", onchange: (e) => { nameBox.style.display = e.target.value === "any" ? "none" : "inline-flex"; } },
+        [["any", "any matching"], ["area", "in one area"], ["device", "one device"]].map(([v, l]) => h("option", { value: v, selected: v === mode }, l)));
+      const scope = h("span", { class: "scope" }, [modeSel, nameBox]);
+
+      let when;
+      if (t === "threshold" && ct.limit_attr) when = [scope, " is above its limit for ", cSel("duration_min", DUR_OPTS, p.duration_min)];
+      else if (t === "threshold" && ct.attr === "days_left") when = [scope, " has under ", dNum("threshold", p.threshold, "days"), " left"];
+      else if (t === "threshold") when = [scope, " drops below ", dNum("threshold", p.threshold, "%"), " for ", cSel("duration_min", DUR_OPTS, p.duration_min)];
+      else if (t === "edge_count") when = [scope, " dry-runs ", dNum("count", p.count, "×"), " within ", cSel("window_min", DUR_OPTS, p.window_min)];
+      else if (t === "offline") when = [scope, " sends nothing for ", cSel("duration_min", DUR_OPTS, p.duration_min)];
+      else if (t === "boolean" && ct.role === "mains") when = [scope, " loses power"];
+      else if (t === "boolean") when = [scope, " reads empty for ", cSel("duration_min", DUR_OPTS, p.duration_min)];
+      else if (t === "costs_projection") when = ["today’s spend is on track to beat your usual day by ", (() => { const i = h("input", { type: "number", value: Math.round(((p.factor || 1.25) - 1) * 100), class: "cin f-factorpct" }); return h("span", { class: "ichip" }, [i, h("span", { class: "suf" }, "%")]); })()];
+      else if (t === "night_flow") when = ["a water meter flows more than ", dNum("litres", p.litres, "L"), " between ", dNum("from_hour", p.from_hour, "h"), " and ", dNum("to_hour", p.to_hour, "h")];
+      else if (t === "battery_sweep") when = ["weekly on ", cSel("day", DAY_OPTS, p.day, true), " at ", dNum("hour", p.hour, "h"), " → any battery under ", dNum("threshold", p.threshold, "%")];
+      else if (t === "geofence") when = [scope, " moves more than ", dNum("radius_m", p.radius_m, "m"), " from the site"];
+      else when = [scope];
+
+      // THEN clause: the notify target is editable; other actions show as read-only chips
+      const notifyAct = (r.actions || []).find((x) => x.type === "notify");
+      const then = [];
+      if (notifyAct) { then.push("notify "); then.push(cSel(null, NOTIFY_OPTS, notifyAct.target, false, "f-notify")); }
+      (r.actions || []).filter((x) => x.type !== "notify").forEach((x) => { if (then.length) then.push(" "); then.push(h("span", { class: "achip" }, ACTION_TEXT(x))); });
+      then.push(h("span", { class: "ahint" }, "or a notify.* service"));
+
+      const rows = [
+        h("div", { class: "etitle" }, [r.icon + " ", esc(r.title || CAT_LABEL[r.category] || r.category), h("span", { class: "sp", style: { flex: 1 } }),
+          h("span", { style: { fontSize: "11.5px", color: "var(--ms-ink2)", fontWeight: 400 } }, `covers ${r.covers}`)]),
+        h("div", { class: "wt when" }, [h("div", { class: "tag" }, "WHEN"), h("div", { class: "clause" }, when)]),
+        h("div", { class: "wt then" }, [h("div", { class: "tag" }, "THEN"), h("div", { class: "clause" }, then)]),
+      ];
+      if ((r.actions || []).some((x) => x.type === "press")) {
+        const pr = r.actions.find((x) => x.type === "press");
+        rows.push(h("div", { class: "prow2" }, [h("span", { class: "lbl" }, "Switch-off entity"),
+          h("input", { type: "text", class: "pin f-press", placeholder: "button / switch entity id", value: (pr && pr.entity) || "" })]));
+      }
+      rows.push(h("div", { class: "gline" }, [
+        "don’t repeat within ", cSel(null, [[5, "5 min"], [15, "15 min"], [30, "30 min"], [60, "1 h"], [180, "3 h"]], (r.guards && r.guards.debounce_min) || 30, false, "f-debounce"),
+        h("label", { style: { marginLeft: "6px", display: "inline-flex", alignItems: "center", gap: "5px" } },
+          [h("input", { type: "checkbox", class: "f-wh", checked: !!(r.guards && r.guards.working_hours) }), "only during working hours"]),
+      ]));
+      rows.push(h("div", { class: "foot" }, [
+        h("button", { class: "mbtn p", onclick: () => this._save(r) }, "Save"),
+        h("button", { class: "mbtn", onclick: async () => { await this._ws("test", { id: r.id }); } }, "Test now"),
+        h("span", { style: { flex: 1 } }),
+        h("button", { class: "mbtn d", onclick: async () => { await this._ws("delete", { id: r.id }); this._reopen(); } }, "Delete"),
+        h("button", { class: "mbtn", onclick: () => { this._open = null; this._render(); } }, "Cancel"),
+      ]));
+      return h("div", { class: "ed" }, rows);
+    }
+
+    async _save(r) {
+      const root = this.shadowRoot, g = (s) => root.querySelector(s), v = (s) => { const el = g(s); return el ? el.value : null; };
+      const inst = JSON.parse(JSON.stringify(r)); inst.params = { ...inst.params }; inst.scope = { ...(inst.scope || {}) }; inst.guards = { ...(inst.guards || {}) };
+      const mode = v(".f-mode") || "any"; inst.scope.mode = mode;
+      const sv = v(".f-scopeval") || ""; inst.scope.area = mode === "area" ? sv : null; inst.scope.device = mode === "device" ? sv : null;
+      root.querySelectorAll("[data-param]").forEach((el) => { const k = el.getAttribute("data-param"); if (!k) return; inst.params[k] = el.hasAttribute("data-str") ? el.value : num(el.value); });
+      const fp = g(".f-factorpct"); if (fp) inst.params.factor = 1 + (num(fp.value) || 0) / 100;
+      inst.guards.debounce_min = num(v(".f-debounce"));
+      inst.guards.working_hours = !!(g(".f-wh") && g(".f-wh").checked);
+      const notify = v(".f-notify"), press = g(".f-press") ? (v(".f-press") || null) : undefined;
+      inst.actions = (inst.actions || []).map((x) => (x.type === "notify" && notify != null) ? { ...x, target: notify }
+        : (x.type === "press" && press !== undefined) ? { ...x, entity: press } : x);
+      ["sentence", "covers", "fired_today", "firing_now", "last_fire", "category", "icon", "cond", "title"].forEach((k) => delete inst[k]);
+      await this._ws("update", { recipe: inst });
+      this._reopen();
+    }
+
+    _library(a) {
+      const cat = this._libCat || "all";
+      const cats = [["all", "All"], ...Object.keys(CAT_LABEL).map((k) => [k, CAT_LABEL[k]])];
+      const catrow = h("div", { class: "catrow" }, cats.map(([k, l]) => h("span", { class: "cat" + (k === cat ? " on" : ""), onclick: () => { this._libCat = k; this._render(); } }, l)));
+      const items = (a.catalog || []).filter((c) => cat === "all" || c.category === cat);
+      const grid = h("div", { class: "lib" }, items.map((c) => h("div", { class: "libc" }, [
+        h("div", { class: "lh" }, [h("span", { class: "e" }, c.icon), h("span", { class: "n" }, esc(c.title))]),
+        h("div", { class: "d" }, esc(c.sentence)),
+        h("button", { class: "mbtn p add", onclick: async () => { await this._ws("enable", { catalog: c.key }); this._adding = false; this.set_hass_refresh(); } }, "＋ Enable"),
+      ])));
+      const back = h("div", { style: { marginTop: "14px" } }, [h("button", { class: "mbtn", onclick: () => { this._adding = false; this._render(); } }, "← Back to recipes")]);
+      return h("div", {}, [catrow, grid, back]);
+    }
+  }
+
+  // ================================================================ recipe strip (one domain, compact)
+  class RecipeStripCard extends Base {
+    static getStubConfig() { return { category: "water" }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "recipes") return id; return null; }
+    set hass(hass) { this._hass = hass; const id = this._find(), s = id ? hass.states[id] : null; const sig = s ? s.entity_id + s.last_updated : "none"; if (sig === this._lastSig) return; this._lastSig = sig; this._render(); }
+    async _ws(type, extra) { const id = this._find(), hub = id && this._hass.states[id].attributes.hub; try { return await this._hass.callWS({ type: "milesight_lorawan/recipes/" + type, hub, ...(extra || {}) }); } catch (e) { return { error: e }; } }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .rs-h{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin-bottom:10px}
+        .rs-h .lnk{margin-left:auto;color:var(--ms-accent);font-size:12px;text-transform:none;letter-spacing:0;cursor:pointer}
+        .rs{display:flex;flex-direction:column;gap:2px}
+        .rsr{display:flex;align-items:center;gap:11px;padding:9px 2px;border-bottom:1px solid var(--ms-line);font-size:13px}
+        .rsr:last-child{border-bottom:none}.rsr .ri{font-size:16px;width:20px;text-align:center}
+        .rsr .s{flex:1;min-width:0}.rsr.off .s{color:var(--ms-ink2)}
+        .rsr .m{font-size:11px;color:var(--ms-ink2)}
+        .tog{width:36px;height:21px;border-radius:999px;background:#2a333a;position:relative;flex:0 0 auto;cursor:pointer}
+        .tog i{position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#8a97a0;transition:.15s}
+        .tog.on{background:color-mix(in srgb,var(--ms-good) 55%,transparent)}.tog.on i{left:17px;background:#eafff0}
+      `;
+      const st = this._st(this._find());
+      const cats = (this._cfg.category ? [].concat(this._cfg.category) : null);
+      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:script-text-outline", title: "Recipes not ready", hint: "Set up automatically by the gateway." })]));
+      const all = st.attributes.recipes || [];
+      const list = cats ? all.filter((r) => cats.includes(r.category)) : all;
+      if (!list.length) return this._card(h("div", { class: "wrap" }, [
+        h("div", { class: "rs-h" }, ["Recipes", h("span", { class: "lnk", onclick: () => navigate("/milesight-recipes") }, "Manage →")]),
+        h("div", { class: "muted", style: { fontSize: "12.5px", padding: "4px 2px" } }, "No recipes here yet — add one from the Recipes page.")]));
+      const rows = list.map((r) => h("div", { class: "rsr" + (r.enabled ? "" : " off") }, [
+        h("span", { class: "ri" }, r.icon || "•"),
+        h("div", { class: "s" }, [esc(r.sentence), r.last_fire ? h("div", { class: "m" }, "● fired " + ago(r.last_fire * 1000)) : null]),
+        h("div", { class: "tog" + (r.enabled ? " on" : ""), onclick: async () => { await this._ws("toggle", { id: r.id, enabled: !r.enabled }); this._lastSig = null; this.hass = this._hass; } }, [h("i")]),
+      ]));
+      this._card(h("div", { class: "wrap" }, [
+        h("div", { class: "rs-h" }, ["Recipes", h("span", { class: "lnk", onclick: () => navigate("/milesight-recipes") }, "Manage →")]),
+        h("div", { class: "rs" }, rows)]));
+    }
+  }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
@@ -4192,7 +4449,8 @@
         TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card", FENCE_TAG = "milesight-fence-card",
         WASHBAND_TAG = "milesight-washroom-band", WASHROOM_TAG = "milesight-washroom-card",
         COMPLIANCE_TAG = "milesight-compliance-card",
-        COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card";
+        COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card",
+        RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -4233,6 +4491,8 @@
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
     [COSTS_TAG, RunningCostsCard, "Milesight Running Costs", "Spend today/month/projected with a live ticker and a cost leaderboard, from your tariffs"],
     [COSTSTRIP_TAG, CostStripCard, "Milesight Cost Strip", "A small water / diesel / feed cost-today strip for a page other than Energy"],
+    [RECIPES_TAG, RecipesCard, "Milesight Recipes", "Plain-language automations: browse, toggle, tune and add recipes"],
+    [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Recipe Strip", "A compact per-domain recipe strip with toggles for a dashboard"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

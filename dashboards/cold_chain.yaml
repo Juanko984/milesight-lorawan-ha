@@ -21,6 +21,12 @@ views:
       - type: grid
         column_span: 3
         cards:
+          - type: custom:milesight-recipe-strip-card
+            category: [cold_chain]
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
           - type: heading
             heading: Cold chain status
             icon: mdi:snowflake-thermometer

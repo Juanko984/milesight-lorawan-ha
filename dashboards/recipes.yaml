@@ -1,0 +1,26 @@
+# Milesight LoRaWAN – Recipes (plain-language automations)
+# Installed by the integration on every site. The card reads the "recipes" role sensor on the gateway and
+# edits recipes over the recipe WebSocket — no entity ids to set. The engine runs on the gateway.
+title: Recipes
+views:
+  - title: Recipes
+    path: recipes
+    icon: mdi:script-text-outline
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Recipes
+            subtitle: Plain-language automations — set a condition, choose what happens
+            icon: mdi:script-text-outline
+      - type: grid
+        column_span: 3
+        cards:
+          # Browse, toggle, tune and add recipes. Conditions are role-aware ("any tank", "any pump") and run
+          # on the gateway; actions fire Home Assistant notifications, services and downlink buttons.
+          - type: custom:milesight-recipes-card
+            grid_options: {columns: full}

@@ -109,7 +109,8 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "costs_calc", "costs", "dashboard_config", "dashboard"]:
+for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "costs_calc", "costs", "recipes_calc", "recipes",
+          "dashboard_config", "dashboard"]:
     globals()[n] = load(n)
 
 class FakeEntries:
@@ -911,7 +912,7 @@ bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-alerts", "milesight-devices", "milesight-maintenance", "milesight-water", "milesight-analytics"}
+assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-devices", "milesight-maintenance", "milesight-water", "milesight-analytics"}
 assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -1625,6 +1626,61 @@ assert cs.extra_state_attributes["milesight_role"] == "costs" and cs.native_valu
 assert costs.has_costs(hass, hub_cost) is True
 assert costs.any_tariff(types.SimpleNamespace(options={})) is False
 print("running costs ok")
+
+# ---------------- recipes: manager mutations, ctx build, action execution, WS lookup ----------------
+import time as _rtime
+recipes_mod = sys.modules["milesight_lorawan.recipes"]
+REC_CALLS: list = []
+
+
+class _RecSvc:
+    async def async_call(self, domain, service, data, blocking=False):
+        REC_CALLS.append((domain, service, data))
+
+
+_tank_state = types.SimpleNamespace(entity_id="sensor.rtank", state="18",
+    attributes={"milesight_role": "tank", "fill": 18, "is_silo": False, "friendly_name": "Rainwater 2", "device": "Rainwater 2"})
+_alert_cfg = types.SimpleNamespace(primary=["notify.ops"], rota=[])
+_rhub = types.SimpleNamespace(data={"entry_type": "hub"}, options={}, entry_id="rhub", title="Green Acres",
+    runtime_data=types.SimpleNamespace(alerts=types.SimpleNamespace(cfg=_alert_cfg)))
+_rhass = types.SimpleNamespace(
+    config=types.SimpleNamespace(time_zone="Africa/Johannesburg", latitude=-33.9, longitude=18.4),
+    states=types.SimpleNamespace(async_all=lambda: [_tank_state]),
+    services=_RecSvc(), bus=types.SimpleNamespace(async_fire=lambda e, d: None),
+    config_entries=types.SimpleNamespace(async_entries=lambda dm: [_rhub]),
+    async_create_task=lambda c: (c.close() if asyncio.iscoroutine(c) else None))
+rmgr = recipes_mod.RecipeManager(_rhass, _rhub)
+_rhub.runtime_data.recipes = rmgr
+
+# mutations: enable (unique ids), tune, toggle, delete
+i1 = rmgr.enable("low_tank"); assert i1["id"] == "low_tank" and len(rmgr.recipes) == 1
+i2 = rmgr.enable("low_tank"); assert i2["id"] == "low_tank_2"          # duplicate gets a fresh id
+rmgr.delete("low_tank_2"); assert len(rmgr.recipes) == 1
+rmgr.update_recipe({"id": "low_tank", "params": {"threshold": 20, "duration_min": 0}})
+assert rmgr.recipes[0]["params"]["duration_min"] == 0
+rmgr.toggle("low_tank", False); assert rmgr.recipes[0]["enabled"] is False
+rmgr.toggle("low_tank", True)
+
+# _ctx reads the live role sensor + the (hub-only) fleet
+ctx = rmgr._ctx()
+assert len(ctx["roles"].get("tank", [])) == 1 and ctx["roles"]["tank"][0]["attrs"]["fill"] == 18
+
+# a tick evaluates and (duration 0, 18 < 20) wants to fire; the snapshot reflects it
+rmgr.update()
+assert rmgr.data["running"] == 1 and rmgr.data["recipes"][0]["covers"] == 1
+
+# action execution: notify "on_call" resolves via the alert primary; raise_alert makes a persistent notice
+fire = {"recipe_id": "low_tank", "catalog": "low_tank", "icon": "💧", "title": "Low tank → notify",
+        "target_name": "Rainwater 2", "detail": "18%", "message": "Rainwater 2: 18%",
+        "actions": [{"type": "notify", "target": "on_call"}, {"type": "raise_alert"}], "ts": _rtime.time()}
+asyncio.run(rmgr._run_fire(fire))
+assert ("notify", "ops", {"title": "💧 Low tank → notify", "message": "Rainwater 2: 18%"}) in REC_CALLS
+assert any(c[0] == "persistent_notification" and c[1] == "create" for c in REC_CALLS)
+
+# the manager is reachable off the hub's runtime_data (how the WebSocket layer finds it), and Test fires a sample
+assert _rhub.runtime_data.recipes is rmgr
+assert rmgr.test("low_tank") is not None
+print("recipes ok")
 
 # ---------------- 0.36: power in W, cold storage views, corrective actions, compliance reports ----------------
 e_w, rt = make_with("24e124746e359614", "CT103", {"mains_voltage": 230, "power_factor": 0.9}, title="Pump W")

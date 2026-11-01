@@ -18,6 +18,12 @@ views:
             subtitle: Pumps, pivots, irrigation and silos
             icon: mdi:tractor-variant
       - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-recipe-strip-card
+            category: [farm, pumps]
+            grid_options: {columns: full}
+      - type: grid
         cards:
           - type: heading
             heading: Irrigation and frost

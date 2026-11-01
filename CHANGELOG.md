@@ -2,6 +2,27 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.89.1
+- **Recipes: the tune editor is now fill-in-the-blank.** Editing a recipe reads as a sentence with inline
+  editable chips — **WHEN** “any matching ▾ drops below `20`% for `2 h` ▾” / **THEN** “notify `on-call` ▾, + raise
+  an alert” — instead of a plain form. Same fields, clearer at a glance. (Frontend only.)
+
+## 0.89.0
+- **Recipes — plain-language automations. 📋** A new **Recipes** page (and a small per-domain recipe strip on
+  the Water, Energy, Farm, Cold storage and Devices dashboards). Set a condition in plain language, choose what
+  happens — no YAML, no node graphs.
+  - **Role-aware conditions:** "any tank", "any pump", "any fridge/freezer", "the lowest silo" resolve to the
+    live set of matching devices every minute, so a device added next week is covered automatically. Scope a
+    recipe to one area or one device instead if you prefer.
+  - **Actions:** notify (reusing your alert on-call / primary targets, or any `notify.*` service), raise an
+    alert, press a downlink button (pump off, valve, refill-ack), or log. Guards for "only during working
+    hours" and "don't repeat within N minutes".
+  - **Ten starter recipes**, one-tap enable: low tank, pump dry-run, fridge over limit, device silent, silo
+    running low, spend spike, overnight flow, mains outage, weekly low-battery sweep, empty trough, left-the-farm
+    (geofence). Browse them by category and tune any of them.
+  - Runs entirely on the gateway — **engine-only, no cloud**. (A Home-Assistant-automation mirror for power users
+    is planned for a later release.)
+
 ## 0.88.0
 - **Running costs. 💰** Set four tariffs on the gateway (Gateway → Configure → **Running costs**) — electricity
   (c/kWh), water (per kL), diesel (per litre) and feed (per tonne) — and the integration turns the meters you

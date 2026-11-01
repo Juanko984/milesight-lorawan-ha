@@ -22,7 +22,7 @@ def _load(name):
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
-cst = _load("costs_calc")
+cst = _load("costs_calc"); rcp = _load("recipes_calc")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -2312,7 +2312,8 @@ def test_gateway_api():
                  "milesight-tank-band", "milesight-tank-supply-card", "milesight-trough-card",
                  "milesight-flood-card", "milesight-fence-card", "milesight-washroom-band",
                  "milesight-washroom-card", "milesight-compliance-card",
-                 "milesight-running-costs-card", "milesight-cost-strip-card"):
+                 "milesight-running-costs-card", "milesight-cost-strip-card",
+                 "milesight-recipes-card", "milesight-recipe-strip-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # the sidebar-branding routine that sets the top-left title to the site name
@@ -2416,6 +2417,114 @@ def test_running_costs():
     t_nov = T("2026-11-01T06:00:00")
     tr.roll(t_nov)
     assert tr.report(tariffs, meta, t_nov)["last_month"] == oct_month
+
+
+def test_recipes():
+    from datetime import datetime as _dt
+
+    def L(ts):
+        return _dt.fromtimestamp(ts, TZ)
+
+    def tank(name, fill, silo=False, days=None, area=None):
+        a = {"milesight_role": "tank", "fill": fill, "is_silo": silo, "device": name}
+        if days is not None:
+            a["days_left"] = days
+        return {"id": f"s.{name}", "name": name, "area": area, "attrs": a, "num": fill}
+
+    # catalog is complete and every default recipe produces a sentence
+    assert len(rcp.CATALOG) == 11
+    for k in rcp.CATALOG:
+        assert rcp.sentence(rcp.default_recipe(k)).startswith("If ")
+
+    # --- low tank: threshold held for a duration, role-resolved, debounced ---
+    r = rcp.default_recipe("low_tank"); r["params"]["duration_min"] = 60
+    eng = rcp.RecipeEngine(CAL)
+    t0 = T("2026-10-13T06:00:00")
+    ctx = {"roles": {"tank": [tank("Rainwater 1", 55), tank("Rainwater 2", 15)]}, "devices": [], "costs": {}, "site": {}}
+    fires, snaps = eng.evaluate([r], ctx, t0, L(t0))
+    assert fires == [] and snaps[0]["covers"] == 2 and snaps[0]["firing_now"] == 1   # low one is counting
+    # not yet an hour in → still no fire
+    fires, _ = eng.evaluate([r], ctx, t0 + 59 * 60, L(t0 + 59 * 60))
+    assert fires == []
+    # past the hour → fires once, for the low tank only
+    fires, _ = eng.evaluate([r], ctx, t0 + 61 * 60, L(t0 + 61 * 60))
+    assert len(fires) == 1 and fires[0]["target_name"] == "Rainwater 2"
+    # stays low but already fired → no repeat (debounce / fired flag)
+    fires, _ = eng.evaluate([r], ctx, t0 + 70 * 60, L(t0 + 70 * 60))
+    assert fires == []
+    # tank recovers → the sustain clock resets; a disabled recipe never fires
+    ctx2 = {"roles": {"tank": [tank("Rainwater 2", 80)]}, "devices": [], "costs": {}, "site": {}}
+    eng.evaluate([r], ctx2, t0 + 80 * 60, L(t0 + 80 * 60))
+    r["enabled"] = False
+    ctx3 = {"roles": {"tank": [tank("Rainwater 2", 10)]}, "devices": [], "costs": {}, "site": {}}
+    fires, snaps = eng.evaluate([r], ctx3, t0 + 300 * 60, L(t0 + 300 * 60))
+    assert fires == [] and snaps[0]["enabled"] is False
+
+    # --- silo days-left filters to silos only ---
+    rs = rcp.default_recipe("silo_days")
+    eng2 = rcp.RecipeEngine(CAL)
+    ctx = {"roles": {"tank": [tank("Water A", 50, days=10), tank("Feed silo A", 18, silo=True, days=2)]},
+           "devices": [], "costs": {}, "site": {}}
+    fires, snaps = eng2.evaluate([rs], ctx, t0, L(t0))
+    assert snaps[0]["covers"] == 1 and len(fires) == 1 and fires[0]["target_name"] == "Feed silo A"
+
+    # --- fridge over its own limit attr, sustained 15 min ---
+    rf = rcp.default_recipe("fridge_over")
+    eng3 = rcp.RecipeEngine(CAL)
+    fridge = {"id": "s.f", "name": "Dairy fridge", "attrs": {"milesight_role": "cold_chain", "temperature": 9.2, "high": 8}}
+    ok = {"id": "s.o", "name": "Beer fridge", "attrs": {"milesight_role": "cold_chain", "temperature": 3, "high": 8}}
+    ctx = {"roles": {"cold_chain": [fridge, ok]}, "devices": [], "costs": {}, "site": {}}
+    assert eng3.evaluate([rf], ctx, t0, L(t0))[0] == []
+    fires, _ = eng3.evaluate([rf], ctx, t0 + 16 * 60, L(t0 + 16 * 60))
+    assert len(fires) == 1 and fires[0]["target_name"] == "Dairy fridge"
+
+    # --- pump dry-run: 3 rising edges within the window ---
+    rp = rcp.default_recipe("pump_dry_run"); rp["params"] = {"count": 3, "window_min": 60}
+    eng4 = rcp.RecipeEngine(CAL)
+
+    def pump(dry):
+        return {"roles": {"pump": [{"id": "s.p", "name": "Borehole", "attrs": {"milesight_role": "pump", "dry_run": dry}}]},
+                "devices": [], "costs": {}, "site": {}}
+    seq = [(0, True), (2, False), (4, True), (6, False), (8, True)]   # 3 rising edges by minute 8
+    last = None
+    for m, dry in seq:
+        last = eng4.evaluate([rp], pump(dry), t0 + m * 60, L(t0 + m * 60))[0]
+    assert len(last) == 1 and last[0]["recipe_id"] == "pump_dry_run"
+
+    # --- device offline (fleet, not a role) ---
+    ro = rcp.default_recipe("device_offline"); ro["params"]["duration_min"] = 60
+    eng5 = rcp.RecipeEngine(CAL)
+    ctx = {"roles": {}, "costs": {}, "site": {},
+           "devices": [{"id": "A", "name": "Barn sensor", "online": True, "last_seen_ts": t0 - 2 * 3600},
+                       {"id": "B", "name": "Gate sensor", "online": True, "last_seen_ts": t0 - 10 * 60}]}
+    fires, _ = eng5.evaluate([ro], ctx, t0, L(t0))
+    assert len(fires) == 1 and fires[0]["target_name"] == "Barn sensor"      # 2h silent fires, 10 min does not
+
+    # --- mains outage: boolean on, instant ---
+    rm = rcp.default_recipe("mains_outage")
+    eng6 = rcp.RecipeEngine(CAL)
+    ctx = {"roles": {"mains": [{"id": "b.m", "name": "Main board", "state": "on", "attrs": {"milesight_role": "mains"}}]},
+           "devices": [], "costs": {}, "site": {}}
+    assert len(eng6.evaluate([rm], ctx, t0, L(t0))[0]) == 1
+
+    # --- geofence: GPS device beyond the radius from the site centre ---
+    rg = rcp.default_recipe("left_farm"); rg["params"]["radius_m"] = 500
+    eng7 = rcp.RecipeEngine(CAL)
+    far = {"id": "d.t", "name": "Trailer", "lat": -33.930, "lon": 18.423, "site_lat": -33.918, "site_lon": 18.423,
+           "attrs": {"latitude": -33.930}}
+    near = {"id": "d.u", "name": "Quad bike", "lat": -33.9185, "lon": 18.423, "site_lat": -33.918, "site_lon": 18.423,
+            "attrs": {}}
+    ctx = {"roles": {"gps": [far, near]}, "devices": [], "costs": {}, "site": {}}
+    fires, _ = eng7.evaluate([rg], ctx, t0, L(t0))
+    assert len(fires) == 1 and fires[0]["target_name"] == "Trailer"
+
+    # --- scope: restrict to one area ---
+    ra = rcp.default_recipe("low_tank"); ra["params"]["duration_min"] = 0; ra["scope"] = {"mode": "area", "area": "Dairy"}
+    eng8 = rcp.RecipeEngine(CAL)
+    ctx = {"roles": {"tank": [tank("Dairy tank", 10, area="Dairy"), tank("Yard tank", 5, area="Yard")]},
+           "devices": [], "costs": {}, "site": {}}
+    fires, snaps = eng8.evaluate([ra], ctx, t0, L(t0))
+    assert snaps[0]["covers"] == 1 and {f["target_name"] for f in fires} == {"Dairy tank"}
 
 
 if __name__ == "__main__":

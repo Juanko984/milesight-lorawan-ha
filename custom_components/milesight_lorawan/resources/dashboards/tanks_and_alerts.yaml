@@ -21,6 +21,13 @@ views:
       - type: grid
         column_span: 3
         cards:
+          # Water recipes (plain-language automations). Hidden when there are none for this domain.
+          - type: custom:milesight-recipe-strip-card
+            category: [water]
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
           - type: heading
             heading: Supply at a glance
             icon: mdi:view-dashboard-outline
