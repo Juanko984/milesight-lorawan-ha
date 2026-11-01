@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.90.0
+- **The Overview is now a real single pane of glass.** Rebuilt the site landing page so one screen shows the
+  whole site:
+  - **Header shortcuts are back** — the Overview now carries the same dashboard shortcut chips every other page
+    has (with Recipes added), current page highlighted. The separate "Dashboards" button grid that **duplicated**
+    them is gone.
+  - **Status hero** — an at-a-glance "all systems normal / N need attention" with live tiles: open alerts,
+    devices online, gateways, low battery and spend today, each a tap-through.
+  - **Needs attention** — the open alerts, most severe first; it **collapses to nothing when all-clear**.
+  - **Systems grid** — one summary card per system the site has, each with its real live numbers: **Energy &
+    cost** (kW now, spent today, projected), **Water**, **Cold storage**, **Farm**, **Air & comfort**, **Fleet &
+    devices**, **Recipes** and **Gateways** — tap any to drill in. Energy, Fleet, Recipes and Gateways are new
+    here; the others now show three numbers instead of two.
+
 ## 0.89.1
 - **Recipes: the tune editor is now fill-in-the-blank.** Editing a recipe reads as a sentence with inline
   editable chips — **WHEN** “any matching ▾ drops below `20`% for `2 h` ▾” / **THEN** “notify `on-call` ▾, + raise

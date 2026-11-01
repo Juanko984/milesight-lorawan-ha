@@ -183,9 +183,16 @@
    ["milesight-cost-strip-card", { resources: ["water", "diesel", "feed"] }],
    ["milesight-recipes-card", {}],
    ["milesight-recipe-strip-card", { category: ["water", "pumps"] }],
+   ["milesight-status-band", { lead: true }],
+   ["milesight-attention-card", {}],
    ["milesight-domain-card", { domain: "tanks" }],
    ["milesight-domain-card", { domain: "cold_chain" }],
    ["milesight-domain-card", { domain: "farm" }],
+   ["milesight-domain-card", { domain: "energy" }],
+   ["milesight-domain-card", { domain: "climate" }],
+   ["milesight-domain-card", { domain: "fleet" }],
+   ["milesight-domain-card", { domain: "gateways" }],
+   ["milesight-domain-card", { domain: "recipes" }],
    ["milesight-device-panel", { entity: "sensor.temp" }],
  ];
  cards.forEach(([t, c]) => mount(t, c, t));

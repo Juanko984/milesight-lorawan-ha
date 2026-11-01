@@ -2035,7 +2035,7 @@
     // sibling Milesight dashboards in the sidebar, so the pages feel like one app (site landing pages first)
     _pages() {
       const panels = (this._hass && this._hass.panels) || {};
-      const order = ["alerts", "devices", "maintenance", "water", "analytics", "farm", "cold-chain", "energy", "retail", "washroom", "coop"];
+      const order = ["alerts", "recipes", "water", "energy", "cold-chain", "farm", "analytics", "devices", "maintenance", "retail", "washroom", "coop"];
       const list = [];
       for (const key in panels) {
         const p = panels[key] || {}, url = p.url_path || key;
@@ -2589,97 +2589,169 @@
           tone: g.length && on < g.length ? "bad" : "good", sub: on === g.length ? "All online" : `${g.length - on} offline`,
           nav: "/milesight-maintenance/signal" }); }
       const fl = this._role("fleet_total");
-      if (fl) { const d = fl.attributes.devices || [], on = d.filter((x) => x.online).length;
+      if (fl) { const d = fl.attributes.devices || [], on = d.filter((x) => x.online).length, lowb = d.filter((x) => x.battery_low).length;
         add({ key: "devices", icon: "mdi:access-point-network", label: "Devices", value: `${on}/${d.length}`,
           tone: !d.length ? "mut" : on === d.length ? "good" : on === 0 ? "bad" : "warn",
-          sub: on === d.length ? "All reporting" : `${d.length - on} offline`, nav: "/milesight-maintenance/devices" }); }
+          sub: on === d.length ? "All reporting" : `${d.length - on} offline`, nav: "/milesight-devices/devices" });
+        if (lowb) add({ key: "battery", icon: "mdi:battery-alert-variant-outline", label: "Low battery", value: String(lowb),
+          tone: "warn", sub: "replace soon", nav: "/milesight-maintenance/devices" }); }
+      const co = this._role("costs");
+      if (co && num(co.attributes.today) != null) { const cur = co.attributes.currency || "R";
+        add({ key: "cost", icon: "mdi:cash", label: "Spent today", value: `${cur} ${Math.round(num(co.attributes.today))}`,
+          tone: "mut", sub: num(co.attributes.projected) != null ? `~${cur} ${Math.round(num(co.attributes.projected))} this month` : "", nav: "/milesight-energy/loads" }); }
       const mains = this._rolesBin("mains");
       if (mains.length) { const outage = mains.some((m) => String(m.state) === "on");
         add({ key: "power", icon: "mdi:transmission-tower", label: "Power", value: outage ? "Outage" : "On",
           tone: outage ? "bad" : "good", sub: outage ? "Mains failure" : "Mains OK", nav: "/milesight-energy/loads" }); }
       return out;
     }
+    _state() {
+      // overall site state from the open-alerts role: "N need attention" / "All systems normal"
+      const alo = this._role("alerts_open");
+      const a = (alo && alo.attributes.alerts) || [];
+      const open = a.filter((x) => x.status !== "acknowledged"), crit = open.filter((x) => x.severity === "critical").length;
+      if (!alo) return null;
+      if (!open.length) return { icon: "✓", tone: "good", title: "All systems normal", sub: "nothing needs attention right now" };
+      return { icon: "⚠", tone: crit ? "bad" : "warn", title: `${open.length} thing${open.length === 1 ? "" : "s"} need attention`,
+        sub: crit ? `${crit} critical · tap a tile to act` : "everything else is running normally" };
+    }
     _render() {
       if (!this._hass) return;
-      const tiles = this._tiles();
+      const tiles = this._tiles(), lead = this._cfg.lead ? this._state() : null;
       this._css = `
-        .band{display:grid;grid-template-columns:repeat(${Math.max(1, tiles.length)},1fr);gap:12px}
+        .wrapf{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+        .lead{display:flex;align-items:center;gap:14px;flex:0 0 auto}
+        .ldot{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700}
+        .ldot.good{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .ldot.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .ldot.bad{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .lead .lt{font-size:18px;font-weight:720;line-height:1.15} .lead .ls{font-size:12.5px;color:var(--ms-ink2);margin-top:2px}
+        .band{display:grid;grid-template-columns:repeat(${Math.max(1, tiles.length)},1fr);gap:12px${lead ? ";margin-left:auto;flex:1 1 420px" : ""}}
         @media (max-width:760px){.band{grid-template-columns:repeat(2,1fr)}}
-        .stat{position:relative;overflow:hidden;border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px;cursor:pointer}
+        .stat{position:relative;overflow:hidden;border:1px solid var(--ms-line);border-radius:14px;padding:${lead ? "11px 13px" : "14px 15px"};cursor:pointer}
         .stat:hover{border-color:var(--ms-accent)}
         .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ms-good)}
         .stat.bad::before{background:var(--ms-bad)} .stat.warn::before{background:var(--ms-warn)} .stat.mut::before{background:var(--ms-line)}
         .stat .k{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ms-ink2)}
         .stat .k ha-icon{--mdc-icon-size:17px}
-        .stat .v{font-size:28px;font-weight:720;margin-top:9px;line-height:1;color:var(--ms-ink)}
+        .stat .v{font-size:${lead ? "22px" : "28px"};font-weight:720;margin-top:${lead ? "7px" : "9px"};line-height:1;color:var(--ms-ink)}
         .stat.bad .v{color:var(--ms-bad)} .stat.warn .v{color:var(--ms-warn)} .stat.good .v{color:var(--ms-good)}
-        .stat .s{font-size:12.5px;color:var(--ms-ink2);margin-top:4px}
+        .stat .s{font-size:12px;color:var(--ms-ink2);margin-top:4px}
       `;
-      if (!tiles.length) { this._card(h("div", { class: "wrap muted" }, "Status appears once the gateway is set up.")); return; }
+      if (!tiles.length && !lead) { this._card(h("div", { class: "wrap muted" }, "Status appears once the gateway is set up.")); return; }
       const tileEl = (t) => h("div", { class: "stat " + t.tone, onclick: () => t.nav && navigate(t.nav) }, [
         h("div", { class: "k" }, [h("ha-icon", { icon: t.icon }), t.label]),
         h("div", { class: "v" }, t.value),
         h("div", { class: "s" }, t.sub),
       ]);
-      this._card(h("div", { class: "band" }, tiles.map(tileEl)));
+      const band = h("div", { class: "band" }, tiles.map(tileEl));
+      if (!lead) return this._card(band);
+      this._card(h("div", { class: "wrapf" }, [
+        h("div", { class: "lead" }, [h("div", { class: "ldot " + lead.tone }, lead.icon),
+          h("div", {}, [h("div", { class: "lt" }, lead.title), h("div", { class: "ls" }, lead.sub)])]),
+        band,
+      ]));
     }
   }
 
   // ================================================================ domain summary (one operational area)
   // A compact card for one operational domain (tanks, cold chain, energy, climate, farm, coop). Self-discovers by
   // role, shows a status badge + two headline numbers + the one thing wrong, and taps through to its dashboard.
+  function _roleOne(S, role) { for (const id in S) if (S[id].attributes && S[id].attributes.milesight_role === role) return S[id]; return null; }
   const DOMAINS = {
     tanks: { name: "Water", icon: "mdi:storage-tank", path: "/milesight-water/tanks",
       compute(S) {
-        const t = byRole(S, "tank"); if (!t.length) return null;
+        const t = byRole(S, "tank").filter((x) => !x.attributes.is_silo); if (!t.length) return null;
         const fills = t.map((x) => num(x.attributes.fill)).filter((v) => v != null);
-        const lowest = fills.length ? Math.min(...fills) : null;
+        const lowest = fills.length ? Math.min(...fills) : null, avg = fills.length ? Math.round(fills.reduce((s, v) => s + v, 0) / fills.length) : null;
         const drop = t.filter((x) => x.attributes.sudden_drop), low = t.filter((x) => x.attributes.low);
         const worst = drop[0] || low.sort((a, b) => (num(a.attributes.fill) || 0) - (num(b.attributes.fill) || 0))[0];
         return { bcls: drop.length ? "bad" : low.length ? "warn" : "good",
           badge: drop.length ? "Sudden drop" : low.length ? `${low.length} low` : "OK",
-          metrics: [[lowest == null ? "—" : `${Math.round(lowest)}%`, "lowest tank"], [String(t.length), t.length === 1 ? "tank" : "tanks"]],
+          metrics: [[avg == null ? "—" : `${avg}%`, "avg level", "blue"], [lowest == null ? "—" : `${Math.round(lowest)}%`, "lowest", low.length ? "warn" : ""], [String(t.length), t.length === 1 ? "tank" : "tanks"]],
           issue: worst ? `${worst.attributes.device || "Tank"}${worst.attributes.days_left != null ? ` · ~${worst.attributes.days_left} days left` : ""}` : "All tanks healthy" };
       } },
-    cold_chain: { name: "Cold chain", icon: "mdi:snowflake-thermometer", path: "/milesight-cold-chain/cold-chain",
+    cold_chain: { name: "Cold storage", icon: "mdi:snowflake-thermometer", path: "/milesight-cold-chain/cold-chain",
       compute(S) {
         const u = byRole(S, "cold_chain"); if (!u.length) return null;
-        const bad = u.filter((x) => x.attributes.alarm), out = u.reduce((s, x) => s + (num(x.state) || 0), 0);
-        return { bcls: bad.length ? "bad" : "good", badge: bad.length ? `${bad.length} out of range` : "All in range",
-          metrics: [[`${u.length - bad.length}/${u.length}`, "in range"], [`${Math.round(out)}m`, "out today"]],
+        const bad = u.filter((x) => x.attributes.alarm);
+        const temps = u.map((x) => ({ v: num(x.attributes.temperature != null ? x.attributes.temperature : x.state), d: x.attributes.device })).filter((x) => x.v != null);
+        const warm = temps.sort((a, b) => b.v - a.v)[0];
+        const ir = u.map((x) => num(x.attributes.in_range_7d)).filter((v) => v != null);
+        const iravg = ir.length ? Math.round(ir.reduce((s, v) => s + v, 0) / ir.length) : null;
+        return { bcls: bad.length ? "bad" : "good", badge: bad.length ? `${bad.length} over` : "All in range",
+          metrics: [[warm ? `${warm.v}°` : "—", warm ? `warmest · ${warm.d || ""}`.trim() : "warmest", bad.length ? "bad" : ""], [iravg == null ? "—" : `${iravg}%`, "in range 7d"], [String(u.length), u.length === 1 ? "unit" : "units"]],
           issue: bad.length ? `${bad[0].attributes.device || "Unit"} above limit` : "All units within range" };
       } },
-    energy: { name: "Energy", icon: "mdi:lightning-bolt", path: "/milesight-energy/loads",
+    energy: { name: "Energy & cost", icon: "mdi:lightning-bolt", path: "/milesight-energy/loads",
       compute(S) {
-        const loads = byRole(S, "load"), mains = byRoleBin(S, "mains");
-        if (!loads.length && !mains.length) return null;
+        const loads = byRole(S, "load"), mains = byRoleBin(S, "mains"), costs = _roleOne(S, "costs");
+        if (!loads.length && !mains.length && !costs) return null;
         const outage = mains.some((m) => String(m.state) === "on"), running = loads.filter((x) => x.attributes.running).length;
         const flag = loads.find((x) => x.attributes.after_hours || x.attributes.ran_too_long);
-        return { bcls: outage ? "bad" : flag ? "warn" : "good", badge: outage ? "Outage" : "Mains OK",
-          metrics: [[String(running), "running"], [String(loads.length), loads.length === 1 ? "load" : "loads"]],
-          issue: outage ? "Mains power failure" : flag ? `${flag.attributes.device || "A load"} running after hours` : "Normal" };
+        const pw = mains.map((m) => num(m.attributes.power_w)).filter((v) => v != null).reduce((s, v) => s + v, 0);
+        const cur = costs ? (costs.attributes.currency || "R") : "R";
+        const m1 = pw ? [`${(pw / 1000).toFixed(1)} kW`, "drawing now"] : [String(running), running === 1 ? "load running" : "loads running"];
+        const m = [m1];
+        if (costs && num(costs.attributes.today) != null) m.push([`${cur} ${Math.round(num(costs.attributes.today))}`, "spent today"], [`${cur} ${Math.round(num(costs.attributes.projected) || 0)}`, "projected"]);
+        else m.push([String(loads.length), loads.length === 1 ? "load" : "loads"]);
+        const top = costs && (costs.attributes.leaderboard || [])[0];
+        return { bcls: outage ? "bad" : flag ? "warn" : "good", badge: outage ? "Outage" : "OK",
+          metrics: m, issue: outage ? "Mains power failure" : top ? `${top.label} is today's biggest load` : flag ? `${flag.attributes.device || "A load"} running after hours` : "Normal" };
       } },
-    climate: { name: "Climate", icon: "mdi:thermometer", path: "/milesight-analytics/areas",
+    climate: { name: "Air & comfort", icon: "mdi:leaf", path: "/milesight-analytics/areas",
       compute(S) {
-        const c = byAttr(S, "kind", "comfort"); if (!c.length) return null;
-        const temps = c.map((x) => num(x.attributes.temperature)).filter((v) => v != null);
-        const co2s = c.map((x) => ({ v: num(x.attributes.co2), a: x.attributes.area })).filter((x) => x.v != null);
-        const avg = temps.length ? Math.round(temps.reduce((s, v) => s + v, 0) / temps.length) : null;
-        const worst = co2s.sort((a, b) => b.v - a.v)[0];
-        return { bcls: worst && worst.v >= 1200 ? "warn" : "good", badge: worst && worst.v >= 1200 ? "CO₂ high" : "Good",
-          metrics: [[avg == null ? "—" : `${avg}°C`, "avg temp"], [worst ? String(Math.round(worst.v)) : "—", "ppm worst"]],
-          issue: worst && worst.v >= 1200 ? `Worst: ${worst.a || "area"}` : "Air quality good" };
+        const c = byAttr(S, "kind", "comfort"), comfortRole = _roleOne(S, "building_comfort"), co2Role = _roleOne(S, "building_avg_co2"), tRole = _roleOne(S, "building_avg_temperature");
+        if (!c.length && !comfortRole) return null;
+        const co2 = co2Role ? num(co2Role.state) : (() => { const xs = c.map((x) => num(x.attributes.co2)).filter((v) => v != null); return xs.length ? Math.round(Math.max(...xs)) : null; })();
+        const temp = tRole ? num(tRole.state) : (() => { const xs = c.map((x) => num(x.attributes.temperature)).filter((v) => v != null); return xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : null; })();
+        const comfort = comfortRole ? num(comfortRole.state) : null;
+        const high = co2 != null && co2 >= 1200;
+        return { bcls: high ? "warn" : "good", badge: high ? "CO₂ high" : "Good",
+          metrics: [[co2 == null ? "—" : String(Math.round(co2)), "avg CO₂ ppm", high ? "warn" : ""], [temp == null ? "—" : `${temp.toFixed(1)}°`, "avg temp"], [comfort == null ? "—" : `${Math.round(comfort)}%`, "comfort"]],
+          issue: high ? "CO₂ above limit somewhere" : `${c.length || "—"} areas · all within range` };
       } },
     farm: { name: "Farm", icon: "mdi:tractor-variant", path: "/milesight-farm/farm",
       compute(S) {
-        const pumps = byRole(S, "pump"), pivots = byRole(S, "pivot"); if (!pumps.length && !pivots.length) return null;
+        const pumps = byRole(S, "pump"), pivots = byRole(S, "pivot"), silos = byRole(S, "tank").filter((x) => x.attributes.is_silo);
+        if (!pumps.length && !pivots.length && !silos.length) return null;
         const badP = pumps.find((x) => x.attributes.dry_run || x.attributes.overload);
         const badV = pivots.find((x) => ["stalled", "fault", "stuck", "stopped"].includes(x.attributes.status));
-        const okP = pumps.filter((x) => !(x.attributes.dry_run || x.attributes.overload)).length;
+        const running = pumps.filter((x) => x.attributes.running).length, active = pivots.filter((x) => String(x.attributes.status) === "running").length;
+        const sfills = silos.map((x) => num(x.attributes.fill)).filter((v) => v != null), lowSilo = sfills.length ? Math.min(...sfills) : null;
+        const m = [[String(running), running === 1 ? "pump running" : "pumps running"]];
+        if (silos.length) m.push([lowSilo == null ? "—" : `${Math.round(lowSilo)}%`, "lowest silo", lowSilo != null && lowSilo < 25 ? "warn" : ""]);
+        m.push([String(pivots.length ? active : silos.length), pivots.length ? "pivots active" : (silos.length === 1 ? "silo" : "silos")]);
         return { bcls: (badP || badV) ? "bad" : "good",
-          badge: badP ? (badP.attributes.dry_run ? "Pump dry-run" : "Pump overload") : badV ? "Pivot fault" : "OK",
-          metrics: [[`${okP}/${pumps.length}`, "pumps ok"], [String(pivots.length), pivots.length === 1 ? "pivot" : "pivots"]],
+          badge: badP ? (badP.attributes.dry_run ? "Dry-run" : "Overload") : badV ? "Pivot fault" : "OK",
+          metrics: m,
           issue: badP ? `${badP.attributes.device || "Pump"} needs attention` : badV ? `${badV.attributes.device || "Pivot"} ${badV.attributes.status}` : "Running normally" };
+      } },
+    fleet: { name: "Fleet & devices", icon: "mdi:access-point-network", path: "/milesight-devices/devices",
+      compute(S) {
+        const fl = _roleOne(S, "fleet_total"); if (!fl) return null;
+        const d = fl.attributes.devices || [], on = d.filter((x) => x.online).length, lowb = d.filter((x) => x.battery_low).length, off = d.length - on;
+        const offDev = d.find((x) => !x.online);
+        return { bcls: off ? "warn" : lowb ? "warn" : "good", badge: off ? `${off} offline` : lowb ? `${lowb} low` : "OK",
+          metrics: [[`${on}/${d.length}`, "online", off ? "warn" : ""], [String(lowb), "low battery", lowb ? "warn" : ""], [String(off), "offline", off ? "bad" : ""]],
+          issue: offDev ? `${offDev.name || "A device"} offline` : lowb ? `${lowb} device${lowb === 1 ? "" : "s"} need a battery` : "All healthy" };
+      } },
+    gateways: { name: "Gateways", icon: "mdi:router-wireless", path: "/milesight-maintenance/signal",
+      compute(S) {
+        const gw = _roleOne(S, "net_gateways_online"); if (!gw) return null;
+        const g = gw.attributes.gateways || [], on = g.filter((x) => x.online).length;
+        const pk = g.map((x) => num(x.packets_today)).filter((v) => v != null).reduce((s, v) => s + v, 0);
+        return { bcls: g.length && on < g.length ? "bad" : "good", badge: on === g.length ? "All online" : `${g.length - on} offline`,
+          metrics: [[`${on}/${g.length}`, "online", on < g.length ? "bad" : ""], [pk ? (pk >= 1000 ? `${(pk / 1000).toFixed(1)}k` : String(pk)) : "—", "packets today"], [String(g.length), g.length === 1 ? "gateway" : "gateways"]],
+          issue: on < g.length ? "A gateway is offline" : "All forwarding" };
+      } },
+    recipes: { name: "Recipes", icon: "mdi:script-text-outline", path: "/milesight-recipes/recipes",
+      compute(S) {
+        const r = _roleOne(S, "recipes"); if (!r) return null;
+        const a = r.attributes, list = a.recipes || [], fired = (list.filter((x) => x.last_fire).sort((x, y) => (y.last_fire || 0) - (x.last_fire || 0)))[0];
+        return { bcls: "good", badge: `${a.running || 0} running`,
+          metrics: [[String(a.running || 0), "running"], [String(a.fired_today || 0), "fired today"], [String(a.paused || 0), "paused"]],
+          issue: fired ? `${fired.sentence ? fired.sentence.replace(/^If /, "").split(" →")[0] : "A recipe"} fired ${ago(fired.last_fire * 1000)}` : "No recipes have fired yet" };
       } },
     coop: { name: "Coop", icon: "mdi:egg", path: "/milesight-coop/coop",
       compute(S) {
@@ -2713,8 +2785,9 @@
         .badge.good{color:var(--ms-good);background:color-mix(in srgb,var(--ms-good) 15%,transparent)}
         .badge.warn{color:var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 15%,transparent)}
         .badge.bad{color:var(--ms-bad);background:color-mix(in srgb,var(--ms-bad) 15%,transparent)}
-        .domm{display:flex;gap:18px;margin-bottom:10px}
+        .domm{display:flex;gap:16px;margin-bottom:10px}
         .domm .mv{font-size:18px;font-weight:700;color:var(--ms-ink)}
+        .domm .mv.warn{color:var(--ms-warn)} .domm .mv.bad{color:var(--ms-bad)} .domm .mv.blue{color:var(--blue)}
         .domm .ml{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
         .domf{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--ms-line);padding-top:9px;font-size:12.5px;color:var(--ms-ink2)}
         .domf .open{color:var(--ms-accent);font-weight:600}
@@ -2726,7 +2799,7 @@
         d ? h("div", { class: "badge " + d.bcls }, d.badge) : null,
       ]);
       const body = d
-        ? [h("div", { class: "domm" }, d.metrics.map((m) => h("div", {}, [h("div", { class: "mv" }, esc(m[0])), h("div", { class: "ml" }, esc(m[1]))]))),
+        ? [h("div", { class: "domm" }, d.metrics.map((m) => h("div", {}, [h("div", { class: "mv " + (m[2] || "") }, esc(m[0])), h("div", { class: "ml" }, esc(m[1]))]))),
            h("div", { class: "domf" }, [h("span", {}, esc(d.issue)), h("span", { class: "open" }, "Open →")])]
         : [h("div", { class: "muted", style: { fontSize: "13px", padding: "4px 0 10px" } }, "No devices yet"),
            h("div", { class: "domf" }, [h("span", {}, "Set one up"), h("span", { class: "open" }, "Open →")])];
@@ -3828,7 +3901,7 @@
     "milesight-alert-summary-card": [{ name: "title", selector: { text: {} } }],
     "milesight-alerts-band": [],
     "milesight-escalation-card": [],
-    "milesight-status-band": [],
+    "milesight-status-band": [{ name: "lead", selector: { boolean: {} } }],
     "milesight-fleet-band": [],
     "milesight-coldchain-band": [],
     "milesight-building-band": [],
@@ -3851,6 +3924,7 @@
       { value: "electricity", label: "Electricity" }, { value: "water", label: "Water" },
       { value: "diesel", label: "Diesel" }, { value: "feed", label: "Feed" }] } } }],
     "milesight-recipes-card": [],
+    "milesight-attention-card": [],
     "milesight-recipe-strip-card": [{ name: "category", selector: { select: { multiple: true, options: [
       { value: "water", label: "Water" }, { value: "pumps", label: "Pumps" }, { value: "cold_chain", label: "Cold chain" },
       { value: "energy", label: "Energy" }, { value: "devices", label: "Devices" }, { value: "farm", label: "Farm" },
@@ -4430,6 +4504,51 @@
     }
   }
 
+  // ================================================================ needs attention (overview)
+  // A compact list of what's wrong right now — open alerts (newest / most severe first). Collapses to nothing
+  // when all-clear, so the Overview only shows it when it matters.
+  class AttentionCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === "alerts_open") return id; return null; }
+    _watch() { const id = this._find(); return id ? [id] : null; }
+    _render() {
+      if (!this._hass) return;
+      const st = this._st(this._find()), a = st ? st.attributes : {};
+      const all = (a.alerts || []).filter((x) => x.status !== "acknowledged");
+      const sev = { critical: 0, serious: 1, warning: 2 };
+      all.sort((x, y) => (sev[x.severity] ?? 3) - (sev[y.severity] ?? 3));
+      if (!all.length) { this.style.display = "none"; this.shadowRoot.replaceChildren(); return; }
+      this.style.display = "";
+      const crit = all.filter((x) => x.severity === "critical").length;
+      const show = all.slice(0, 5), more = all.length - show.length;
+      this._css = `
+        ha-card{border-color:color-mix(in srgb,var(--ms-bad) 32%,var(--ms-line))}
+        .ah{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:0 0 11px;display:flex;align-items:center;gap:8px}
+        .ah .n{margin-left:auto;color:${crit ? "var(--ms-bad)" : "var(--ms-warn)"};font-size:12px}
+        .arow{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--ms-line);font-size:13.5px;cursor:pointer}
+        .arow:last-child{border-bottom:none}
+        .adot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+        .aw{font-weight:600;color:var(--ms-ink)} .ad{color:var(--ms-ink2);font-size:12.5px;margin-top:1px}
+        .ab{flex:1;min-width:0} .ar{margin-left:auto;font-size:12px;color:var(--ms-ink2);white-space:nowrap}
+        .go{color:var(--ms-accent);font-size:12px;margin-left:12px}
+        .amore{font-size:12.5px;color:var(--ms-accent);margin-top:10px;cursor:pointer}
+      `;
+      const tone = (s) => s === "critical" ? "var(--ms-bad)" : s === "warning" ? "var(--ms-warn)" : "var(--ms-bad)";
+      const rows = show.map((al) => h("div", { class: "arow", onclick: () => navigate("/milesight-alerts/alerts") }, [
+        h("span", { class: "adot", style: { background: tone(al.severity) } }),
+        h("div", { class: "ab" }, [h("div", { class: "aw" }, esc(al.title || "Alert")), al.message ? h("div", { class: "ad" }, esc(al.message)) : null]),
+        al.since ? h("span", { class: "ar" }, "since " + esc(al.since)) : null,
+        h("span", { class: "go" }, "Open →"),
+      ]));
+      this._card(h("div", { class: "wrap" }, [
+        h("div", { class: "ah" }, ["⚠ Needs attention", h("span", { class: "n" }, `${all.length} open${crit ? ` · ${crit} critical` : ""}`)]),
+        h("div", {}, rows),
+        more > 0 ? h("div", { class: "amore", onclick: () => navigate("/milesight-alerts/alerts") }, `+${more} more → Alerts`) : null,
+      ]));
+    }
+  }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
@@ -4450,7 +4569,8 @@
         WASHBAND_TAG = "milesight-washroom-band", WASHROOM_TAG = "milesight-washroom-card",
         COMPLIANCE_TAG = "milesight-compliance-card",
         COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card",
-        RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card";
+        RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
+        ATTENTION_TAG = "milesight-attention-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -4493,6 +4613,7 @@
     [COSTSTRIP_TAG, CostStripCard, "Milesight Cost Strip", "A small water / diesel / feed cost-today strip for a page other than Energy"],
     [RECIPES_TAG, RecipesCard, "Milesight Recipes", "Plain-language automations: browse, toggle, tune and add recipes"],
     [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Recipe Strip", "A compact per-domain recipe strip with toggles for a dashboard"],
+    [ATTENTION_TAG, AttentionCard, "Milesight Needs Attention", "Open alerts, most severe first — collapses when all-clear (for the Overview)"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

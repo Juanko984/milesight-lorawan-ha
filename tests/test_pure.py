@@ -803,21 +803,23 @@ def test_dashboard_config_and_templates():
     assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == ["Outside"]
     secs = view["sections"]
     heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
-    # open alerts moved to the dedicated Alerts page; the landing keeps the status band (which links there)
-    assert heads == [None, "Status", "Operations", "Dashboards", "Site"], heads
+    # single pane of glass: header, status hero, needs-attention (all headless), the Systems grid and Site
+    assert heads == [None, None, None, "Systems", "Site"], heads
     by_head = dict(zip(heads, secs))
     assert not any(c["type"] == "custom:milesight-alerts-card" for s_ in secs for c in s_["cards"])
-    # masthead + first-run checklist lead
+    # masthead (with the shortcut nav on — not disabled) + first-run checklist lead
     assert secs[0]["cards"][0]["type"] == "custom:milesight-page-header"
+    assert secs[0]["cards"][0].get("nav") is not False
     assert secs[0]["cards"][1]["type"] == "custom:milesight-onboarding"
     assert secs[0]["cards"][0].get("grid_options", {}).get("columns") == "full"
-    # self-discovering status band
-    assert any(c["type"] == "custom:milesight-status-band" for c in by_head["Status"]["cards"])
-    # purpose-fit operations grid: a domain card per domain the tags say the site has, in a fixed order
-    doms = [c["domain"] for c in by_head["Operations"]["cards"] if c["type"] == "custom:milesight-domain-card"]
-    assert doms == ["tanks", "cold_chain", "farm", "climate"], doms      # no coop/energy tag -> not shown
-    nav = by_head["Dashboards"]["cards"][1:]
-    assert [n["tap_action"]["navigation_path"] for n in nav] == ["/milesight-farm", "/milesight-water"]
+    # status hero (lead) + collapsing needs-attention card
+    assert any(c["type"] == "custom:milesight-status-band" and c.get("lead") for c in secs[1]["cards"])
+    assert any(c["type"] == "custom:milesight-attention-card" for c in secs[2]["cards"])
+    # systems grid: a domain card per domain the tags say the site has, then the always-on fleet/recipes/gateways
+    doms = [c["domain"] for c in by_head["Systems"]["cards"] if c["type"] == "custom:milesight-domain-card"]
+    assert doms == ["tanks", "cold_chain", "farm", "climate", "fleet", "recipes", "gateways"], doms
+    # no separate "Dashboards" button grid any more — the header nav covers that
+    assert not any(c["type"] == "button" for s_ in secs for c in s_["cards"])
     json.dumps(cfg)                                                       # storable
     # the classic-gauge fallback helper still works (used by the Live views)
     dl_ = _load("dashboard_live")
@@ -2313,7 +2315,7 @@ def test_gateway_api():
                  "milesight-flood-card", "milesight-fence-card", "milesight-washroom-band",
                  "milesight-washroom-card", "milesight-compliance-card",
                  "milesight-running-costs-card", "milesight-cost-strip-card",
-                 "milesight-recipes-card", "milesight-recipe-strip-card"):
+                 "milesight-recipes-card", "milesight-recipe-strip-card", "milesight-attention-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # the sidebar-branding routine that sets the top-left title to the site name

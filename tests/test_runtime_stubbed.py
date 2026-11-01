@@ -689,7 +689,9 @@ assert any(c["type"] == "custom:milesight-status-band" for c in _all_cards)     
 _banner = next(c for c in _all_cards if "content" in c)                                     # site banner (now at the foot)
 assert _banner["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
-assert heads[0] == "Status" and heads[-1] == "Site", heads
+assert heads[0] == "Systems" and heads[-1] == "Site", heads
+assert any(c["type"] == "custom:milesight-attention-card" for c in _all_cards)                 # needs-attention card
+assert not any(c["type"] == "button" for c in _all_cards)                                      # no duplicate dashboards grid
 saved_hash = dmod._hash(dash.saved)
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None      # up to date
 assert _DashStore.data["own"] is True and _DashStore.data["title"] == "Acme Ltd"

@@ -96,8 +96,10 @@ def _nav(title: str, url: str, icon: str) -> dict:
 
 # operational domain -> the site tags that mean "this site has it" (purpose-fit landing page)
 _DOMAIN_TAGS = {"tanks": {"tank"}, "cold_chain": {"cold_chain"}, "energy": {"energy", "hvac"},
-                "climate": {"comfort"}, "farm": {"pump", "irrigation"}, "coop": {"coop"}}
-_DOMAIN_ORDER = ("tanks", "cold_chain", "farm", "coop", "energy", "climate")
+                "climate": {"comfort"}, "farm": {"pump", "irrigation", "silo"}, "coop": {"coop"}}
+_DOMAIN_ORDER = ("energy", "tanks", "cold_chain", "farm", "climate", "coop")
+# these exist on every gateway, so the Overview always shows them (the card self-discovers its sensor)
+_DOMAIN_ALWAYS = ("fleet", "recipes", "gateways")
 
 
 def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -107,41 +109,40 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
     analytics dashboard.)"""
     set_classic(ctx.get("classic_gauges", False))
     tags = set(ctx.get("tags") or [])
-    domains = [d for d in _DOMAIN_ORDER if _DOMAIN_TAGS[d] & tags]
+    # single pane of glass: every system the site has (tag-gated) plus the always-on ones (fleet / recipes / gateways)
+    domains = [d for d in _DOMAIN_ORDER if _DOMAIN_TAGS[d] & tags] + list(_DOMAIN_ALWAYS)
     badges = ([{"type": "entity", "entity": ctx["outside"], "name": "Outside", "show_name": True}]
               if ctx.get("outside") else [])
 
     sections = [
-        # masthead + first-run checklist
+        # masthead with the shortcut nav (every other page has it) + first-run checklist
         _section([
             {"type": "custom:milesight-page-header", "title": "Overview",
              "subtitle": "Everything at a glance across the site", "icon": "mdi:home-outline",
-             "stats": False, "nav": False, "grid_options": {"columns": "full"}},
+             "stats": False, "grid_options": {"columns": "full"}},
             {"type": "custom:milesight-onboarding", "grid_options": {"columns": "full"}},
         ], span=4),
-        # "is everything OK right now" — self-discovering status tiles
+        # status hero: overall state + self-discovering tiles (alerts, devices, gateways, low battery, spend)
         _section([
-            {"type": "heading", "heading": "Status", "icon": "mdi:gauge"},
-            {"type": "custom:milesight-status-band", "grid_options": {"columns": "full"}},
+            {"type": "custom:milesight-status-band", "lead": True, "grid_options": {"columns": "full"}},
+        ], span=4),
+        # needs attention: open alerts, most severe first — collapses to nothing when all-clear
+        _section([
+            {"type": "custom:milesight-attention-card", "grid_options": {"columns": "full"}},
         ], span=4),
     ]
-    # (Open alerts live on the dedicated Alerts page now — the status band above links there.)
     # perimeter security: electric fences at a glance (energized / fault)
     if "fence" in tags:
         sections.append(_section([
             {"type": "heading", "heading": "Perimeter and security", "icon": "mdi:shield-home"},
             {"type": "custom:milesight-fence-card", "grid_options": {"columns": "full"}},
         ], span=4))
-    # purpose-fit operations grid: one domain summary card per domain the site has
-    if domains:
-        sections.append(_section(
-            [{"type": "heading", "heading": "Operations", "icon": "mdi:view-dashboard-variant"}]
-            + [{"type": "custom:milesight-domain-card", "domain": d, "grid_options": {"columns": 4}} for d in domains],
-            span=4))
-    # quick links to the generated dashboards
-    if ctx.get("nav"):
-        sections.append(_section([{"type": "heading", "heading": "Dashboards", "icon": "mdi:view-dashboard"}]
-                                 + [_nav(*n) for n in ctx["nav"]], span=4))
+    # operations grid: one summary card per system — each self-discovers and taps through to its dashboard.
+    # (The shortcut nav in the header links to every dashboard, so there is no separate button grid here.)
+    sections.append(_section(
+        [{"type": "heading", "heading": "Systems", "icon": "mdi:view-dashboard-variant"}]
+        + [{"type": "custom:milesight-domain-card", "domain": d, "grid_options": {"columns": 4}} for d in domains],
+        span=4))
     # site identity, kept for reference at the foot of the page
     sections.append(_section([
         {"type": "heading", "heading": "Site", "icon": "mdi:information-outline"},

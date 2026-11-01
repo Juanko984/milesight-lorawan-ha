@@ -5,7 +5,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.12%2B-blue.svg)
 ![Models](https://img.shields.io/badge/supported%20models-118-brightgreen.svg)
 
-**Current version: 0.40.1** · [Version history](#version-history)
+The version badge above is always the latest release. See the **[changelog](CHANGELOG.md)** for what each one added, or [version history](#version-history) below.
 
 Adds Milesight LoRaWAN sensors to Home Assistant **without YAML or Node-RED**.
 Connect the gateway once; every new sensor that sends data shows up under
@@ -341,19 +341,26 @@ HACS only installs the integration folder, so the blueprints and ready-made dash
 integration and it puts them in place itself:
 
 * **After every update** (first start of a new version) the blueprints are copied to
-  `config/blueprints/automation/milesight_lorawan/` and the dashboards appear in the sidebar: **Maintenance**
-  (tabs Overview, Devices, Signal, Map), **Water Level**, **Building analytics**, **Farm**, **Cold storage** and
-  **Energy & HVAC** (each only when the site
-  needs it, see below). A notification lists what changed.
+  `config/blueprints/automation/milesight_lorawan/` and the ready-made dashboards appear in the sidebar.
+  **Always installed:** **Maintenance** (tabs Overview, Devices, Signal, Map), **Devices**, **Alerts** and
+  **Recipes**. **Only when the site needs it:** **Water**, **Farm**, **Cold storage**, **Energy & HVAC**,
+  **Building analytics**, **Chicken coop**, **Retail** and **Smart Washroom** (see below). A notification lists
+  what changed.
 * **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
   (EM400-UDL / -MUD, EM410 / EM411-RDL, EM310-UDL, EM500-UDL, EM500-SWL), *People & occupancy* (VS range, people
   counters, desk sensors) and *Air & comfort* (temperature + humidity or CO₂ sensors). Maintenance is always
-  there; **Water Level** appears when the first tank / silo sensor is added and
+  there; **Water** appears when the first tank / silo sensor is added,
   **Building analytics** with the first comfort or occupancy sensor, **Farm** with the first pump, pivot, valve
-  controller or the gateway's irrigation forecast, **Cold chain** with the first fridge / freezer and **Energy &
-  HVAC** with the first air conditioner, lighting circuit, geyser or mains clamp (see [Purposes](#purposes--what-a-device-is-fitted-to)). *Pump / motor* and *Irrigation* also follow a device's options
-  (a clamp set up as a pump, a tracker set up on a pivot). Remove the last one and the dashboard leaves
-  the sidebar again (its content is kept for later).
+  controller, feed silo or the gateway's irrigation forecast, **Cold storage** with the first fridge / freezer,
+  **Energy & HVAC** with the first CT clamp, smart socket, electricity / gas meter, air conditioner, lighting
+  circuit, geyser or mains clamp, and **Chicken coop**, **Retail** and **Smart Washroom** with their first
+  matching device (see [Purposes](#purposes--what-a-device-is-fitted-to)). *Pump / motor* and *Irrigation* also
+  follow a device's options (a clamp set up as a pump, a tracker set up on a pivot). Remove the last one and the
+  dashboard leaves the sidebar again (its content is kept for later).
+* **Two headline features ride on these pages:** the **Energy** page carries **Running costs** — set four tariffs
+  (electricity, water, diesel, feed) and watch spend today / this month / projected with a live ticker and a cost
+  leaderboard; and **Recipes** is a plain-language automation builder (set a condition in words, choose what
+  happens — it runs on the gateway, no cloud). See the [changelog](CHANGELOG.md) for the rest.
 * The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
   occupancy*, *Milesight · Air & comfort*), so you can filter devices, entities and automations by them. A label
   you remove by hand is not added back.
@@ -1174,6 +1181,61 @@ Milesight publishes a decoder for every device in [Milesight-IoT/SensorDecoders]
 
 | Version | Changes |
 |---|---|
+| **0.89.1** | Recipes: the tune editor is now fill-in-the-blank |
+| **0.89.0** | Recipes — plain-language automations |
+| **0.88.0** | Running costs |
+| **0.87.0** | A few little touches |
+| **0.86.0** | Water tanks and grain/feed silos are now separated |
+| **0.85.0** | Much simpler "Tank or silo" setup |
+| **0.84.0** | "Purpose (what it is fitted to)" now shows on every device |
+| **0.83.0** | Site name in the sidebar header (top-left), at last |
+| **0.82.0** | Richer device pages (all device types) |
+| **0.81.0** | Trendlines wired into the dashboards + device pages |
+| **0.80.0** | New trendline card (`custom:milesight-trendline-card`) with threshold flashing |
+| **0.79.0** | New dedicated "Devices" page |
+| **0.78.1** | Ecowitt WS90 wind now reads in km/h, with a readable compass direction |
+| **0.78.0** | Overview landing page decluttered |
+| **0.77.0** | New dedicated Alerts dashboard — one home for every alert |
+| **0.76.0** | "Water Level" renamed to "Water" under a fresh sidebar slug (`milesight-water`) |
+| **0.75.0** | Distribution & quality pass |
+| **0.74.0** | New Smart Washroom / Facilities dashboard |
+| **0.73.0** | Electric fence monitor — new fit-for-purpose security use case |
+| **0.72.0** | Flood / drain early-warning sensor — new fit-for-purpose use case |
+| **0.71.0** | Water troughs for livestock on the Water Level dashboard |
+| **0.70.0** | "Tanks & alerts" is now "Water Level" — rebuilt as a production command center |
+| **0.69.0** | Fixed: occupancy history was lost on a crash / hard restart |
+| **0.68.0** | New Retail dashboard — one page for a store |
+| **0.67.0** | Grid sizing made correct by default on every always-full-width card |
+| **0.66.0** | Building dashboard rebuilt as a command center |
+| **0.65.0** | Cold storage rebuilt — now compliance-first |
+| **0.64.0** | Maintenance is now a fleet-health command center |
+| **0.63.0** | Power & Energy page rebuilt |
+| **0.62.0** | Production command-center landing page |
+| **0.61.0** | New Chicken coop dashboard |
+| **0.60.0** | Cold-chain log is now phone-friendly |
+| **0.59.0** | The page header is always full width |
+| **0.58.0** | Act on alerts from the dashboard |
+| **0.57.0** | Every list is now a table |
+| **0.56.0** | First-run onboarding checklist |
+| **0.55.0** | The remaining dashboards rebuilt with the card system |
+| **0.54.0** | A consistent page header on every generated dashboard |
+| **0.53.0** | Gauge scale labels |
+| **0.52.0** | Gauge zones drawn on the track |
+| **0.51.0** | Device page: threshold-aware gauge, real controls, and an activity timeline |
+| **0.50.0** | Per-device page |
+| **0.49.0** | Table card: filter box, CSV export, remembered sort |
+| **0.48.0** | Table card: three more presets, click-through and sorting |
+| **0.47.0** | New table card with issue highlighting |
+| **0.46.0** | Visual config editors for every card |
+| **0.45.0** | Four self-contained Lovelace cards |
+| **0.44.1** | Configure now also sets the gateway clock |
+| **0.44.0** | Sync the gateway clock from Home Assistant (off-grid time source) |
+| **0.43.0** | Gateway location, stored in Home Assistant |
+| **0.42.2** | Clearer button label |
+| **0.42.1** | Fix `POST …/integrations/mqtt → HTTP 409` when re-configuring a gateway |
+| **0.42.0** | Register a new device on a specific gateway's embedded network server |
+| **0.41.1** | Add-a-device screen now names the gateways that will cover a device |
+| **0.41.0** | Zero-touch gateway configuration over the LAN, verified on real hardware (UG65 fw 60, UG56): |
 | **0.40.1** | Resilient unload (recover a stuck entry); trimmed oversized gateway-devices attribute. |
 | **0.40.0** | Gateway LAN login fixed (HTTP Basic auth); option to set Home Assistant's name to the site company. |
 | **0.39.4** | Gateway login tried across firmware variants; clearer config errors; broker address fix. |
