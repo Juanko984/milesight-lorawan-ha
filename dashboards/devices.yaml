@@ -30,6 +30,15 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Gateway
+            icon: mdi:router-wireless
+          # The gateway(s): live status, click-through to the device page, and a button to the gateway settings.
+          - type: custom:milesight-gateways-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Fleet health
             icon: mdi:heart-pulse
           # Self-discovering fleet tiles: online, batteries due, offline, weak signal, firmware.

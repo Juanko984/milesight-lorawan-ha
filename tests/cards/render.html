@@ -26,8 +26,8 @@
    offline_hours: i >= 10 ? 48 : 0, last_seen: "x",
    service: i === 0 ? [{ at: "2026-10-20T08:00:00Z", kind: "firmware", text: "v1.6->v1.7", by: "Sam" }] : [],
  });
- const gws = [{ name: "GW-A", online: true, packets_today: 4000, devices_today: 20 },
-              { name: "GW-B", online: false, packets_today: 0, devices_today: 0 }];
+ const gws = [{ id: "24e124445566", name: "GW-A", online: true, packets_today: 4000, devices_today: 20 },
+              { id: "24e124778899", name: "GW-B", online: false, packets_today: 0, devices_today: 0 }];
  const alerts = [
    { id: "a1", title: "Fridge warm", message: "6.8 °C for 25 min", severity: "critical", category: "cold_chain", since: "22 Oct 14:05", status: "escalated", acknowledged_by: null },
    { id: "a2", title: "Pump dry-run", message: "2.1 A", severity: "warning", category: "pumps", since: "22 Oct 09:10", status: "notified", acknowledged_by: null },
@@ -38,6 +38,7 @@
    "sensor.temp": { state: "4.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Fridge", device_class: "temperature", unit_of_measurement: "°C", alarm_low: 2, alarm_high: 8, min_today: 3, max_today: 6 } },
    "sensor.fleet": { state: "12", attributes: { milesight_role: "fleet_total", devices: devs, site: "Acme Farm" } },
    "sensor.gws": { state: "2", attributes: { milesight_role: "net_gateways_online", gateways: gws } },
+   "sensor.gwconn": { state: "Semtech UDP + MQTT", attributes: { milesight_role: "gateway_connection", gateway_id: "24E124445566", ip_address: "192.168.1.50" } },
    "sensor.alo": { state: "2", attributes: { milesight_role: "alerts_open", alerts: alerts, escalation_enabled: true, on_call: ["juan"], backup: ["sam"], primary: ["juan", "sam"], escalate_min: 15, quiet_hours: "22:00 – 06:00", has_rota: true, snooze_min: 60, last_notification: { title: "Fridge warm", targets: ["juan", "sam"], at: "22 Oct 14:05" } } },
    "sensor.health": { state: "89", attributes: { milesight_role: "building_health" } },
    "sensor.bcomfort": { state: "84", attributes: { milesight_role: "building_comfort", areas: 6, comfortable_areas: 5 } },
@@ -186,6 +187,7 @@
    ["milesight-status-band", { lead: true }],
    ["milesight-attention-card", {}],
    ["milesight-systems-card", {}],
+   ["milesight-gateways-card", {}],
    ["milesight-domain-card", { domain: "tanks" }],
    ["milesight-domain-card", { domain: "cold_chain" }],
    ["milesight-domain-card", { domain: "farm" }],

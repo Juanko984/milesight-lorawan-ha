@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.91.0
+- **The gateway is now on the Devices page.** A new **Gateway** section at the top shows each gateway with live
+  status (online, packets today, devices heard, connection), a **click-through to its Home Assistant device
+  page**, and a single **⚙ Gateway settings** button that opens the gateway's configuration (the Configure menu)
+  — so you can reach Site information, Running costs, Alert escalation, Rules, network server and the rest from
+  the dashboard. Extra gateways on the same hub appear as compact status rows.
+
 ## 0.90.3
 - **"Recipes" is now "Rules"** (the dashboard, the card and the menus) — same feature, clearer name, and room to
   grow as we expand what rules can do.

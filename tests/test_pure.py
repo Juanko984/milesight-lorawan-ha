@@ -2316,7 +2316,7 @@ def test_gateway_api():
                  "milesight-washroom-card", "milesight-compliance-card",
                  "milesight-running-costs-card", "milesight-cost-strip-card",
                  "milesight-recipes-card", "milesight-recipe-strip-card", "milesight-attention-card",
-                 "milesight-systems-card"):
+                 "milesight-systems-card", "milesight-gateways-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # the sidebar-branding routine that sets the top-left title to the site name

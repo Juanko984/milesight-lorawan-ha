@@ -2807,6 +2807,91 @@
     }
   }
 
+  // ================================================================ gateway (devices page)
+  // The gateway(s) with live status, a click-through to the HA device page, and one button to the gateway's
+  // settings. Self-discovers from the net_gateways_online role sensor; connection + per-gateway device come from
+  // the gateway_connection role sensors.
+  class GatewaysCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === "net_gateways_online") return id; return null; }
+    _watch() { const id = this._find(); return id ? [id] : null; }
+    _deviceId(entityId) { try { const e = this._hass.entities && this._hass.entities[entityId]; return e && e.device_id; } catch (x) { return null; } }
+    _gwInfo(gid) {
+      const S = this._hass.states, up = String(gid || "").toUpperCase();
+      for (const id in S) { const a = S[id].attributes;
+        if (id.startsWith("sensor.") && a && a.milesight_role === "gateway_connection" && String(a.gateway_id || "").toUpperCase() === up)
+          return { conn: S[id].state, device: this._deviceId(id), ip: a.web_page }; }
+      return {};
+    }
+    _render() {
+      if (!this._hass) return;
+      const id = this._find(), st = id ? this._st(id) : null;
+      const hubDevice = id ? this._deviceId(id) : null;
+      this._css = `
+        .gwh{display:flex;align-items:center;gap:14px;cursor:pointer;padding:2px 0}
+        .gwh .gi{flex:0 0 auto;width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);--mdc-icon-size:25px;color:var(--ms-accent)}
+        .gwh .nm{font-size:17px;font-weight:720;display:flex;align-items:center;gap:9px}
+        .gwh .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+        .gwh .sub{font-size:12px;color:var(--ms-ink2);margin-top:2px}
+        .gwh .sp{flex:1}
+        .gwh .go{font-size:13px;color:var(--ms-accent);font-weight:600;white-space:nowrap}
+        .gwm{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:15px 0 0}
+        .gwmc{border:1px solid var(--ms-line);border-radius:11px;padding:10px 13px}
+        .gwmc .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}.gwmc .v.good{color:var(--ms-good)}.gwmc .v.bad{color:var(--ms-bad)}
+        .gwmc .l{font-size:11px;color:var(--ms-ink2);margin-top:3px}
+        .gwset{display:flex;margin-top:15px;border-top:1px solid var(--ms-line);padding-top:14px}
+        .gwbtn{font:inherit;font-size:13px;font-weight:600;border-radius:10px;padding:9px 15px;border:1px solid var(--ms-line);background:#12181d;color:var(--ms-ink);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+        .gwbtn:hover{border-color:var(--ms-accent)}
+        .gwbtn ha-icon{--mdc-icon-size:18px}
+        .gw2{display:flex;align-items:center;gap:13px;cursor:pointer;padding:12px 2px 2px;border-top:1px solid var(--ms-line);margin-top:14px}
+        .gw2 .gi{flex:0 0 auto;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:#20262c;--mdc-icon-size:18px;color:var(--ms-ink2)}
+        .gw2 .nm{font-size:14px;font-weight:650;display:flex;align-items:center;gap:8px}
+        .gw2 .sub{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}.gw2 .sp{flex:1}.gw2 .go{font-size:12.5px;color:var(--ms-accent);font-weight:600}
+      `;
+      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:router-wireless-off",
+        title: "No gateway yet", hint: "Add a gateway from Settings → Devices & services, or the commissioning panel." })]));
+      const gws = (st.attributes.gateways || []).slice().sort((a, b) => (b.online - a.online) || String(a.name || "").localeCompare(String(b.name || "")));
+      const settingsBtn = h("button", { class: "gwbtn", onclick: (e) => { e.stopPropagation(); navigate("/config/integrations/integration/milesight_lorawan"); } },
+        [h("ha-icon", { icon: "mdi:cog" }), "Gateway settings"]);
+      if (!gws.length) {
+        return this._card(h("div", { class: "wrap" }, [
+          h("div", { class: "gwh", onclick: () => hubDevice && navigate("/config/devices/device/" + hubDevice) }, [
+            h("div", { class: "gi" }, [h("ha-icon", { icon: "mdi:router-wireless" })]),
+            h("div", {}, [h("div", { class: "nm" }, esc(st.attributes.site || "Gateway")), h("div", { class: "sub" }, "No packet forwarder heard yet")]),
+            h("div", { class: "sp" }), hubDevice ? h("span", { class: "go" }, "Open device page →") : null]),
+          h("div", { class: "gwset" }, [settingsBtn])]));
+      }
+      const row = (g, primary) => {
+        const info = this._gwInfo(g.id), online = !!g.online, dev = info.device;
+        const open = () => navigate(dev ? "/config/devices/device/" + dev : (hubDevice ? "/config/devices/device/" + hubDevice : "/config/integrations/integration/milesight_lorawan"));
+        const eui = String(g.id || "").toUpperCase().replace(/(..)(?=.)/g, "$1:");
+        const subline = [eui, info.conn].filter(Boolean).join(" · ") || "LoRaWAN gateway";
+        if (!primary) return h("div", { class: "gw2", onclick: open }, [
+          h("div", { class: "gi" }, [h("ha-icon", { icon: "mdi:router-wireless" })]),
+          h("div", {}, [h("div", { class: "nm" }, [h("span", { class: "dot", style: { background: online ? "var(--ms-good)" : "var(--ms-bad)" } }), esc(g.name || ("Gateway " + g.id))]),
+            h("div", { class: "sub" }, (online ? "online" : "offline") + " · " + (g.packets_today || 0) + " packets today · " + (g.devices_today || 0) + " heard")]),
+          h("div", { class: "sp" }), h("span", { class: "go" }, "Open device page →")]);
+        return [
+          h("div", { class: "gwh", onclick: open }, [
+            h("div", { class: "gi" }, [h("ha-icon", { icon: "mdi:router-wireless" })]),
+            h("div", {}, [h("div", { class: "nm" }, [h("span", { class: "dot", style: { background: online ? "var(--ms-good)" : "var(--ms-bad)" } }), esc(g.name || ("Gateway " + g.id))]),
+              h("div", { class: "sub" }, esc(subline))]),
+            h("div", { class: "sp" }), h("span", { class: "go" }, "Open device page →")]),
+          h("div", { class: "gwm" }, [
+            h("div", { class: "gwmc" }, [h("div", { class: "v " + (online ? "good" : "bad") }, online ? "Online" : "Offline"), h("div", { class: "l" }, "status")]),
+            h("div", { class: "gwmc" }, [h("div", { class: "v" }, String(g.packets_today || 0)), h("div", { class: "l" }, "packets today")]),
+            h("div", { class: "gwmc" }, [h("div", { class: "v" }, String(g.devices_today || 0)), h("div", { class: "l" }, "devices heard")]),
+            h("div", { class: "gwmc" }, [h("div", { class: "v" }, esc(info.conn || "—")), h("div", { class: "l" }, "connection")]),
+          ]),
+        ];
+      };
+      const body = [...row(gws[0], true), h("div", { class: "gwset" }, [settingsBtn])];
+      gws.slice(1).forEach((g) => body.push(row(g, false)));
+      this._card(h("div", { class: "wrap" }, body));
+    }
+  }
+
   // ================================================================ systems grid (overview single pane)
   // Every operational system the site has, as equal-size panels in one responsive grid — self-discovering, so a
   // panel appears only when the site has that system. One card (not many), so the panels are always uniform.
@@ -3972,6 +4057,7 @@
     "milesight-recipes-card": [],
     "milesight-attention-card": [],
     "milesight-systems-card": [],
+    "milesight-gateways-card": [],
     "milesight-recipe-strip-card": [{ name: "category", selector: { select: { multiple: true, options: [
       { value: "water", label: "Water" }, { value: "pumps", label: "Pumps" }, { value: "cold_chain", label: "Cold chain" },
       { value: "energy", label: "Energy" }, { value: "devices", label: "Devices" }, { value: "farm", label: "Farm" },
@@ -4654,7 +4740,8 @@
         COMPLIANCE_TAG = "milesight-compliance-card",
         COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card",
         RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
-        ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card";
+        ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card",
+        GATEWAYS_TAG = "milesight-gateways-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -4699,6 +4786,7 @@
     [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Rule Strip", "A compact per-domain rule strip with toggles for a dashboard"],
     [ATTENTION_TAG, AttentionCard, "Milesight Needs Attention", "Open alerts, most severe first — collapses when all-clear (for the Overview)"],
     [SYSTEMS_TAG, SystemsCard, "Milesight Systems", "Every system the site has as equal-size panels — the Overview single pane of glass"],
+    [GATEWAYS_TAG, GatewaysCard, "Milesight Gateway", "The gateway(s): live status, click-through to the device page, and a settings button"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {
