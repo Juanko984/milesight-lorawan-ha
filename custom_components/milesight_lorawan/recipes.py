@@ -234,7 +234,7 @@ class RecipeManager:
 class RecipeSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_name = "Recipes"
+    _attr_name = "Rules"
     _attr_icon = "mdi:script-text-outline"
     _attr_native_unit_of_measurement = "running"
     _attr_state_class = SensorStateClass.MEASUREMENT

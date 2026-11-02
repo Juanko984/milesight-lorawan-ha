@@ -76,8 +76,9 @@ def ws_update(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True})
 
 
+# note: the recipe id is passed as "recipe_id" — the websocket protocol reserves "id" for the request id (int)
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/recipes/toggle",
-                                  vol.Required("id"): str, vol.Required("enabled"): bool, vol.Optional("hub"): str})
+                                  vol.Required("recipe_id"): str, vol.Required("enabled"): bool, vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_toggle(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -86,7 +87,7 @@ def ws_toggle(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway with recipes")
         return
     try:
-        mgr.toggle(msg["id"], msg["enabled"])
+        mgr.toggle(msg["recipe_id"], msg["enabled"])
     except ValueError as err:
         connection.send_error(msg["id"], "invalid", str(err))
         return
@@ -95,7 +96,7 @@ def ws_toggle(hass: HomeAssistant, connection, msg: dict) -> None:
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/recipes/delete",
-                                  vol.Required("id"): str, vol.Optional("hub"): str})
+                                  vol.Required("recipe_id"): str, vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -103,13 +104,13 @@ def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
     if mgr is None:
         connection.send_error(msg["id"], "not_found", "No gateway with recipes")
         return
-    mgr.delete(msg["id"])
+    mgr.delete(msg["recipe_id"])
     _after(mgr)
     connection.send_result(msg["id"], {"ok": True})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/recipes/test",
-                                  vol.Required("id"): str, vol.Optional("hub"): str})
+                                  vol.Required("recipe_id"): str, vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_test(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -117,7 +118,7 @@ def ws_test(hass: HomeAssistant, connection, msg: dict) -> None:
     if mgr is None:
         connection.send_error(msg["id"], "not_found", "No gateway with recipes")
         return
-    fired = mgr.test(msg["id"])
+    fired = mgr.test(msg["recipe_id"])
     if fired is None:
         connection.send_error(msg["id"], "not_found", "Recipe not found")
         return

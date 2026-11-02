@@ -2745,13 +2745,13 @@
           metrics: [[`${on}/${g.length}`, "online", on < g.length ? "bad" : ""], [pk ? (pk >= 1000 ? `${(pk / 1000).toFixed(1)}k` : String(pk)) : "—", "packets today"], [String(g.length), g.length === 1 ? "gateway" : "gateways"]],
           issue: on < g.length ? "A gateway is offline" : "All forwarding" };
       } },
-    recipes: { name: "Recipes", icon: "mdi:script-text-outline", path: "/milesight-recipes/recipes",
+    recipes: { name: "Rules", icon: "mdi:script-text-outline", path: "/milesight-recipes/recipes",
       compute(S) {
         const r = _roleOne(S, "recipes"); if (!r) return null;
         const a = r.attributes, list = a.recipes || [], fired = (list.filter((x) => x.last_fire).sort((x, y) => (y.last_fire || 0) - (x.last_fire || 0)))[0];
         return { bcls: "good", badge: `${a.running || 0} running`,
           metrics: [[String(a.running || 0), "running"], [String(a.fired_today || 0), "fired today"], [String(a.paused || 0), "paused"]],
-          issue: fired ? `${fired.sentence ? fired.sentence.replace(/^If /, "").split(" →")[0] : "A recipe"} fired ${ago(fired.last_fire * 1000)}` : "No recipes have fired yet" };
+          issue: fired ? `${fired.sentence ? fired.sentence.replace(/^If /, "").split(" →")[0] : "A rule"} fired ${ago(fired.last_fire * 1000)}` : "No rules have fired yet" };
       } },
     coop: { name: "Coop", icon: "mdi:egg", path: "/milesight-coop/coop",
       compute(S) {
@@ -4387,20 +4387,20 @@
       this._css_block();
       const st = this._st(this._find());
       if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:script-text-outline",
-        title: "Recipes not ready", hint: "The gateway sets this up automatically — give it a moment after a restart." })]));
+        title: "Rules not ready", hint: "The gateway sets this up automatically — give it a moment after a restart." })]));
       const a = st.attributes, recipes = a.recipes || [];
       const head = h("div", { class: "rc2-head" }, [
         h("div", { class: "ic" }, "📋"),
-        h("div", {}, [h("div", { class: "ti" }, "Recipes"),
+        h("div", {}, [h("div", { class: "ti" }, "Rules"),
           h("div", { class: "sub" }, `${a.running || 0} running · ${a.paused || 0} paused · fired ${a.fired_today || 0}× today`)]),
         h("div", { class: "sp" }),
-        h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._open = null; this._render(); } }, "＋ Add recipe"),
+        h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._open = null; this._render(); } }, "＋ Add rule"),
       ]);
       if (this._adding) return this._card(h("div", { class: "wrap" }, [head, this._library(a)]));
 
       const on = recipes.filter((r) => r.enabled), off = recipes.filter((r) => !r.enabled);
       const body = [head];
-      if (!recipes.length) body.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "10px 2px" } }, "No recipes yet — press “Add recipe”."));
+      if (!recipes.length) body.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "10px 2px" } }, "No rules yet — press “Add rule”."));
       const section = (title, list) => { if (!list.length) return; body.push(h("div", { class: "grp" }, title)); list.forEach((r) => body.push(this._row(r))); };
       section("Running", on); section("Paused", off);
       this._card(h("div", { class: "wrap" }, body));
@@ -4415,7 +4415,7 @@
           h("div", { class: "meta" }, [h("span", {}, CAT_LABEL[r.category] || r.category), last,
             h("span", {}, `covers ${r.covers}`)])]),
         h("span", { class: "tune", onclick: () => { this._open = r.id; this._render(); } }, "Tune"),
-        h("div", { class: "tog" + (r.enabled ? " on" : ""), onclick: async () => { await this._ws("toggle", { id: r.id, enabled: !r.enabled }); this.set_hass_refresh(); } }, [h("i")]),
+        h("div", { class: "tog" + (r.enabled ? " on" : ""), onclick: async () => { await this._ws("toggle", { recipe_id: r.id, enabled: !r.enabled }); this.set_hass_refresh(); } }, [h("i")]),
       ]);
     }
 
@@ -4500,7 +4500,7 @@
         h("button", { class: "mbtn p", onclick: () => this._save(r) }, "Save"),
         h("button", { class: "mbtn", onclick: async (ev) => {
           const btn = ev.currentTarget, old = btn.textContent; btn.textContent = "Testing…"; testNote.textContent = "";
-          const res = await this._ws("test", { id: r.id });
+          const res = await this._ws("test", { recipe_id: r.id });
           const bad = !res || res.error;
           btn.textContent = bad ? "Failed" : "✓ Fired";
           testNote.style.color = bad ? "var(--ms-bad)" : "var(--ms-good)";
@@ -4509,7 +4509,7 @@
         } }, "Test now"),
         testNote,
         h("span", { style: { flex: 1 } }),
-        h("button", { class: "mbtn d", onclick: async () => { await this._ws("delete", { id: r.id }); this._reopen(); } }, "Delete"),
+        h("button", { class: "mbtn d", onclick: async () => { await this._ws("delete", { recipe_id: r.id }); this._reopen(); } }, "Delete"),
         h("button", { class: "mbtn", onclick: () => { this._open = null; this._render(); } }, "Cancel"),
       ]));
       return h("div", { class: "ed" }, rows);
@@ -4543,7 +4543,7 @@
         h("div", { class: "d" }, esc(c.sentence)),
         h("button", { class: "mbtn p add", onclick: async () => { await this._ws("enable", { catalog: c.key }); this._adding = false; this.set_hass_refresh(); } }, "＋ Enable"),
       ])));
-      const back = h("div", { style: { marginTop: "14px" } }, [h("button", { class: "mbtn", onclick: () => { this._adding = false; this._render(); } }, "← Back to recipes")]);
+      const back = h("div", { style: { marginTop: "14px" } }, [h("button", { class: "mbtn", onclick: () => { this._adding = false; this._render(); } }, "← Back to rules")]);
       return h("div", {}, [catrow, grid, back]);
     }
   }
@@ -4571,19 +4571,19 @@
       `;
       const st = this._st(this._find());
       const cats = (this._cfg.category ? [].concat(this._cfg.category) : null);
-      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:script-text-outline", title: "Recipes not ready", hint: "Set up automatically by the gateway." })]));
+      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:script-text-outline", title: "Rules not ready", hint: "Set up automatically by the gateway." })]));
       const all = st.attributes.recipes || [];
       const list = cats ? all.filter((r) => cats.includes(r.category)) : all;
       if (!list.length) return this._card(h("div", { class: "wrap" }, [
-        h("div", { class: "rs-h" }, ["Recipes", h("span", { class: "lnk", onclick: () => navigate("/milesight-recipes") }, "Manage →")]),
-        h("div", { class: "muted", style: { fontSize: "12.5px", padding: "4px 2px" } }, "No recipes here yet — add one from the Recipes page.")]));
+        h("div", { class: "rs-h" }, ["Rules", h("span", { class: "lnk", onclick: () => navigate("/milesight-recipes") }, "Manage →")]),
+        h("div", { class: "muted", style: { fontSize: "12.5px", padding: "4px 2px" } }, "No rules here yet — add one from the Rules page.")]));
       const rows = list.map((r) => h("div", { class: "rsr" + (r.enabled ? "" : " off") }, [
         h("span", { class: "ri" }, r.icon || "•"),
         h("div", { class: "s" }, [esc(r.sentence), r.last_fire ? h("div", { class: "m" }, "● fired " + ago(r.last_fire * 1000)) : null]),
-        h("div", { class: "tog" + (r.enabled ? " on" : ""), onclick: async () => { await this._ws("toggle", { id: r.id, enabled: !r.enabled }); this._lastSig = null; this.hass = this._hass; } }, [h("i")]),
+        h("div", { class: "tog" + (r.enabled ? " on" : ""), onclick: async () => { await this._ws("toggle", { recipe_id: r.id, enabled: !r.enabled }); this._lastSig = null; this.hass = this._hass; } }, [h("i")]),
       ]));
       this._card(h("div", { class: "wrap" }, [
-        h("div", { class: "rs-h" }, ["Recipes", h("span", { class: "lnk", onclick: () => navigate("/milesight-recipes") }, "Manage →")]),
+        h("div", { class: "rs-h" }, ["Rules", h("span", { class: "lnk", onclick: () => navigate("/milesight-recipes") }, "Manage →")]),
         h("div", { class: "rs" }, rows)]));
     }
   }
@@ -4695,8 +4695,8 @@
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
     [COSTS_TAG, RunningCostsCard, "Milesight Running Costs", "Spend today/month/projected with a live ticker and a cost leaderboard, from your tariffs"],
     [COSTSTRIP_TAG, CostStripCard, "Milesight Cost Strip", "A small water / diesel / feed cost-today strip for a page other than Energy"],
-    [RECIPES_TAG, RecipesCard, "Milesight Recipes", "Plain-language automations: browse, toggle, tune and add recipes"],
-    [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Recipe Strip", "A compact per-domain recipe strip with toggles for a dashboard"],
+    [RECIPES_TAG, RecipesCard, "Milesight Rules", "Plain-language automations: browse, toggle, tune and add rules"],
+    [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Rule Strip", "A compact per-domain rule strip with toggles for a dashboard"],
     [ATTENTION_TAG, AttentionCard, "Milesight Needs Attention", "Open alerts, most severe first — collapses when all-clear (for the Overview)"],
     [SYSTEMS_TAG, SystemsCard, "Milesight Systems", "Every system the site has as equal-size panels — the Overview single pane of glass"],
   ];

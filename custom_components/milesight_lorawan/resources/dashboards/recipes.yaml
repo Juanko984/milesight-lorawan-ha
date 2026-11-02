@@ -1,9 +1,9 @@
-# Milesight LoRaWAN – Recipes (plain-language automations)
+# Milesight LoRaWAN – Rules (plain-language automations)
 # Installed by the integration on every site. The card reads the "recipes" role sensor on the gateway and
 # edits recipes over the recipe WebSocket — no entity ids to set. The engine runs on the gateway.
-title: Recipes
+title: Rules
 views:
-  - title: Recipes
+  - title: Rules
     path: recipes
     icon: mdi:script-text-outline
     type: sections
@@ -14,7 +14,7 @@ views:
         cards:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
-            title: Recipes
+            title: Rules
             subtitle: Plain-language automations — set a condition, choose what happens
             icon: mdi:script-text-outline
       - type: grid

@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.90.3
+- **"Recipes" is now "Rules"** (the dashboard, the card and the menus) — same feature, clearer name, and room to
+  grow as we expand what rules can do.
+- **Fixed: the rule Test / toggle / delete buttons.** They sent the rule id in a field (`id`) that the
+  Home-Assistant WebSocket protocol reserves for its own request id, so the gateway rejected them
+  ("expected str at 'id'"). Renamed to `recipe_id` — Test, the on/off toggles and Delete all work now.
+
 ## 0.90.2
 - **Recipes: pick an area or device from a dropdown.** Scoping a recipe to "one area" or "one device" now lists
   the actual areas / devices that recipe can match (instead of a free-text box) — so there's nothing to type or
