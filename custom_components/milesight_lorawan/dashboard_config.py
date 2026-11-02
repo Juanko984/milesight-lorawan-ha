@@ -109,8 +109,7 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
     analytics dashboard.)"""
     set_classic(ctx.get("classic_gauges", False))
     tags = set(ctx.get("tags") or [])
-    # single pane of glass: every system the site has (tag-gated) plus the always-on ones (fleet / recipes / gateways)
-    domains = [d for d in _DOMAIN_ORDER if _DOMAIN_TAGS[d] & tags] + list(_DOMAIN_ALWAYS)
+    # single pane of glass: the Systems card self-discovers every system the site has, so no server-side list.
     badges = ([{"type": "entity", "entity": ctx["outside"], "name": "Outside", "show_name": True}]
               if ctx.get("outside") else [])
 
@@ -137,17 +136,12 @@ def build_config(ctx: dict[str, Any]) -> dict[str, Any]:
             {"type": "heading", "heading": "Perimeter and security", "icon": "mdi:shield-home"},
             {"type": "custom:milesight-fence-card", "grid_options": {"columns": "full"}},
         ], span=4))
-    # operations grid: one summary card per system — each self-discovers and taps through to its dashboard.
-    # (The shortcut nav in the header links to every dashboard, so there is no separate button grid here.)
+    # operations: one Systems card lays every system out as equal-size, self-discovering panels (so they are
+    # always uniform, unlike one HA grid card each). The header shortcut nav covers links to the dashboards.
     sections.append(_section(
-        [{"type": "heading", "heading": "Systems", "icon": "mdi:view-dashboard-variant"}]
-        + [{"type": "custom:milesight-domain-card", "domain": d, "grid_options": {"columns": 4}} for d in domains],
+        [{"type": "heading", "heading": "Systems", "icon": "mdi:view-dashboard-variant"},
+         {"type": "custom:milesight-systems-card", "grid_options": {"columns": "full"}}],
         span=4))
-    # site identity, kept for reference at the foot of the page
-    sections.append(_section([
-        {"type": "heading", "heading": "Site", "icon": "mdi:information-outline"},
-        {"type": "markdown", "content": _banner(ctx["site"]), "grid_options": {"columns": "full"}},
-    ], span=4))
 
     sections = [s_ for s_ in sections if s_ and s_["cards"]
                 and not (len(s_["cards"]) == 1 and s_["cards"][0]["type"] == "heading")]

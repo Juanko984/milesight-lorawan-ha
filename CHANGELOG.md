@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.90.2
+- **Recipes: pick an area or device from a dropdown.** Scoping a recipe to "one area" or "one device" now lists
+  the actual areas / devices that recipe can match (instead of a free-text box) — so there's nothing to type or
+  mis-spell.
+- **Recipes: "Test now" fixed.** It now always leaves a visible confirmation (a notification saying what the
+  recipe would do, e.g. "would notify …, raise an alert") and shows an inline ✓/failure note on the button, so a
+  test is never a silent no-op — even when no notify target is configured yet.
+
+## 0.90.1
+- **Overview tidy-up.** The system panels are now one **Systems** card that lays them out as **equal-size**,
+  responsive tiles (uniform height, single-line labels) instead of separate cards that sized raggedly. Removed
+  the **Site** identity block from the Overview — it was redundant on a glance page.
+
 ## 0.90.0
 - **The Overview is now a real single pane of glass.** Rebuilt the site landing page so one screen shows the
   whole site:

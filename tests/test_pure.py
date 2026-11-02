@@ -803,9 +803,8 @@ def test_dashboard_config_and_templates():
     assert view["type"] == "sections" and [b["name"] for b in view["badges"]] == ["Outside"]
     secs = view["sections"]
     heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in secs]
-    # single pane of glass: header, status hero, needs-attention (all headless), the Systems grid and Site
-    assert heads == [None, None, None, "Systems", "Site"], heads
-    by_head = dict(zip(heads, secs))
+    # single pane of glass: header, status hero, needs-attention (all headless), then the Systems grid — no Site
+    assert heads == [None, None, None, "Systems"], heads
     assert not any(c["type"] == "custom:milesight-alerts-card" for s_ in secs for c in s_["cards"])
     # masthead (with the shortcut nav on — not disabled) + first-run checklist lead
     assert secs[0]["cards"][0]["type"] == "custom:milesight-page-header"
@@ -815,11 +814,12 @@ def test_dashboard_config_and_templates():
     # status hero (lead) + collapsing needs-attention card
     assert any(c["type"] == "custom:milesight-status-band" and c.get("lead") for c in secs[1]["cards"])
     assert any(c["type"] == "custom:milesight-attention-card" for c in secs[2]["cards"])
-    # systems grid: a domain card per domain the tags say the site has, then the always-on fleet/recipes/gateways
-    doms = [c["domain"] for c in by_head["Systems"]["cards"] if c["type"] == "custom:milesight-domain-card"]
-    assert doms == ["tanks", "cold_chain", "farm", "climate", "fleet", "recipes", "gateways"], doms
-    # no separate "Dashboards" button grid any more — the header nav covers that
+    # one Systems card lays out every system as equal-size panels (it self-discovers; no per-domain cards)
+    assert any(c["type"] == "custom:milesight-systems-card" for c in secs[3]["cards"])
+    assert not any(c["type"] == "custom:milesight-domain-card" for s_ in secs for c in s_["cards"])
+    # no separate "Dashboards" button grid, and no "Site" footer any more
     assert not any(c["type"] == "button" for s_ in secs for c in s_["cards"])
+    assert not any(c.get("content", "").startswith("{% set s") for s_ in secs for c in s_["cards"])
     json.dumps(cfg)                                                       # storable
     # the classic-gauge fallback helper still works (used by the Live views)
     dl_ = _load("dashboard_live")
@@ -828,10 +828,11 @@ def test_dashboard_config_and_templates():
     g2 = dc_._gauge("sensor.x", "T", 0, 100, [(0, "var(--success-color)")])
     dc_.set_classic(False)
     assert dl_.gauge_of(g2)["type"] == "gauge"
-    # a site with no operational tags shows no Operations grid
+    # the Systems card self-discovers, so it is present even with no operational tags (no Site footer either)
     bare = dcfg.build_config({"title": "X", "site": "sensor.s", "tags": [], "nav": []})
-    bare_heads = [next((c.get("heading") for c in s_["cards"] if c["type"] == "heading"), None) for s_ in bare["views"][0]["sections"]]
-    assert "Operations" not in bare_heads
+    bare_cards = [c for s_ in bare["views"][0]["sections"] for c in s_["cards"]]
+    assert any(c["type"] == "custom:milesight-systems-card" for c in bare_cards)
+    assert not any(c.get("content", "").startswith("{% set s") for c in bare_cards)
 
     env = jinja2.Environment()
     env.filters["select"] = lambda xs: [x for x in xs if x]
@@ -840,15 +841,14 @@ def test_dashboard_config_and_templates():
             "status": "2 items need attention"}
     class Now:
         def strftime(self, f): return "Wednesday 15 October 2026 · 14:32"
-    # the site banner now lives at the foot of the page, in the "Site" section
-    banner_card = next(c for c in by_head["Site"]["cards"] if "content" in c)
-    banner = env.from_string(banner_card["content"]).render(
+    # the site banner helper is still unit-tested directly (it is reused for the site identity block)
+    banner = env.from_string(dcfg._banner("sensor.s")).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme Facilities", now=Now)
     assert "<h2>Acme Facilities</h2>" in banner and "Head office · 1 Main Rd, Cape Town" in banner
     assert "Facilities: Sam Smith · +27 21 000 0000 · <a href=\"mailto:fm@example.com\">" in banner
     assert '<ha-alert alert-type="warning">2 items need attention</ha-alert>' in banner
     site.update(contact=None, phone=None, email=None, alerts=0, logo=None)
-    banner = env.from_string(banner_card["content"]).render(
+    banner = env.from_string(dcfg._banner("sensor.s")).render(
         state_attr=lambda e, a: site.get(a), states=lambda e: "Acme", now=Now)
     assert "Facilities" not in banner and "<img" not in banner and "All systems normal" in banner
 
@@ -2315,7 +2315,8 @@ def test_gateway_api():
                  "milesight-flood-card", "milesight-fence-card", "milesight-washroom-band",
                  "milesight-washroom-card", "milesight-compliance-card",
                  "milesight-running-costs-card", "milesight-cost-strip-card",
-                 "milesight-recipes-card", "milesight-recipe-strip-card", "milesight-attention-card"):
+                 "milesight-recipes-card", "milesight-recipe-strip-card", "milesight-attention-card",
+                 "milesight-systems-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # the sidebar-branding routine that sets the top-left title to the site name

@@ -118,7 +118,10 @@ def ws_test(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway with recipes")
         return
     fired = mgr.test(msg["id"])
-    connection.send_result(msg["id"], {"ok": fired is not None})
+    if fired is None:
+        connection.send_error(msg["id"], "not_found", "Recipe not found")
+        return
+    connection.send_result(msg["id"], fired)
 
 
 RECIPE_WS = (ws_list, ws_enable, ws_update, ws_toggle, ws_delete, ws_test)

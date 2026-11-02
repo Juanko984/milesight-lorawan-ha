@@ -686,12 +686,12 @@ assert _first_cards[0]["type"] == "custom:milesight-page-header"                
 assert _first_cards[1]["type"] == "custom:milesight-onboarding"                              # then the first-run checklist
 _all_cards = [c for sec in dash.saved["views"][0]["sections"] for c in sec["cards"]]
 assert any(c["type"] == "custom:milesight-status-band" for c in _all_cards)                 # command-center status band
-_banner = next(c for c in _all_cards if "content" in c)                                     # site banner (now at the foot)
-assert _banner["content"].startswith('{% set s = "sensor.site1_site" %}')
 heads = [c.get("heading") for sec in dash.saved["views"][0]["sections"] for c in sec["cards"] if c["type"] == "heading"]
-assert heads[0] == "Systems" and heads[-1] == "Site", heads
-assert any(c["type"] == "custom:milesight-attention-card" for c in _all_cards)                 # needs-attention card
-assert not any(c["type"] == "button" for c in _all_cards)                                      # no duplicate dashboards grid
+assert heads == ["Systems"], heads                                                          # single-pane: only the Systems heading
+assert any(c["type"] == "custom:milesight-systems-card" for c in _all_cards)                 # equal-size systems grid
+assert any(c["type"] == "custom:milesight-attention-card" for c in _all_cards)               # needs-attention card
+assert not any(c["type"] == "button" for c in _all_cards)                                    # no duplicate dashboards grid
+assert not any(c.get("content", "").startswith("{% set s") for c in _all_cards)              # no Site banner footer
 saved_hash = dmod._hash(dash.saved)
 assert asyncio.run(dmod.async_update_dashboard(hass2, site_entry, auto=True)) is None      # up to date
 assert _DashStore.data["own"] is True and _DashStore.data["title"] == "Acme Ltd"

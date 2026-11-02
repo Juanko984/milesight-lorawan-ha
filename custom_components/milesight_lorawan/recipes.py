@@ -62,7 +62,8 @@ class RecipeManager:
             role = a.get("milesight_role")
             if not role and not (a.get("latitude") is not None and a.get("longitude") is not None):
                 continue
-            ent = {"id": st.entity_id, "name": a.get("friendly_name") or a.get("device") or st.entity_id,
+            # prefer the device title (so "one device" scope + fire messages read as the device, not a sensor id)
+            ent = {"id": st.entity_id, "name": a.get("device") or a.get("friendly_name") or st.entity_id,
                    "area": a.get("area"), "state": st.state, "num": _num(st.state), "attrs": a,
                    "lat": a.get("latitude"), "lon": a.get("longitude"),
                    "site_lat": site["lat"], "site_lon": site["lon"]}
@@ -135,6 +136,14 @@ class RecipeManager:
                     _LOGGER.info("Recipe %s fired: %s", f["recipe_id"], f["message"])
             except Exception:  # noqa: BLE001 - one broken action must not stop the rest
                 _LOGGER.warning("Recipe action %s failed", t, exc_info=True)
+        if f.get("test"):
+            # a manual test always leaves a visible confirmation (so "Test now" is never a silent no-op)
+            try:
+                await self.hass.services.async_call("persistent_notification", "create",
+                    {"title": f"🧪 Recipe test — {f['title']}", "message": f["message"],
+                     "notification_id": f"ms_recipe_test_{f['recipe_id']}"}, blocking=False)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Recipe test notice failed", exc_info=True)
         self.hass.bus.async_fire(f"{DOMAIN}_recipe", {"recipe_id": f["recipe_id"], "title": f["title"],
                                                       "message": f["message"], "hub": self.entry.title})
 
@@ -196,16 +205,30 @@ class RecipeManager:
         self.engine.s["rt"].pop(rid, None)
 
     def test(self, rid: str) -> dict[str, Any] | None:
-        """Fire a recipe's actions once, now, with a sample message (for the Test button)."""
+        """Fire a recipe's actions once, now, and leave a visible confirmation (the Test button)."""
         r = next((x for x in self.recipes if x["id"] == rid), None)
         if r is None:
             return None
         c = CATALOG[r["catalog"]]
+        parts = []
+        for a in r.get("actions", []):
+            t = a.get("type")
+            if t == "notify":
+                who = self._targets(a.get("target"))
+                parts.append("notify " + (", ".join(who) if who else "(no notify target configured)"))
+            elif t == "raise_alert":
+                parts.append("raise an alert")
+            elif t == "press":
+                parts.append("switch " + (a.get("entity") or "(no entity set)"))
+            elif t == "log":
+                parts.append("log")
+        summary = "; ".join(parts) or "do nothing (no actions set)"
         fire = {"recipe_id": rid, "catalog": r["catalog"], "icon": c["icon"], "title": c["title"],
-                "target_name": "Test", "detail": "test", "message": "Test fire from the Recipes card",
-                "actions": r.get("actions", []), "ts": time.time()}
+                "target_name": "Test", "detail": "manual test",
+                "message": f"Manual test — this recipe would: {summary}.",
+                "actions": r.get("actions", []), "ts": time.time(), "test": True}
         self.hass.async_create_task(self._run_fire(fire))
-        return fire
+        return {"ok": True, "summary": summary}
 
 
 class RecipeSensor(SensorEntity):

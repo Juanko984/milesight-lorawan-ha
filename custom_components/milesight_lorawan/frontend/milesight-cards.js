@@ -2807,6 +2807,52 @@
     }
   }
 
+  // ================================================================ systems grid (overview single pane)
+  // Every operational system the site has, as equal-size panels in one responsive grid — self-discovering, so a
+  // panel appears only when the site has that system. One card (not many), so the panels are always uniform.
+  const SYS_ORDER = ["energy", "tanks", "cold_chain", "farm", "climate", "coop", "fleet", "recipes", "gateways"];
+  class SystemsCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _render() {
+      if (!this._hass) return;
+      const order = (this._cfg.domains && this._cfg.domains.length) ? this._cfg.domains : SYS_ORDER;
+      const items = order.map((k) => ({ k, def: DOMAINS[k] })).filter((x) => x.def)
+        .map((x) => ({ ...x, d: x.def.compute(this._hass.states) })).filter((x) => x.d);
+      this._css = `
+        .sysgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:13px}
+        .sys{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px;cursor:pointer;display:flex;flex-direction:column;min-height:150px}
+        .sys:hover{border-color:var(--ms-accent)}
+        .sysh{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+        .sysh .di{flex:0 0 auto;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 14%,transparent);color:var(--ms-accent)}
+        .sysh .di ha-icon{--mdc-icon-size:20px}
+        .sysh .dn{font-size:14px;font-weight:650;color:var(--ms-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .sysh .badge{margin-left:auto;flex:0 0 auto;font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap}
+        .badge.good{color:var(--ms-good);background:color-mix(in srgb,var(--ms-good) 15%,transparent)}
+        .badge.warn{color:var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 15%,transparent)}
+        .badge.bad{color:var(--ms-bad);background:color-mix(in srgb,var(--ms-bad) 15%,transparent)}
+        .sysm{display:flex;gap:14px;margin-bottom:11px}
+        .sysm>div{min-width:0}
+        .sysm .mv{font-size:18px;font-weight:720;color:var(--ms-ink);white-space:nowrap}
+        .sysm .mv.warn{color:var(--ms-warn)} .sysm .mv.bad{color:var(--ms-bad)} .sysm .mv.blue{color:var(--blue)}
+        .sysm .ml{font-size:11px;color:var(--ms-ink2);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .sysf{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--ms-line);padding-top:9px;margin-top:auto;font-size:12px;color:var(--ms-ink2)}
+        .sysf .iss{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .sysf .open{color:var(--ms-accent);font-weight:600;flex:0 0 auto}
+      `;
+      if (!items.length) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:view-dashboard-variant-outline",
+        title: "No systems yet", hint: "Add devices and they'll appear here grouped by what they do." })]));
+      const panel = ({ def, d }) => h("div", { class: "sys", onclick: () => navigate(def.path) }, [
+        h("div", { class: "sysh" }, [h("div", { class: "di" }, [h("ha-icon", { icon: def.icon })]),
+          h("div", { class: "dn" }, def.name), h("div", { class: "badge " + d.bcls }, d.badge)]),
+        h("div", { class: "sysm" }, d.metrics.map((m) => h("div", {}, [h("div", { class: "mv " + (m[2] || "") }, esc(m[0])), h("div", { class: "ml" }, esc(m[1]))]))),
+        h("div", { class: "sysf" }, [h("span", { class: "iss" }, esc(d.issue)), h("span", { class: "open" }, "Open →")]),
+      ]);
+      this._card(h("div", { class: "sysgrid" }, items.map(panel)));
+    }
+  }
+
   // ================================================================ mains board (power, phases, outage)
   // Surfaces what a CT303 / CT310 on the distribution board reports: live / outage, the three phase currents,
   // phase imbalance, and the total site load. One block per mains monitor.
@@ -3925,6 +3971,7 @@
       { value: "diesel", label: "Diesel" }, { value: "feed", label: "Feed" }] } } }],
     "milesight-recipes-card": [],
     "milesight-attention-card": [],
+    "milesight-systems-card": [],
     "milesight-recipe-strip-card": [{ name: "category", selector: { select: { multiple: true, options: [
       { value: "water", label: "Water" }, { value: "pumps", label: "Pumps" }, { value: "cold_chain", label: "Cold chain" },
       { value: "energy", label: "Energy" }, { value: "devices", label: "Devices" }, { value: "farm", label: "Farm" },
@@ -4372,18 +4419,44 @@
       ]);
     }
 
+    _scopeOptions(r) {
+      // the devices this recipe can match (by its role, or the whole fleet for offline / battery recipes),
+      // for the "one area" / "one device" dropdowns. Values match what the engine compares server-side.
+      const S = this._hass.states, ct = r.cond || {}, role = ct.role, ents = [];
+      if (role) {
+        for (const id in S) {
+          const a = S[id].attributes; if (!a || a.milesight_role !== role) continue;
+          if (ct.is_silo && !a.is_silo) continue; if (ct.not_silo && a.is_silo) continue;
+          const name = a.device || a.friendly_name || id;
+          ents.push({ value: name, label: name, area: a.area });
+        }
+      } else {
+        const fl = _roleOne(S, "fleet_total"), d = (fl && fl.attributes.devices) || [];
+        d.forEach((x) => ents.push({ value: x.name, label: x.name, area: x.area }));
+      }
+      const areas = [...new Set(ents.map((e) => e.area).filter(Boolean))].sort();
+      const seen = new Set(), devices = [];
+      ents.sort((a, b) => String(a.label).localeCompare(String(b.label))).forEach((e) => { if (!seen.has(e.value)) { seen.add(e.value); devices.push({ value: e.value, label: e.label }); } });
+      return { areas, devices };
+    }
+
     _editor(r) {
       const self = this, ct = r.cond || {}, t = ct.type, p = r.params || {};
       const DAY_OPTS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
       // inline chip builders — a <select>/<input> styled as a chip, carrying data-param so _save reads it
       const cSel = (param, opts, val, isStr, cls) => { const s = h("select", { class: "ichip " + (cls || "") }, opts.map(([v, l]) => h("option", { value: String(v), selected: String(v) === String(val) }, l))); if (param) s.setAttribute("data-param", param); if (isStr) s.setAttribute("data-str", "1"); return s; };
       const dNum = (param, val, suf) => { const i = h("input", { type: "number", value: val == null ? "" : val, class: "cin" }); i.setAttribute("data-param", param); return h("span", { class: "ichip" }, [i, suf ? h("span", { class: "suf" }, suf) : null]); };
-      // scope chip (hidden name box reveals when not "any")
-      const mode = (r.scope && r.scope.mode) || "any", scopeVal = (r.scope && (r.scope.area || r.scope.device)) || "";
-      const nameBox = h("span", { class: "ichip scwrap", style: { display: mode === "any" ? "none" : "inline-flex" } }, [h("input", { type: "text", class: "cin tx f-scopeval", placeholder: "name", value: scopeVal })]);
-      const modeSel = h("select", { class: "ichip f-mode", onchange: (e) => { nameBox.style.display = e.target.value === "any" ? "none" : "inline-flex"; } },
+      // scope: mode + a real area / device dropdown (both from the live devices this recipe can match)
+      const mode = (r.scope && r.scope.mode) || "any", so = this._scopeOptions(r);
+      const areaOpts = so.areas.length ? so.areas.map((a) => [a, a]) : [["", "(no areas set)"]];
+      const devOpts = so.devices.length ? so.devices.map((d) => [d.value, d.label]) : [["", "(no devices)"]];
+      const areaSel = h("select", { class: "ichip f-area" }, areaOpts.map(([v, l]) => h("option", { value: v, selected: v === ((r.scope && r.scope.area) || "") }, l)));
+      const devSel = h("select", { class: "ichip f-device" }, devOpts.map(([v, l]) => h("option", { value: v, selected: v === ((r.scope && r.scope.device) || "") }, l)));
+      const areaWrap = h("span", { class: "scwrap", style: { display: mode === "area" ? "inline-flex" : "none" } }, [areaSel]);
+      const devWrap = h("span", { class: "scwrap", style: { display: mode === "device" ? "inline-flex" : "none" } }, [devSel]);
+      const modeSel = h("select", { class: "ichip f-mode", onchange: (e) => { const m = e.target.value; areaWrap.style.display = m === "area" ? "inline-flex" : "none"; devWrap.style.display = m === "device" ? "inline-flex" : "none"; } },
         [["any", "any matching"], ["area", "in one area"], ["device", "one device"]].map(([v, l]) => h("option", { value: v, selected: v === mode }, l)));
-      const scope = h("span", { class: "scope" }, [modeSel, nameBox]);
+      const scope = h("span", { class: "scope" }, [modeSel, areaWrap, devWrap]);
 
       let when;
       if (t === "threshold" && ct.limit_attr) when = [scope, " is above its limit for ", cSel("duration_min", DUR_OPTS, p.duration_min)];
@@ -4422,9 +4495,19 @@
         h("label", { style: { marginLeft: "6px", display: "inline-flex", alignItems: "center", gap: "5px" } },
           [h("input", { type: "checkbox", class: "f-wh", checked: !!(r.guards && r.guards.working_hours) }), "only during working hours"]),
       ]));
+      const testNote = h("span", { class: "testnote", style: { fontSize: "12px", color: "var(--ms-ink2)", marginLeft: "4px" } });
       rows.push(h("div", { class: "foot" }, [
         h("button", { class: "mbtn p", onclick: () => this._save(r) }, "Save"),
-        h("button", { class: "mbtn", onclick: async () => { await this._ws("test", { id: r.id }); } }, "Test now"),
+        h("button", { class: "mbtn", onclick: async (ev) => {
+          const btn = ev.currentTarget, old = btn.textContent; btn.textContent = "Testing…"; testNote.textContent = "";
+          const res = await this._ws("test", { id: r.id });
+          const bad = !res || res.error;
+          btn.textContent = bad ? "Failed" : "✓ Fired";
+          testNote.style.color = bad ? "var(--ms-bad)" : "var(--ms-good)";
+          testNote.textContent = bad ? ("Test failed: " + ((res && res.error) || "no gateway")) : ("Fired — check the notifications bell" + (res.summary ? " · would " + res.summary : ""));
+          setTimeout(() => { btn.textContent = old; testNote.textContent = ""; }, 7000);
+        } }, "Test now"),
+        testNote,
         h("span", { style: { flex: 1 } }),
         h("button", { class: "mbtn d", onclick: async () => { await this._ws("delete", { id: r.id }); this._reopen(); } }, "Delete"),
         h("button", { class: "mbtn", onclick: () => { this._open = null; this._render(); } }, "Cancel"),
@@ -4436,7 +4519,8 @@
       const root = this.shadowRoot, g = (s) => root.querySelector(s), v = (s) => { const el = g(s); return el ? el.value : null; };
       const inst = JSON.parse(JSON.stringify(r)); inst.params = { ...inst.params }; inst.scope = { ...(inst.scope || {}) }; inst.guards = { ...(inst.guards || {}) };
       const mode = v(".f-mode") || "any"; inst.scope.mode = mode;
-      const sv = v(".f-scopeval") || ""; inst.scope.area = mode === "area" ? sv : null; inst.scope.device = mode === "device" ? sv : null;
+      inst.scope.area = mode === "area" ? (v(".f-area") || null) : null;
+      inst.scope.device = mode === "device" ? (v(".f-device") || null) : null;
       root.querySelectorAll("[data-param]").forEach((el) => { const k = el.getAttribute("data-param"); if (!k) return; inst.params[k] = el.hasAttribute("data-str") ? el.value : num(el.value); });
       const fp = g(".f-factorpct"); if (fp) inst.params.factor = 1 + (num(fp.value) || 0) / 100;
       inst.guards.debounce_min = num(v(".f-debounce"));
@@ -4570,7 +4654,7 @@
         COMPLIANCE_TAG = "milesight-compliance-card",
         COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card",
         RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
-        ATTENTION_TAG = "milesight-attention-card";
+        ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -4614,6 +4698,7 @@
     [RECIPES_TAG, RecipesCard, "Milesight Recipes", "Plain-language automations: browse, toggle, tune and add recipes"],
     [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Recipe Strip", "A compact per-domain recipe strip with toggles for a dashboard"],
     [ATTENTION_TAG, AttentionCard, "Milesight Needs Attention", "Open alerts, most severe first — collapses when all-clear (for the Overview)"],
+    [SYSTEMS_TAG, SystemsCard, "Milesight Systems", "Every system the site has as equal-size panels — the Overview single pane of glass"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {
