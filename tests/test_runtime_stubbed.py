@@ -109,7 +109,7 @@ pkg = types.ModuleType("milesight_lorawan"); pkg.__path__ = [str(PKG)]; sys.modu
 def load(n):
     spec = importlib.util.spec_from_file_location(f"milesight_lorawan.{n}", PKG / f"{n}.py")
     m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m); return m
-for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "costs_calc", "costs", "recipes_calc", "recipes",
+for n in ["const", "decoders", "analytics", "link", "models", "hub", "runtime", "entity", "gateway", "fleet", "sensor", "binary_sensor", "device_tracker", "switch", "event", "climate", "button", "number", "select", "text", "building_calc", "building", "costs_calc", "costs", "jobs_calc", "jobs", "team_calc", "team", "recipes_calc", "recipes",
           "dashboard_config", "dashboard"]:
     globals()[n] = load(n)
 
@@ -914,7 +914,7 @@ bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-devices", "milesight-maintenance", "milesight-water", "milesight-analytics"}
+assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-jobs", "milesight-team", "milesight-devices", "milesight-maintenance", "milesight-water", "milesight-analytics"}
 assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -1683,6 +1683,89 @@ assert any(c[0] == "persistent_notification" and c[1] == "create" for c in REC_C
 assert _rhub.runtime_data.recipes is rmgr
 assert rmgr.test("low_tank") is not None
 print("recipes ok")
+
+# ---------------- jobs: manager mutations + the sensor → job loop (rules raise & auto-close jobs) ----------------
+jobs_mod = sys.modules["milesight_lorawan.jobs"]
+_jstates: list = []
+_jhub = types.SimpleNamespace(entry_id="jhub", title="Green Acres",
+    runtime_data=types.SimpleNamespace(alerts=types.SimpleNamespace(cfg=_alert_cfg)))
+_jhass = types.SimpleNamespace(
+    config=types.SimpleNamespace(time_zone="Africa/Johannesburg", latitude=-33.9, longitude=18.4),
+    states=types.SimpleNamespace(async_all=lambda: list(_jstates)),
+    services=_RecSvc(), bus=types.SimpleNamespace(async_fire=lambda e, d: None),
+    config_entries=types.SimpleNamespace(async_entries=lambda dm: []),
+    async_create_task=lambda c: (asyncio.run(c) if asyncio.iscoroutine(c) else None))
+jm = jobs_mod.JobsManager(_jhass, _jhub)
+_jhub.runtime_data.jobs = jm
+
+# manual job lifecycle: create → start → assign → done → delete
+j = jm.create("Service pump 4", priority="warn", assignee="JM")
+assert jm.data["open"] == 1 and j["status"] == "todo" and jm.data["total"] == 1
+jm.set_status(j["id"], "doing"); assert jm.data["doing"] == 1
+jm.assign(j["id"], "AT"); assert jm._get(j["id"])["assignee"] == "AT"
+jm.set_status(j["id"], "done"); assert jm.data["done"] == 1 and jm.data["open"] == 0
+jm.delete(j["id"]); assert jm.data["total"] == 0
+
+# the loop: a rule with a create_job action raises a job when it fires and closes it when the reading clears
+rm = recipes_mod.RecipeManager(_jhass, _jhub)
+_jhub.runtime_data.recipes = rm
+inst = rm.enable("fridge_over"); inst["params"]["duration_min"] = 0          # fires on first over-limit tick
+assert any(a.get("type") == "create_job" for a in inst["actions"])          # create_job is in the default
+_fridge = types.SimpleNamespace(entity_id="sensor.fridge1", state="9.1",
+    attributes={"milesight_role": "cold_chain", "temperature": 9.1, "high": 5, "device": "Fridge 1", "area": "Cold room"})
+_jstates[:] = [_fridge]
+rm.update()                                                                 # over limit → raise a self-closing job
+_open = [x for x in jm.jobs if x["status"] != "done"]
+assert len(_open) == 1 and _open[0]["source"] == "rule" and _open[0]["auto_close"] is True, jm.jobs
+assert _open[0]["source_rule"]["catalog"] == "fridge_over" and _open[0]["priority"] == "crit"
+rm.update()                                                                 # still over limit → no duplicate
+assert len([x for x in jm.jobs if x["status"] != "done"]) == 1
+_fridge.attributes["temperature"] = 3.0; _fridge.state = "3.0"              # reading clears
+rm.update()                                                                 # → the job closes itself
+_done = [x for x in jm.jobs if x["status"] == "done"]
+assert len(_done) == 1 and _done[0]["resolved_by"] == "sensor", jm.jobs
+print("jobs ok")
+
+# ---------------- team: workers, geofenced clock-in (on-site vs off-site blocked), timesheets ----------------
+team_mod = sys.modules["milesight_lorawan.team"]
+_tstates: dict = {}
+_thub = types.SimpleNamespace(entry_id="thub", title="Green Acres")
+_thass = types.SimpleNamespace(
+    config=types.SimpleNamespace(time_zone="Africa/Johannesburg", latitude=-33.900, longitude=18.400),
+    states=types.SimpleNamespace(get=lambda eid: _tstates.get(eid)),
+    data={}, services=types.SimpleNamespace(has_service=lambda d, s: True, async_register=lambda *a, **k: None))
+tm = team_mod.TeamManager(_thass, _thub)
+w1 = tm.add_worker("John Mokoena", role="Supervisor", tracker="device_tracker.john")
+w2 = tm.add_worker("Anna Theron", tracker="device_tracker.anna")
+_tstates["device_tracker.john"] = types.SimpleNamespace(attributes={"latitude": -33.9005, "longitude": 18.4005, "gps_accuracy": 8})
+_tstates["device_tracker.anna"] = types.SimpleNamespace(attributes={"latitude": -33.88, "longitude": 18.42, "gps_accuracy": 10})
+
+# clock in on-site (reads the phone tracker GPS, within radius)
+r1 = tm.clock(w1["id"], "in")
+assert r1["ok"] and r1["status"] == "on_site" and tm.data["on_site"] == 1, (r1, tm.data)
+# clock in off-site → blocked, recorded, NOT counted as on-site
+r2 = tm.clock(w2["id"], "in")
+assert r2["ok"] is False and r2["status"] == "off_site_blocked" and r2["distance_m"] > 300, r2
+assert tm.data["on_site"] == 1 and tm.data["blocked_today"] == 1, tm.data
+# explicit coordinates (the mobile-app clock_in service path) override the tracker → on-site
+r3 = tm.clock(w2["id"], "in", lat=-33.9003, lon=18.4002)
+assert r3["ok"] and r3["status"] == "on_site" and tm.data["on_site"] == 2, (r3, tm.data)
+# resolve by name, clock out
+r4 = tm.clock("John Mokoena", "out")
+assert r4["ok"] and r4["status"] == "clocked_out" and tm.data["on_site"] == 1, (r4, tm.data)
+# the clock_in / clock_out services register and call through to the manager
+_thub.team = tm
+mod("voluptuous", Schema=lambda *a, **k: None, Required=lambda *a, **k: None, Optional=lambda *a, **k: None,
+    Coerce=lambda t: t, In=lambda o: o)
+registered = {}
+_svc_data = {"milesight_lorawan": {"hubs": {"thub": _thub}}}   # isolated — don't touch the shared hass.data
+_thass2 = types.SimpleNamespace(data=_svc_data, services=types.SimpleNamespace(
+    has_service=lambda d, s: False, async_register=lambda d, s, fn, schema=None: registered.__setitem__(s, fn)))
+team_mod._register_services(_thass2)
+assert "clock_in" in registered and "clock_out" in registered
+asyncio.run(registered["clock_in"](types.SimpleNamespace(data={"worker": "Anna Theron", "latitude": -33.9001, "longitude": 18.4001})))
+assert tm.events[-1]["status"] == "on_site" and tm.events[-1]["kind"] == "in"
+print("team ok")
 
 # ---------------- 0.36: power in W, cold storage views, corrective actions, compliance reports ----------------
 e_w, rt = make_with("24e124746e359614", "CT103", {"mains_voltage": 230, "power_factor": 0.9}, title="Pump W")

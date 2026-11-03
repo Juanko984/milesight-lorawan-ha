@@ -77,6 +77,8 @@ class Hub:
         self.building = None    # building.BuildingTracker
         self.costs = None       # costs.CostsTracker, set by the sensor platform
         self.recipes = None     # recipes.RecipeManager, set by the sensor platform
+        self.jobs = None        # jobs.JobsManager, set by the sensor platform
+        self.team = None        # team.TeamManager, set by the sensor platform
         self.ns = None          # provisioning.NsApiClient when the ns-api topics are set
         if cfg.get(CONF_NS_REQUEST_TOPIC) and cfg.get(CONF_NS_RESPONSE_TOPIC):
             from .provisioning import NsApiClient

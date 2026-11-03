@@ -28,6 +28,8 @@ RENAMED = {"milesight-tanks": "milesight-water"}                    # "Tanks & a
 DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every site)
     "alerts.yaml": ("milesight-alerts", "mdi:bell-ring", None),
     "recipes.yaml": ("milesight-recipes", "mdi:script-text-outline", None),
+    "jobs.yaml": ("milesight-jobs", "mdi:clipboard-check-outline", None),
+    "team.yaml": ("milesight-team", "mdi:account-group", None),
     "devices.yaml": ("milesight-devices", "mdi:format-list-bulleted", None),
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
     "tanks_and_alerts.yaml": ("milesight-water", "mdi:water-percent", {"tank"}),

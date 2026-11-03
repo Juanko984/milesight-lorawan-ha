@@ -102,6 +102,7 @@ class RecipeManager:
                                  for k, c in CATALOG.items()]}
         for f in fires:
             self.hass.async_create_task(self._run_fire(f))
+        self._sync_jobs()   # close auto jobs whose sustained rule cleared
         if self.store is not None:
             self.store.async_delay_save(self._to_store, 20)
         async_dispatcher_send(self.hass, SIGNAL_RECIPES.format(self.entry.entry_id))
@@ -134,6 +135,8 @@ class RecipeManager:
                     await self.hass.services.async_call(dom, svc, {"entity_id": ent}, blocking=False)
                 elif t == "log":
                     _LOGGER.info("Recipe %s fired: %s", f["recipe_id"], f["message"])
+                elif t == "create_job" and not f.get("test"):
+                    self._raise_job(f)
             except Exception:  # noqa: BLE001 - one broken action must not stop the rest
                 _LOGGER.warning("Recipe action %s failed", t, exc_info=True)
         if f.get("test"):
@@ -146,6 +149,39 @@ class RecipeManager:
                 _LOGGER.warning("Recipe test notice failed", exc_info=True)
         self.hass.bus.async_fire(f"{DOMAIN}_recipe", {"recipe_id": f["recipe_id"], "title": f["title"],
                                                       "message": f["message"], "hub": self.entry.title})
+
+    # -- sensor → job loop -------------------------------------------------
+    def _jobs(self):
+        return getattr(getattr(self.entry, "runtime_data", None), "jobs", None)
+
+    def _raise_job(self, f: dict[str, Any]) -> None:
+        """A firing rule with a 'create a job' action raises a work order."""
+        from .jobs_calc import CAT_PRIORITY, SUSTAINED
+        jobs = self._jobs()
+        if jobs is None:
+            return
+        c = CATALOG.get(f.get("catalog", ""), {})
+        sustained = c.get("cond", {}).get("type") in SUSTAINED
+        jobs.raise_from_rule(f, priority=CAT_PRIORITY.get(c.get("category"), "info"), auto_close=sustained)
+
+    def _sync_jobs(self) -> None:
+        """Close auto jobs whose sustained rule/target is no longer firing (the reading cleared)."""
+        from .jobs_calc import SUSTAINED, rule_job_key
+        jobs = self._jobs()
+        if jobs is None:
+            return
+        active: set[str] = set()
+        for inst in self.recipes:
+            if not inst.get("enabled") or not any(a.get("type") == "create_job" for a in inst.get("actions", [])):
+                continue
+            c = CATALOG.get(inst.get("catalog", ""), {})
+            if c.get("cond", {}).get("type") not in SUSTAINED:
+                continue
+            rt = self.engine.s.get("rt", {}).get(inst["id"], {})
+            for key, stt in (rt.get("targets") or {}).items():
+                if stt.get("since") is not None:
+                    active.add(rule_job_key(inst["id"], key))
+        jobs.sync_auto(active)
 
     def _targets(self, target: str | None) -> list[str]:
         if target and ("." in target):
@@ -222,6 +258,8 @@ class RecipeManager:
                 parts.append("switch " + (a.get("entity") or "(no entity set)"))
             elif t == "log":
                 parts.append("log")
+            elif t == "create_job":
+                parts.append("create a job")
         summary = "; ".join(parts) or "do nothing (no actions set)"
         fire = {"recipe_id": rid, "catalog": r["catalog"], "icon": c["icon"], "title": c["title"],
                 "target_name": "Test", "detail": "manual test",

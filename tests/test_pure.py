@@ -22,7 +22,7 @@ def _load(name):
 dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = _load("link"); bc = _load("building_calc"); dcfg = _load("dashboard_config")
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage")
-cst = _load("costs_calc"); rcp = _load("recipes_calc")
+cst = _load("costs_calc"); rcp = _load("recipes_calc"); jbc = _load("jobs_calc"); tmc = _load("team_calc")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -2316,7 +2316,7 @@ def test_gateway_api():
                  "milesight-washroom-card", "milesight-compliance-card",
                  "milesight-running-costs-card", "milesight-cost-strip-card",
                  "milesight-recipes-card", "milesight-recipe-strip-card", "milesight-attention-card",
-                 "milesight-systems-card", "milesight-gateways-card"):
+                 "milesight-systems-card", "milesight-gateways-card", "milesight-jobs-card", "milesight-team-card"):
         assert f'customElements.define(tag' in cards and _tag in cards, _tag
     assert "window.customCards" in cards
     # the sidebar-branding routine that sets the top-left title to the site name
@@ -2528,6 +2528,78 @@ def test_recipes():
            "devices": [], "costs": {}, "site": {}}
     fires, snaps = eng8.evaluate([ra], ctx, t0, L(t0))
     assert snaps[0]["covers"] == 1 and {f["target_name"] for f in fires} == {"Dairy tank"}
+
+    # --- the "create a job" action is recognised and a fire carries a target_key (for auto-close) ---
+    assert rcp._action_label({"type": "create_job"}) == "create a job"
+    rj = rcp.default_recipe("fridge_over"); rj["params"]["duration_min"] = 0
+    assert any(x.get("type") == "create_job" for x in rcp.CATALOG["fridge_over"]["actions"])
+    eng9 = rcp.RecipeEngine(CAL)
+    fr = {"id": "d.f", "name": "Fridge 1", "area": "Cold room", "attrs": {"temperature": 9.1, "high": 5}}
+    fires, _ = eng9.evaluate([rj], {"roles": {"cold_chain": [fr]}, "devices": [], "costs": {}, "site": {}}, t0, L(t0))
+    assert fires and fires[0]["target_key"] == "d.f" and fires[0]["area"] == "Cold room"
+
+
+def test_jobs():
+    # make_id picks the next free slot
+    assert jbc.make_id([]) == "job_1"
+    assert jbc.make_id(["job_1", "job_2"]) == "job_3"
+
+    # a manual job starts in "todo", info priority, no source rule
+    j = jbc.new_job("Service pump 4", priority="warn", assignee="JM", ts=100.0)
+    assert j["status"] == "todo" and j["priority"] == "warn" and j["assignee"] == "JM" and j["source"] == "manual"
+    jbc.advance(j, "doing", ts=101.0); assert j["status"] == "doing" and j["done_ts"] is None
+    jbc.advance(j, "done", ts=102.0, resolved_by="person"); assert j["done_ts"] == 102.0 and j["resolved_by"] == "person"
+    jbc.advance(j, "todo", ts=103.0); assert j["done_ts"] is None and j["resolved_by"] is None   # reopen clears
+
+    # a job built from a rule fire: condition half kept, action half dropped; keyed for auto-close
+    fire = {"recipe_id": "fridge_over", "catalog": "fridge_over", "icon": "❄️", "title": "Fridge over limit → notify",
+            "target_name": "Fridge 1", "target_key": "sensor.t1", "area": "Cold room", "message": "Fridge 1: 9.1 over 5"}
+    rj = jbc.from_rule_fire(fire, priority="crit", auto_close=True, ts=200.0)
+    assert rj["title"] == "Fridge over limit · Fridge 1" and rj["priority"] == "crit" and rj["auto_close"] is True
+    assert rj["source"] == "rule" and rj["source_rule"]["rule_id"] == "fridge_over"
+    assert jbc.rule_job_key("fridge_over", "sensor.t1") == "fridge_over::sensor.t1"
+    assert jbc.CAT_PRIORITY["cold_chain"] == "crit" and "threshold" in jbc.SUSTAINED and "edge_count" not in jbc.SUSTAINED
+
+    # summarize: open vs done, overdue, and how many open jobs came from sensors
+    now = 1000.0
+    jobs = [jbc.new_job("A", ts=0), jbc.new_job("B", source="rule", ts=0), jbc.new_job("C", due=500.0, ts=0)]
+    jbc.advance(jbc.new_job("D", ts=0), "done")   # a separate done job
+    done = jbc.new_job("D", ts=0); jbc.advance(done, "done", ts=1); jobs.append(done)
+    s = jbc.summarize(jobs, now)
+    assert s["total"] == 4 and s["open"] == 3 and s["done"] == 1 and s["from_sensor_open"] == 1 and s["overdue"] == 1
+
+
+def test_team():
+    assert tmc.initials("John Mokoena") == "JM" and tmc.initials("Anna") == "AN" and tmc.initials("") == "?"
+    assert tmc.make_id([]) == "w_1" and tmc.make_id(["w_1"]) == "w_2"
+    w = tmc.new_worker("John Mokoena", role="Supervisor", tracker="device_tracker.john", wid="w_1")
+    assert w["initials"] == "JM" and w["tracker"] == "device_tracker.john" and w["active"] is True
+
+    # geofence: within radius → on_site; beyond → blocked; missing coords → allowed with no distance
+    ok, d, s = tmc.validate_clock_in(-33.900, 18.400, -33.9005, 18.4005, 300)
+    assert ok and s == tmc.ON_SITE and d is not None and d < 300
+    ok, d, s = tmc.validate_clock_in(-33.900, 18.400, -33.88, 18.42, 300)
+    assert not ok and s == tmc.OFF_SITE_BLOCKED and d > 300
+    ok, d, s = tmc.validate_clock_in(None, None, -33.9, 18.4, 300)
+    assert ok and s == tmc.ON_SITE and d is None
+
+    # timesheet: in 08:00 → out 12:00 = 4 h today; a blocked clock-in never opens an interval
+    day = 1_000_000.0
+    evs = [tmc.clock_event("w_1", "in", day + 8 * 3600, status=tmc.ON_SITE),
+           tmc.clock_event("w_1", "out", day + 12 * 3600, status=tmc.CLOCKED_OUT),
+           tmc.clock_event("w_1", "in", day + 13 * 3600, status=tmc.OFF_SITE_BLOCKED)]
+    ts = tmc.timesheet(evs, "w_1", now=day + 14 * 3600, day_start=day, week_start=day)
+    assert round(ts["today_s"] / 3600, 2) == 4.0 and ts["on_site"] is False
+    # a still-open clock-in counts up to now
+    evs2 = evs + [tmc.clock_event("w_1", "in", day + 13.5 * 3600, status=tmc.ON_SITE)]
+    ts2 = tmc.timesheet(evs2, "w_1", now=day + 14 * 3600, day_start=day, week_start=day)
+    assert ts2["on_site"] is True and round(ts2["today_s"] / 3600, 2) == 4.5 and ts2["since"] == day + 13.5 * 3600
+
+    # summarize: on-site count, blocked-today count, and recent events newest-first
+    sm = tmc.summarize([w], evs2, now=day + 14 * 3600, day_start=day, week_start=day)
+    assert sm["on_site"] == 1 and sm["total"] == 1 and sm["blocked_today"] == 1
+    assert sm["workers"][0]["on_site"] is True and sm["workers"][0]["week_h"] == 4.5
+    assert sm["events"][0]["worker_name"] == "John Mokoena" and sm["events"][0]["ts"] >= sm["events"][-1]["ts"]
 
 
 if __name__ == "__main__":

@@ -48,25 +48,25 @@ CATALOG: dict[str, dict[str, Any]] = {
         "category": "water", "icon": "💧", "title": "Low tank → notify",
         "cond": {"type": "threshold", "role": "tank", "attr": "fill", "op": "<", "not_silo": True},
         "params": {"threshold": 20, "duration_min": 120},
-        "actions": [{"type": "notify", "target": "on_call"}, {"type": "raise_alert"}],
+        "actions": [{"type": "notify", "target": "on_call"}, {"type": "raise_alert"}, {"type": "create_job"}],
     },
     "pump_dry_run": {
         "category": "pumps", "icon": "⚙️", "title": "Pump dry-run → switch off",
         "cond": {"type": "edge_count", "role": "pump", "attr": "dry_run"},
         "params": {"count": 3, "window_min": 60},
-        "actions": [{"type": "press", "entity": None}, {"type": "notify", "target": "on_call"}],
+        "actions": [{"type": "press", "entity": None}, {"type": "notify", "target": "on_call"}, {"type": "create_job"}],
     },
     "fridge_over": {
         "category": "cold_chain", "icon": "❄️", "title": "Fridge over limit → notify",
         "cond": {"type": "threshold", "role": "cold_chain", "attr": "temperature", "op": ">", "limit_attr": "high"},
         "params": {"duration_min": 15},
-        "actions": [{"type": "notify", "target": "on_call"}, {"type": "raise_alert"}],
+        "actions": [{"type": "notify", "target": "on_call"}, {"type": "raise_alert"}, {"type": "create_job"}],
     },
     "device_offline": {
         "category": "devices", "icon": "📡", "title": "Device silent → notify",
         "cond": {"type": "offline"},
         "params": {"duration_min": 60},
-        "actions": [{"type": "notify", "target": "maintenance"}],
+        "actions": [{"type": "notify", "target": "maintenance"}, {"type": "create_job"}],
     },
     "silo_days": {
         "category": "farm", "icon": "🌾", "title": "Silo running out → notify",
@@ -102,7 +102,7 @@ CATALOG: dict[str, dict[str, Any]] = {
         "category": "farm", "icon": "🐄", "title": "Empty trough → notify",
         "cond": {"type": "boolean", "role": "water_trough", "attr": "empty"},
         "params": {"duration_min": 30},
-        "actions": [{"type": "notify", "target": "on_call"}],
+        "actions": [{"type": "notify", "target": "on_call"}, {"type": "create_job"}],
     },
     "left_farm": {
         "category": "security", "icon": "🚜", "title": "Left the farm → notify",
@@ -176,7 +176,8 @@ def _action_label(a: dict[str, Any]) -> str:
     t = a.get("type")
     if t == "notify":
         return f"notify {TARGET_LABEL.get(a.get('target'), a.get('target') or 'on-call')}"
-    return {"raise_alert": "raise an alert", "press": "switch a device", "log": "log"}.get(t, t or "")
+    return {"raise_alert": "raise an alert", "press": "switch a device", "log": "log",
+            "create_job": "create a job"}.get(t, t or "")
 
 
 def _mins(m: Any) -> str:
@@ -406,7 +407,10 @@ class RecipeEngine:
 
     def _fire(self, inst, c, e, detail, ts) -> dict[str, Any]:
         name = e.get("name") or e.get("id") or "site"
+        # target_key matches the engine's per-target bookkeeping key, so a raised job can be found and
+        # auto-closed when this same target stops firing (jobs.sync_auto).
         return {"recipe_id": inst["id"], "catalog": inst["catalog"], "icon": c["icon"],
-                "title": c["title"], "target_name": name, "detail": detail,
+                "title": c["title"], "target_name": name, "target_key": e.get("id") or e.get("name") or name,
+                "area": e.get("area"), "detail": detail,
                 "message": f"{name}: {detail}" if detail else name,
                 "actions": inst.get("actions", []), "ts": ts}

@@ -342,8 +342,8 @@ integration and it puts them in place itself:
 
 * **After every update** (first start of a new version) the blueprints are copied to
   `config/blueprints/automation/milesight_lorawan/` and the ready-made dashboards appear in the sidebar.
-  **Always installed:** **Maintenance** (tabs Overview, Devices, Signal, Map), **Devices**, **Alerts** and
-  **Rules**. **Only when the site needs it:** **Water**, **Farm**, **Cold storage**, **Energy & HVAC**,
+  **Always installed:** **Maintenance** (tabs Overview, Devices, Signal, Map), **Devices**, **Alerts**,
+  **Rules**, **Jobs** and **Team**. **Only when the site needs it:** **Water**, **Farm**, **Cold storage**, **Energy & HVAC**,
   **Building analytics**, **Chicken coop**, **Retail** and **Smart Washroom** (see below). A notification lists
   what changed.
 * **Only what the site needs**: every device is tagged by what it is used for, from its model – *Tank / silo*
@@ -360,7 +360,13 @@ integration and it puts them in place itself:
 * **Two headline features ride on these pages:** the **Energy** page carries **Running costs** — set four tariffs
   (electricity, water, diesel, feed) and watch spend today / this month / projected with a live ticker and a cost
   leaderboard; and **Rules** is a plain-language automation builder (set a condition in words, choose what
-  happens — it runs on the gateway, no cloud). See the [changelog](CHANGELOG.md) for the rest.
+  happens — it runs on the gateway, no cloud). **Jobs** turns those rules into work: a rule can **raise a job**
+  when it fires, and a job raised by a sustained rule (a tank low, a fridge over limit) **closes itself when the
+  reading clears**. **Team** adds workers and clock-in: staff clock in and out **from the Home Assistant mobile
+  app** (the `clock_in` / `clock_out` services — wire them to an actionable notification, a dashboard widget or
+  an NFC tag), which stamps the **time and their phone's GPS**. A clock-in **outside the site's radius is blocked
+  and recorded** (shown as "off-site clock-in blocked"), never counted as on-site, and hours roll up into
+  timesheets. See the [changelog](CHANGELOG.md) for the rest.
 * The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
   occupancy*, *Milesight · Air & comfort*), so you can filter devices, entities and automations by them. A label
   you remove by hand is not added back.

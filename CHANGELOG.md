@@ -2,6 +2,39 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.94.0
+- **New: Team & clock-in.** A new **Team** dashboard: add your workers, and clock them in and out from the
+  **Home Assistant mobile app** — new `milesight_lorawan.clock_in` / `clock_out` services you can wire to an
+  actionable notification, a dashboard widget or an NFC tag. Each clock-in **stamps the time and the worker's
+  GPS** (from their linked phone, or from latitude/longitude passed to the service).
+- **Off-site clock-ins are blocked and recorded.** If a worker clocks in **beyond the site's radius** (default
+  300 m from your Home Assistant location) the clock-in is **blocked, shown as "off-site clock-in blocked" and
+  logged** with the distance — never counted as on-site. On-site hours roll up into **today / this-week
+  timesheets**.
+- **Team on the Overview.** A new **Team** tile on the single-pane Overview: who's on site, how many workers, and
+  a badge when an off-site clock-in was blocked today.
+- **Team sensor** on the gateway (`milesight_role: team`) exposes who's on site, timesheets and recent clock
+  events for your own automations.
+
+## 0.93.0
+- **Jobs on the Overview.** The single-pane Overview now has a **Jobs** tile alongside the other systems: open
+  jobs, how many are in progress and how many were **raised by the sensors**, with a red badge when a job is
+  overdue — and a click straight through to the Jobs board.
+- **Turn "create a job" on or off per rule.** The rule editor (Tune) now has a **＋ also create a job** toggle in
+  the THEN clause, so you choose which rules raise a work order. For a rule that resolves itself (a tank low, a
+  fridge over limit, a device offline) the toggle notes that the job **closes itself when the reading clears**.
+
+## 0.92.0
+- **New: Jobs — the plan → assign → record layer.** A new **Jobs** dashboard with a board (To do / In progress /
+  Done): create a job, assign it to someone, start it and mark it done — all on the gateway, no entity ids to set.
+- **The sensor → job loop.** Rules can now **raise a job** when they fire: the new *create a job* action is built
+  into the Low-tank, Pump dry-run, Fridge-over-limit, Device-silent and Empty-trough rules by default. A job
+  raised by a *sustained* rule (a tank low, a fridge over limit, a device offline) **closes itself when the
+  reading clears** — marked "cleared by sensor" — so the loop runs end to end with no one having to tick it off.
+  One open job per rule + target, so a flapping sensor never floods the board.
+- **Jobs sensor** on the gateway (`milesight_role: jobs`) exposes open / in-progress / done counts and how many
+  open jobs came from the sensors, for the Overview and your own automations.
+
 ## 0.91.0
 - **The gateway is now on the Devices page.** A new **Gateway** section at the top shows each gateway with live
   status (online, packets today, devices heard, connection), a **click-through to its Home Assistant device

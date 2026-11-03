@@ -1,0 +1,27 @@
+# Milesight LoRaWAN – Jobs (plan → assign → record)
+# Installed by the integration on every site. The card reads the "jobs" role sensor on the gateway and
+# edits jobs over the jobs WebSocket — no entity ids to set. Sensor alerts raise jobs automatically, and a
+# job tied to a sustained rule closes itself when the reading clears. Everything runs on the gateway.
+title: Jobs
+views:
+  - title: Jobs
+    path: jobs
+    icon: mdi:clipboard-check-outline
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Jobs
+            subtitle: Plan, assign and record work — sensor alerts raise jobs that close when the reading clears
+            icon: mdi:clipboard-check-outline
+      - type: grid
+        column_span: 3
+        cards:
+          # The jobs board: To do / In progress / Done. Create a job, assign it, mark it done. Jobs flagged
+          # "from a rule" were raised by the sensors; the self-closing ones resolve when the reading clears.
+          - type: custom:milesight-jobs-card
+            grid_options: {columns: full}

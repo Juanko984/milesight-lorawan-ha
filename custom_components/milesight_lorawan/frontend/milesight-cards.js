@@ -2753,6 +2753,22 @@
           metrics: [[String(a.running || 0), "running"], [String(a.fired_today || 0), "fired today"], [String(a.paused || 0), "paused"]],
           issue: fired ? `${fired.sentence ? fired.sentence.replace(/^If /, "").split(" →")[0] : "A rule"} fired ${ago(fired.last_fire * 1000)}` : "No rules have fired yet" };
       } },
+    team: { name: "Team", icon: "mdi:account-group", path: "/milesight-team/team",
+      compute(S) {
+        const t = _roleOne(S, "team"); if (!t) return null;
+        const a = t.attributes, on = num(a.on_site) || 0, total = num(a.total) || 0, blocked = num(a.blocked_today) || 0;
+        return { bcls: blocked ? "warn" : "good", badge: blocked ? `${blocked} blocked` : on ? `${on} on site` : "None in",
+          metrics: [[String(on), "on site"], [String(total), total === 1 ? "worker" : "workers"], [String(blocked), "blocked today", blocked ? "warn" : ""]],
+          issue: blocked ? `${blocked} off-site clock-in${blocked === 1 ? "" : "s"} blocked today` : on ? `${on} clocked in` : "No one clocked in" };
+      } },
+    jobs: { name: "Jobs", icon: "mdi:clipboard-check-outline", path: "/milesight-jobs/jobs",
+      compute(S) {
+        const j = _roleOne(S, "jobs"); if (!j) return null;
+        const a = j.attributes, open = num(a.open) || 0, overdue = num(a.overdue) || 0, fromS = num(a.from_sensor_open) || 0;
+        return { bcls: overdue ? "bad" : "good", badge: overdue ? `${overdue} overdue` : open ? `${open} open` : "Clear",
+          metrics: [[String(open), "open", overdue ? "bad" : ""], [String(num(a.doing) || 0), "in progress"], [String(fromS), "from sensors", fromS ? "" : ""]],
+          issue: overdue ? `${overdue} job${overdue === 1 ? "" : "s"} overdue` : fromS ? `${fromS} raised by the sensors` : open ? `${open} job${open === 1 ? "" : "s"} to do` : "Nothing on the list" };
+      } },
     coop: { name: "Coop", icon: "mdi:egg", path: "/milesight-coop/coop",
       compute(S) {
         const t = byRole(S, "tank").filter((x) => areaEq(x.attributes.area, "Chicken coop")); if (!t.length) return null;
@@ -2895,7 +2911,7 @@
   // ================================================================ systems grid (overview single pane)
   // Every operational system the site has, as equal-size panels in one responsive grid — self-discovering, so a
   // panel appears only when the site has that system. One card (not many), so the panels are always uniform.
-  const SYS_ORDER = ["energy", "tanks", "cold_chain", "farm", "climate", "coop", "fleet", "recipes", "gateways"];
+  const SYS_ORDER = ["energy", "tanks", "cold_chain", "farm", "climate", "coop", "fleet", "recipes", "jobs", "team", "gateways"];
   class SystemsCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
@@ -4391,7 +4407,7 @@
   const DUR_OPTS = [[0, "immediately"], [5, "5 min"], [15, "15 min"], [30, "30 min"], [60, "1 h"], [120, "2 h"], [240, "4 h"], [360, "6 h"]];
   const NOTIFY_OPTS = [["on_call", "on-call"], ["primary", "primary"], ["maintenance", "maintenance"], ["farm_manager", "farm manager"]];
   const CAT_LABEL = { water: "Water", pumps: "Pumps", cold_chain: "Cold chain", energy: "Energy & cost", devices: "Devices", farm: "Farm", security: "Security" };
-  const ACTION_TEXT = (x) => ({ raise_alert: "+ raise an alert", press: "+ switch a device", log: "+ log" }[x.type] || ("+ " + x.type));
+  const ACTION_TEXT = (x) => ({ raise_alert: "+ raise an alert", press: "+ switch a device", log: "+ log", create_job: "+ create a job" }[x.type] || ("+ " + x.type));
 
   class RecipesCard extends Base {
     static getStubConfig() { return {}; }
@@ -4455,6 +4471,10 @@
         .gline{font-size:12.5px;color:var(--ms-ink2);margin:11px 2px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .gline select{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:7px;padding:4px 7px;font:inherit;font-size:12.5px}
         .gline input{width:auto;accent-color:var(--ms-accent)}
+        .jobrow{display:flex;align-items:center;gap:9px;margin:9px 2px 0;font-size:12.5px;flex-wrap:wrap}
+        .jobrow label{display:inline-flex;align-items:center;gap:6px;color:var(--ms-ink);cursor:pointer;font-weight:600}
+        .jobrow input{width:auto;accent-color:var(--ms-good)}
+        .jobrow .jhint{color:var(--ms-ink2)}
         .ed .foot{display:flex;gap:9px;margin-top:14px;border-top:1px solid var(--ms-line);padding-top:12px;align-items:center}
         .catrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px}
         .cat{font-size:12px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:5px 12px;cursor:pointer}
@@ -4562,14 +4582,23 @@
       const notifyAct = (r.actions || []).find((x) => x.type === "notify");
       const then = [];
       if (notifyAct) { then.push("notify "); then.push(cSel(null, NOTIFY_OPTS, notifyAct.target, false, "f-notify")); }
-      (r.actions || []).filter((x) => x.type !== "notify").forEach((x) => { if (then.length) then.push(" "); then.push(h("span", { class: "achip" }, ACTION_TEXT(x))); });
+      (r.actions || []).filter((x) => x.type !== "notify" && x.type !== "create_job").forEach((x) => { if (then.length) then.push(" "); then.push(h("span", { class: "achip" }, ACTION_TEXT(x))); });
       then.push(h("span", { class: "ahint" }, "or a notify.* service"));
+      // "create a job" is a toggle (added / removed), not a read-only chip
+      const hasJob = (r.actions || []).some((x) => x.type === "create_job");
+      const sustained = ["threshold", "boolean", "offline", "geofence"].includes(t);
 
       const rows = [
         h("div", { class: "etitle" }, [r.icon + " ", esc(r.title || CAT_LABEL[r.category] || r.category), h("span", { class: "sp", style: { flex: 1 } }),
           h("span", { style: { fontSize: "11.5px", color: "var(--ms-ink2)", fontWeight: 400 } }, `covers ${r.covers}`)]),
         h("div", { class: "wt when" }, [h("div", { class: "tag" }, "WHEN"), h("div", { class: "clause" }, when)]),
         h("div", { class: "wt then" }, [h("div", { class: "tag" }, "THEN"), h("div", { class: "clause" }, then)]),
+        h("div", { class: "jobrow" }, [
+          h("label", {}, [h("input", { type: "checkbox", class: "f-job", checked: hasJob }), "＋ also create a job"]),
+          h("span", { class: "jhint" }, sustained
+            ? "A work order appears on the Jobs board and closes itself when the reading clears."
+            : "A work order appears on the Jobs board for someone to action and close."),
+        ]),
       ];
       if ((r.actions || []).some((x) => x.type === "press")) {
         const pr = r.actions.find((x) => x.type === "press");
@@ -4614,6 +4643,10 @@
       const notify = v(".f-notify"), press = g(".f-press") ? (v(".f-press") || null) : undefined;
       inst.actions = (inst.actions || []).map((x) => (x.type === "notify" && notify != null) ? { ...x, target: notify }
         : (x.type === "press" && press !== undefined) ? { ...x, entity: press } : x);
+      // add / remove the "create a job" action from its toggle
+      const wantJob = !!(g(".f-job") && g(".f-job").checked);
+      inst.actions = inst.actions.filter((x) => x.type !== "create_job");
+      if (wantJob) inst.actions.push({ type: "create_job" });
       ["sentence", "covers", "fired_today", "firing_now", "last_fire", "category", "icon", "cond", "title"].forEach((k) => delete inst[k]);
       await this._ws("update", { recipe: inst });
       this._reopen();
@@ -4719,6 +4752,263 @@
     }
   }
 
+  // ================================================================ jobs (plan → assign → record)
+  class JobsCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    constructor() { super(); this._adding = false; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "jobs") return id; return null; }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._adding) return;                                 // don't clobber the new-job form on a refresh
+      const id = this._find(), s = id ? hass.states[id] : null;
+      const sig = s ? s.entity_id + s.last_updated : "none";
+      if (sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    set_hass_refresh() { const h = this._hass; this._lastSig = null; this.hass = h; }
+    async _ws(type, extra) {
+      const id = this._find(), hub = id && this._hass.states[id].attributes.hub;
+      try { return await this._hass.callWS({ type: "milesight_lorawan/jobs/" + type, hub, ...(extra || {}) }); }
+      catch (e) { return { error: String(e && e.message || e) }; }
+    }
+    _css_block() {
+      this._css = `
+        .jh-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+        .jh-head .ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;background:color-mix(in srgb,var(--ms-accent) 15%,transparent)}
+        .jh-head .ti{font-size:16px;font-weight:700}.jh-head .sub{font-size:12px;color:var(--ms-ink2);margin-top:1px}.jh-head .sp{flex:1}
+        .jbtn{font:inherit;font-size:12.5px;border-radius:9px;padding:7px 13px;border:1px solid var(--ms-line);background:#12181d;color:var(--ms-ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+        .jbtn.p{background:var(--ms-accent);border-color:var(--ms-accent);color:#160d05;font-weight:650}
+        .jbtn.sm{padding:4px 10px;font-size:11.5px}
+        .jform{border:1px solid var(--ms-accent);border-radius:12px;padding:12px;margin-bottom:14px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;background:color-mix(in srgb,var(--ms-accent) 7%,transparent)}
+        .jform input{flex:1;min-width:160px;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:8px 11px;font:inherit;font-size:13.5px}
+        .jform select{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:8px 9px;font:inherit;font-size:13px}
+        .jcols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+        .jcol{background:color-mix(in srgb,var(--ms-ink2) 7%,transparent);border:1px solid var(--ms-line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:9px;min-width:0}
+        .jcol .jhh{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-ink2);padding:2px 3px}
+        .jcard{background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:10px;border-left:3px solid var(--ms-ink2);padding:10px 11px;display:flex;flex-direction:column;gap:7px}
+        .jcard.crit{border-left-color:var(--ms-bad)} .jcard.warn{border-left-color:var(--ms-warn)} .jcard.info{border-left-color:var(--ms-accent)} .jcard.ok{border-left-color:var(--ms-good)}
+        .jcard.done{opacity:.62}
+        .jcard .jt{font-size:13px;font-weight:650;color:var(--ms-ink);line-height:1.35}
+        .jcard .jd{font-size:11.5px;color:var(--ms-ink2);line-height:1.4}
+        .jmeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--ms-ink2)}
+        .jbadge{display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:650;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .jbadge.self{background:color-mix(in srgb,var(--ms-good) 15%,transparent);color:var(--ms-good)}
+        .jass{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:7px;padding:3px 7px;font:inherit;font-size:11.5px;width:96px}
+        .jfoot{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+        .jx{margin-left:auto;border:0;background:none;color:var(--ms-ink2);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px}
+        .jempty{font-size:11.5px;color:var(--ms-ink2);padding:5px 4px}
+        @media(max-width:720px){.jcols{grid-template-columns:1fr}}
+      `;
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css_block();
+      const st = this._st(this._find());
+      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:clipboard-check-outline",
+        title: "Jobs not ready", hint: "The gateway sets this up automatically — give it a moment after a restart." })]));
+      const a = st.attributes, jobs = a.jobs || [];
+      const head = h("div", { class: "jh-head" }, [
+        h("div", { class: "ic" }, "📋"),
+        h("div", {}, [h("div", { class: "ti" }, "Jobs"),
+          h("div", { class: "sub" }, `${a.open || 0} open · ${a.doing || 0} in progress${a.from_sensor_open ? ` · ${a.from_sensor_open} from sensors` : ""}`)]),
+        h("div", { class: "sp" }),
+        h("button", { class: "jbtn p", onclick: () => { this._adding = true; this._render(); } }, "＋ New job"),
+      ]);
+      const body = [head];
+      if (this._adding) body.push(this._form());
+      const cols = [["todo", "To do"], ["doing", "In progress"], ["done", "Done"]];
+      body.push(h("div", { class: "jcols" }, cols.map(([key, label]) => {
+        let list = jobs.filter((j) => (j.status || "todo") === key);
+        if (key === "done") list = list.slice(0, 6);
+        const cards = list.length ? list.map((j) => this._job(j)) : [h("div", { class: "jempty" }, "Nothing here")];
+        return h("div", { class: "jcol" }, [
+          h("div", { class: "jhh" }, [h("span", {}, label), h("span", {}, String(jobs.filter((j) => (j.status || "todo") === key).length))]),
+          ...cards,
+        ]);
+      })));
+      this._card(h("div", { class: "wrap" }, body));
+    }
+    _form() {
+      const title = h("input", { type: "text", placeholder: "What needs doing? e.g. Service pump 4" });
+      const pri = h("select", {}, [["warn", "Normal"], ["crit", "Urgent"], ["info", "Low"]].map(([v, l]) => h("option", { value: v }, l)));
+      const add = async () => { const t = title.value.trim(); if (!t) { title.focus(); return; } await this._ws("create", { title: t, priority: pri.value }); this._adding = false; this.set_hass_refresh(); };
+      title.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+      return h("div", { class: "jform" }, [title, pri,
+        h("button", { class: "jbtn p", onclick: add }, "Add"),
+        h("button", { class: "jbtn", onclick: () => { this._adding = false; this._render(); } }, "Cancel")]);
+    }
+    _job(j) {
+      const sr = j.source_rule || {}, fromRule = j.source === "rule";
+      const status = j.status || "todo";
+      const act = async (s) => { await this._ws("status", { job_id: j.id, status: s }); this.set_hass_refresh(); };
+      const foot = [];
+      if (status === "todo") { foot.push(h("button", { class: "jbtn sm", onclick: () => act("doing") }, "Start")); foot.push(h("button", { class: "jbtn sm p", onclick: () => act("done") }, "Done")); }
+      else if (status === "doing") foot.push(h("button", { class: "jbtn sm p", onclick: () => act("done") }, "Done"));
+      else foot.push(h("button", { class: "jbtn sm", onclick: () => act("todo") }, "Reopen"));
+      const ass = h("input", { class: "jass", type: "text", value: j.assignee || "", placeholder: "assign…" });
+      ass.addEventListener("change", async () => { await this._ws("assign", { job_id: j.id, assignee: ass.value.trim() || null }); this.set_hass_refresh(); });
+      const meta = [];
+      if (fromRule) meta.push(h("span", { class: "jbadge" }, [(sr.icon || "⚡") + " from a rule"]));
+      if (fromRule && j.auto_close) meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears" }, "self-closing"));
+      if (status === "done" && j.resolved_by === "sensor") meta.push(h("span", { class: "jbadge self" }, "cleared by sensor"));
+      return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : "") }, [
+        h("div", { class: "jt" }, esc(j.title)),
+        j.detail ? h("div", { class: "jd" }, esc(j.detail)) : null,
+        meta.length ? h("div", { class: "jmeta" }, meta) : null,
+        h("div", { class: "jfoot" }, [...foot, ass,
+          h("button", { class: "jx", title: "Delete", onclick: async () => { await this._ws("delete", { job_id: j.id }); this.set_hass_refresh(); } }, "✕")]),
+      ]);
+    }
+  }
+
+  // ================================================================ team & clock-in
+  class TeamCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    constructor() { super(); this._adding = false; this._toast = null; }
+    _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "team") return id; return null; }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._adding) return;
+      const id = this._find(), s = id ? hass.states[id] : null;
+      const sig = s ? s.entity_id + s.last_updated : "none";
+      if (sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    set_hass_refresh() { const h = this._hass; this._lastSig = null; this.hass = h; }
+    async _ws(type, extra) {
+      const id = this._find(), hub = id && this._hass.states[id].attributes.hub;
+      try { return await this._hass.callWS({ type: "milesight_lorawan/team/" + type, hub, ...(extra || {}) }); }
+      catch (e) { return { error: String(e && e.message || e) }; }
+    }
+    _hhmm(ts) { try { return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch (e) { return "—"; } }
+    _trackers() {
+      const S = this._hass.states, out = [];
+      for (const id in S) if (id.startsWith("device_tracker.") || id.startsWith("person.")) {
+        out.push({ value: id, label: (S[id].attributes.friendly_name || id) });
+      }
+      return out.sort((a, b) => a.label.localeCompare(b.label));
+    }
+    _css_block() {
+      this._css = `
+        .tm-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+        .tm-head .ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;background:color-mix(in srgb,var(--ms-accent) 15%,transparent)}
+        .tm-head .ti{font-size:16px;font-weight:700}.tm-head .sub{font-size:12px;color:var(--ms-ink2);margin-top:1px}.tm-head .sp{flex:1}
+        .mbtn{font:inherit;font-size:12.5px;border-radius:9px;padding:7px 13px;border:1px solid var(--ms-line);background:#12181d;color:var(--ms-ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+        .mbtn.p{background:var(--ms-accent);border-color:var(--ms-accent);color:#160d05;font-weight:650}
+        .mbtn.sm{padding:5px 11px;font-size:12px}
+        .tform{border:1px solid var(--ms-accent);border-radius:12px;padding:12px;margin-bottom:14px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;background:color-mix(in srgb,var(--ms-accent) 7%,transparent)}
+        .tform input,.tform select{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:8px 10px;font:inherit;font-size:13px}
+        .tform input.nm{flex:1;min-width:140px}
+        .troast{margin-bottom:12px;padding:10px 13px;border-radius:10px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:8px;
+          background:color-mix(in srgb,var(--ms-bad) 12%,transparent);color:var(--ms-bad);box-shadow:inset 3px 0 0 var(--ms-bad)}
+        .cw{overflow-x:auto}
+        table.tm{width:100%;border-collapse:collapse;font-size:13px}
+        table.tm th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ms-ink2);font-weight:600;padding:7px 9px;border-bottom:1px solid var(--ms-line)}
+        table.tm td{padding:9px 9px;border-bottom:1px solid var(--ms-line);vertical-align:middle}
+        table.tm tr:last-child td{border-bottom:none}
+        .wk{display:flex;align-items:center;gap:9px}
+        .av{width:30px;height:30px;border-radius:50%;background:color-mix(in srgb,var(--ms-accent) 18%,transparent);color:var(--ms-accent);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;flex:0 0 auto}
+        .wk .nm{font-weight:650;color:var(--ms-ink)}.wk .rl{font-size:11.5px;color:var(--ms-ink2)}
+        .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;border-radius:999px;padding:2px 9px;white-space:nowrap}
+        .pill.on{color:var(--ms-good);background:color-mix(in srgb,var(--ms-good) 15%,transparent)}
+        .pill.off{color:var(--ms-ink2);background:color-mix(in srgb,var(--ms-ink2) 15%,transparent)}
+        .pill.g{color:var(--ms-ink2);border:1px solid var(--ms-line)}
+        .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 auto}
+        .evh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:16px 2px 7px}
+        .ev{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--ms-line);font-size:12.5px}
+        .ev:last-child{border-bottom:none}.ev .lead{width:4px;align-self:stretch;border-radius:3px;background:var(--ms-good)}
+        .ev.block .lead{background:var(--ms-bad)}.ev.out .lead{background:var(--ms-ink2)}
+        .ev .et{color:var(--ms-ink);font-weight:600}.ev .em{color:var(--ms-ink2);font-size:11.5px}
+        .ev .time{margin-left:auto;color:var(--ms-ink2);font-size:11.5px;white-space:nowrap}
+        .tnx{border:0;background:none;color:var(--ms-ink2);cursor:pointer;font-size:14px;padding:2px 4px}
+        @media(max-width:620px){table.tm thead{display:none}table.tm td{display:block;border:none;padding:3px 9px}table.tm tr{display:block;border-bottom:1px solid var(--ms-line);padding:8px 0}}
+      `;
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css_block();
+      const st = this._st(this._find());
+      if (!st) return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:account-group",
+        title: "Team not ready", hint: "The gateway sets this up automatically — give it a moment after a restart." })]));
+      const a = st.attributes, workers = a.workers || [], events = a.events || [];
+      const head = h("div", { class: "tm-head" }, [
+        h("div", { class: "ic" }, "👷"),
+        h("div", {}, [h("div", { class: "ti" }, "Team"),
+          h("div", { class: "sub" }, `${a.on_site || 0} on site · ${workers.length} ${workers.length === 1 ? "worker" : "workers"}${a.blocked_today ? ` · ${a.blocked_today} blocked today` : ""}`)]),
+        h("div", { class: "sp" }),
+        h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._render(); } }, "＋ Add worker"),
+      ]);
+      const body = [head];
+      if (this._toast) body.push(h("div", { class: "troast" }, ["⛔ ", this._toast]));
+      if (this._adding) body.push(this._form());
+      if (!workers.length) body.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "8px 2px" } }, "No workers yet — press “Add worker”."));
+      else body.push(h("div", { class: "cw" }, [h("table", { class: "tm" }, [
+        h("thead", {}, [h("tr", {}, ["Worker", "Clock-in", "Status", "Today", "Week", "Location", ""].map((x) => h("th", {}, x)))]),
+        h("tbody", {}, workers.map((w) => this._row(w))),
+      ])]));
+      // recent clock events — including off-site blocked, in red (as recorded)
+      if (events.length) {
+        body.push(h("div", { class: "evh" }, "Recent clock events"));
+        events.forEach((e) => body.push(this._event(e)));
+      }
+      this._card(h("div", { class: "wrap" }, body));
+    }
+    _row(w) {
+      const method = { app: "📱 App", face: "🙂 Face", qr: "▦ QR" }[w.method] || "📱 App";
+      const clock = async (kind) => {
+        this._toast = null;
+        const res = await this._ws("clock", { worker_id: w.id, kind });
+        if (kind === "in" && res && res.ok === false && res.status === "off_site_blocked") {
+          const d = res.distance_m != null ? (res.distance_m >= 1000 ? (res.distance_m / 1000).toFixed(1) + " km" : Math.round(res.distance_m) + " m") : "";
+          this._toast = `Off-site clock-in blocked — ${w.name} is ${d} from the site. Recorded, not clocked in.`;
+        } else if (res && res.error) this._toast = res.error;
+        this.set_hass_refresh();
+      };
+      return h("tr", {}, [
+        h("td", {}, [h("div", { class: "wk" }, [h("span", { class: "av" }, w.initials || "?"),
+          h("div", {}, [h("div", { class: "nm" }, esc(w.name)), w.role ? h("div", { class: "rl" }, esc(w.role)) : null])])]),
+        h("td", {}, [h("span", { class: "pill g" }, method)]),
+        h("td", {}, w.on_site
+          ? h("span", { class: "pill on" }, [h("span", { class: "dot" }), "on site · " + this._hhmm(w.since)])
+          : h("span", { class: "pill off" }, "off")),
+        h("td", { class: "tnum" }, (w.today_h != null ? w.today_h : 0) + " h"),
+        h("td", { class: "tnum" }, (w.week_h != null ? w.week_h : 0) + " h"),
+        h("td", {}, w.on_site ? h("span", { class: "pill on" }, "✓ on-site") : h("span", { class: "muted", style: { fontSize: "12px" } }, "—")),
+        h("td", { style: { textAlign: "right", whiteSpace: "nowrap" } }, [
+          w.on_site ? h("button", { class: "mbtn sm", onclick: () => clock("out") }, "Clock out")
+            : h("button", { class: "mbtn sm p", onclick: () => clock("in") }, "Clock in"),
+          h("button", { class: "tnx", title: "Remove worker", onclick: async () => { await this._ws("delete", { worker_id: w.id }); this.set_hass_refresh(); } }, "✕"),
+        ]),
+      ]);
+    }
+    _event(e) {
+      const cls = e.status === "off_site_blocked" ? "block" : e.status === "clocked_out" ? "out" : "";
+      let t, m;
+      if (e.status === "off_site_blocked") {
+        const d = e.distance_m != null ? (e.distance_m >= 1000 ? (e.distance_m / 1000).toFixed(1) + " km" : Math.round(e.distance_m) + " m") : "";
+        t = "Off-site clock-in blocked"; m = `${esc(e.worker_name)} · ${d} from site · rejected`;
+      } else if (e.status === "clocked_out") { t = esc(e.worker_name) + " clocked out"; m = "on-site hours recorded"; }
+      else { t = esc(e.worker_name) + " clocked in"; m = "on-site ✓" + (e.distance_m != null ? ` · ${Math.round(e.distance_m)} m` : ""); }
+      return h("div", { class: "ev " + cls }, [h("span", { class: "lead" }),
+        h("div", {}, [h("div", { class: "et" }, t), h("div", { class: "em" }, m)]),
+        h("span", { class: "time" }, this._hhmm(e.ts))]);
+    }
+    _form() {
+      const name = h("input", { type: "text", class: "nm", placeholder: "Worker name" });
+      const role = h("input", { type: "text", placeholder: "Role (optional)", style: { width: "140px" } });
+      const method = h("select", {}, [["app", "📱 App"], ["face", "🙂 Face"], ["qr", "▦ QR"]].map(([v, l]) => h("option", { value: v }, l)));
+      const trackers = this._trackers();
+      const tracker = h("select", {}, [h("option", { value: "" }, "Link a phone (optional)"), ...trackers.map((t) => h("option", { value: t.value }, t.label))]);
+      const add = async () => { const n = name.value.trim(); if (!n) { name.focus(); return; } await this._ws("add", { name: n, role: role.value.trim(), method: method.value, tracker: tracker.value || null }); this._adding = false; this.set_hass_refresh(); };
+      name.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+      return h("div", { class: "tform" }, [name, role, method, tracker,
+        h("button", { class: "mbtn p", onclick: add }, "Add"),
+        h("button", { class: "mbtn", onclick: () => { this._adding = false; this._render(); } }, "Cancel")]);
+    }
+  }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
@@ -4741,7 +5031,8 @@
         COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card",
         RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
         ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card",
-        GATEWAYS_TAG = "milesight-gateways-card";
+        GATEWAYS_TAG = "milesight-gateways-card", JOBS_TAG = "milesight-jobs-card",
+        TEAM_TAG = "milesight-team-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -4787,6 +5078,8 @@
     [ATTENTION_TAG, AttentionCard, "Milesight Needs Attention", "Open alerts, most severe first — collapses when all-clear (for the Overview)"],
     [SYSTEMS_TAG, SystemsCard, "Milesight Systems", "Every system the site has as equal-size panels — the Overview single pane of glass"],
     [GATEWAYS_TAG, GatewaysCard, "Milesight Gateway", "The gateway(s): live status, click-through to the device page, and a settings button"],
+    [JOBS_TAG, JobsCard, "Milesight Jobs", "Plan → assign → record: a jobs board; sensor alerts raise jobs that close when the reading clears"],
+    [TEAM_TAG, TeamCard, "Milesight Team", "Workers & clock-in from the mobile app; off-site clock-ins are blocked and recorded; timesheets"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

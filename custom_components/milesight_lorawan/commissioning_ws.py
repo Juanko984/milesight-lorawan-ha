@@ -98,6 +98,10 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
             websocket_api.async_register_command(hass, handler)
         from .recipes_ws import register as register_recipe_ws
         register_recipe_ws(hass)
+        from .jobs_ws import register as register_jobs_ws
+        register_jobs_ws(hass)
+        from .team_ws import register as register_team_ws
+        register_team_ws(hass)
         data["commissioning_ws"] = True
     if not data.get("commissioning_panel"):
         from homeassistant.components import panel_custom

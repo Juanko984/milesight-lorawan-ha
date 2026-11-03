@@ -108,6 +108,22 @@
        { key: "low_battery_sweep", category: "devices", icon: "🔋", title: "Weekly low-battery sweep", sentence: "If any device battery is under 15% (weekly digest) → notify maintenance", enabled: false },
        { key: "empty_trough", category: "farm", icon: "🐄", title: "Empty trough → notify", sentence: "If any trough reads empty for 30 min → notify on-call", enabled: false },
        { key: "left_farm", category: "security", icon: "🚜", title: "Left the farm → notify", sentence: "If any GPS tracker moves more than 500 m from the site → notify on-call, raise an alert", enabled: false } ] } },
+   "sensor.jobs": { state: "3", attributes: { milesight_role: "jobs", site: "Green Acres", hub: "hub1", open: 3, todo: 2, doing: 1, done: 2, overdue: 1, from_sensor_open: 2, total: 5,
+     jobs: [
+       { id: "job_1", title: "Fridge over limit · Fridge 1", detail: "Fridge 1: 9.1 over 5", status: "todo", priority: "crit", area: "Cold room", assignee: null, checklist: [], source: "rule", source_rule: { rule_id: "fridge_over", target_key: "sensor.tltemp", icon: "❄️", catalog: "fridge_over" }, auto_close: true, created_ts: Date.now() / 1000 - 2000, done_ts: null, resolved_by: null },
+       { id: "job_2", title: "Pump dry-run · Borehole", detail: "Borehole: 3× in 60 min", status: "doing", priority: "crit", area: "Yard", assignee: "JM", checklist: [], source: "rule", source_rule: { rule_id: "pump_dry_run", target_key: "sensor.pump1", icon: "⚙️", catalog: "pump_dry_run" }, auto_close: false, created_ts: Date.now() / 1000 - 5400, done_ts: null, resolved_by: null },
+       { id: "job_3", title: "Service tractor MF-390", detail: "", status: "todo", priority: "warn", area: null, assignee: "KL", checklist: [], source: "manual", source_rule: null, auto_close: false, created_ts: Date.now() / 1000 - 9000, done_ts: null, resolved_by: null },
+       { id: "job_4", title: "Low tank · Rainwater 2", detail: "Rainwater 2: 14%", status: "done", priority: "warn", area: "Roof", assignee: null, checklist: [], source: "rule", source_rule: { rule_id: "low_tank", target_key: "sensor.tank1", icon: "💧", catalog: "low_tank" }, auto_close: true, created_ts: Date.now() / 1000 - 20000, done_ts: Date.now() / 1000 - 1200, resolved_by: "sensor" },
+       { id: "job_5", title: "Replace washroom supplies", detail: "", status: "done", priority: "info", area: "Washroom", assignee: "AT", checklist: [], source: "manual", source_rule: null, auto_close: false, created_ts: Date.now() / 1000 - 40000, done_ts: Date.now() / 1000 - 3600, resolved_by: "person" } ] } },
+   "sensor.team": { state: "2", attributes: { milesight_role: "team", site: "Green Acres", hub: "hub1", on_site: 2, total: 3, blocked_today: 1, radius_m: 300,
+     workers: [
+       { id: "w_1", name: "John Mokoena", initials: "JM", role: "Supervisor", tracker: "device_tracker.john_phone", method: "app", active: true, on_site: true, since: Date.now() / 1000 - 7200, today_h: 2, week_h: 31 },
+       { id: "w_2", name: "Anna Theron", initials: "AT", role: "Operator", tracker: "device_tracker.anna_phone", method: "qr", active: true, on_site: true, since: Date.now() / 1000 - 5400, today_h: 1.5, week_h: 28 },
+       { id: "w_3", name: "Koos Louw", initials: "KL", role: "General", tracker: null, method: "face", active: true, on_site: false, since: null, today_h: 0, week_h: 22 } ],
+     events: [
+       { worker: "w_1", worker_name: "John Mokoena", kind: "in", ts: Date.now() / 1000 - 7200, status: "on_site", lat: -33.9, lon: 18.4, distance_m: 40, accuracy: 8 },
+       { worker: "w_2", worker_name: "Anna Theron", kind: "in", ts: Date.now() / 1000 - 5400, status: "on_site", lat: -33.9, lon: 18.4, distance_m: 70, accuracy: 10 },
+       { worker: "w_3", worker_name: "Koos Louw", kind: "in", ts: Date.now() / 1000 - 3600, status: "off_site_blocked", lat: -33.88, lon: 18.42, distance_m: 2100, accuracy: 12 } ] } },
    "sensor.cmf1": { state: "82", attributes: { kind: "comfort", area: "Reception", temperature: 22, humidity: 45, co2: 620 } },
    "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
    "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
@@ -188,6 +204,8 @@
    ["milesight-attention-card", {}],
    ["milesight-systems-card", {}],
    ["milesight-gateways-card", {}],
+   ["milesight-jobs-card", {}],
+   ["milesight-team-card", {}],
    ["milesight-domain-card", { domain: "tanks" }],
    ["milesight-domain-card", { domain: "cold_chain" }],
    ["milesight-domain-card", { domain: "farm" }],
@@ -196,6 +214,8 @@
    ["milesight-domain-card", { domain: "fleet" }],
    ["milesight-domain-card", { domain: "gateways" }],
    ["milesight-domain-card", { domain: "recipes" }],
+   ["milesight-domain-card", { domain: "jobs" }],
+   ["milesight-domain-card", { domain: "team" }],
    ["milesight-device-panel", { entity: "sensor.temp" }],
  ];
  cards.forEach(([t, c]) => mount(t, c, t));

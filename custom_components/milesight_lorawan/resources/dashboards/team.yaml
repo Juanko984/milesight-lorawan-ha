@@ -1,0 +1,27 @@
+# Milesight LoRaWAN – Team & clock-in
+# Installed by the integration on every site. The card reads the "team" role sensor on the gateway and edits
+# workers / clocks over the team WebSocket. Workers clock in from the Home Assistant mobile app (the clock_in /
+# clock_out services) or from this card; a clock-in outside the site's radius is blocked and recorded. Runs on
+# the gateway.
+title: Team
+views:
+  - title: Team
+    path: team
+    icon: mdi:account-group
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Team
+            subtitle: Clock-in from the mobile app with time and GPS — off-site clock-ins are blocked and recorded
+            icon: mdi:account-group
+      - type: grid
+        column_span: 3
+        cards:
+          # Roster, clock in / out, timesheets and the recent clock events (including off-site blocked).
+          - type: custom:milesight-team-card
+            grid_options: {columns: full}
