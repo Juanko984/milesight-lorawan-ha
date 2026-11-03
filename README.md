@@ -366,7 +366,9 @@ integration and it puts them in place itself:
   app** (the `clock_in` / `clock_out` services — wire them to an actionable notification, a dashboard widget or
   an NFC tag), which stamps the **time and their phone's GPS**. A clock-in **outside the site's radius is blocked
   and recorded** (shown as "off-site clock-in blocked"), never counted as on-site, and hours roll up into
-  timesheets. See the [changelog](CHANGELOG.md) for the rest.
+  timesheets. The Team page also has a **lite payroll** view: set each worker's pay (hourly rate or monthly
+  salary) and days per week, and see per-month hours, days worked / absent and gross pay with a total to pay,
+  month by month. See the [changelog](CHANGELOG.md) for the rest.
 * The tags are also Home Assistant **labels** on the devices (*Milesight · Tank / silo*, *Milesight · People &
   occupancy*, *Milesight · Air & comfort*), so you can filter devices, entities and automations by them. A label
   you remove by hand is not added back.

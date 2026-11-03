@@ -4879,15 +4879,22 @@
   class TeamCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
-    constructor() { super(); this._adding = false; this._toast = null; }
+    constructor() { super(); this._adding = false; this._editing = null; this._toast = null; this._tab = "roster"; this._monthsAgo = 0; this._monthData = null; }
     _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "team") return id; return null; }
     set hass(hass) {
       this._hass = hass;
-      if (this._adding) return;
+      if (this._adding || this._editing) return;            // don't clobber an open form on a refresh
       const id = this._find(), s = id ? hass.states[id] : null;
       const sig = s ? s.entity_id + s.last_updated : "none";
       if (sig === this._lastSig) return;
       this._lastSig = sig; this._render();
+    }
+    _money(cur, n) { return (cur || "R") + " " + Math.round(num(n) || 0).toLocaleString(); }
+    async _loadMonth(delta) {
+      const next = Math.max(0, this._monthsAgo + delta);
+      this._monthsAgo = next;
+      this._monthData = next === 0 ? null : await this._ws("payroll", { months_ago: next });
+      this._render();
     }
     set_hass_refresh() { const h = this._hass; this._lastSig = null; this.hass = h; }
     async _ws(type, extra) {
@@ -4936,6 +4943,17 @@
         .ev .et{color:var(--ms-ink);font-weight:600}.ev .em{color:var(--ms-ink2);font-size:11.5px}
         .ev .time{margin-left:auto;color:var(--ms-ink2);font-size:11.5px;white-space:nowrap}
         .tnx{border:0;background:none;color:var(--ms-ink2);cursor:pointer;font-size:14px;padding:2px 4px}
+        .tabs{display:inline-flex;background:color-mix(in srgb,var(--ms-ink2) 10%,transparent);border-radius:9px;padding:3px;margin-bottom:14px;gap:2px}
+        .tabs button{border:0;background:transparent;color:var(--ms-ink2);font:inherit;font-weight:650;font-size:12.5px;padding:6px 14px;border-radius:7px;cursor:pointer}
+        .tabs button.on{background:var(--ms-surface);color:var(--ms-ink);box-shadow:0 1px 2px rgba(0,0,0,.2)}
+        .monthnav{display:flex;align-items:center;gap:12px;margin:2px 2px 12px}
+        .monthnav .lbl{font-weight:700;font-size:14px;min-width:140px;text-align:center}
+        .monthnav .nav{border:1px solid var(--ms-line);background:#12181d;color:var(--ms-ink);border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:15px}
+        .monthnav .nav[disabled]{opacity:.4;cursor:default}
+        .paytot{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:12px 10px;border-radius:10px;background:color-mix(in srgb,var(--ms-accent) 10%,transparent);font-weight:700}
+        .paytot .v{font-size:18px}
+        .paysub{font-size:11.5px;color:var(--ms-ink2)}
+        .absent{color:var(--ms-warn);font-weight:600}
         @media(max-width:620px){
           .cw{overflow:visible}
           table.tm,table.tm tbody,table.tm tr,table.tm td{display:block;width:100%}
@@ -4962,22 +4980,64 @@
         h("div", {}, [h("div", { class: "ti" }, "Team"),
           h("div", { class: "sub" }, `${a.on_site || 0} on site · ${workers.length} ${workers.length === 1 ? "worker" : "workers"}${a.blocked_today ? ` · ${a.blocked_today} blocked today` : ""}`)]),
         h("div", { class: "sp" }),
-        h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._render(); } }, "＋ Add worker"),
+        h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._editing = null; this._render(); } }, "＋ Add worker"),
       ]);
-      const body = [head];
+      const tabs = h("div", { class: "tabs" }, [["roster", "Roster"], ["payroll", "Payroll"]].map(([k, l]) =>
+        h("button", { class: this._tab === k ? "on" : "", onclick: () => { this._tab = k; this._render(); } }, l)));
+      const body = [head, tabs];
       if (this._toast) body.push(h("div", { class: "troast" }, ["⛔ ", this._toast]));
-      if (this._adding) body.push(this._form());
+      if (this._adding || this._editing) body.push(this._form(this._editing ? workers.find((w) => w.id === this._editing) : null));
+      if (this._tab === "payroll") { body.push(this._payroll(a)); this._card(h("div", { class: "wrap" }, body)); return; }
+      // --- roster tab ---
       if (!workers.length) body.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "8px 2px" } }, "No workers yet — press “Add worker”."));
       else body.push(h("div", { class: "cw" }, [h("table", { class: "tm" }, [
         h("thead", {}, [h("tr", {}, ["Worker", "Clock-in", "Status", "Today", "Week", "Location", ""].map((x) => h("th", {}, x)))]),
         h("tbody", {}, workers.map((w) => this._row(w))),
       ])]));
-      // recent clock events — including off-site blocked, in red (as recorded)
       if (events.length) {
         body.push(h("div", { class: "evh" }, "Recent clock events"));
         events.forEach((e) => body.push(this._event(e)));
       }
       this._card(h("div", { class: "wrap" }, body));
+    }
+    _payroll(a) {
+      const data = this._monthsAgo === 0 ? (a.payroll || {}) : ((this._monthData && !this._monthData.error) ? this._monthData : {});
+      const cur = data.currency || a.currency || "R", rows = data.rows || [];
+      const nav = h("div", { class: "monthnav" }, [
+        h("button", { class: "nav", onclick: () => this._loadMonth(1) }, "‹"),
+        h("span", { class: "lbl" }, data.label || "This month"),
+        h("button", { class: "nav", disabled: this._monthsAgo === 0 ? "" : null, onclick: () => { if (this._monthsAgo > 0) this._loadMonth(-1); } }, "›"),
+      ]);
+      const wrap = [nav];
+      if (!rows.length) { wrap.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "6px 2px" } }, "No workers to pay yet.")); return h("div", {}, wrap); }
+      wrap.push(h("div", { class: "cw" }, [h("table", { class: "tm" }, [
+        h("thead", {}, [h("tr", {}, ["Worker", "Pay", "Days worked", "Hours", "Gross", ""].map((x) => h("th", {}, x)))]),
+        h("tbody", {}, rows.map((r) => this._payRow(r, cur))),
+      ])]));
+      wrap.push(h("div", { class: "paytot" }, [
+        h("div", {}, [h("div", {}, "Total to pay — " + (data.label || "this month")),
+          h("div", { class: "paysub" }, "Salaries shown in full; hourly from clocked hours. Attendance shown, not docked.")]),
+        h("div", { class: "v tnum" }, this._money(cur, data.total)),
+      ]));
+      return h("div", {}, wrap);
+    }
+    _payRow(r, cur) {
+      const pay = r.pay_type === "hourly" ? (r.rate != null ? `${this._money(cur, r.rate)} / h` : "rate not set")
+        : r.pay_type === "salary" ? (r.salary != null ? `${this._money(cur, r.salary)} / mo` : "salary not set")
+          : "—";
+      const absent = r.days_absent ? h("span", { class: "absent" }, ` · ${r.days_absent} absent`) : null;
+      return h("tr", {}, [
+        h("td", { "data-label": "" }, [h("div", { class: "wk" }, [h("span", { class: "av" }, r.initials || "?"),
+          h("div", {}, [h("div", { class: "nm" }, esc(r.name)), r.role ? h("div", { class: "rl" }, esc(r.role)) : null])])]),
+        h("td", { "data-label": "Pay" }, [h("span", {}, pay),
+          h("button", { class: "tnx", title: "Edit pay", onclick: () => { this._editing = r.id; this._adding = false; this._render(); } }, "✎")]),
+        h("td", { "data-label": "Days", class: "tnum" }, [h("span", {}, `${r.days_worked} / ${r.expected_days || "—"}`), absent]),
+        h("td", { "data-label": "Hours", class: "tnum" }, (r.hours != null ? r.hours : 0) + " h"),
+        h("td", { "data-label": "Gross", class: "tnum nm" }, r.pay_type === "none" ? "—" : this._money(cur, r.gross)),
+        h("td", { "data-label": "", class: "acts", style: { textAlign: "right" } }, [
+          h("button", { class: "mbtn sm", onclick: () => { this._editing = r.id; this._adding = false; this._render(); } }, "Edit"),
+        ]),
+      ]);
     }
     _row(w) {
       const method = { app: "📱 App", face: "🙂 Face", qr: "▦ QR" }[w.method] || "📱 App";
@@ -5003,6 +5063,7 @@
         h("td", { "data-label": "", class: "acts", style: { textAlign: "right", whiteSpace: "nowrap" } }, [
           w.on_site ? h("button", { class: "mbtn sm", onclick: () => clock("out") }, "Clock out")
             : h("button", { class: "mbtn sm p", onclick: () => clock("in") }, "Clock in"),
+          h("button", { class: "tnx", title: "Edit worker", onclick: () => { this._editing = w.id; this._adding = false; this._render(); } }, "✎"),
           h("button", { class: "tnx", title: "Remove worker", onclick: async () => { await this._ws("delete", { worker_id: w.id }); this.set_hass_refresh(); } }, "✕"),
         ]),
       ]);
@@ -5019,17 +5080,38 @@
         h("div", {}, [h("div", { class: "et" }, t), h("div", { class: "em" }, m)]),
         h("span", { class: "time" }, this._hhmm(e.ts))]);
     }
-    _form() {
-      const name = h("input", { type: "text", class: "nm", placeholder: "Worker name" });
-      const role = h("input", { type: "text", placeholder: "Role (optional)", style: { width: "140px" } });
-      const method = h("select", {}, [["app", "📱 App"], ["face", "🙂 Face"], ["qr", "▦ QR"]].map(([v, l]) => h("option", { value: v }, l)));
+    _form(w) {
+      w = w || {};
+      const edit = !!w.id;
+      const name = h("input", { type: "text", class: "nm", placeholder: "Worker name", value: w.name || "" });
+      const role = h("input", { type: "text", placeholder: "Role (optional)", style: { width: "130px" }, value: w.role || "" });
+      const method = h("select", {}, [["app", "📱 App"], ["face", "🙂 Face"], ["qr", "▦ QR"]].map(([v, l]) => h("option", { value: v, selected: (w.method || "app") === v }, l)));
       const trackers = this._trackers();
-      const tracker = h("select", {}, [h("option", { value: "" }, "Link a phone (optional)"), ...trackers.map((t) => h("option", { value: t.value }, t.label))]);
-      const add = async () => { const n = name.value.trim(); if (!n) { name.focus(); return; } await this._ws("add", { name: n, role: role.value.trim(), method: method.value, tracker: tracker.value || null }); this._adding = false; this.set_hass_refresh(); };
-      name.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
-      return h("div", { class: "tform" }, [name, role, method, tracker,
-        h("button", { class: "mbtn p", onclick: add }, "Add"),
-        h("button", { class: "mbtn", onclick: () => { this._adding = false; this._render(); } }, "Cancel")]);
+      const tracker = h("select", {}, [h("option", { value: "" }, "Link a phone (optional)"),
+        ...trackers.map((t) => h("option", { value: t.value, selected: w.tracker === t.value }, t.label))]);
+      // pay settings
+      const payType = h("select", {}, [["none", "No pay set"], ["hourly", "Hourly rate"], ["salary", "Monthly salary"]].map(([v, l]) => h("option", { value: v, selected: (w.pay_type || "none") === v }, l)));
+      const rate = h("input", { type: "number", min: "0", step: "1", placeholder: "Rate / hour", style: { width: "110px" }, value: w.rate != null ? w.rate : "" });
+      const salary = h("input", { type: "number", min: "0", step: "1", placeholder: "Salary / month", style: { width: "130px" }, value: w.salary != null ? w.salary : "" });
+      const dpw = h("select", {}, [4, 5, 6, 7].map((n) => h("option", { value: String(n), selected: (w.days_per_week || 5) === n }, n + " days/wk")));
+      const rateWrap = h("span", {}, [rate]), salWrap = h("span", {}, [salary]);
+      const sync = () => { rateWrap.style.display = payType.value === "hourly" ? "" : "none"; salWrap.style.display = payType.value === "salary" ? "" : "none"; };
+      payType.addEventListener("change", sync);
+      const save = async () => {
+        const n = name.value.trim(); if (!n) { name.focus(); return; }
+        const fields = { name: n, role: role.value.trim(), method: method.value, tracker: tracker.value || null,
+          pay_type: payType.value, rate: rate.value === "" ? null : num(rate.value), salary: salary.value === "" ? null : num(salary.value),
+          days_per_week: num(dpw.value) || 5 };
+        if (edit) await this._ws("update", { worker_id: w.id, patch: fields });
+        else await this._ws("add", fields);
+        this._adding = false; this._editing = null; this.set_hass_refresh();
+      };
+      name.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+      const form = h("div", { class: "tform" }, [name, role, method, tracker, payType, rateWrap, salWrap, dpw,
+        h("button", { class: "mbtn p", onclick: save }, edit ? "Save" : "Add"),
+        h("button", { class: "mbtn", onclick: () => { this._adding = false; this._editing = null; this._render(); } }, "Cancel")]);
+      sync();
+      return form;
     }
   }
 

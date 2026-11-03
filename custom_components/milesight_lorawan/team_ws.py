@@ -37,7 +37,9 @@ def ws_list(hass: HomeAssistant, connection, msg: dict) -> None:
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/add",
                                   vol.Required("name"): str, vol.Optional("role"): str,
                                   vol.Optional("tracker"): vol.Any(str, None), vol.Optional("method"): str,
-                                  vol.Optional("hub"): str})
+                                  vol.Optional("pay_type"): str, vol.Optional("rate"): vol.Any(float, int, None),
+                                  vol.Optional("salary"): vol.Any(float, int, None),
+                                  vol.Optional("days_per_week"): vol.Any(int, None), vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -50,8 +52,22 @@ def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "invalid", "A worker needs a name")
         return
     w = mgr.add_worker(name, role=msg.get("role", ""), tracker=msg.get("tracker"),
-                       method=msg.get("method", "app"))
+                       method=msg.get("method", "app"), pay_type=msg.get("pay_type", "none"),
+                       rate=msg.get("rate"), salary=msg.get("salary"),
+                       days_per_week=msg.get("days_per_week") or 5)
     connection.send_result(msg["id"], {"worker": w})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/payroll",
+                                  vol.Optional("months_ago"): int, vol.Optional("hub"): str})
+@websocket_api.require_admin
+@callback
+def ws_payroll(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with a team")
+        return
+    connection.send_result(msg["id"], mgr.payroll(max(0, int(msg.get("months_ago") or 0))))
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/update",
@@ -113,7 +129,7 @@ def ws_radius(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True})
 
 
-TEAM_WS = (ws_list, ws_add, ws_update, ws_delete, ws_clock, ws_radius)
+TEAM_WS = (ws_list, ws_add, ws_update, ws_delete, ws_clock, ws_radius, ws_payroll)
 
 
 def register(hass: HomeAssistant) -> None:

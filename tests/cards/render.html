@@ -117,11 +117,15 @@
        { id: "job_7", title: "Power outage – CT303", detail: "CT303: no current on any phase.", status: "todo", priority: "crit", area: null, assignee: "juan", checklist: [], source: "alert", source_alert: { alert_id: "a10", alert_key: "ct303:mains", severity: "critical", category: "energy" }, auto_close: true, created_ts: Date.now() / 1000 - 800, done_ts: null, resolved_by: null },
        { id: "job_4", title: "Low tank · Rainwater 2", detail: "Rainwater 2: 14%", status: "done", priority: "warn", area: "Roof", assignee: null, checklist: [], source: "rule", source_rule: { rule_id: "low_tank", target_key: "sensor.tank1", icon: "💧", catalog: "low_tank" }, auto_close: true, created_ts: Date.now() / 1000 - 20000, done_ts: Date.now() / 1000 - 1200, resolved_by: "sensor" },
        { id: "job_5", title: "Replace washroom supplies", detail: "", status: "done", priority: "info", area: "Washroom", assignee: "AT", checklist: [], source: "manual", source_rule: null, auto_close: false, created_ts: Date.now() / 1000 - 40000, done_ts: Date.now() / 1000 - 3600, resolved_by: "person" } ] } },
-   "sensor.team": { state: "2", attributes: { milesight_role: "team", site: "Green Acres", hub: "hub1", on_site: 2, total: 3, blocked_today: 1, radius_m: 300,
+   "sensor.team": { state: "2", attributes: { milesight_role: "team", site: "Green Acres", hub: "hub1", on_site: 2, total: 3, blocked_today: 1, radius_m: 300, currency: "R",
+     payroll: { label: "November 2026", months_ago: 0, currency: "R", total: 24180, rows: [
+       { id: "w_1", name: "John Mokoena", initials: "JM", role: "Supervisor", pay_type: "salary", rate: null, salary: 12000, days_per_week: 5, hours: 36, days_worked: 4, expected_days: 5, days_absent: 1, gross: 12000 },
+       { id: "w_2", name: "Anna Theron", initials: "AT", role: "Operator", pay_type: "hourly", rate: 85, salary: null, days_per_week: 6, hours: 38.5, days_worked: 5, expected_days: 6, days_absent: 1, gross: 3272 },
+       { id: "w_3", name: "Koos Louw", initials: "KL", role: "General", pay_type: "hourly", rate: 72, salary: null, days_per_week: 6, hours: 123, days_worked: 6, expected_days: 6, days_absent: 0, gross: 8856 } ] },
      workers: [
-       { id: "w_1", name: "John Mokoena", initials: "JM", role: "Supervisor", tracker: "device_tracker.john_phone", method: "app", active: true, on_site: true, since: Date.now() / 1000 - 7200, today_h: 2, week_h: 31 },
-       { id: "w_2", name: "Anna Theron", initials: "AT", role: "Operator", tracker: "device_tracker.anna_phone", method: "qr", active: true, on_site: true, since: Date.now() / 1000 - 5400, today_h: 1.5, week_h: 28 },
-       { id: "w_3", name: "Koos Louw", initials: "KL", role: "General", tracker: null, method: "face", active: true, on_site: false, since: null, today_h: 0, week_h: 22 } ],
+       { id: "w_1", name: "John Mokoena", initials: "JM", role: "Supervisor", tracker: "device_tracker.john_phone", method: "app", active: true, pay_type: "salary", rate: null, salary: 12000, days_per_week: 5, on_site: true, since: Date.now() / 1000 - 7200, today_h: 2, week_h: 31 },
+       { id: "w_2", name: "Anna Theron", initials: "AT", role: "Operator", tracker: "device_tracker.anna_phone", method: "qr", active: true, pay_type: "hourly", rate: 85, salary: null, days_per_week: 6, on_site: true, since: Date.now() / 1000 - 5400, today_h: 1.5, week_h: 28 },
+       { id: "w_3", name: "Koos Louw", initials: "KL", role: "General", tracker: null, method: "face", active: true, pay_type: "hourly", rate: 72, salary: null, days_per_week: 6, on_site: false, since: null, today_h: 0, week_h: 22 } ],
      events: [
        { worker: "w_1", worker_name: "John Mokoena", kind: "in", ts: Date.now() / 1000 - 7200, status: "on_site", lat: -33.9, lon: 18.4, distance_m: 40, accuracy: 8 },
        { worker: "w_2", worker_name: "Anna Theron", kind: "in", ts: Date.now() / 1000 - 5400, status: "on_site", lat: -33.9, lon: 18.4, distance_m: 70, accuracy: 10 },

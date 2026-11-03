@@ -1790,6 +1790,18 @@ team_mod._register_services(_thass2)
 assert "clock_in" in registered and "clock_out" in registered
 asyncio.run(registered["clock_in"](types.SimpleNamespace(data={"worker": "Anna Theron", "latitude": -33.9001, "longitude": 18.4001})))
 assert tm.events[-1]["status"] == "on_site" and tm.events[-1]["kind"] == "in"
+
+# payroll: pay fields persist, the snapshot carries a payroll block, and a past month can be fetched
+tm.update_worker(w1["id"], {"pay_type": "salary", "salary": 15000, "days_per_week": 5})
+tm.update_worker(w2["id"], {"pay_type": "hourly", "rate": 90, "days_per_week": 6})
+assert tm._get(w1["id"])["pay_type"] == "salary" and tm._get(w1["id"])["salary"] == 15000.0
+_pr = tm.data["payroll"]
+assert _pr["months_ago"] == 0 and "rows" in _pr and _pr["currency"]
+_prows = {r["id"]: r for r in _pr["rows"]}
+assert _prows[w1["id"]]["pay_type"] == "salary" and _prows[w1["id"]]["gross"] == 15000.0
+assert _prows[w2["id"]]["pay_type"] == "hourly" and _prows[w2["id"]]["rate"] == 90.0
+_last = tm.payroll(1)
+assert _last["months_ago"] == 1 and _last["label"] != _pr["label"]
 print("team ok")
 
 # ---------------- 0.36: power in W, cold storage views, corrective actions, compliance reports ----------------

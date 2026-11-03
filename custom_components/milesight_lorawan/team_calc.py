@@ -49,10 +49,27 @@ def initials(name: str) -> str:
     return (parts[0][0] + parts[-1][0]).upper()
 
 
+PAY_TYPES = ("none", "hourly", "salary")
+
+
 def new_worker(name: str, *, role: str = "", tracker: str | None = None, method: str = "app",
-               active: bool = True, wid: str = "") -> dict[str, Any]:
+               active: bool = True, pay_type: str = "none", rate: Any = None, salary: Any = None,
+               days_per_week: int = 5, wid: str = "") -> dict[str, Any]:
     return {"id": wid, "name": str(name), "initials": initials(name), "role": str(role or ""),
-            "tracker": tracker or None, "method": method, "active": bool(active)}
+            "tracker": tracker or None, "method": method, "active": bool(active),
+            "pay_type": pay_type if pay_type in PAY_TYPES else "none",
+            "rate": _num(rate), "salary": _num(salary),
+            "days_per_week": int(days_per_week) if days_per_week else 5}
+
+
+def work_weekdays(n: Any) -> set[int]:
+    """Which weekday indices (0 = Mon) count as expected working days for N days/week."""
+    n = int(n or 5)
+    if n >= 7:
+        return {0, 1, 2, 3, 4, 5, 6}
+    if n == 6:
+        return {0, 1, 2, 3, 4, 5}       # Mon–Sat
+    return set(range(max(1, min(5, n))))  # the first N of Mon–Fri (5 → Mon–Fri, 4 → Mon–Thu …)
 
 
 def validate_clock_in(site_lat: Any, site_lon: Any, lat: Any, lon: Any,
@@ -106,6 +123,61 @@ def timesheet(events: list[dict[str, Any]], worker_id: str, now: float,
         today_s += _overlap(open_in, now, day_start, now)
         week_s += _overlap(open_in, now, week_start, now)
     return {"today_s": today_s, "week_s": week_s, "on_site": on_site, "since": open_in}
+
+
+def worker_month(events: list[dict[str, Any]], worker_id: str, lo: float, hi: float, now: float,
+                 day_of: Any) -> dict[str, Any]:
+    """On-site hours worked and the set of distinct days worked for one worker within [lo, hi]."""
+    end = min(hi, now)
+    evs = sorted((e for e in events if e.get("worker") == worker_id), key=lambda e: e.get("ts") or 0)
+    hours_s = 0.0
+    worked: set = set()
+    open_in: float | None = None
+    for e in evs:
+        ts = _num(e.get("ts"))
+        if ts is None:
+            continue
+        if e.get("kind") == IN and e.get("status") == ON_SITE:
+            open_in = ts
+            if lo <= ts < hi:
+                worked.add(day_of(ts))
+        elif e.get("kind") == OUT and open_in is not None:
+            hours_s += _overlap(open_in, ts, lo, end)
+            open_in = None
+    if open_in is not None:
+        hours_s += _overlap(open_in, now, lo, end)
+    return {"hours": round(hours_s / 3600.0, 2), "worked_days": worked}
+
+
+def gross_pay(worker: dict[str, Any], hours: float) -> float:
+    """Gross for the period. Hourly → hours × rate. Salary → the fixed monthly salary (attendance shown, not docked)."""
+    pt = worker.get("pay_type")
+    if pt == "hourly":
+        return round(hours * (_num(worker.get("rate")) or 0.0), 2)
+    if pt == "salary":
+        return round(_num(worker.get("salary")) or 0.0, 2)
+    return 0.0
+
+
+def payroll(workers: list[dict[str, Any]], events: list[dict[str, Any]], lo: float, hi: float, now: float,
+            day_of: Any, cal_days: list) -> dict[str, Any]:
+    """Monthly payroll rows + total. cal_days is [(date_str, weekday_int)] for the elapsed month."""
+    rows = []
+    total = 0.0
+    for w in workers:
+        m = worker_month(events, w["id"], lo, hi, now, day_of)
+        wdays = work_weekdays(w.get("days_per_week", 5))
+        expected = [d for d, wd in cal_days if wd in wdays]
+        absent = sum(1 for d in expected if d not in m["worked_days"])
+        gross = gross_pay(w, m["hours"])
+        total += gross
+        rows.append({"id": w["id"], "name": w.get("name"), "initials": w.get("initials"),
+                     "role": w.get("role"), "pay_type": w.get("pay_type") or "none",
+                     "rate": _num(w.get("rate")), "salary": _num(w.get("salary")),
+                     "days_per_week": int(w.get("days_per_week") or 5),
+                     "hours": m["hours"], "days_worked": len(m["worked_days"]),
+                     "expected_days": len(expected), "days_absent": absent, "gross": round(gross, 2)})
+    return {"rows": rows, "total": round(total, 2)}
 
 
 def summarize(workers: list[dict[str, Any]], events: list[dict[str, Any]], now: float,

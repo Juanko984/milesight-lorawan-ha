@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.97.0
+- **New: lite payroll on the Team page.** A **Payroll** tab shows, per worker and per month: **hours worked,
+  days worked vs expected, days absent, and gross pay** — with a **total to pay** for the month and
+  **‹ month ›** navigation to look back at previous months.
+- **Pay per worker.** Each worker can be set to an **hourly rate** or a **fixed monthly salary**, plus their
+  **days per week** (so "days not worked" is counted against what each person is expected to work — e.g. 6 days
+  for farm staff). Hourly pay = clocked hours × rate; salaried pay shows in full with attendance alongside (not
+  docked). Amounts use your site currency.
+- Edit a worker (name, role, phone, pay) from a pencil on either the Roster or Payroll tab.
+
 ## 0.96.0
 - **Fixed: swept jobs disappearing into Done.** Jobs raised by **Run now** were being auto-closed even while
   their alert was still open, so open (even critical) faults showed no job. Jobs are now matched to alerts by a

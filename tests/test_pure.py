@@ -2612,6 +2612,29 @@ def test_team():
     assert sm["workers"][0]["on_site"] is True and sm["workers"][0]["week_h"] == 4.5
     assert sm["events"][0]["worker_name"] == "John Mokoena" and sm["events"][0]["ts"] >= sm["events"][-1]["ts"]
 
+    # --- payroll (lite) ---
+    assert tmc.work_weekdays(5) == {0, 1, 2, 3, 4} and tmc.work_weekdays(6) == {0, 1, 2, 3, 4, 5}
+    assert tmc.work_weekdays(7) == set(range(7)) and tmc.work_weekdays(4) == {0, 1, 2, 3}
+    assert tmc.gross_pay({"pay_type": "hourly", "rate": 50}, 10) == 500.0
+    assert tmc.gross_pay({"pay_type": "salary", "salary": 8000}, 10) == 8000.0 and tmc.gross_pay({"pay_type": "none"}, 10) == 0.0
+
+    d0 = 1_700_000_000.0
+    dayk = lambda ts: str(int((ts - d0) // 86400))  # noqa: E731 - test helper mapping ts → day index
+    wh = tmc.new_worker("H", pay_type="hourly", rate=100, days_per_week=5, wid="h")
+    wsal = tmc.new_worker("S", pay_type="salary", salary=9000, days_per_week=6, wid="s")
+    wnone = tmc.new_worker("N", wid="n")
+    pe = lambda wid, k, ts, stt: tmc.clock_event(wid, k, ts, status=stt)  # noqa: E731
+    pevs = [pe("h", "in", d0 + 8 * 3600, tmc.ON_SITE), pe("h", "out", d0 + 16 * 3600, tmc.CLOCKED_OUT),
+            pe("h", "in", d0 + 86400 + 8 * 3600, tmc.ON_SITE), pe("h", "out", d0 + 86400 + 16 * 3600, tmc.CLOCKED_OUT),
+            pe("s", "in", d0 + 8 * 3600, tmc.ON_SITE), pe("s", "out", d0 + 12 * 3600, tmc.CLOCKED_OUT)]
+    cal = [(dayk(d0), 0), (dayk(d0 + 86400), 1)]  # two elapsed days: Mon, Tue (both working days)
+    pr = tmc.payroll([wh, wsal, wnone], pevs, d0, d0 + 30 * 86400, d0 + 2 * 86400 + 1, dayk, cal)
+    rows = {r["id"]: r for r in pr["rows"]}
+    assert rows["h"]["hours"] == 16.0 and rows["h"]["days_worked"] == 2 and rows["h"]["gross"] == 1600.0 and rows["h"]["days_absent"] == 0
+    assert rows["s"]["gross"] == 9000.0 and rows["s"]["days_worked"] == 1 and rows["s"]["expected_days"] == 2 and rows["s"]["days_absent"] == 1
+    assert rows["n"]["gross"] == 0.0 and rows["n"]["pay_type"] == "none"
+    assert pr["total"] == 1600.0 + 9000.0
+
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

@@ -20,7 +20,7 @@ from homeassistant.util import dt as dt_util
 
 from . import team_calc as tc
 from .building import hub_device
-from .const import DOMAIN, STORAGE_VERSION
+from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 SIGNAL_TEAM = f"{DOMAIN}_team_{{}}"   # .format(hub entry_id)
@@ -46,10 +46,44 @@ class TeamManager:
         week = day - timedelta(days=local.weekday())
         return day.timestamp(), week.timestamp()
 
+    def _tz(self):
+        return dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.UTC
+
+    def _currency(self) -> str:
+        cfg = {**(getattr(self.entry, "data", None) or {}), **(getattr(self.entry, "options", None) or {})}
+        return cfg.get(CONF_CURRENCY) or DEFAULT_CURRENCY
+
+    def _month(self, months_ago: int = 0):
+        """(lo, hi, now, day_of, cal_days, label) for the month `months_ago` back from the current one."""
+        tz = self._tz()
+        now = time.time()
+        local = datetime.fromtimestamp(now, tz)
+        m0 = local.month - 1 - int(months_ago)
+        y0 = local.year + m0 // 12
+        mo = m0 % 12 + 1
+        lo_dt = datetime(y0, mo, 1, tzinfo=tz)
+        hi_dt = datetime(y0 + 1, 1, 1, tzinfo=tz) if mo == 12 else datetime(y0, mo + 1, 1, tzinfo=tz)
+        end_dt = min(hi_dt, local)
+        cal_days, d = [], lo_dt
+        while d < end_dt:
+            cal_days.append((d.strftime("%Y-%m-%d"), d.weekday()))
+            d += timedelta(days=1)
+
+        def day_of(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d")
+
+        return lo_dt.timestamp(), hi_dt.timestamp(), now, day_of, cal_days, lo_dt.strftime("%B %Y")
+
+    def payroll(self, months_ago: int = 0) -> dict[str, Any]:
+        lo, hi, now, day_of, cal_days, label = self._month(months_ago)
+        return {**tc.payroll(self.workers, self.events, lo, hi, now, day_of, cal_days),
+                "label": label, "months_ago": int(months_ago), "currency": self._currency()}
+
     def refresh(self) -> None:
         now = time.time()
         day_start, week_start = self._windows(now)
-        self.data = {"radius_m": self.radius_m,
+        self.data = {"radius_m": self.radius_m, "currency": self._currency(),
+                     "payroll": self.payroll(0),
                      **tc.summarize(self.workers, self.events, now, day_start, week_start)}
         if self.store is not None:
             self.store.async_delay_save(self._to_store, 20)
@@ -80,11 +114,17 @@ class TeamManager:
         w = self._get(wid)
         if w is None:
             raise ValueError("worker not found")
-        for k in ("name", "role", "tracker", "method", "active"):
+        for k in ("name", "role", "tracker", "method", "active", "pay_type", "rate", "salary", "days_per_week"):
             if k in patch:
                 w[k] = patch[k]
         if "name" in patch:
             w["initials"] = tc.initials(w["name"])
+        if "rate" in patch:
+            w["rate"] = tc._num(patch.get("rate"))
+        if "salary" in patch:
+            w["salary"] = tc._num(patch.get("salary"))
+        if "days_per_week" in patch and patch.get("days_per_week"):
+            w["days_per_week"] = int(patch["days_per_week"])
         self.refresh()
 
     def delete_worker(self, wid: str) -> None:
