@@ -4756,7 +4756,7 @@
   class JobsCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
-    constructor() { super(); this._adding = false; }
+    constructor() { super(); this._adding = false; this._toast = null; }
     _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "jobs") return id; return null; }
     set hass(hass) {
       this._hass = hass;
@@ -4783,6 +4783,7 @@
         .jform{border:1px solid var(--ms-accent);border-radius:12px;padding:12px;margin-bottom:14px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;background:color-mix(in srgb,var(--ms-accent) 7%,transparent)}
         .jform input{flex:1;min-width:160px;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:8px 11px;font:inherit;font-size:13.5px}
         .jform select{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:8px 9px;font:inherit;font-size:13px}
+        .jtoast{margin-bottom:12px;padding:10px 13px;border-radius:10px;font-size:12.5px;font-weight:600;background:color-mix(in srgb,var(--ms-good) 12%,transparent);color:var(--ms-good);box-shadow:inset 3px 0 0 var(--ms-good)}
         .jcols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
         .jcol{background:color-mix(in srgb,var(--ms-ink2) 7%,transparent);border:1px solid var(--ms-line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:9px;min-width:0}
         .jcol .jhh{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-ink2);padding:2px 3px}
@@ -4813,9 +4814,11 @@
         h("div", {}, [h("div", { class: "ti" }, "Jobs"),
           h("div", { class: "sub" }, `${a.open || 0} open · ${a.doing || 0} in progress${a.from_sensor_open ? ` · ${a.from_sensor_open} from sensors` : ""}`)]),
         h("div", { class: "sp" }),
+        h("button", { class: "jbtn", title: "Scan the site's open alerts and raise a job for each", onclick: () => this._runNow() }, "⟳ Run now"),
         h("button", { class: "jbtn p", onclick: () => { this._adding = true; this._render(); } }, "＋ New job"),
       ]);
       const body = [head];
+      if (this._toast) body.push(h("div", { class: "jtoast" }, ["✓ ", this._toast]));
       if (this._adding) body.push(this._form());
       const cols = [["todo", "To do"], ["doing", "In progress"], ["done", "Done"]];
       body.push(h("div", { class: "jcols" }, cols.map(([key, label]) => {
@@ -4828,6 +4831,12 @@
         ]);
       })));
       this._card(h("div", { class: "wrap" }, body));
+    }
+    async _runNow() {
+      const res = await this._ws("sweep");
+      if (res && res.error) this._toast = "Couldn't scan the site: " + res.error;
+      else { const n = (res && res.created) || 0; this._toast = n ? `Created ${n} job${n === 1 ? "" : "s"} from open alerts.` : "No new issues — every open alert already has a job."; }
+      this.set_hass_refresh();
     }
     _form() {
       const title = h("input", { type: "text", placeholder: "What needs doing? e.g. Service pump 4" });
@@ -4848,9 +4857,11 @@
       else foot.push(h("button", { class: "jbtn sm", onclick: () => act("todo") }, "Reopen"));
       const ass = h("input", { class: "jass", type: "text", value: j.assignee || "", placeholder: "assign…" });
       ass.addEventListener("change", async () => { await this._ws("assign", { job_id: j.id, assignee: ass.value.trim() || null }); this.set_hass_refresh(); });
+      const fromAlert = j.source === "alert";
       const meta = [];
       if (fromRule) meta.push(h("span", { class: "jbadge" }, [(sr.icon || "⚡") + " from a rule"]));
-      if (fromRule && j.auto_close) meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears" }, "self-closing"));
+      if (fromAlert) meta.push(h("span", { class: "jbadge" }, "⚠ from an alert"));
+      if ((fromRule || fromAlert) && j.auto_close && status !== "done") meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears" }, "self-closing"));
       if (status === "done" && j.resolved_by === "sensor") meta.push(h("span", { class: "jbadge self" }, "cleared by sensor"));
       return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : "") }, [
         h("div", { class: "jt" }, esc(j.title)),
@@ -4923,7 +4934,18 @@
         .ev .et{color:var(--ms-ink);font-weight:600}.ev .em{color:var(--ms-ink2);font-size:11.5px}
         .ev .time{margin-left:auto;color:var(--ms-ink2);font-size:11.5px;white-space:nowrap}
         .tnx{border:0;background:none;color:var(--ms-ink2);cursor:pointer;font-size:14px;padding:2px 4px}
-        @media(max-width:620px){table.tm thead{display:none}table.tm td{display:block;border:none;padding:3px 9px}table.tm tr{display:block;border-bottom:1px solid var(--ms-line);padding:8px 0}}
+        @media(max-width:620px){
+          .cw{overflow:visible}
+          table.tm,table.tm tbody,table.tm tr,table.tm td{display:block;width:100%}
+          table.tm thead{display:none}
+          table.tm tr{border:1px solid var(--ms-line);border-radius:11px;padding:10px 12px;margin-bottom:10px}
+          table.tm td{border:none;padding:5px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:0}
+          table.tm td::before{content:attr(data-label);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ms-ink2);font-weight:600;flex:0 0 auto}
+          table.tm td[data-label=""]{justify-content:flex-start;padding:0 0 8px}
+          table.tm td[data-label=""]::before{content:none;display:none}
+          table.tm td.acts{padding-top:10px;border-top:1px solid var(--ms-line);justify-content:flex-start;gap:8px;text-align:left}
+          table.tm td.acts .mbtn{flex:1}
+        }
       `;
     }
     _render() {
@@ -4967,16 +4989,16 @@
         this.set_hass_refresh();
       };
       return h("tr", {}, [
-        h("td", {}, [h("div", { class: "wk" }, [h("span", { class: "av" }, w.initials || "?"),
+        h("td", { "data-label": "" }, [h("div", { class: "wk" }, [h("span", { class: "av" }, w.initials || "?"),
           h("div", {}, [h("div", { class: "nm" }, esc(w.name)), w.role ? h("div", { class: "rl" }, esc(w.role)) : null])])]),
-        h("td", {}, [h("span", { class: "pill g" }, method)]),
-        h("td", {}, w.on_site
+        h("td", { "data-label": "Clock-in" }, [h("span", { class: "pill g" }, method)]),
+        h("td", { "data-label": "Status" }, w.on_site
           ? h("span", { class: "pill on" }, [h("span", { class: "dot" }), "on site · " + this._hhmm(w.since)])
           : h("span", { class: "pill off" }, "off")),
-        h("td", { class: "tnum" }, (w.today_h != null ? w.today_h : 0) + " h"),
-        h("td", { class: "tnum" }, (w.week_h != null ? w.week_h : 0) + " h"),
-        h("td", {}, w.on_site ? h("span", { class: "pill on" }, "✓ on-site") : h("span", { class: "muted", style: { fontSize: "12px" } }, "—")),
-        h("td", { style: { textAlign: "right", whiteSpace: "nowrap" } }, [
+        h("td", { class: "tnum", "data-label": "Today" }, (w.today_h != null ? w.today_h : 0) + " h"),
+        h("td", { class: "tnum", "data-label": "Week" }, (w.week_h != null ? w.week_h : 0) + " h"),
+        h("td", { "data-label": "Location" }, w.on_site ? h("span", { class: "pill on" }, "✓ on-site") : h("span", { class: "muted", style: { fontSize: "12px" } }, "—")),
+        h("td", { "data-label": "", class: "acts", style: { textAlign: "right", whiteSpace: "nowrap" } }, [
           w.on_site ? h("button", { class: "mbtn sm", onclick: () => clock("out") }, "Clock out")
             : h("button", { class: "mbtn sm p", onclick: () => clock("in") }, "Clock in"),
           h("button", { class: "tnx", title: "Remove worker", onclick: async () => { await this._ws("delete", { worker_id: w.id }); this.set_hass_refresh(); } }, "✕"),

@@ -182,6 +182,7 @@ class RecipeManager:
                 if stt.get("since") is not None:
                     active.add(rule_job_key(inst["id"], key))
         jobs.sync_auto(active)
+        jobs.sync_alerts()   # close swept alert-jobs whose alert has cleared
 
     def _targets(self, target: str | None) -> list[str]:
         if target and ("." in target):

@@ -1724,6 +1724,18 @@ _fridge.attributes["temperature"] = 3.0; _fridge.state = "3.0"              # re
 rm.update()                                                                 # → the job closes itself
 _done = [x for x in jm.jobs if x["status"] == "done"]
 assert len(_done) == 1 and _done[0]["resolved_by"] == "sensor", jm.jobs
+
+# the "Run now" sweep: turn open site alerts into jobs, de-duped, auto-closing when the alert clears
+_alerts = [{"id": "al1", "title": "Gateway offline – UG65", "message": "no packets", "severity": "critical", "category": "gateway"},
+           {"id": "al2", "title": "Tank low – Rainwater", "message": "8%", "severity": "warning", "category": "tank"}]
+_jstates.append(types.SimpleNamespace(entity_id="sensor.alo", attributes={"milesight_role": "alerts_open", "alerts": _alerts}))
+_sw = jm.sweep(); assert _sw["created"] == 2 and _sw["total"] == 2, _sw
+assert jm.sweep()["created"] == 0                                   # idempotent — no duplicate jobs
+_aj = [x for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"]
+assert len(_aj) == 2 and _aj[0]["auto_close"] is True and _aj[0]["priority"] in ("crit", "warn")
+_alerts.pop(0)                                                      # one fault clears
+jm.sync_alerts()
+assert len([x for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"]) == 1
 print("jobs ok")
 
 # ---------------- team: workers, geofenced clock-in (on-site vs off-site blocked), timesheets ----------------

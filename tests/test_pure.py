@@ -2568,6 +2568,14 @@ def test_jobs():
     s = jbc.summarize(jobs, now)
     assert s["total"] == 4 and s["open"] == 3 and s["done"] == 1 and s["from_sensor_open"] == 1 and s["overdue"] == 1
 
+    # the "Run now" sweep source: a job built from an open alert, self-closing, priority from severity
+    assert jbc.severity_priority("critical") == "crit" and jbc.severity_priority("warning") == "warn" and jbc.severity_priority("x") == "info"
+    aj = jbc.from_alert({"id": "a1", "title": "Gateway offline", "message": "no packets", "severity": "critical", "category": "gateway"}, 300.0)
+    assert aj["source"] == "alert" and aj["auto_close"] is True and aj["priority"] == "crit" and aj["source_alert"]["alert_id"] == "a1"
+    # alert-sourced open jobs also count toward "from sensors"
+    sj = jbc.summarize([jbc.new_job("m", ts=0), jbc.from_alert({"id": "a2", "title": "x", "severity": "warning"}, 0)], now)
+    assert sj["from_sensor_open"] == 1
+
 
 def test_team():
     assert tmc.initials("John Mokoena") == "JM" and tmc.initials("Anna") == "AN" and tmc.initials("") == "?"

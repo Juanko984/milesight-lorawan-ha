@@ -29,19 +29,31 @@ def make_id(existing: Iterable[str], prefix: str = "job") -> str:
 
 def new_job(title: str, *, detail: str = "", priority: str = "info", area: Any = None,
             assignee: Any = None, checklist: Iterable[str] | None = None, source: str = "manual",
-            source_rule: dict | None = None, auto_close: bool = False, due: Any = None,
-            ts: float = 0.0, jid: str = "") -> dict[str, Any]:
+            source_rule: dict | None = None, source_alert: dict | None = None, auto_close: bool = False,
+            due: Any = None, ts: float = 0.0, jid: str = "") -> dict[str, Any]:
     return {"id": jid, "title": str(title), "detail": str(detail or ""),
             "status": "todo", "priority": priority if priority in PRIORITIES else "info",
             "area": area, "assignee": assignee or None,
             "checklist": [{"text": str(c), "done": False} for c in (checklist or [])],
-            "source": source, "source_rule": source_rule, "auto_close": bool(auto_close),
-            "due": due, "created_ts": ts, "done_ts": None, "resolved_by": None}
+            "source": source, "source_rule": source_rule, "source_alert": source_alert,
+            "auto_close": bool(auto_close), "due": due, "created_ts": ts, "done_ts": None, "resolved_by": None}
 
 
 def rule_job_key(rule_id: Any, target_key: Any) -> str:
     """Stable key for 'one open job per (rule, target)' de-duping and auto-close matching."""
     return f"{rule_id}::{target_key}"
+
+
+def severity_priority(sev: Any) -> str:
+    return {"critical": "crit", "warning": "warn", "info": "info"}.get(str(sev), "info")
+
+
+def from_alert(alert: dict[str, Any], ts: float) -> dict[str, Any]:
+    """Build a job from an open site alert (used by the Jobs 'Run now' sweep). Closes when the alert clears."""
+    return new_job(alert.get("title") or "Site issue", detail=alert.get("message") or "",
+                   priority=severity_priority(alert.get("severity")), source="alert", auto_close=True, ts=ts,
+                   source_alert={"alert_id": alert.get("id"), "severity": alert.get("severity"),
+                                 "category": alert.get("category")})
 
 
 def from_rule_fire(fire: dict[str, Any], *, priority: str, auto_close: bool, ts: float) -> dict[str, Any]:
@@ -86,7 +98,7 @@ def summarize(jobs: list[dict[str, Any]], now: float = 0.0) -> dict[str, Any]:
     for j in jobs:
         s = j.get("status", "todo")
         counts[s] = counts.get(s, 0) + 1
-        if is_open(j) and j.get("source") == "rule":
+        if is_open(j) and j.get("source") in ("rule", "alert"):
             from_sensor_open += 1
         if is_overdue(j, now):
             overdue += 1

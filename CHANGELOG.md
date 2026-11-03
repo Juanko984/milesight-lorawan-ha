@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.95.0
+- **Jobs: a "Run now" button.** On the Jobs page, **⟳ Run now** scans the site's **open alerts** and raises a job
+  for each one that doesn't have one yet — so existing / historic faults become jobs you can assign and track,
+  not just alerts. Each swept job is tagged **"from an alert"** and **closes itself when the alert clears**
+  (and the button never creates a duplicate for an alert that already has an open job).
+- **Fixed: the Team card on mobile.** The roster now lays out as a labelled card per worker (clock-in method,
+  status, today / this-week hours, location, and a full-width clock button) instead of an unreadable squashed
+  table.
+
 ## 0.94.0
 - **New: Team & clock-in.** A new **Team** dashboard: add your workers, and clock them in and out from the
   **Home Assistant mobile app** — new `milesight_lorawan.clock_in` / `clock_out` services you can wire to an

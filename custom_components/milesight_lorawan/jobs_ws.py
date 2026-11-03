@@ -121,7 +121,19 @@ def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True})
 
 
-JOBS_WS = (ws_list, ws_create, ws_status, ws_assign, ws_check, ws_delete)
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/jobs/sweep", vol.Optional("hub"): str})
+@websocket_api.require_admin
+@callback
+def ws_sweep(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Scan the site's open alerts and raise a job for each one that doesn't have one yet."""
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with jobs")
+        return
+    connection.send_result(msg["id"], mgr.sweep())
+
+
+JOBS_WS = (ws_list, ws_create, ws_status, ws_assign, ws_check, ws_delete, ws_sweep)
 
 
 def register(hass: HomeAssistant) -> None:

@@ -97,6 +97,49 @@ class JobsManager:
         self.refresh()
         return job
 
+    # -- site-issue sweep (the "Run now" button) --------------------------
+    def _open_alerts(self) -> list[dict[str, Any]]:
+        try:
+            states = self.hass.states.async_all()
+        except Exception:  # noqa: BLE001 - no state machine (tests)
+            return []
+        for st in states:
+            a = getattr(st, "attributes", {}) or {}
+            if a.get("milesight_role") == "alerts_open":
+                return list(a.get("alerts") or [])
+        return []
+
+    def sweep(self) -> dict[str, Any]:
+        """Create a job for every open site alert that doesn't already have one. Returns {created, total}."""
+        alerts = self._open_alerts()
+        have = {(j.get("source_alert") or {}).get("alert_id") for j in self.jobs
+                if jc.is_open(j) and j.get("source") == "alert"}
+        created = 0
+        for al in alerts:
+            if al.get("id") in have:
+                continue
+            job = jc.from_alert(al, time.time())
+            job["id"] = jc.make_id(self._ids())
+            self.jobs.insert(0, job)
+            have.add(al.get("id"))
+            created += 1
+        if created:
+            self.refresh()
+        return {"created": created, "total": len(alerts)}
+
+    def sync_alerts(self) -> None:
+        """Close open alert-sourced jobs whose alert is no longer open (the fault cleared)."""
+        open_ids = {a.get("id") for a in self._open_alerts()}
+        changed = False
+        for j in self.jobs:
+            if not jc.is_open(j) or j.get("source") != "alert":
+                continue
+            if (j.get("source_alert") or {}).get("alert_id") not in open_ids:
+                jc.advance(j, "done", ts=time.time(), resolved_by="sensor")
+                changed = True
+        if changed:
+            self.refresh()
+
     def sync_auto(self, active_keys: set[str]) -> None:
         """Close every open auto-close job whose rule/target is no longer firing (the reading cleared)."""
         changed = False
