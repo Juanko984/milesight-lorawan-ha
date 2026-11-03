@@ -98,43 +98,72 @@ class JobsManager:
         return job
 
     # -- site-issue sweep (the "Run now" button) --------------------------
-    def _open_alerts(self) -> list[dict[str, Any]]:
+    def _open_alerts(self) -> list[dict[str, Any]] | None:
+        """The site's open alerts, or None when the alerts sensor is missing / unavailable (unknown state).
+
+        Returning None (not []) when we can't read the alerts is important: it stops sync_alerts from
+        closing every swept job on a transient empty read (e.g. during a restart). An empty list means a
+        readable sensor that genuinely has no open alerts.
+        """
         try:
             states = self.hass.states.async_all()
         except Exception:  # noqa: BLE001 - no state machine (tests)
-            return []
+            return None
         for st in states:
             a = getattr(st, "attributes", {}) or {}
             if a.get("milesight_role") == "alerts_open":
+                if str(getattr(st, "state", "")).lower() in ("unavailable", "unknown", "none", ""):
+                    return None
                 return list(a.get("alerts") or [])
-        return []
+        return None
+
+    def _on_call_assignee(self, al: dict[str, Any]) -> str | None:
+        """Who a swept job is auto-assigned to: whoever acknowledged it, else the on-call person paged."""
+        by = al.get("acknowledged_by")
+        if by:
+            return by
+        notified = al.get("notified") or []
+        return notified[0] if notified else None
+
+    def _job_alert_key(self, j: dict[str, Any]) -> Any:
+        sa = j.get("source_alert") or {}
+        return sa.get("alert_key") or sa.get("alert_id")
 
     def sweep(self) -> dict[str, Any]:
-        """Create a job for every open site alert that doesn't already have one. Returns {created, total}."""
+        """Create a job for every open site alert that doesn't already have one. Auto-assigns to on-call."""
         alerts = self._open_alerts()
-        have = {(j.get("source_alert") or {}).get("alert_id") for j in self.jobs
-                if jc.is_open(j) and j.get("source") == "alert"}
+        if alerts is None:
+            return {"created": 0, "total": 0, "error": "the alerts sensor isn't ready yet"}
+        have = {self._job_alert_key(j) for j in self.jobs if jc.is_open(j) and j.get("source") == "alert"}
         created = 0
         for al in alerts:
-            if al.get("id") in have:
+            key = jc.alert_key(al)
+            if key in have:
                 continue
-            job = jc.from_alert(al, time.time())
+            job = jc.from_alert(al, time.time(), assignee=self._on_call_assignee(al))
             job["id"] = jc.make_id(self._ids())
             self.jobs.insert(0, job)
-            have.add(al.get("id"))
+            have.add(key)
             created += 1
         if created:
             self.refresh()
         return {"created": created, "total": len(alerts)}
 
     def sync_alerts(self) -> None:
-        """Close open alert-sourced jobs whose alert is no longer open (the fault cleared)."""
-        open_ids = {a.get("id") for a in self._open_alerts()}
+        """Close open alert-sourced jobs whose alert is no longer open (the fault cleared).
+
+        Keyed on the alert's stable key, and a no-op when the alerts can't be read, so a job for a
+        still-open alert is never closed by mistake.
+        """
+        alerts = self._open_alerts()
+        if alerts is None:
+            return
+        open_keys = {jc.alert_key(a) for a in alerts}
         changed = False
         for j in self.jobs:
             if not jc.is_open(j) or j.get("source") != "alert":
                 continue
-            if (j.get("source_alert") or {}).get("alert_id") not in open_ids:
+            if self._job_alert_key(j) not in open_keys:
                 jc.advance(j, "done", ts=time.time(), resolved_by="sensor")
                 changed = True
         if changed:

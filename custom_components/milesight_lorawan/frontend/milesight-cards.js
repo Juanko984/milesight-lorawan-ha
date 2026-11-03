@@ -4795,6 +4795,7 @@
         .jmeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--ms-ink2)}
         .jbadge{display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:650;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
         .jbadge.self{background:color-mix(in srgb,var(--ms-good) 15%,transparent);color:var(--ms-good)}
+        .jbadge.warn{background:color-mix(in srgb,var(--ms-warn) 16%,transparent);color:var(--ms-warn)}
         .jass{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:7px;padding:3px 7px;font:inherit;font-size:11.5px;width:96px}
         .jfoot{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
         .jx{margin-left:auto;border:0;background:none;color:var(--ms-ink2);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px}
@@ -4862,6 +4863,7 @@
       if (fromRule) meta.push(h("span", { class: "jbadge" }, [(sr.icon || "⚡") + " from a rule"]));
       if (fromAlert) meta.push(h("span", { class: "jbadge" }, "⚠ from an alert"));
       if ((fromRule || fromAlert) && j.auto_close && status !== "done") meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears" }, "self-closing"));
+      if (status !== "done" && !j.assignee) meta.push(h("span", { class: "jbadge warn", title: "No one is assigned to this job yet" }, "⚠ needs assigning"));
       if (status === "done" && j.resolved_by === "sensor") meta.push(h("span", { class: "jbadge self" }, "cleared by sensor"));
       return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : "") }, [
         h("div", { class: "jt" }, esc(j.title)),

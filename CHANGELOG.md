@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.96.0
+- **Fixed: swept jobs disappearing into Done.** Jobs raised by **Run now** were being auto-closed even while
+  their alert was still open, so open (even critical) faults showed no job. Jobs are now matched to alerts by a
+  **stable key** (not a volatile id), and — importantly — a job is **never auto-closed on a moment when the
+  alerts can't be read** (e.g. during a restart). Open-alert jobs now stay in **To do** until the fault clears.
+- **Auto-assign to on-call.** A swept job is **assigned to whoever is on call** for that alert (the person it was
+  paged to, or whoever acknowledged it). If nobody is on call, the job is left unassigned.
+- **"Needs assigning" warning.** Any open job with no one assigned now shows a **⚠ needs assigning** badge, so an
+  unassigned job can't quietly sit on the board.
+
 ## 0.95.0
 - **Jobs: a "Run now" button.** On the Jobs page, **⟳ Run now** scans the site's **open alerts** and raises a job
   for each one that doesn't have one yet — so existing / historic faults become jobs you can assign and track,

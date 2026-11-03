@@ -1725,17 +1725,30 @@ rm.update()                                                                 # �
 _done = [x for x in jm.jobs if x["status"] == "done"]
 assert len(_done) == 1 and _done[0]["resolved_by"] == "sensor", jm.jobs
 
-# the "Run now" sweep: turn open site alerts into jobs, de-duped, auto-closing when the alert clears
-_alerts = [{"id": "al1", "title": "Gateway offline – UG65", "message": "no packets", "severity": "critical", "category": "gateway"},
-           {"id": "al2", "title": "Tank low – Rainwater", "message": "8%", "severity": "warning", "category": "tank"}]
-_jstates.append(types.SimpleNamespace(entity_id="sensor.alo", attributes={"milesight_role": "alerts_open", "alerts": _alerts}))
+# the "Run now" sweep: open site alerts → jobs, keyed on the stable alert key, auto-assigned to on-call
+_alerts = [{"id": "al1", "key": "gw1:offline", "title": "Gateway offline – UG65", "message": "no packets",
+            "severity": "critical", "category": "gateway", "notified": ["juan"], "acknowledged_by": None},
+           {"id": "al2", "key": "tank1:low", "title": "Tank low – Rainwater", "message": "8%",
+            "severity": "warning", "category": "tank", "notified": [], "acknowledged_by": None}]
+_alo = types.SimpleNamespace(entity_id="sensor.alo", state="2",
+                             attributes={"milesight_role": "alerts_open", "alerts": _alerts})
+_jstates.append(_alo)
 _sw = jm.sweep(); assert _sw["created"] == 2 and _sw["total"] == 2, _sw
 assert jm.sweep()["created"] == 0                                   # idempotent — no duplicate jobs
-_aj = [x for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"]
-assert len(_aj) == 2 and _aj[0]["auto_close"] is True and _aj[0]["priority"] in ("crit", "warn")
-_alerts.pop(0)                                                      # one fault clears
+_aj = {x["source_alert"]["alert_key"]: x for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"}
+assert set(_aj) == {"gw1:offline", "tank1:low"}
+assert _aj["gw1:offline"]["assignee"] == "juan"                     # auto-assigned to the on-call person paged
+assert _aj["tank1:low"]["assignee"] is None                        # none paged → unassigned ("needs assigning")
+# guard: an unreadable alerts sensor must NOT close open jobs
+_alo.state = "unavailable"
 jm.sync_alerts()
-assert len([x for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"]) == 1
+assert len([x for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"]) == 2, "guard failed"
+_alo.state = "2"
+# one fault clears (removed from the open list) → only that job auto-closes, keyed on alert_key
+_alerts.pop(0)
+jm.sync_alerts()
+_still = {x["source_alert"]["alert_key"] for x in jm.jobs if x["source"] == "alert" and x["status"] != "done"}
+assert _still == {"tank1:low"}, _still
 print("jobs ok")
 
 # ---------------- team: workers, geofenced clock-in (on-site vs off-site blocked), timesheets ----------------

@@ -2570,8 +2570,11 @@ def test_jobs():
 
     # the "Run now" sweep source: a job built from an open alert, self-closing, priority from severity
     assert jbc.severity_priority("critical") == "crit" and jbc.severity_priority("warning") == "warn" and jbc.severity_priority("x") == "info"
-    aj = jbc.from_alert({"id": "a1", "title": "Gateway offline", "message": "no packets", "severity": "critical", "category": "gateway"}, 300.0)
-    assert aj["source"] == "alert" and aj["auto_close"] is True and aj["priority"] == "crit" and aj["source_alert"]["alert_id"] == "a1"
+    assert jbc.alert_key({"key": "k1", "id": "i1"}) == "k1" and jbc.alert_key({"id": "i1"}) == "i1"
+    aj = jbc.from_alert({"id": "a1", "key": "gw:offline", "title": "Gateway offline", "message": "no packets",
+                         "severity": "critical", "category": "gateway"}, 300.0, assignee="juan")
+    assert aj["source"] == "alert" and aj["auto_close"] is True and aj["priority"] == "crit"
+    assert aj["source_alert"]["alert_id"] == "a1" and aj["source_alert"]["alert_key"] == "gw:offline" and aj["assignee"] == "juan"
     # alert-sourced open jobs also count toward "from sensors"
     sj = jbc.summarize([jbc.new_job("m", ts=0), jbc.from_alert({"id": "a2", "title": "x", "severity": "warning"}, 0)], now)
     assert sj["from_sensor_open"] == 1

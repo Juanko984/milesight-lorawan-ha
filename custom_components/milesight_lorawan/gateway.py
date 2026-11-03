@@ -352,15 +352,6 @@ class OpenAlertsSensor(SensorEntity):
 
         def fmt(ts: float | None) -> str | None:
             return dt_util.utc_from_timestamp(ts).astimezone(tz).strftime("%d %b %H:%M") if ts else None
-        alerts = [{"id": a["id"], "title": a["title"], "message": a["message"], "severity": a.get("severity"),
-                   "category": a.get("category"), "since": fmt(a.get("first")),
-                   "status": "acknowledged" if a.get("acked") else ("quiet hours" if a.get("held")
-                                                                    else level.get(a.get("level", 0))),
-                   "acknowledged_by": (a.get("acked") or {}).get("by"), "notified": a.get("notified")}
-                  for a in sorted(hub.alerts.engine.open_alerts(), key=lambda x: x.get("first") or 0)]
-        last = hub.alerts.last_sent
-        cfg = hub.alerts.cfg
-        now_local = dt_util.utc_from_timestamp(time.time()).astimezone(tz)
 
         def who(targets: list[str]) -> list[str]:
             # "notify.mobile_app_juan" -> "juan"; keep anything that isn't a mobile_app target as-is
@@ -369,6 +360,17 @@ class OpenAlertsSensor(SensorEntity):
                 n = t.split(".", 1)[-1]
                 out.append(n[len("mobile_app_"):] if n.startswith("mobile_app_") else n)
             return out
+        alerts = [{"id": a["id"], "key": a.get("key"), "title": a["title"], "message": a["message"], "severity": a.get("severity"),
+                   "category": a.get("category"), "since": fmt(a.get("first")),
+                   "status": "acknowledged" if a.get("acked") else ("quiet hours" if a.get("held")
+                                                                    else level.get(a.get("level", 0))),
+                   "acknowledged_by": (a.get("acked") or {}).get("by"),
+                   "notified": who(a.get("notified") or [])}
+                  for a in sorted(hub.alerts.engine.open_alerts(), key=lambda x: x.get("first") or 0)]
+        last = hub.alerts.last_sent
+        cfg = hub.alerts.cfg
+        now_local = dt_util.utc_from_timestamp(time.time()).astimezone(tz)
+
         def hhmm(hour: int | None) -> str | None:
             return f"{int(hour):02d}:00" if isinstance(hour, (int, float)) else None
         quiet = (f"{hhmm(cfg.quiet_start)} – {hhmm(cfg.quiet_end)}"

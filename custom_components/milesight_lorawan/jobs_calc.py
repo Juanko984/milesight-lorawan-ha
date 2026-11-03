@@ -48,12 +48,18 @@ def severity_priority(sev: Any) -> str:
     return {"critical": "crit", "warning": "warn", "info": "info"}.get(str(sev), "info")
 
 
-def from_alert(alert: dict[str, Any], ts: float) -> dict[str, Any]:
+def alert_key(alert: dict[str, Any]) -> Any:
+    """The stable identity of an alert (its key — e.g. 'deveui:offline'), falling back to its id."""
+    return alert.get("key") or alert.get("id")
+
+
+def from_alert(alert: dict[str, Any], ts: float, *, assignee: Any = None) -> dict[str, Any]:
     """Build a job from an open site alert (used by the Jobs 'Run now' sweep). Closes when the alert clears."""
     return new_job(alert.get("title") or "Site issue", detail=alert.get("message") or "",
-                   priority=severity_priority(alert.get("severity")), source="alert", auto_close=True, ts=ts,
-                   source_alert={"alert_id": alert.get("id"), "severity": alert.get("severity"),
-                                 "category": alert.get("category")})
+                   priority=severity_priority(alert.get("severity")), assignee=assignee,
+                   source="alert", auto_close=True, ts=ts,
+                   source_alert={"alert_id": alert.get("id"), "alert_key": alert_key(alert),
+                                 "severity": alert.get("severity"), "category": alert.get("category")})
 
 
 def from_rule_fire(fire: dict[str, Any], *, priority: str, auto_close: bool, ts: float) -> dict[str, Any]:
