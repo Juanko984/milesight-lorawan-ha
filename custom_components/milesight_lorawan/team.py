@@ -35,6 +35,7 @@ class TeamManager:
         self.store = None
         self.workers: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []
+        self.leave: list[dict[str, Any]] = []
         self.radius_m: float = tc.DEFAULT_RADIUS_M
         self.data: dict[str, Any] = {}
 
@@ -76,8 +77,11 @@ class TeamManager:
 
     def payroll(self, months_ago: int = 0) -> dict[str, Any]:
         lo, hi, now, day_of, cal_days, label = self._month(months_ago)
-        return {**tc.payroll(self.workers, self.events, lo, hi, now, day_of, cal_days),
-                "label": label, "months_ago": int(months_ago), "currency": self._currency()}
+        month_dates = {d for d, _ in cal_days}
+        month_leave = [lv for lv in self.leave if lv.get("date") in month_dates]
+        return {**tc.payroll(self.workers, self.events, lo, hi, now, day_of, cal_days, leave=self.leave),
+                "label": label, "months_ago": int(months_ago), "currency": self._currency(),
+                "leave": month_leave}
 
     def refresh(self) -> None:
         now = time.time()
@@ -90,7 +94,8 @@ class TeamManager:
         async_dispatcher_send(self.hass, SIGNAL_TEAM.format(self.entry.entry_id))
 
     def _to_store(self) -> dict[str, Any]:
-        return {"workers": self.workers, "events": self.events[-2000:], "radius_m": self.radius_m}
+        return {"workers": self.workers, "events": self.events[-2000:], "radius_m": self.radius_m,
+                "leave": self.leave[-1000:]}
 
     def _get(self, wid: str) -> dict[str, Any] | None:
         return next((w for w in self.workers if w["id"] == wid), None)
@@ -114,7 +119,8 @@ class TeamManager:
         w = self._get(wid)
         if w is None:
             raise ValueError("worker not found")
-        for k in ("name", "role", "tracker", "method", "active", "pay_type", "rate", "salary", "days_per_week"):
+        for k in ("name", "role", "tracker", "method", "active", "pay_type", "rate", "salary",
+                  "days_per_week", "shift_start", "shift_end", "ot_weekly_h"):
             if k in patch:
                 w[k] = patch[k]
         if "name" in patch:
@@ -125,6 +131,12 @@ class TeamManager:
             w["salary"] = tc._num(patch.get("salary"))
         if "days_per_week" in patch and patch.get("days_per_week"):
             w["days_per_week"] = int(patch["days_per_week"])
+        if "shift_start" in patch:
+            w["shift_start"] = tc._hhmm(patch.get("shift_start"))
+        if "shift_end" in patch:
+            w["shift_end"] = tc._hhmm(patch.get("shift_end"))
+        if "ot_weekly_h" in patch:
+            w["ot_weekly_h"] = tc._num(patch.get("ot_weekly_h"))
         self.refresh()
 
     def delete_worker(self, wid: str) -> None:
@@ -145,9 +157,16 @@ class TeamManager:
         a = st.attributes or {}
         return a.get("latitude"), a.get("longitude"), a.get("gps_accuracy")
 
-    def clock(self, who: str, kind: str, *, lat: Any = None, lon: Any = None,
-              accuracy: Any = None) -> dict[str, Any]:
-        """Clock a worker in or out. Returns {ok, status, distance_m, worker}."""
+    def _local_minutes(self, ts: float) -> int:
+        local = datetime.fromtimestamp(ts, self._tz())
+        return local.hour * 60 + local.minute
+
+    def clock(self, who: str, kind: str, *, lat: Any = None, lon: Any = None, accuracy: Any = None,
+              by: Any = None, note: Any = None) -> dict[str, Any]:
+        """Clock a worker in or out. `by` is who performed it (for clock-on-behalf accountability).
+
+        Returns {ok, status, distance_m, worker, self, by, late_min/early_min}.
+        """
         w = self.resolve(who)
         if w is None:
             return {"ok": False, "error": f"no worker '{who}'"}
@@ -157,20 +176,49 @@ class TeamManager:
             lon = t_lon if lon is None else lon
             accuracy = t_acc if accuracy is None else accuracy
         ts = time.time()
+        local_min = self._local_minutes(ts)
+        on_behalf = not tc.is_self(by, w["name"])
         if kind == tc.OUT:
-            ev = tc.clock_event(w["id"], tc.OUT, ts, status=tc.CLOCKED_OUT, lat=lat, lon=lon, accuracy=accuracy)
+            early = tc.shift_deviation(w, tc.OUT, local_min)
+            ev = tc.clock_event(w["id"], tc.OUT, ts, status=tc.CLOCKED_OUT, lat=lat, lon=lon, accuracy=accuracy,
+                                worker_name=w["name"], by=by, early_min=early, note=note)
             self.events.append(ev)
             self.refresh()
-            return {"ok": True, "status": tc.CLOCKED_OUT, "worker": w["name"]}
+            return {"ok": True, "status": tc.CLOCKED_OUT, "worker": w["name"], "self": not on_behalf,
+                    "by": ev["by"], "early_min": early}
         site_lat = getattr(self.hass.config, "latitude", None)
         site_lon = getattr(self.hass.config, "longitude", None)
         allowed, dist, status = tc.validate_clock_in(site_lat, site_lon, lat, lon, self.radius_m)
-        ev = tc.clock_event(w["id"], tc.IN, ts, status=status, lat=lat, lon=lon, distance_m=dist, accuracy=accuracy)
+        late = tc.shift_deviation(w, tc.IN, local_min)
+        ev = tc.clock_event(w["id"], tc.IN, ts, status=status, lat=lat, lon=lon, distance_m=dist,
+                            accuracy=accuracy, worker_name=w["name"], by=by, late_min=late, note=note)
         self.events.append(ev)
         self.refresh()
         if not allowed:
             _LOGGER.warning("Clock-in blocked for %s: %.0f m from site (radius %.0f m)", w["name"], dist or 0, self.radius_m)
-        return {"ok": allowed, "status": status, "distance_m": dist, "worker": w["name"]}
+        return {"ok": allowed, "status": status, "distance_m": dist, "worker": w["name"],
+                "self": not on_behalf, "by": ev["by"], "late_min": late}
+
+    # -- leave / absence --------------------------------------------------
+    def add_leave(self, worker_id: str, date: str, kind: str = "leave", note: Any = None) -> dict[str, Any]:
+        if self._get(worker_id) is None:
+            raise ValueError("worker not found")
+        k = kind if kind in tc.LEAVE_KINDS else "leave"
+        self.leave = [lv for lv in self.leave if not (lv.get("worker") == worker_id and lv.get("date") == date)]
+        entry = {"worker": worker_id, "date": str(date), "kind": k, "note": (str(note).strip() or None) if note else None}
+        self.leave.append(entry)
+        self.refresh()
+        return entry
+
+    def remove_leave(self, worker_id: str, date: str) -> None:
+        self.leave = [lv for lv in self.leave if not (lv.get("worker") == worker_id and lv.get("date") == date)]
+        self.refresh()
+
+    def export_csv(self, months_ago: int = 0) -> dict[str, Any]:
+        data = self.payroll(months_ago)
+        label = data.get("label") or "month"
+        fname = f"{self.entry.title}-attendance-{label}".replace(" ", "_").replace("/", "-") + ".csv"
+        return {"csv": tc.payroll_csv(data), "filename": fname, "label": label}
 
     def delete_event(self, ts: float, worker: str) -> None:
         self.events = [e for e in self.events if not (e.get("ts") == ts and e.get("worker") == worker)]
@@ -227,16 +275,19 @@ def _register_services(hass: HomeAssistant) -> None:
         mgr = _team(call)
         if mgr is not None:
             mgr.clock(call.data["worker"], tc.IN, lat=call.data.get("latitude"),
-                      lon=call.data.get("longitude"), accuracy=call.data.get("gps_accuracy"))
+                      lon=call.data.get("longitude"), accuracy=call.data.get("gps_accuracy"),
+                      by=call.data.get("by"), note=call.data.get("note"))
 
     async def _clock_out(call) -> None:
         mgr = _team(call)
         if mgr is not None:
             mgr.clock(call.data["worker"], tc.OUT, lat=call.data.get("latitude"),
-                      lon=call.data.get("longitude"), accuracy=call.data.get("gps_accuracy"))
+                      lon=call.data.get("longitude"), accuracy=call.data.get("gps_accuracy"),
+                      by=call.data.get("by"), note=call.data.get("note"))
 
     schema = vol.Schema({vol.Required("worker"): str, vol.Optional("latitude"): vol.Coerce(float),
-                         vol.Optional("longitude"): vol.Coerce(float), vol.Optional("gps_accuracy"): vol.Coerce(float)})
+                         vol.Optional("longitude"): vol.Coerce(float), vol.Optional("gps_accuracy"): vol.Coerce(float),
+                         vol.Optional("by"): str, vol.Optional("note"): str})
     hass.services.async_register(DOMAIN, SERVICE_CLOCK_IN, _clock_in, schema=schema)
     hass.services.async_register(DOMAIN, SERVICE_CLOCK_OUT, _clock_out, schema=schema)
 
@@ -248,8 +299,9 @@ async def async_setup_team(hass: HomeAssistant, entry: ConfigEntry) -> tuple[Tea
     mgr.store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.team_{entry.entry_id}")
     saved = await mgr.store.async_load()
     if isinstance(saved, dict):
-        mgr.workers = saved.get("workers") or []
+        mgr.workers = [tc.migrate_worker(w) for w in (saved.get("workers") or [])]
         mgr.events = saved.get("events") or []
+        mgr.leave = saved.get("leave") or []
         if saved.get("radius_m"):
             mgr.radius_m = float(saved["radius_m"])
     mgr.refresh()

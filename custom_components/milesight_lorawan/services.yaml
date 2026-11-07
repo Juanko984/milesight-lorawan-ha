@@ -331,6 +331,19 @@ clock_in:
           min: 0
           max: 5000
           mode: box
+    by:
+      name: Clocked by
+      description: >-
+        Optional — who performed this clock-in. Set it when someone clocks a worker in on their behalf (e.g.
+        a supervisor), so it's recorded and flagged. If omitted, it counts as the worker clocking themselves.
+      example: "Juan Korb"
+      selector:
+        text:
+    note:
+      name: Note
+      description: Optional — a short reason stored on the event (e.g. "forgot phone").
+      selector:
+        text:
 clock_out:
   name: Clock out
   description: Clock a worker out. Stamps the time (and GPS if available); no geofence check.
@@ -358,3 +371,14 @@ clock_out:
           max: 180
           step: 0.000001
           mode: box
+    by:
+      name: Clocked by
+      description: Optional — who performed this clock-out (for clock-on-behalf accountability).
+      example: "Juan Korb"
+      selector:
+        text:
+    note:
+      name: Note
+      description: Optional — a short reason stored on the event.
+      selector:
+        text:

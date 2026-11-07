@@ -39,7 +39,10 @@ def ws_list(hass: HomeAssistant, connection, msg: dict) -> None:
                                   vol.Optional("tracker"): vol.Any(str, None), vol.Optional("method"): str,
                                   vol.Optional("pay_type"): str, vol.Optional("rate"): vol.Any(float, int, None),
                                   vol.Optional("salary"): vol.Any(float, int, None),
-                                  vol.Optional("days_per_week"): vol.Any(int, None), vol.Optional("hub"): str})
+                                  vol.Optional("days_per_week"): vol.Any(int, None),
+                                  vol.Optional("shift_start"): vol.Any(str, None),
+                                  vol.Optional("shift_end"): vol.Any(str, None),
+                                  vol.Optional("ot_weekly_h"): vol.Any(float, int, None), vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -54,7 +57,9 @@ def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
     w = mgr.add_worker(name, role=msg.get("role", ""), tracker=msg.get("tracker"),
                        method=msg.get("method", "app"), pay_type=msg.get("pay_type", "none"),
                        rate=msg.get("rate"), salary=msg.get("salary"),
-                       days_per_week=msg.get("days_per_week") or 5)
+                       days_per_week=msg.get("days_per_week") or 5,
+                       shift_start=msg.get("shift_start"), shift_end=msg.get("shift_end"),
+                       ot_weekly_h=msg.get("ot_weekly_h"))
     connection.send_result(msg["id"], {"worker": w})
 
 
@@ -104,7 +109,9 @@ def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/clock",
                                   vol.Required("worker_id"): str, vol.Required("kind"): vol.In(["in", "out"]),
                                   vol.Optional("latitude"): vol.Coerce(float),
-                                  vol.Optional("longitude"): vol.Coerce(float), vol.Optional("hub"): str})
+                                  vol.Optional("longitude"): vol.Coerce(float),
+                                  vol.Optional("by"): vol.Any(str, None),
+                                  vol.Optional("note"): vol.Any(str, None), vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_clock(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -112,8 +119,59 @@ def ws_clock(hass: HomeAssistant, connection, msg: dict) -> None:
     if mgr is None:
         connection.send_error(msg["id"], "not_found", "No gateway with a team")
         return
-    res = mgr.clock(msg["worker_id"], msg["kind"], lat=msg.get("latitude"), lon=msg.get("longitude"))
+    # who's doing it: an explicit name from the card, else the signed-in Home Assistant user (accountability)
+    by = msg.get("by")
+    if not by:
+        user = getattr(connection, "user", None)
+        by = getattr(user, "name", None)
+    res = mgr.clock(msg["worker_id"], msg["kind"], lat=msg.get("latitude"), lon=msg.get("longitude"),
+                    by=by, note=msg.get("note"))
     connection.send_result(msg["id"], res)
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/leave_add",
+                                  vol.Required("worker_id"): str, vol.Required("date"): str,
+                                  vol.Optional("kind"): str, vol.Optional("note"): vol.Any(str, None),
+                                  vol.Optional("hub"): str})
+@websocket_api.require_admin
+@callback
+def ws_leave_add(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with a team")
+        return
+    try:
+        entry = mgr.add_leave(msg["worker_id"], msg["date"], kind=msg.get("kind", "leave"), note=msg.get("note"))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    connection.send_result(msg["id"], {"leave": entry})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/leave_remove",
+                                  vol.Required("worker_id"): str, vol.Required("date"): str,
+                                  vol.Optional("hub"): str})
+@websocket_api.require_admin
+@callback
+def ws_leave_remove(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with a team")
+        return
+    mgr.remove_leave(msg["worker_id"], msg["date"])
+    connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/export",
+                                  vol.Optional("months_ago"): int, vol.Optional("hub"): str})
+@websocket_api.require_admin
+@callback
+def ws_export(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with a team")
+        return
+    connection.send_result(msg["id"], mgr.export_csv(max(0, int(msg.get("months_ago") or 0))))
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/team/radius",
@@ -129,7 +187,8 @@ def ws_radius(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True})
 
 
-TEAM_WS = (ws_list, ws_add, ws_update, ws_delete, ws_clock, ws_radius, ws_payroll)
+TEAM_WS = (ws_list, ws_add, ws_update, ws_delete, ws_clock, ws_radius, ws_payroll,
+           ws_leave_add, ws_leave_remove, ws_export)
 
 
 def register(hass: HomeAssistant) -> None:

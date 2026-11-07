@@ -2,6 +2,29 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.99.0
+- **Clock in/out for each other — tracked and flagged.** Supervisors can still clock a worker in or out, but
+  every clock now records **who did it**. When it wasn't the worker themselves, the event is tagged
+  **“👤 by <name>”** and the header shows a **“clocked by someone else”** count — a clean audit trail against
+  buddy-punching, with no extra friction. The `clock_in` / `clock_out` services take an optional **`by`** (and
+  **`note`**), so NFC tags and automations can attribute the action too.
+- **Shifts with late / early flags.** Give a worker a **scheduled start and end**; a clock-in after the start
+  shows **“N min late”** (on the roster and in the event log) and a clock-out before the end shows **“N min
+  early”**. A 5-minute grace keeps normal arrivals from being flagged.
+- **Overtime.** Set a **weekly overtime threshold** per worker (e.g. 45 h). Hours over it each week are split out
+  as **overtime** and, for hourly staff, paid at **1.5×** — shown in a new Overtime column and in the monthly
+  total.
+- **Leave & absence.** Mark a day as **annual leave, sick, day-off or public holiday** (🏖 on the roster). A day
+  on leave is **no longer counted as an unexplained absence**, and leave is tallied per worker on the Payroll
+  tab.
+- **Export to CSV.** The Payroll tab has an **⇩ Export CSV** button that downloads the month's
+  attendance and pay (days, hours, overtime, leave, gross) as a spreadsheet.
+- Worker edit form now includes shift times and the overtime threshold; stored workers are migrated
+  automatically, so nothing needs re-entering.
+- **Mobile fixes.** The **Gateways** card's metrics now reflow to a 2×2 grid on a phone (the "connection"
+  tile was clipping), and the **Team** roster cards no longer run a hair past the card edge. Audited every
+  card at phone width — the status/fleet/tank bands and the rest already scale correctly.
+
 ## 0.98.0
 - **Fixed: offline devices closing themselves.** A still-offline device could have its job marked **Done
   ("cleared by sensor")** and then re-raised, so the same device showed up in both **To do** and **Done**. The

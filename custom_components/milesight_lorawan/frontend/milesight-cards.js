@@ -2853,8 +2853,9 @@
         .gwh .sp{flex:1}
         .gwh .go{font-size:13px;color:var(--ms-accent);font-weight:600;white-space:nowrap}
         .gwm{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:15px 0 0}
-        .gwmc{border:1px solid var(--ms-line);border-radius:11px;padding:10px 13px}
-        .gwmc .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}.gwmc .v.good{color:var(--ms-good)}.gwmc .v.bad{color:var(--ms-bad)}
+        @media (max-width:560px){.gwm{grid-template-columns:repeat(2,1fr)}}
+        .gwmc{border:1px solid var(--ms-line);border-radius:11px;padding:10px 13px;min-width:0}
+        .gwmc .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.gwmc .v.good{color:var(--ms-good)}.gwmc .v.bad{color:var(--ms-bad)}
         .gwmc .l{font-size:11px;color:var(--ms-ink2);margin-top:3px}
         .gwset{display:flex;margin-top:15px;border-top:1px solid var(--ms-line);padding-top:14px}
         .gwbtn{font:inherit;font-size:13px;font-weight:600;border-radius:10px;padding:9px 15px;border:1px solid var(--ms-line);background:#12181d;color:var(--ms-ink);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
@@ -4951,11 +4952,12 @@
   class TeamCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
-    constructor() { super(); this._adding = false; this._editing = null; this._toast = null; this._tab = "roster"; this._monthsAgo = 0; this._monthData = null; }
+    constructor() { super(); this._adding = false; this._editing = null; this._leaveFor = null; this._toast = null; this._ok = null; this._tab = "roster"; this._monthsAgo = 0; this._monthData = null; }
     _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "team") return id; return null; }
+    _me() { return (this._hass && this._hass.user && this._hass.user.name) || null; }   // the signed-in HA user, for clock accountability
     set hass(hass) {
       this._hass = hass;
-      if (this._adding || this._editing) return;            // don't clobber an open form on a refresh
+      if (this._adding || this._editing || this._leaveFor) return;   // don't clobber an open form / modal on a refresh
       const id = this._find(), s = id ? hass.states[id] : null;
       const sig = s ? s.entity_id + s.last_updated : "none";
       if (sig === this._lastSig) return;
@@ -5007,6 +5009,21 @@
         .pill.on{color:var(--ms-good);background:color-mix(in srgb,var(--ms-good) 15%,transparent)}
         .pill.off{color:var(--ms-ink2);background:color-mix(in srgb,var(--ms-ink2) 15%,transparent)}
         .pill.g{color:var(--ms-ink2);border:1px solid var(--ms-line)}
+        .pill.late{color:var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 16%,transparent)}
+        .statw{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+        .pill.leave{color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 15%,transparent)}
+        .shiftsub{font-size:10.5px;color:var(--ms-ink2);margin-top:2px}
+        .byflag{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 14%,transparent);border-radius:5px;padding:1px 6px;margin-left:6px}
+        .evnote{color:var(--ms-ink2);font-size:11px;font-style:italic}
+        .troast.ok{background:color-mix(in srgb,var(--ms-good) 12%,transparent);color:var(--ms-good);box-shadow:inset 3px 0 0 var(--ms-good)}
+        .tmbd{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+        .tmodal{width:min(420px,100%);background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+        .tmodal h3{margin:0;font-size:15px;font-weight:700;color:var(--ms-ink)}
+        .tmodal .tmsub{font-size:12px;color:var(--ms-ink2);margin-top:-6px}
+        .tmodal label{font-size:11.5px;font-weight:600;color:var(--ms-ink2);display:block;margin-bottom:4px}
+        .tmodal input,.tmodal select{width:100%;box-sizing:border-box;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:9px 11px;font:inherit;font-size:13px}
+        .tmodal .tmact{display:flex;gap:9px;justify-content:flex-end;margin-top:2px}
+        .tmrow{display:flex;gap:10px}.tmrow>div{flex:1}
         .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 auto}
         .evh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:16px 2px 7px}
         .ev{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--ms-line);font-size:12.5px}
@@ -5028,7 +5045,7 @@
         .absent{color:var(--ms-warn);font-weight:600}
         @media(max-width:620px){
           .cw{overflow:visible}
-          table.tm,table.tm tbody,table.tm tr,table.tm td{display:block;width:100%}
+          table.tm,table.tm tbody,table.tm tr,table.tm td{display:block;width:100%;box-sizing:border-box}
           table.tm thead{display:none}
           table.tm tr{border:1px solid var(--ms-line);border-radius:11px;padding:10px 12px;margin-bottom:10px}
           table.tm td{border:none;padding:5px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:0}
@@ -5050,7 +5067,10 @@
       const head = h("div", { class: "tm-head" }, [
         h("div", { class: "ic" }, "👷"),
         h("div", {}, [h("div", { class: "ti" }, "Team"),
-          h("div", { class: "sub" }, `${a.on_site || 0} on site · ${workers.length} ${workers.length === 1 ? "worker" : "workers"}${a.blocked_today ? ` · ${a.blocked_today} blocked today` : ""}`)]),
+          h("div", { class: "sub" }, `${a.on_site || 0} on site · ${workers.length} ${workers.length === 1 ? "worker" : "workers"}`
+            + `${a.late_today ? ` · ${a.late_today} late` : ""}`
+            + `${a.on_behalf_today ? ` · ${a.on_behalf_today} clocked by someone else` : ""}`
+            + `${a.blocked_today ? ` · ${a.blocked_today} blocked today` : ""}`)]),
         h("div", { class: "sp" }),
         h("button", { class: "mbtn p", onclick: () => { this._adding = true; this._editing = null; this._render(); } }, "＋ Add worker"),
       ]);
@@ -5058,6 +5078,8 @@
         h("button", { class: this._tab === k ? "on" : "", onclick: () => { this._tab = k; this._render(); } }, l)));
       const body = [head, tabs];
       if (this._toast) body.push(h("div", { class: "troast" }, ["⛔ ", this._toast]));
+      if (this._ok) body.push(h("div", { class: "troast ok" }, ["✓ ", this._ok]));
+      if (this._leaveFor) body.push(this._leaveModal(workers.find((w) => w.id === this._leaveFor) || {}));
       if (this._adding || this._editing) body.push(this._form(this._editing ? workers.find((w) => w.id === this._editing) : null));
       if (this._tab === "payroll") { body.push(this._payroll(a)); this._card(h("div", { class: "wrap" }, body)); return; }
       // --- roster tab ---
@@ -5079,25 +5101,45 @@
         h("button", { class: "nav", onclick: () => this._loadMonth(1) }, "‹"),
         h("span", { class: "lbl" }, data.label || "This month"),
         h("button", { class: "nav", disabled: this._monthsAgo === 0 ? "" : null, onclick: () => { if (this._monthsAgo > 0) this._loadMonth(-1); } }, "›"),
+        h("span", { style: { flex: "1" } }),
+        h("button", { class: "mbtn sm", title: "Download this month as a CSV spreadsheet", onclick: () => this._exportCsv() }, "⇩ Export CSV"),
       ]);
       const wrap = [nav];
       if (!rows.length) { wrap.push(h("div", { class: "muted", style: { fontSize: "13px", padding: "6px 2px" } }, "No workers to pay yet.")); return h("div", {}, wrap); }
       wrap.push(h("div", { class: "cw" }, [h("table", { class: "tm" }, [
-        h("thead", {}, [h("tr", {}, ["Worker", "Pay", "Days worked", "Hours", "Gross", ""].map((x) => h("th", {}, x)))]),
+        h("thead", {}, [h("tr", {}, ["Worker", "Pay", "Days", "Hours", "Overtime", "Leave", "Gross", ""].map((x) => h("th", {}, x)))]),
         h("tbody", {}, rows.map((r) => this._payRow(r, cur))),
       ])]));
+      const otline = data.ot_hours ? ` · ${data.ot_hours} h overtime @ ${data.ot_mult || 1.5}×` : "";
       wrap.push(h("div", { class: "paytot" }, [
         h("div", {}, [h("div", {}, "Total to pay — " + (data.label || "this month")),
-          h("div", { class: "paysub" }, "Salaries shown in full; hourly from clocked hours. Attendance shown, not docked.")]),
+          h("div", { class: "paysub" }, "Salaries shown in full; hourly from clocked hours, overtime at the set rate. Attendance shown, not docked." + otline)]),
         h("div", { class: "v tnum" }, this._money(cur, data.total)),
       ]));
       return h("div", {}, wrap);
+    }
+    async _exportCsv() {
+      const res = await this._ws("export", { months_ago: this._monthsAgo });
+      if (!res || res.error || !res.csv) { this._toast = (res && res.error) || "Couldn't build the export."; this.set_hass_refresh(); return; }
+      try {
+        const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = res.filename || "attendance.csv";
+        this.shadowRoot.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        this._ok = `Exported ${res.label || "the month"} to ${res.filename}.`;
+      } catch (e) { this._toast = "Export failed: " + (e && e.message || e); }
+      this.set_hass_refresh();
     }
     _payRow(r, cur) {
       const pay = r.pay_type === "hourly" ? (r.rate != null ? `${this._money(cur, r.rate)} / h` : "rate not set")
         : r.pay_type === "salary" ? (r.salary != null ? `${this._money(cur, r.salary)} / mo` : "salary not set")
           : "—";
       const absent = r.days_absent ? h("span", { class: "absent" }, ` · ${r.days_absent} absent`) : null;
+      const ot = r.ot_hours ? [h("span", { class: "tnum" }, r.ot_hours + " h"),
+        r.ot_pay ? h("span", { class: "paysub" }, " · " + this._money(cur, r.ot_pay)) : null] : h("span", { class: "muted" }, "—");
+      const leave = r.leave_days ? h("span", { class: "pill leave" }, `${r.leave_days} day${r.leave_days === 1 ? "" : "s"}`) : h("span", { class: "muted" }, "—");
       return h("tr", {}, [
         h("td", { "data-label": "" }, [h("div", { class: "wk" }, [h("span", { class: "av" }, r.initials || "?"),
           h("div", {}, [h("div", { class: "nm" }, esc(r.name)), r.role ? h("div", { class: "rl" }, esc(r.role)) : null])])]),
@@ -5105,6 +5147,8 @@
           h("button", { class: "tnx", title: "Edit pay", onclick: () => { this._editing = r.id; this._adding = false; this._render(); } }, "✎")]),
         h("td", { "data-label": "Days", class: "tnum" }, [h("span", {}, `${r.days_worked} / ${r.expected_days || "—"}`), absent]),
         h("td", { "data-label": "Hours", class: "tnum" }, (r.hours != null ? r.hours : 0) + " h"),
+        h("td", { "data-label": "Overtime", class: "tnum" }, ot),
+        h("td", { "data-label": "Leave" }, leave),
         h("td", { "data-label": "Gross", class: "tnum nm" }, r.pay_type === "none" ? "—" : this._money(cur, r.gross)),
         h("td", { "data-label": "", class: "acts", style: { textAlign: "right" } }, [
           h("button", { class: "mbtn sm", onclick: () => { this._editing = r.id; this._adding = false; this._render(); } }, "Edit"),
@@ -5114,27 +5158,35 @@
     _row(w) {
       const method = { app: "📱 App", face: "🙂 Face", qr: "▦ QR" }[w.method] || "📱 App";
       const clock = async (kind) => {
-        this._toast = null;
-        const res = await this._ws("clock", { worker_id: w.id, kind });
+        this._toast = null; this._ok = null;
+        const by = this._me();
+        const res = await this._ws("clock", { worker_id: w.id, kind, by });
         if (kind === "in" && res && res.ok === false && res.status === "off_site_blocked") {
           const d = res.distance_m != null ? (res.distance_m >= 1000 ? (res.distance_m / 1000).toFixed(1) + " km" : Math.round(res.distance_m) + " m") : "";
           this._toast = `Off-site clock-in blocked — ${w.name} is ${d} from the site. Recorded, not clocked in.`;
         } else if (res && res.error) this._toast = res.error;
+        else if (res && res.self === false) this._ok = `${w.name} clocked ${kind === "in" ? "in" : "out"} by ${by} — recorded as on their behalf.`;
+        else if (res && kind === "in" && res.late_min) this._ok = `${w.name} clocked in — ${res.late_min} min late.`;
         this.set_hass_refresh();
       };
+      const shift = (w.shift_start && w.shift_end) ? `${w.shift_start}–${w.shift_end}` : (w.shift_start || "");
+      const status = w.on_site
+        ? h("span", { class: "pill on" }, [h("span", { class: "dot" }), "on site · " + this._hhmm(w.since)])
+        : h("span", { class: "pill off" }, "off");
+      const late = w.late_today ? h("span", { class: "pill late", title: "Clocked in after the scheduled start" }, `${w.late_today}m late`) : null;
       return h("tr", {}, [
         h("td", { "data-label": "" }, [h("div", { class: "wk" }, [h("span", { class: "av" }, w.initials || "?"),
-          h("div", {}, [h("div", { class: "nm" }, esc(w.name)), w.role ? h("div", { class: "rl" }, esc(w.role)) : null])])]),
+          h("div", {}, [h("div", { class: "nm" }, esc(w.name)),
+            h("div", { class: "rl" }, esc(w.role || "") + (w.role && shift ? " · " : "") + (shift ? "shift " + shift : ""))])])]),
         h("td", { "data-label": "Clock-in" }, [h("span", { class: "pill g" }, method)]),
-        h("td", { "data-label": "Status" }, w.on_site
-          ? h("span", { class: "pill on" }, [h("span", { class: "dot" }), "on site · " + this._hhmm(w.since)])
-          : h("span", { class: "pill off" }, "off")),
+        h("td", { "data-label": "Status" }, [h("div", { class: "statw" }, [status, late])]),
         h("td", { class: "tnum", "data-label": "Today" }, (w.today_h != null ? w.today_h : 0) + " h"),
         h("td", { class: "tnum", "data-label": "Week" }, (w.week_h != null ? w.week_h : 0) + " h"),
         h("td", { "data-label": "Location" }, w.on_site ? h("span", { class: "pill on" }, "✓ on-site") : h("span", { class: "muted", style: { fontSize: "12px" } }, "—")),
         h("td", { "data-label": "", class: "acts", style: { textAlign: "right", whiteSpace: "nowrap" } }, [
           w.on_site ? h("button", { class: "mbtn sm", onclick: () => clock("out") }, "Clock out")
             : h("button", { class: "mbtn sm p", onclick: () => clock("in") }, "Clock in"),
+          h("button", { class: "tnx", title: "Mark leave / absence", onclick: () => { this._leaveFor = w.id; this._adding = false; this._editing = null; this._render(); } }, "🏖"),
           h("button", { class: "tnx", title: "Edit worker", onclick: () => { this._editing = w.id; this._adding = false; this._render(); } }, "✎"),
           h("button", { class: "tnx", title: "Remove worker", onclick: async () => { await this._ws("delete", { worker_id: w.id }); this.set_hass_refresh(); } }, "✕"),
         ]),
@@ -5146,10 +5198,16 @@
       if (e.status === "off_site_blocked") {
         const d = e.distance_m != null ? (e.distance_m >= 1000 ? (e.distance_m / 1000).toFixed(1) + " km" : Math.round(e.distance_m) + " m") : "";
         t = "Off-site clock-in blocked"; m = `${esc(e.worker_name)} · ${d} from site · rejected`;
-      } else if (e.status === "clocked_out") { t = esc(e.worker_name) + " clocked out"; m = "on-site hours recorded"; }
-      else { t = esc(e.worker_name) + " clocked in"; m = "on-site ✓" + (e.distance_m != null ? ` · ${Math.round(e.distance_m)} m` : ""); }
+      } else if (e.status === "clocked_out") { t = esc(e.worker_name) + " clocked out"; m = "on-site hours recorded" + (e.early_min ? ` · ${e.early_min} min early` : ""); }
+      else { t = esc(e.worker_name) + " clocked in"; m = "on-site ✓" + (e.distance_m != null ? ` · ${Math.round(e.distance_m)} m` : "") + (e.late_min ? ` · ${e.late_min} min late` : ""); }
+      // who did it: flag when someone clocked on another worker's behalf
+      const onBehalf = e.self === false && e.by;
+      const title = [h("span", { class: "et" }, t)];
+      if (onBehalf) title.push(h("span", { class: "byflag", title: "Clocked by someone other than the worker" }, ["👤 by ", esc(e.by)]));
+      const meta = [h("span", {}, m)];
+      if (e.note) meta.push(h("span", { class: "evnote" }, " · “" + esc(e.note) + "”"));
       return h("div", { class: "ev " + cls }, [h("span", { class: "lead" }),
-        h("div", {}, [h("div", { class: "et" }, t), h("div", { class: "em" }, m)]),
+        h("div", {}, [h("div", {}, title), h("div", { class: "em" }, meta)]),
         h("span", { class: "time" }, this._hhmm(e.ts))]);
     }
     _form(w) {
@@ -5166,6 +5224,10 @@
       const rate = h("input", { type: "number", min: "0", step: "1", placeholder: "Rate / hour", style: { width: "110px" }, value: w.rate != null ? w.rate : "" });
       const salary = h("input", { type: "number", min: "0", step: "1", placeholder: "Salary / month", style: { width: "130px" }, value: w.salary != null ? w.salary : "" });
       const dpw = h("select", {}, [4, 5, 6, 7].map((n) => h("option", { value: String(n), selected: (w.days_per_week || 5) === n }, n + " days/wk")));
+      // schedule & overtime
+      const shiftStart = h("input", { type: "time", title: "Shift start", style: { width: "118px" }, value: w.shift_start || "" });
+      const shiftEnd = h("input", { type: "time", title: "Shift end", style: { width: "118px" }, value: w.shift_end || "" });
+      const ot = h("input", { type: "number", min: "0", step: "1", title: "Weekly overtime threshold (hours)", placeholder: "OT after h/wk", style: { width: "120px" }, value: w.ot_weekly_h != null ? w.ot_weekly_h : "" });
       const rateWrap = h("span", {}, [rate]), salWrap = h("span", {}, [salary]);
       const sync = () => { rateWrap.style.display = payType.value === "hourly" ? "" : "none"; salWrap.style.display = payType.value === "salary" ? "" : "none"; };
       payType.addEventListener("change", sync);
@@ -5173,17 +5235,45 @@
         const n = name.value.trim(); if (!n) { name.focus(); return; }
         const fields = { name: n, role: role.value.trim(), method: method.value, tracker: tracker.value || null,
           pay_type: payType.value, rate: rate.value === "" ? null : num(rate.value), salary: salary.value === "" ? null : num(salary.value),
-          days_per_week: num(dpw.value) || 5 };
+          days_per_week: num(dpw.value) || 5, shift_start: shiftStart.value || null, shift_end: shiftEnd.value || null,
+          ot_weekly_h: ot.value === "" ? null : num(ot.value) };
         if (edit) await this._ws("update", { worker_id: w.id, patch: fields });
         else await this._ws("add", fields);
         this._adding = false; this._editing = null; this.set_hass_refresh();
       };
       name.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
       const form = h("div", { class: "tform" }, [name, role, method, tracker, payType, rateWrap, salWrap, dpw,
+        h("span", { class: "shiftsub", style: { width: "100%", marginTop: "2px" } }, "Shift & overtime (optional)"),
+        shiftStart, h("span", { style: { color: "var(--ms-ink2)" } }, "–"), shiftEnd, ot,
         h("button", { class: "mbtn p", onclick: save }, edit ? "Save" : "Add"),
         h("button", { class: "mbtn", onclick: () => { this._adding = false; this._editing = null; this._render(); } }, "Cancel")]);
       sync();
       return form;
+    }
+    _leaveModal(w) {
+      const today = new Date().toISOString().slice(0, 10);
+      const date = h("input", { type: "date", value: today });
+      const kind = h("select", {}, [["leave", "Annual leave"], ["sick", "Sick leave"], ["off", "Day off (unpaid)"], ["public", "Public holiday"]].map(([v, l]) => h("option", { value: v }, l)));
+      const note = h("input", { type: "text", placeholder: "Note (optional)" });
+      const close = () => { this._leaveFor = null; this.set_hass_refresh(); };
+      const save = async () => {
+        if (!date.value) { date.focus(); return; }
+        await this._ws("leave_add", { worker_id: w.id, date: date.value, kind: kind.value, note: note.value.trim() || null });
+        this._leaveFor = null; this._ok = `Marked ${w.name} as ${kind.options[kind.selectedIndex].text.toLowerCase()} on ${date.value}.`; this.set_hass_refresh();
+      };
+      const backdrop = h("div", { class: "tmbd", onclick: (e) => { if (e.target === backdrop) close(); } }, [
+        h("div", { class: "tmodal" }, [
+          h("h3", {}, "Mark leave / absence"),
+          h("div", { class: "tmsub" }, esc(w.name || "")),
+          h("div", { class: "tmrow" }, [h("div", {}, [h("label", {}, "Date"), date]), h("div", {}, [h("label", {}, "Type"), kind])]),
+          h("div", {}, [h("label", {}, "Note"), note]),
+          h("div", { class: "tmact" }, [
+            h("button", { class: "mbtn", onclick: close }, "Cancel"),
+            h("button", { class: "mbtn p", onclick: save }, "Save"),
+          ]),
+        ]),
+      ]);
+      return backdrop;
     }
   }
 
