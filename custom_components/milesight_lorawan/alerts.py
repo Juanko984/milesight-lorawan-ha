@@ -241,6 +241,28 @@ class AlertEngine:
                             "message": f"Acknowledged{(' by ' + by) if by else ''}: {a['message']}"})
         return out
 
+    def clear(self, aid: str | None, ts: float, by: str | None = None) -> list[dict[str, Any]]:
+        """Manually resolve one open alert now (or all) — remove it from the open list and clear the phones.
+
+        If the underlying fault is still present, the engine will raise it again on a later evaluation; this
+        is for clearing handled or stale alerts off the board, not for silencing a live fault forever.
+        """
+        out = []
+        for k, a in list(self.alerts.items()):
+            if a.get("resolved_at") is not None or (aid is not None and a["id"] != aid):
+                continue
+            a["resolved_at"] = ts
+            a["resolved_sent"] = True
+            a["cleared_by"] = by
+            h = self._hist(a["id"])
+            if h is not None and h.get("resolved_at") is None:
+                h["resolved_at"] = ts
+            if a.get("notified"):
+                out.append({"targets": list(a["notified"]), "kind": "cleared", "id": a["id"], "key": k,
+                            "title": f"✔ {a['title']}", "critical": False, "action": None,
+                            "message": f"Cleared{(' by ' + by) if by else ''}: {a['message']}"})
+        return out
+
     def snooze(self, aid: str, ts: float, minutes: float, by: str | None = None) -> list[dict[str, Any]]:
         """Hold reminders and escalation of one alert for a while; it comes back if it is still active."""
         found = self.by_id(aid)

@@ -52,11 +52,16 @@ class JobsManager:
         return next((j for j in self.jobs if j["id"] == jid), None)
 
     # -- mutations (WebSocket) ---------------------------------------------
-    def create(self, title: str, **kw: Any) -> dict[str, Any]:
-        job = jc.new_job(title, ts=time.time(), **kw)
+    def create(self, title: str, *, assignee: Any = None, notify: Any = None, **kw: Any) -> dict[str, Any]:
+        job = jc.new_job(title, ts=time.time(), assignee=assignee or None,
+                         assignee_notify=notify or None, **kw)
         job["id"] = jc.make_id(self._ids())
         self.jobs.insert(0, job)
         self.refresh()
+        if assignee:
+            jc.log_event(job, "assigned", time.time(), note=f"Assigned to {assignee}")
+            self._push_assignment(job)
+            self.refresh()
         return job
 
     def set_status(self, jid: str, status: str, resolved_by: str | None = None,
@@ -67,12 +72,46 @@ class JobsManager:
         jc.advance(j, status, ts=time.time(), resolved_by=resolved_by, resolution=resolution)
         self.refresh()
 
-    def assign(self, jid: str, who: str | None) -> None:
+    def assign(self, jid: str, who: str | None, notify: str | None = None, by: str | None = None) -> None:
         j = self._get(jid)
         if j is None:
             raise ValueError("job not found")
+        changed = (j.get("assignee") or None) != (who or None)
         j["assignee"] = who or None
+        j["assignee_notify"] = notify or None
+        j["updated_ts"] = time.time()
+        if changed and who:
+            jc.log_event(j, "assigned", time.time(), by=by, note=f"Assigned to {who}")
+            self._push_assignment(j)
+        elif changed:
+            jc.log_event(j, "unassigned", time.time(), by=by)
         self.refresh()
+
+    # -- push notification on assignment ----------------------------------
+    def _push_assignment(self, job: dict[str, Any]) -> None:
+        """Send a push to the assignee's mobile app, if we have a notify target for them."""
+        target = job.get("assignee_notify")
+        if not target:
+            return
+        service = str(target).split(".", 1)[-1] if "." in str(target) else str(target)
+        pri = {"crit": "🔴", "warn": "🟠", "info": "🔵", "ok": "🟢"}.get(job.get("priority"), "")
+        title = f"New job: {job.get('title')}"
+        body_bits = [job.get("description") or job.get("detail") or job.get("reason") or ""]
+        if job.get("area"):
+            body_bits.append(f"Area: {job['area']}")
+        if job.get("device"):
+            body_bits.append(f"Device: {job['device']}")
+        message = f"{pri} " + " · ".join(b for b in body_bits if b) if any(body_bits) else f"{pri} You've been assigned a job."
+        try:
+            self.hass.async_create_task(self.hass.services.async_call(
+                "notify", service, {"title": title, "message": message.strip(),
+                                    "data": {"tag": f"milesight_job_{job.get('id')}"}}, blocking=False))
+        except Exception:  # noqa: BLE001 - a failed push must never break assignment
+            _LOGGER.warning("Job assignment push to %s failed", target, exc_info=True)
+
+    def people(self) -> list[dict[str, Any]]:
+        """Assignable people: Team workers merged with the alert notify targets, each with a push target."""
+        return _assignable_people(self.hass, self.entry)
 
     def toggle_check(self, jid: str, index: int, done: bool) -> None:
         j = self._get(jid)
@@ -200,10 +239,16 @@ class JobsManager:
         return self.sweep()
 
     def sync_auto(self, active_keys: set[str]) -> None:
-        """Close every open auto-close job whose rule/target is no longer firing (the reading cleared)."""
+        """Close open RULE-sourced auto-close jobs whose rule/target is no longer firing (the reading cleared).
+
+        Only rule-sourced jobs are matched on a rule key. Alert-sourced jobs (source == "alert") are owned by
+        sync_alerts, which keys them on the alert and gives them a clearance grace — they must NOT be closed
+        here, or every offline/alert job would be marked "cleared by sensor" within a minute (their rule key is
+        'None::None', never in active_keys). This was why open alerts like an offline device showed no job.
+        """
         changed = False
         for j in self.jobs:
-            if not jc.is_open(j) or not j.get("auto_close"):
+            if not jc.is_open(j) or j.get("source") != "rule" or not j.get("auto_close"):
                 continue
             sr = j.get("source_rule") or {}
             if jc.rule_job_key(sr.get("rule_id"), sr.get("target_key")) not in active_keys:
@@ -211,6 +256,59 @@ class JobsManager:
                 changed = True
         if changed:
             self.refresh()
+
+
+def _notify_name(target: str) -> str:
+    """'notify.mobile_app_juan' -> 'juan'; keep a non-mobile target's trailing name as-is."""
+    n = str(target).split(".", 1)[-1]
+    return n[len("mobile_app_"):] if n.startswith("mobile_app_") else n
+
+
+def _assignable_people(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
+    """People a job can be assigned to: Team workers merged with the alert notify targets.
+
+    Each entry is {name, notify, source}. `notify` is a push target (notify.* service) when we have one —
+    from the alert config directly, or matched to a worker by first name — else None (assignable, no push).
+    """
+    rt = getattr(entry, "runtime_data", None)
+    out: dict[str, dict[str, Any]] = {}
+
+    # 1) notify targets configured for alerts (these have real push)
+    targets: set[str] = set()
+    cfg = getattr(getattr(rt, "alerts", None), "cfg", None)
+    if cfg is not None:
+        targets |= set(getattr(cfg, "primary", []) or [])
+        for sh in (getattr(cfg, "rota", []) or []):
+            targets |= set(getattr(sh, "targets", []) or [])
+        targets |= set(getattr(cfg, "backup", []) or [])
+    targets = {t for t in targets if "." in str(t)}
+    for t in sorted(targets):
+        nm = _notify_name(t)
+        out[nm.lower()] = {"name": nm.replace("_", " ").title(), "notify": t, "source": "notify"}
+
+    def _match(name: str) -> str | None:
+        first = name.split()[0].lower() if name.split() else name.lower()
+        for t in targets:
+            tn = _notify_name(t).lower()
+            if tn == first or tn == name.lower().replace(" ", "_"):
+                return t
+        return None
+
+    # 2) Team workers (prefer their full name; link a push target by first-name match when possible)
+    team = getattr(rt, "team", None)
+    for w in (getattr(team, "workers", []) or []):
+        wname = str(w.get("name") or "").strip()
+        if not wname:
+            continue
+        notify = _match(wname)
+        key = (notify and _notify_name(notify).lower()) or wname.lower()
+        if key in out:
+            out[key]["name"] = wname
+            out[key]["source"] = "worker"
+            out[key]["notify"] = out[key].get("notify") or notify
+        else:
+            out[wname.lower()] = {"name": wname, "notify": notify, "source": "worker"}
+    return sorted(out.values(), key=lambda p: p["name"].lower())
 
 
 class JobsSensor(SensorEntity):

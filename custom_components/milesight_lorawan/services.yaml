@@ -126,6 +126,19 @@ acknowledge_alert:
       example: "3f2a9c01be"
       selector:
         text:
+clear_alert:
+  name: Clear alert
+  description: >-
+    Manually resolve one open alert (or all, if no id is given) and remove it from the open list and the
+    phones. If the underlying fault is still present it will be raised again later — this is for clearing
+    handled or stale alerts off the board, not for silencing a live fault.
+  fields:
+    alert_id:
+      name: Alert id
+      description: The alert to clear. Leave empty to clear all open alerts.
+      example: "3f2a9c01be"
+      selector:
+        text:
 snooze_alert:
   fields:
     alert_id:

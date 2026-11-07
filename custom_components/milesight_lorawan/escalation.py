@@ -262,6 +262,14 @@ class AlertManager:
         async_dispatcher_send(self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id))
         return bool(msgs)
 
+    async def async_clear(self, alert_id: str | None = None, by: str | None = None) -> int:
+        """Manually resolve one open alert (or all) and clear it from the phones."""
+        before = len([a for a in self.engine.alerts.values() if a.get("resolved_at") is None])
+        await self._send(self.engine.clear(alert_id, time.time(), by))
+        self.store.async_delay_save(self.engine.to_dict, 5)
+        async_dispatcher_send(self.hass, SIGNAL_ALERTS_CHANGED.format(self.entry.entry_id))
+        return before - len([a for a in self.engine.alerts.values() if a.get("resolved_at") is None])
+
     async def _run_action(self) -> None:
         ent = self.action_entity
         if not ent:

@@ -20,6 +20,7 @@ SERVICE_OUTPUT_COMMAND = "output_command"
 SERVICE_DISPLAY = "display_content"
 SERVICE_ACK = "acknowledge_alert"
 SERVICE_SNOOZE = "snooze_alert"
+SERVICE_CLEAR = "clear_alert"
 SERVICE_PROVISION = "add_to_gateway"
 SERVICE_DEPROVISION = "remove_from_gateway"
 SERVICE_SYNC = "sync_gateway_devices"
@@ -164,6 +165,14 @@ def async_register_services(hass: HomeAssistant) -> None:
             user = u.name if u else None
         for hub in _hubs(hass):
             await hub.alerts.async_snooze(call.data["alert_id"], user, call.data.get("minutes"))
+
+    async def _clear(call: ServiceCall) -> None:
+        user = None
+        if call.context.user_id:
+            u = await hass.auth.async_get_user(call.context.user_id)
+            user = u.name if u else None
+        for hub in _hubs(hass):
+            await hub.alerts.async_clear(call.data.get("alert_id"), user)
 
     async def _provision(call: ServiceCall) -> dict:
         from .ns_api import valid_key
@@ -319,6 +328,7 @@ def async_register_services(hass: HomeAssistant) -> None:
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_ACK, _ack, schema=ACK_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_SNOOZE, _snooze, schema=SNOOZE_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR, _clear, schema=ACK_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_PROVISION, _provision, schema=PROVISION_SCHEMA,
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_DEPROVISION, _deprovision, schema=DEPROVISION_SCHEMA,

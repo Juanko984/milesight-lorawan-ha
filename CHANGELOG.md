@@ -2,6 +2,28 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.100.0
+- **Fixed: open faults showed no job.** A device that was offline for days (or any open alert) often had **no
+  job at all**, while the Done column filled with "cleared by sensor". The rules loop was closing **every**
+  auto-close job each minute — including alert-raised ones, whose rule key never matches — so they were marked
+  done seconds after being raised. Alert jobs are now only reconciled by the alert sync (with its 20-minute
+  clearance grace); they stay open until the fault actually clears. This is the big one.
+- **Click a job to open it.** Every card now opens a **detail view**: description, area, device, source and
+  trigger count, assignee, timestamps, the resolution write-up, and a full **activity timeline** (created →
+  assigned → started → done, each with who and when). You can finally see *what was done* on a finished job.
+- **Search and filters.** A search box (title, device, area, person) plus **priority** and **source** filters
+  across the board.
+- **Done no longer buries everything.** The Done column shows the most recent few; **"View all N completed"**
+  opens a searchable **history** of every finished job — the standard fix for a Kanban board whose Done column
+  has grown to hundreds of cards.
+- **Assignee is a dropdown, and assigning sends a push.** Pick from your **Team workers and alert notify
+  targets**; assigning a job **pushes a notification** to that person's phone (when a mobile target is known).
+- **Richer "New job".** Creating a job is now a dialog with **heading, description, priority, area, assignee and
+  an optional device**, instead of a single title box.
+- **Alerts: Acknowledge *and* Clear.** Every open alert (including already-acknowledged ones) now has a **Clear**
+  button, plus **Clear all** in the header — resolve a handled or stale alert and clear it off the board (a fault
+  that's still present will be raised again). New `clear_alert` service for automations.
+
 ## 0.99.0
 - **Clock in/out for each other — tracked and flagged.** Supervisors can still clock a worker in or out, but
   every clock now records **who did it**. When it wasn't the worker themselves, the event is tagged

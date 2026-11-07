@@ -33,23 +33,37 @@ def make_id(existing: Iterable[str], prefix: str = "job") -> str:
     return f"{prefix}_{i}"
 
 
-def new_job(title: str, *, detail: str = "", priority: str = "info", area: Any = None,
-            assignee: Any = None, checklist: Iterable[str] | None = None, source: str = "manual",
+def new_job(title: str, *, detail: str = "", description: str = "", priority: str = "info", area: Any = None,
+            device: Any = None, assignee: Any = None, assignee_notify: Any = None,
+            checklist: Iterable[str] | None = None, source: str = "manual",
             source_rule: dict | None = None, source_alert: dict | None = None, auto_close: bool = False,
             due: Any = None, ts: float = 0.0, jid: str = "", reason: str = "",
             trigger_count: int = 1, last_seen_ts: Any = None) -> dict[str, Any]:
-    return {"id": jid, "title": str(title), "detail": str(detail or ""),
-            "status": "todo", "priority": priority if priority in PRIORITIES else "info",
-            "area": area, "assignee": assignee or None,
-            "checklist": [{"text": str(c), "done": False} for c in (checklist or [])],
-            "source": source, "source_rule": source_rule, "source_alert": source_alert,
-            "auto_close": bool(auto_close), "due": due, "created_ts": ts, "done_ts": None,
-            "resolved_by": None, "resolution": "",
-            # why it was raised (shown on auto-created cards), how many times the fault has fired, and the
-            # clearance tracking the sensor sync uses so a flapping device doesn't close the job prematurely.
-            "reason": str(reason or ""), "trigger_count": int(trigger_count or 1),
-            "last_seen_ts": last_seen_ts if last_seen_ts is not None else (ts or None),
-            "clear_seen_ts": None}
+    job = {"id": jid, "title": str(title), "detail": str(detail or ""), "description": str(description or ""),
+           "status": "todo", "priority": priority if priority in PRIORITIES else "info",
+           "area": area, "device": device or None, "assignee": assignee or None,
+           "assignee_notify": assignee_notify or None,
+           "checklist": [{"text": str(c), "done": False} for c in (checklist or [])],
+           "source": source, "source_rule": source_rule, "source_alert": source_alert,
+           "auto_close": bool(auto_close), "due": due, "created_ts": ts, "updated_ts": ts, "done_ts": None,
+           "resolved_by": None, "resolution": "",
+           # why it was raised (shown on auto-created cards), how many times the fault has fired, and the
+           # clearance tracking the sensor sync uses so a flapping device doesn't close the job prematurely.
+           "reason": str(reason or ""), "trigger_count": int(trigger_count or 1),
+           "last_seen_ts": last_seen_ts if last_seen_ts is not None else (ts or None),
+           "clear_seen_ts": None, "history": []}
+    how = "Raised from an alert" if source == "alert" else "Raised by a rule" if source == "rule" else "Created"
+    log_event(job, "created", ts, note=how + ((" — " + str(reason)) if reason else ""))
+    return job
+
+
+def log_event(job: dict[str, Any], kind: str, ts: float, *, by: Any = None, note: Any = None) -> dict[str, Any]:
+    """Append one entry to a job's activity timeline (created / started / done / reopened / assigned / note)."""
+    job.setdefault("history", [])
+    entry = {"kind": kind, "ts": ts, "by": (str(by).strip() or None) if by else None,
+             "note": (str(note).strip() or None) if note else None}
+    job["history"].append(entry)
+    return entry
 
 
 def migrate(job: dict[str, Any]) -> dict[str, Any]:
@@ -58,9 +72,19 @@ def migrate(job: dict[str, Any]) -> dict[str, Any]:
         return job
     job.setdefault("resolution", "")
     job.setdefault("reason", job.get("detail") or "")
+    job.setdefault("description", "")
+    job.setdefault("device", None)
+    job.setdefault("assignee_notify", None)
+    job.setdefault("updated_ts", job.get("done_ts") or job.get("created_ts") or None)
     job.setdefault("trigger_count", 1)
     job.setdefault("last_seen_ts", job.get("created_ts") or None)
     job.setdefault("clear_seen_ts", None)
+    if "history" not in job:   # synthesize a minimal timeline for jobs stored before history existed
+        hist = [{"kind": "created", "ts": job.get("created_ts"), "by": None, "note": None}]
+        if job.get("done_ts"):
+            hist.append({"kind": "done", "ts": job.get("done_ts"), "by": job.get("resolved_by"),
+                         "note": job.get("resolution") or None})
+        job["history"] = hist
     return job
 
 
@@ -91,11 +115,22 @@ def from_alert(alert: dict[str, Any], ts: float, *, assignee: Any = None) -> dic
     msg = alert.get("message") or ""
     return new_job(alert.get("title") or "Site issue", detail=msg,
                    priority=severity_priority(alert.get("severity")), assignee=assignee,
+                   device=alert.get("device") or _device_from_title(alert.get("title")),
                    source="alert", auto_close=True, ts=ts, last_seen_ts=ts,
                    reason=msg or (alert.get("title") or ""), trigger_count=alert_triggers(alert),
                    source_alert={"alert_id": alert.get("id"), "alert_key": alert_key(alert),
                                  "severity": alert.get("severity"), "category": alert.get("category"),
                                  "since": alert.get("since")})
+
+
+def _device_from_title(title: Any) -> Any:
+    """Best-effort device name from an alert title like 'Offline – WS301' → 'WS301'."""
+    if not title:
+        return None
+    for sep in (" – ", " - ", " — "):
+        if sep in str(title):
+            return str(title).split(sep, 1)[1].strip() or None
+    return None
 
 
 def from_rule_fire(fire: dict[str, Any], *, priority: str, auto_close: bool, ts: float) -> dict[str, Any]:
@@ -109,26 +144,31 @@ def from_rule_fire(fire: dict[str, Any], *, priority: str, auto_close: bool, ts:
     tkey = fire.get("target_key") or target
     msg = fire.get("message") or ""
     return new_job(f"{base} · {target}", detail=msg, priority=priority,
-                   area=fire.get("area"), source="rule", auto_close=auto_close, ts=ts,
-                   reason=msg or base,
+                   area=fire.get("area"), device=fire.get("target_name"), source="rule",
+                   auto_close=auto_close, ts=ts, reason=msg or base,
                    source_rule={"rule_id": fire.get("recipe_id"), "target_key": tkey,
                                 "icon": fire.get("icon"), "catalog": fire.get("catalog")})
 
 
 def advance(job: dict[str, Any], status: str, *, ts: float = 0.0, resolved_by: str | None = None,
             resolution: str | None = None) -> dict[str, Any]:
-    status = status if status in STATUSES else job.get("status", "todo")
+    prev = job.get("status", "todo")
+    status = status if status in STATUSES else prev
     job["status"] = status
+    job["updated_ts"] = ts
     if status == "done":
         job["done_ts"] = ts
         job["resolved_by"] = resolved_by or "person"
         if resolution is not None:
             job["resolution"] = str(resolution)
+        log_event(job, "done", ts, by=resolved_by, note=resolution or None)
     else:
         job["done_ts"] = None
         job["resolved_by"] = None
         job["resolution"] = ""          # reopening clears the old write-up
         job["clear_seen_ts"] = None     # and the clearance tracking, so it can auto-close cleanly again
+        if prev != status:
+            log_event(job, "started" if status == "doing" else "reopened", ts, by=resolved_by)
     return job
 
 

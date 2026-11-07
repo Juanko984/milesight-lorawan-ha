@@ -36,8 +36,11 @@ def ws_list(hass: HomeAssistant, connection, msg: dict) -> None:
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/jobs/create",
                                   vol.Required("title"): str, vol.Optional("detail"): str,
+                                  vol.Optional("description"): vol.Any(str, None),
                                   vol.Optional("priority"): str, vol.Optional("area"): vol.Any(str, None),
-                                  vol.Optional("assignee"): vol.Any(str, None), vol.Optional("hub"): str})
+                                  vol.Optional("device"): vol.Any(str, None),
+                                  vol.Optional("assignee"): vol.Any(str, None),
+                                  vol.Optional("notify"): vol.Any(str, None), vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_create(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -49,9 +52,22 @@ def ws_create(hass: HomeAssistant, connection, msg: dict) -> None:
     if not title:
         connection.send_error(msg["id"], "invalid", "A job needs a title")
         return
-    job = mgr.create(title, detail=msg.get("detail", ""), priority=msg.get("priority", "info"),
-                     area=msg.get("area"), assignee=msg.get("assignee"))
+    job = mgr.create(title, detail=msg.get("detail", ""), description=msg.get("description") or "",
+                     priority=msg.get("priority", "info"), area=msg.get("area"), device=msg.get("device"),
+                     assignee=msg.get("assignee"), notify=msg.get("notify"))
     connection.send_result(msg["id"], {"job": job})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/jobs/people", vol.Optional("hub"): str})
+@websocket_api.require_admin
+@callback
+def ws_people(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Assignable people (Team workers + alert notify targets) for the assignee dropdown."""
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with jobs")
+        return
+    connection.send_result(msg["id"], {"people": mgr.people()})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/jobs/status",
@@ -77,7 +93,7 @@ def ws_status(hass: HomeAssistant, connection, msg: dict) -> None:
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/jobs/assign",
                                   vol.Required("job_id"): str, vol.Optional("assignee"): vol.Any(str, None),
-                                  vol.Optional("hub"): str})
+                                  vol.Optional("notify"): vol.Any(str, None), vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
 def ws_assign(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -85,8 +101,10 @@ def ws_assign(hass: HomeAssistant, connection, msg: dict) -> None:
     if mgr is None:
         connection.send_error(msg["id"], "not_found", "No gateway with jobs")
         return
+    user = getattr(connection, "user", None)
     try:
-        mgr.assign(msg["job_id"], msg.get("assignee"))
+        mgr.assign(msg["job_id"], msg.get("assignee"), notify=msg.get("notify"),
+                   by=getattr(user, "name", None))
     except ValueError as err:
         connection.send_error(msg["id"], "invalid", str(err))
         return
@@ -136,7 +154,7 @@ def ws_sweep(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], mgr.auto_check())
 
 
-JOBS_WS = (ws_list, ws_create, ws_status, ws_assign, ws_check, ws_delete, ws_sweep)
+JOBS_WS = (ws_list, ws_create, ws_people, ws_status, ws_assign, ws_check, ws_delete, ws_sweep)
 
 
 def register(hass: HomeAssistant) -> None:

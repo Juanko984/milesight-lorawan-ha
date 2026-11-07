@@ -2241,6 +2241,7 @@
     _watch() { const id = this._find(); return id ? [id] : null; }
     _ack(id) { this._hass.callService("milesight_lorawan", "acknowledge_alert", id ? { alert_id: id } : {}); }
     _snooze(id, min) { this._hass.callService("milesight_lorawan", "snooze_alert", Object.assign({ alert_id: id }, min ? { minutes: min } : {})); }
+    _clear(id) { this._hass.callService("milesight_lorawan", "clear_alert", id ? { alert_id: id } : {}); }
     _render() {
       if (!this._hass) return;
       const cfg = this._cfg, id = this._find(), st = id && this._st(id);
@@ -2277,6 +2278,7 @@
           border-radius:8px;padding:6px 13px;cursor:pointer}
         .alact:hover{border-color:var(--ms-accent);color:var(--ms-accent)}
         .alact.ack:hover{border-color:var(--ms-good);color:var(--ms-good)}
+        .alact.clear:hover{border-color:var(--ms-bad);color:var(--ms-bad)}
         .ackall{margin-left:auto}
       `;
       if (!alerts.length) {
@@ -2292,6 +2294,7 @@
               onCall.length ? "On call: " + onCall.join(", ") : "On call: nobody now"])
           : h("span", { class: "oncall off" }, [h("ha-icon", { icon: "mdi:bell-off-outline" }), "Escalation not set up"]),
         openCount > 1 ? h("button", { class: "alact ack ackall", onclick: () => this._ack(null) }, "Acknowledge all") : null,
+        alerts.length > 1 ? h("button", { class: "alact clear", title: "Resolve and clear every open alert (any still-present fault returns)", onclick: () => { if (confirm("Clear all open alerts? Any fault that is still present will be raised again.")) this._clear(null); } }, "Clear all") : null,
       ]);
       const snoozeMin = a.snooze_min || 60;
       const rows = alerts.map((al) => {
@@ -2305,10 +2308,11 @@
           h("span", { class: "badge " + stt.cls }, stt.label),
           acked && al.acknowledged_by ? h("span", {}, "by " + esc(al.acknowledged_by)) : null,
         ];
-        const acts = acked ? null : h("div", { class: "alacts" }, [
-          h("button", { class: "alact ack", onclick: () => this._ack(al.id) }, "Acknowledge"),
-          h("button", { class: "alact", onclick: () => this._snooze(al.id, snoozeMin) }, `Snooze ${Math.round(snoozeMin)} min`),
-        ]);
+        const acts = h("div", { class: "alacts" }, [
+          acked ? null : h("button", { class: "alact ack", onclick: () => this._ack(al.id) }, "Acknowledge"),
+          acked ? null : h("button", { class: "alact", onclick: () => this._snooze(al.id, snoozeMin) }, `Snooze ${Math.round(snoozeMin)} min`),
+          h("button", { class: "alact clear", title: "Resolve this alert and clear it off the board (it will come back if the fault is still present)", onclick: () => this._clear(al.id) }, "Clear"),
+        ].filter(Boolean));
         return h("div", { class: "al " + (acked ? "ok" : tone) }, [
           h("div", { class: "alr" }, [
             h("ha-icon", { icon: acked ? "mdi:check-circle" : icon }),
@@ -4757,15 +4761,26 @@
   class JobsCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
-    constructor() { super(); this._adding = false; this._toast = null; this._resolving = null; }
+    constructor() { super(); this._creating = false; this._toast = null; this._resolving = null; this._viewingId = null; this._history = false; this._q = ""; this._fpri = ""; this._fsrc = ""; this._people = null; }
     _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "jobs") return id; return null; }
+    _modalOpen() { return this._creating || this._resolving || this._viewingId || this._history; }
     set hass(hass) {
       this._hass = hass;
-      if (this._adding || this._resolving) return;              // don't clobber an open form / modal on a refresh
       const id = this._find(), s = id ? hass.states[id] : null;
       const sig = s ? s.entity_id + s.last_updated : "none";
+      if (this._modalOpen()) { this._lastSig = sig; if (this._viewingId) this._render(); return; }  // keep forms/modals; refresh detail live
       if (sig === this._lastSig) return;
       this._lastSig = sig; this._render();
+    }
+    _jobs() { const st = this._st(this._find()); return st ? (st.attributes.jobs || []) : []; }
+    _job_by(id) { return this._jobs().find((j) => j.id === id) || null; }
+    async _loadPeople() { if (this._people) return this._people; const r = await this._ws("people"); this._people = (r && r.people) || []; return this._people; }
+    _areas() { try { return Object.values(this._hass.areas || {}).map((a) => a.name).filter(Boolean).sort((a, b) => a.localeCompare(b)); } catch (e) { return []; } }
+    _devices() {
+      const S = this._hass.states, names = new Set();
+      for (const id in S) { const d = S[id].attributes && S[id].attributes.devices; if (Array.isArray(d)) d.forEach((x) => { if (x && x.name) names.add(x.name); }); }
+      this._jobs().forEach((j) => { if (j.device) names.add(j.device); });
+      return [...names].sort((a, b) => a.localeCompare(b));
     }
     set_hass_refresh() { const h = this._hass; this._lastSig = null; this.hass = h; }
     async _ws(type, extra) {
@@ -4816,7 +4831,34 @@
         .jmodal .jmact{display:flex;gap:9px;justify-content:flex-end;margin-top:2px}
         .jchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--ms-line);color:var(--ms-ink2);background:#0f1418;cursor:pointer}
         .jchip:hover{border-color:var(--ms-accent);color:var(--ms-ink)}
-        @media(max-width:720px){.jcols{grid-template-columns:1fr}}
+        .jmodal select,.jsel{width:100%;box-sizing:border-box;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:9px 11px;font:inherit;font-size:13px}
+        .jmodal.wide{width:min(560px,100%)}
+        .jmrow{display:flex;gap:10px}.jmrow>div{flex:1;min-width:0}
+        .jtool{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+        .jsearch{flex:1;min-width:150px;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:7px 11px;font:inherit;font-size:12.5px}
+        .jtool select{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:7px 9px;font:inherit;font-size:12px}
+        .jcard{cursor:pointer} .jcard:hover{border-color:var(--ms-accent)}
+        .jcard .jassl{font-size:10.5px;color:var(--ms-ink2);display:flex;align-items:center;gap:5px}
+        .jcard .jassl b{color:var(--ms-ink);font-weight:600}
+        .jviewall{font:inherit;font-size:11.5px;color:var(--ms-accent);background:none;border:0;cursor:pointer;padding:6px 3px;text-align:left;font-weight:600}
+        .jdgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+        .jdf .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ms-ink2);font-weight:600}
+        .jdf .v{font-size:13px;color:var(--ms-ink);margin-top:2px}
+        .jdesc{font-size:12.5px;color:var(--ms-ink);line-height:1.5;white-space:pre-wrap}
+        .jtl{display:flex;flex-direction:column;gap:0;margin-top:2px}
+        .jtl .ev{display:flex;gap:10px;padding:7px 0;border-left:2px solid var(--ms-line);padding-left:12px;margin-left:4px;position:relative}
+        .jtl .ev::before{content:"";position:absolute;left:-5px;top:11px;width:8px;height:8px;border-radius:50%;background:var(--ms-accent)}
+        .jtl .ev.done::before{background:var(--ms-good)} .jtl .ev.reopened::before{background:var(--ms-warn)}
+        .jtl .et{font-size:12px;color:var(--ms-ink);font-weight:600}
+        .jtl .es{font-size:11px;color:var(--ms-ink2);margin-top:1px}
+        .jtl .etime{margin-left:auto;font-size:10.5px;color:var(--ms-ink2);white-space:nowrap}
+        .jhlist{display:flex;flex-direction:column;gap:7px;max-height:60vh;overflow:auto}
+        .jhrow{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--ms-line);border-radius:9px;cursor:pointer}
+        .jhrow:hover{border-color:var(--ms-accent)}
+        .jhrow .ht{font-size:12.5px;font-weight:600;color:var(--ms-ink)}
+        .jhrow .hs{font-size:11px;color:var(--ms-ink2);margin-top:1px}
+        .jhrow .htime{margin-left:auto;font-size:10.5px;color:var(--ms-ink2);white-space:nowrap}
+        @media(max-width:720px){.jcols{grid-template-columns:1fr}.jdgrid{grid-template-columns:1fr}.jmrow{flex-direction:column}}
       `;
     }
     _render() {
@@ -4834,23 +4876,51 @@
             + `${a.unassigned ? ` · ${a.unassigned} unassigned` : ""}`)]),
         h("div", { class: "sp" }),
         h("button", { class: "jbtn", title: "Auto-checks every 30 min — this scans the site's open alerts now and raises a job for each", onclick: () => this._runNow() }, "⟳ Check now"),
-        h("button", { class: "jbtn p", onclick: () => { this._adding = true; this._render(); } }, "＋ New job"),
+        h("button", { class: "jbtn p", onclick: async () => { await this._loadPeople(); this._creating = true; this._render(); } }, "＋ New job"),
       ]);
       const body = [head];
       if (this._toast) body.push(h("div", { class: "jtoast" }, ["✓ ", this._toast]));
-      if (this._adding) body.push(this._form());
+      // search + filters (re-render only the columns on change so the search box keeps focus)
+      const search = h("input", { class: "jsearch", type: "search", placeholder: "Search jobs — title, device, area, person…", value: this._q });
+      search.addEventListener("input", () => { this._q = search.value; this._fillCols(); });
+      const priSel = h("select", {}, [["", "Any priority"], ["crit", "Urgent"], ["warn", "Normal"], ["info", "Low"]].map(([v, l]) => h("option", { value: v, selected: this._fpri === v }, l)));
+      priSel.addEventListener("change", () => { this._fpri = priSel.value; this._fillCols(); });
+      const srcSel = h("select", {}, [["", "Any source"], ["manual", "Manual"], ["alert", "From alert"], ["rule", "From rule"]].map(([v, l]) => h("option", { value: v, selected: this._fsrc === v }, l)));
+      srcSel.addEventListener("change", () => { this._fsrc = srcSel.value; this._fillCols(); });
+      body.push(h("div", { class: "jtool" }, [search, priSel, srcSel]));
+      this._colsHost = h("div", {});
+      body.push(this._colsHost);
+      if (this._creating) body.push(this._createModal());
       if (this._resolving) body.push(this._resolveModal(this._resolving));
-      const cols = [["todo", "To do"], ["doing", "In progress"], ["done", "Done"]];
-      body.push(h("div", { class: "jcols" }, cols.map(([key, label]) => {
-        let list = jobs.filter((j) => (j.status || "todo") === key);
-        if (key === "done") list = list.slice(0, 6);
-        const cards = list.length ? list.map((j) => this._job(j)) : [h("div", { class: "jempty" }, "Nothing here")];
-        return h("div", { class: "jcol" }, [
-          h("div", { class: "jhh" }, [h("span", {}, label), h("span", {}, String(jobs.filter((j) => (j.status || "todo") === key).length))]),
-          ...cards,
-        ]);
-      })));
+      if (this._viewingId) { const jv = this._job_by(this._viewingId); if (jv) body.push(this._detailModal(jv)); else this._viewingId = null; }
+      if (this._history) body.push(this._historyModal());
       this._card(h("div", { class: "wrap" }, body));
+      this._fillCols();
+    }
+    _match(j) {
+      if (this._fpri && (j.priority || "info") !== this._fpri) return false;
+      if (this._fsrc && (j.source || "manual") !== this._fsrc) return false;
+      const q = (this._q || "").trim().toLowerCase();
+      if (!q) return true;
+      return [j.title, j.detail, j.description, j.device, j.area, j.assignee, j.reason].some((x) => String(x || "").toLowerCase().includes(q));
+    }
+    _fillCols() {
+      if (!this._colsHost) return;
+      const jobs = this._jobs(), DONE_SHOWN = 6;
+      const cols = [["todo", "To do"], ["doing", "In progress"], ["done", "Done"]];
+      const node = h("div", { class: "jcols" }, cols.map(([key, label]) => {
+        const all = jobs.filter((j) => (j.status || "todo") === key && this._match(j));
+        const shown = key === "done" ? all.slice(0, DONE_SHOWN) : all;
+        const kids = shown.length ? shown.map((j) => this._job(j))
+          : [h("div", { class: "jempty" }, (this._q || this._fpri || this._fsrc) ? "No matches" : "Nothing here")];
+        if (key === "done") {
+          const totalDone = jobs.filter((j) => (j.status || "todo") === "done").length;
+          if (totalDone > DONE_SHOWN) kids.push(h("button", { class: "jviewall", onclick: () => { this._history = true; this._render(); } }, `View all ${totalDone} completed →`));
+        }
+        return h("div", { class: "jcol" }, [
+          h("div", { class: "jhh" }, [h("span", {}, label), h("span", {}, String(all.length))]), ...kids]);
+      }));
+      this._colsHost.replaceChildren(node);
     }
     async _runNow() {
       const res = await this._ws("sweep");
@@ -4858,47 +4928,76 @@
       else { const n = (res && res.created) || 0; this._toast = n ? `Created ${n} job${n === 1 ? "" : "s"} from open alerts.` : "No new issues — every open alert already has a job."; }
       this.set_hass_refresh();
     }
-    _form() {
-      const title = h("input", { type: "text", placeholder: "What needs doing? e.g. Service pump 4" });
-      const pri = h("select", {}, [["warn", "Normal"], ["crit", "Urgent"], ["info", "Low"]].map(([v, l]) => h("option", { value: v }, l)));
-      const add = async () => { const t = title.value.trim(); if (!t) { title.focus(); return; } await this._ws("create", { title: t, priority: pri.value }); this._adding = false; this.set_hass_refresh(); };
+    _assigneeSelect(current) {
+      const people = this._people || [];
+      const sel = h("select", { class: "jsel" });
+      sel.appendChild(h("option", { value: "" }, "— Unassigned —"));
+      let found = false;
+      people.forEach((p) => { const o = h("option", { value: p.name }, p.name + (p.notify ? "" : " · no phone")); if (p.name === current) { o.selected = true; found = true; } sel.appendChild(o); });
+      if (current && !found) { const o = h("option", { value: current }, current); o.selected = true; sel.appendChild(o); }
+      return sel;
+    }
+    _notifyFor(name) { const p = (this._people || []).find((x) => x.name === name); return (p && p.notify) || null; }
+    _createModal() {
+      const title = h("input", { type: "text", placeholder: "Heading — e.g. Service pump 4" });
+      const desc = h("textarea", { placeholder: "Description — what needs doing, any detail…" });
+      const pri = h("select", {}, [["warn", "Normal"], ["crit", "Urgent"], ["info", "Low"]].map(([v, l]) => h("option", { value: v, selected: v === "warn" }, l)));
+      const areaSel = h("select", {}, [h("option", { value: "" }, "— Area (optional) —"), ...this._areas().map((a) => h("option", { value: a }, a))]);
+      const devSel = h("select", {}, [h("option", { value: "" }, "— Device (optional) —"), ...this._devices().map((d) => h("option", { value: d }, d))]);
+      const assignee = this._assigneeSelect("");
+      const close = () => { this._creating = false; this.set_hass_refresh(); };
+      const add = async () => {
+        const t = title.value.trim(); if (!t) { title.focus(); return; }
+        await this._ws("create", { title: t, description: desc.value.trim() || null, priority: pri.value,
+          area: areaSel.value || null, device: devSel.value || null,
+          assignee: assignee.value || null, notify: this._notifyFor(assignee.value) });
+        this._creating = false; this.set_hass_refresh();
+      };
+      const backdrop = h("div", { class: "jmbd", onclick: (e) => { if (e.target === backdrop) close(); } }, [
+        h("div", { class: "jmodal wide" }, [
+          h("h3", {}, "New job"),
+          h("div", {}, [h("label", {}, "Heading"), title]),
+          h("div", {}, [h("label", {}, "Description"), desc]),
+          h("div", { class: "jmrow" }, [h("div", {}, [h("label", {}, "Priority"), pri]), h("div", {}, [h("label", {}, "Area"), areaSel])]),
+          h("div", { class: "jmrow" }, [h("div", {}, [h("label", {}, "Assign to"), assignee]), h("div", {}, [h("label", {}, "Device"), devSel])]),
+          h("div", { class: "jmact" }, [
+            h("button", { class: "jbtn", onclick: close }, "Cancel"),
+            h("button", { class: "jbtn p", onclick: add }, "Create job"),
+          ]),
+        ]),
+      ]);
       title.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
-      return h("div", { class: "jform" }, [title, pri,
-        h("button", { class: "jbtn p", onclick: add }, "Add"),
-        h("button", { class: "jbtn", onclick: () => { this._adding = false; this._render(); } }, "Cancel")]);
+      return backdrop;
     }
     _ms(ts) { return typeof ts === "number" ? ts * 1000 : Date.parse(ts); }   // job timestamps are epoch seconds
     _dt(ts) { const t = this._ms(ts); if (!Number.isFinite(t)) return "—"; try { return new Date(t).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return new Date(t).toISOString().slice(0, 16).replace("T", " "); } }
     _dur(s) { s = Math.max(0, s); if (s < 60) return "under a minute"; if (s < 3600) return `${Math.round(s / 60)}m`; if (s < 86400) return `${Math.round(s / 3600)}h`; return `${Math.round(s / 86400)}d`; }
     async _setStatus(j, status, extra) { await this._ws("status", { job_id: j.id, status, ...(extra || {}) }); this.set_hass_refresh(); }
-    _job(j) {
+    _badges(j, { compact } = {}) {
       const sr = j.source_rule || {}, fromRule = j.source === "rule", fromAlert = j.source === "alert";
-      const status = j.status || "todo", auto = fromRule || fromAlert;
-      const foot = [];
-      if (status === "todo") { foot.push(h("button", { class: "jbtn sm", onclick: () => this._setStatus(j, "doing") }, "Start")); foot.push(h("button", { class: "jbtn sm p", onclick: () => { this._resolving = j; this._render(); } }, "Done")); }
-      else if (status === "doing") foot.push(h("button", { class: "jbtn sm p", onclick: () => { this._resolving = j; this._render(); } }, "Done"));
-      else foot.push(h("button", { class: "jbtn sm", onclick: () => this._setStatus(j, "todo") }, "Reopen"));
-      const ass = h("input", { class: "jass", type: "text", value: j.assignee || "", placeholder: "assign…" });
-      ass.addEventListener("change", async () => { await this._ws("assign", { job_id: j.id, assignee: ass.value.trim() || null }); this.set_hass_refresh(); });
-
-      // --- badges: where it came from, urgency, how often it's fired, its clearance state ---
-      const meta = [];
+      const status = j.status || "todo", auto = fromRule || fromAlert, meta = [];
       if (fromRule) meta.push(h("span", { class: "jbadge" }, [(sr.icon || "⚡") + " from a rule"]));
       if (fromAlert) meta.push(h("span", { class: "jbadge" }, "⚠ from an alert"));
-      if (status !== "done" && (j.priority === "crit")) meta.push(h("span", { class: "jbadge crit" }, "urgent"));
+      if (status !== "done" && j.priority === "crit") meta.push(h("span", { class: "jbadge crit" }, "urgent"));
       const trig = Number(j.trigger_count || 1);
       if (trig > 1) meta.push(h("span", { class: "jbadge warn", title: "How many times this fault has fired (first alert plus each time it came back)" }, `triggered ${trig}×`));
-      // clearance countdown: a self-closing job whose alert has gone quiet is counting down to auto-close
       let clearIn = null;
-      if (auto && j.auto_close && status !== "done" && typeof j.clear_seen_ts === "number") {
-        clearIn = Math.max(0, 1200 - (Date.now() / 1000 - j.clear_seen_ts));   // CLEAR_GRACE_S = 1200s
-      }
+      if (auto && j.auto_close && status !== "done" && typeof j.clear_seen_ts === "number") clearIn = Math.max(0, 1200 - (Date.now() / 1000 - j.clear_seen_ts));
       if (clearIn !== null) meta.push(h("span", { class: "jbadge clear", title: "The fault has cleared; closing automatically once it stays clear" }, `✓ fault cleared · closing in ${this._dur(clearIn)}`));
       else if (auto && j.auto_close && status !== "done") meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears — only after it stays clear for 20 min, so a flapping device won't close it early" }, "self-closing"));
       if (status !== "done" && !j.assignee) meta.push(h("span", { class: "jbadge warn", title: "No one is assigned to this job yet" }, "⚠ needs assigning"));
       if (status === "done" && j.resolved_by === "sensor") meta.push(h("span", { class: "jbadge self" }, "cleared by sensor"));
+      return meta;
+    }
+    _job(j) {
+      const status = j.status || "todo", auto = j.source === "rule" || j.source === "alert";
+      const foot = [];
+      const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+      if (status === "todo") { foot.push(h("button", { class: "jbtn sm", onclick: stop(() => this._setStatus(j, "doing")) }, "Start")); foot.push(h("button", { class: "jbtn sm p", onclick: stop(() => { this._resolving = j; this._render(); }) }, "Done")); }
+      else if (status === "doing") foot.push(h("button", { class: "jbtn sm p", onclick: stop(() => { this._resolving = j; this._render(); }) }, "Done"));
+      else foot.push(h("button", { class: "jbtn sm", onclick: stop(() => this._setStatus(j, "todo")) }, "Reopen"));
 
-      // --- info line: created / age, or when & who resolved ---
+      const meta = this._badges(j);
       const info = [];
       if (status === "done" && j.done_ts) {
         const who = j.resolved_by && j.resolved_by !== "sensor" && j.resolved_by !== "person" ? ` · by ${esc(j.resolved_by)}` : (j.resolved_by === "sensor" ? " · by the sensor" : "");
@@ -4911,14 +5010,16 @@
       if (auto && j.created_ts) { info.push(h("span", { class: "dot" }, "·")); info.push(h("span", {}, "auto-created")); }
 
       const kids = [h("div", { class: "jt" }, esc(j.title))];
-      if (j.detail) kids.push(h("div", { class: "jd" }, esc(j.detail)));
-      else if (auto && j.reason) kids.push(h("div", { class: "jd" }, esc(j.reason)));
+      const sub = j.detail || (auto ? j.reason : "") || j.description;
+      if (sub) kids.push(h("div", { class: "jd" }, esc(sub)));
       if (meta.length) kids.push(h("div", { class: "jmeta" }, meta));
       if (info.length) kids.push(h("div", { class: "jinfo" }, info));
+      if (status !== "done" && j.assignee) kids.push(h("div", { class: "jassl" }, ["👤 ", h("b", {}, esc(j.assignee))]));
       if (status === "done" && j.resolution) kids.push(h("div", { class: "jres" }, ["📝 ", esc(j.resolution)]));
-      kids.push(h("div", { class: "jfoot" }, [...foot, ass,
-        h("button", { class: "jx", title: "Delete", onclick: async () => { await this._ws("delete", { job_id: j.id }); this.set_hass_refresh(); } }, "✕")]));
-      return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : "") }, kids);
+      kids.push(h("div", { class: "jfoot", onclick: (e) => e.stopPropagation() }, [...foot,
+        h("button", { class: "jx", title: "Delete", onclick: stop(async () => { await this._ws("delete", { job_id: j.id }); this.set_hass_refresh(); }) }, "✕")]));
+      return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : ""), title: "Click to open",
+        onclick: async () => { await this._loadPeople(); this._viewingId = j.id; this._render(); } }, kids);
     }
     _resolveModal(j) {
       const auto = j.source === "rule" || j.source === "alert";
@@ -4944,6 +5045,81 @@
           ]),
         ]),
       ]);
+      return backdrop;
+    }
+    _timeline(j) {
+      const HK = { created: "Created", started: "Started", done: "Completed", reopened: "Reopened", assigned: "Assigned", unassigned: "Unassigned", note: "Note" };
+      const hist = (j.history || []).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      if (!hist.length) return null;
+      return h("div", { class: "jtl" }, hist.map((e) => h("div", { class: "ev " + (e.kind || "") }, [
+        h("div", {}, [h("div", { class: "et" }, HK[e.kind] || e.kind || "Update"),
+          (e.note || e.by) ? h("div", { class: "es" }, [e.note ? esc(e.note) : "", e.by ? (e.note ? " · " : "") + "by " + esc(e.by) : ""].join("")) : null]),
+        h("span", { class: "etime" }, this._dt(e.ts)),
+      ])));
+    }
+    _detailModal(j) {
+      const status = j.status || "todo", auto = j.source === "rule" || j.source === "alert";
+      const close = () => { this._viewingId = null; this.set_hass_refresh(); };
+      const srcLabel = j.source === "alert" ? "From an alert" : j.source === "rule" ? "From a rule" : "Manual";
+      const priLabel = { crit: "Urgent", warn: "Normal", info: "Low", ok: "Low" }[j.priority] || "Normal";
+      const field = (k, v) => v ? h("div", { class: "jdf" }, [h("div", { class: "k" }, k), h("div", { class: "v" }, v)]) : null;
+      const assignee = this._assigneeSelect(j.assignee || "");
+      assignee.addEventListener("change", async () => {
+        await this._ws("assign", { job_id: j.id, assignee: assignee.value || null, notify: this._notifyFor(assignee.value) });
+        this.set_hass_refresh();
+      });
+      // action buttons
+      const acts = [];
+      if (status === "todo") { acts.push(h("button", { class: "jbtn", onclick: async () => { await this._setStatus(j, "doing"); this._viewingId = null; this.set_hass_refresh(); } }, "Start")); acts.push(h("button", { class: "jbtn p", onclick: () => { this._viewingId = null; this._resolving = j; this._render(); } }, "Mark done")); }
+      else if (status === "doing") acts.push(h("button", { class: "jbtn p", onclick: () => { this._viewingId = null; this._resolving = j; this._render(); } }, "Mark done"));
+      else acts.push(h("button", { class: "jbtn", onclick: async () => { await this._setStatus(j, "todo"); this._viewingId = null; this.set_hass_refresh(); } }, "Reopen"));
+      acts.push(h("button", { class: "jbtn", style: "margin-right:auto", onclick: async () => { if (!confirm("Delete this job?")) return; await this._ws("delete", { job_id: j.id }); this._viewingId = null; this.set_hass_refresh(); } }, "Delete"));
+
+      const grid = [
+        field("Status", { todo: "To do", doing: "In progress", done: "Completed" }[status]),
+        field("Priority", priLabel),
+        field("Source", srcLabel + (auto && j.trigger_count > 1 ? ` · triggered ${j.trigger_count}×` : "")),
+        field("Area", j.area),
+        field("Device", j.device),
+        field("Created", this._dt(j.created_ts)),
+        status === "done" ? field("Completed", this._dt(j.done_ts) + (j.resolved_by && j.resolved_by !== "person" ? " · " + (j.resolved_by === "sensor" ? "by the sensor" : "by " + j.resolved_by) : "")) : field("Open for", this._dur(Date.now() / 1000 - (j.created_ts || Date.now() / 1000))),
+      ].filter(Boolean);
+
+      const body = [
+        h("h3", {}, esc(j.title)),
+        h("div", { class: "jmeta" }, this._badges(j)),
+        (j.description || j.detail || j.reason) ? h("div", {}, [h("label", {}, "Description"), h("div", { class: "jdesc" }, esc(j.description || j.detail || j.reason))]) : null,
+        h("div", { class: "jdgrid" }, grid),
+        h("div", {}, [h("label", {}, "Assigned to"), assignee]),
+        (status === "done" && j.resolution) ? h("div", {}, [h("label", {}, "What was done"), h("div", { class: "jres" }, ["📝 ", esc(j.resolution)])]) : null,
+        h("div", {}, [h("label", {}, "Activity"), this._timeline(j) || h("div", { class: "jmsub" }, "No activity yet.")]),
+        h("div", { class: "jmact" }, acts),
+      ].filter(Boolean);
+      const backdrop = h("div", { class: "jmbd", onclick: (e) => { if (e.target === backdrop) close(); } }, [
+        h("div", { class: "jmodal wide", style: "max-height:86vh;overflow:auto" }, body)]);
+      return backdrop;
+    }
+    _historyModal() {
+      const done = this._jobs().filter((j) => (j.status || "todo") === "done").sort((a, b) => (b.done_ts || 0) - (a.done_ts || 0));
+      const q = h("input", { class: "jsearch", type: "search", placeholder: "Search completed jobs…", value: this._q, style: "width:100%;box-sizing:border-box" });
+      const listHost = h("div", { class: "jhlist" });
+      const fill = () => {
+        const term = q.value.trim().toLowerCase();
+        const rows = done.filter((j) => !term || [j.title, j.detail, j.description, j.device, j.area, j.resolution, j.resolved_by].some((x) => String(x || "").toLowerCase().includes(term)));
+        listHost.replaceChildren(...(rows.length ? rows.map((j) => h("div", { class: "jhrow", onclick: async () => { await this._loadPeople(); this._history = false; this._viewingId = j.id; this._render(); } }, [
+          h("div", { style: "min-width:0" }, [h("div", { class: "ht" }, esc(j.title)),
+            h("div", { class: "hs" }, (j.resolved_by === "sensor" ? "cleared by sensor" : "by " + esc(j.resolved_by || "—")) + (j.resolution ? " · " + esc(j.resolution) : ""))]),
+          h("span", { class: "htime" }, this._dt(j.done_ts)),
+        ])) : [h("div", { class: "jempty" }, "No matches")]));
+      };
+      q.addEventListener("input", fill);
+      const close = () => { this._history = false; this.set_hass_refresh(); };
+      const backdrop = h("div", { class: "jmbd", onclick: (e) => { if (e.target === backdrop) close(); } }, [
+        h("div", { class: "jmodal wide", style: "max-height:86vh" }, [
+          h("div", { style: "display:flex;align-items:center;gap:10px" }, [h("h3", { style: "flex:1" }, `Completed jobs (${done.length})`), h("button", { class: "jbtn sm", onclick: close }, "Close")]),
+          q, listHost,
+        ])]);
+      fill();
       return backdrop;
     }
   }
