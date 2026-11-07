@@ -56,6 +56,8 @@ def ws_create(hass: HomeAssistant, connection, msg: dict) -> None:
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/jobs/status",
                                   vol.Required("job_id"): str, vol.Required("status"): str,
+                                  vol.Optional("resolution"): vol.Any(str, None),
+                                  vol.Optional("resolved_by"): vol.Any(str, None),
                                   vol.Optional("hub"): str})
 @websocket_api.require_admin
 @callback
@@ -65,7 +67,8 @@ def ws_status(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway with jobs")
         return
     try:
-        mgr.set_status(msg["job_id"], msg["status"])
+        mgr.set_status(msg["job_id"], msg["status"], resolved_by=msg.get("resolved_by"),
+                       resolution=msg.get("resolution"))
     except ValueError as err:
         connection.send_error(msg["id"], "invalid", str(err))
         return
@@ -125,12 +128,12 @@ def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
 @websocket_api.require_admin
 @callback
 def ws_sweep(hass: HomeAssistant, connection, msg: dict) -> None:
-    """Scan the site's open alerts and raise a job for each one that doesn't have one yet."""
+    """Reconcile existing alert-jobs and raise a job for each open alert that doesn't have one yet."""
     mgr = _manager(hass, msg.get("hub"))
     if mgr is None:
         connection.send_error(msg["id"], "not_found", "No gateway with jobs")
         return
-    connection.send_result(msg["id"], mgr.sweep())
+    connection.send_result(msg["id"], mgr.auto_check())
 
 
 JOBS_WS = (ws_list, ws_create, ws_status, ws_assign, ws_check, ws_delete, ws_sweep)

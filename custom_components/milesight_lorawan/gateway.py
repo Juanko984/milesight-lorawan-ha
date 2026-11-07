@@ -361,7 +361,7 @@ class OpenAlertsSensor(SensorEntity):
                 out.append(n[len("mobile_app_"):] if n.startswith("mobile_app_") else n)
             return out
         alerts = [{"id": a["id"], "key": a.get("key"), "title": a["title"], "message": a["message"], "severity": a.get("severity"),
-                   "category": a.get("category"), "since": fmt(a.get("first")),
+                   "category": a.get("category"), "since": fmt(a.get("first")), "flaps": a.get("flaps", 0),
                    "status": "acknowledged" if a.get("acked") else ("quiet hours" if a.get("held")
                                                                     else level.get(a.get("level", 0))),
                    "acknowledged_by": (a.get("acked") or {}).get("by"),

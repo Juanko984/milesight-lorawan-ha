@@ -2,6 +2,24 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.98.0
+- **Fixed: offline devices closing themselves.** A still-offline device could have its job marked **Done
+  ("cleared by sensor")** and then re-raised, so the same device showed up in both **To do** and **Done**. The
+  cause was a flapping alert: a device that misses a few uplinks briefly drops off the open-alerts list, and the
+  job was closed on that blip. A swept job now only auto-closes after its alert has **stayed clear for 20
+  minutes** — a momentary reappearance cancels the close. While the alert is live, the job's trigger count stays
+  up to date.
+- **New: jobs auto-create every 30 minutes.** You no longer have to press the button for jobs to appear. A
+  background check runs **every 30 minutes** (and shortly after startup) to raise a job for each open site alert
+  and reconcile the existing ones. The button is now **⟳ Check now** — the same check, on demand.
+- **Richer job cards.** Each card now shows **when it was created and how long it's been open**, **how many times
+  the fault has triggered** (e.g. *triggered 4×*), an **urgent** flag for critical jobs, and — for a self-closing
+  job whose fault has cleared — a live **"✓ fault cleared · closing in 15m"** countdown. Auto-created jobs state
+  the **reason** they were raised and are marked **auto-created**.
+- **New: a write-up when you mark a job done.** Marking a job **Done** now opens a short dialog to record **who
+  resolved it** and **what was done** (with one-tap chips for common fixes). The note shows on the done card, so
+  there's a history of how each fault was handled. When the sensor closes a job itself, it records its own reason.
+
 ## 0.97.0
 - **New: lite payroll on the Team page.** A **Payroll** tab shows, per worker and per month: **hours worked,
   days worked vs expected, days absent, and gross pay** — with a **total to pay** for the month and

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
@@ -22,6 +23,8 @@ from .const import DOMAIN, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 SIGNAL_JOBS = f"{DOMAIN}_jobs_{{}}"   # .format(hub entry_id)
+SWEEP_INTERVAL_MIN = 30               # the auto-check cadence: raise jobs for open alerts every half hour
+SWEEP_FIRST_DELAY_S = 45              # a first pass soon after startup, once the alerts sensor is ready
 
 
 class JobsManager:
@@ -56,11 +59,12 @@ class JobsManager:
         self.refresh()
         return job
 
-    def set_status(self, jid: str, status: str, resolved_by: str | None = None) -> None:
+    def set_status(self, jid: str, status: str, resolved_by: str | None = None,
+                   resolution: str | None = None) -> None:
         j = self._get(jid)
         if j is None:
             raise ValueError("job not found")
-        jc.advance(j, status, ts=time.time(), resolved_by=resolved_by)
+        jc.advance(j, status, ts=time.time(), resolved_by=resolved_by, resolution=resolution)
         self.refresh()
 
     def assign(self, jid: str, who: str | None) -> None:
@@ -150,24 +154,50 @@ class JobsManager:
         return {"created": created, "total": len(alerts)}
 
     def sync_alerts(self) -> None:
-        """Close open alert-sourced jobs whose alert is no longer open (the fault cleared).
+        """Keep open alert-sourced jobs in step with the live alerts, and close them when the fault clears.
 
-        Keyed on the alert's stable key, and a no-op when the alerts can't be read, so a job for a
-        still-open alert is never closed by mistake.
+        Keyed on the alert's stable key, and a no-op when the alerts can't be read. A job is NOT closed the
+        instant its alert drops off the list: a flapping device (a LoRaWAN node that misses a few uplinks)
+        briefly disappears from the open-alerts set, and closing on that blip is exactly the bug where an
+        offline device's job kept getting marked done and then re-raised. Instead we stamp when the alert
+        first went quiet (clear_seen_ts) and only close once it has stayed gone for jc.CLEAR_GRACE_S. While
+        the alert is present we refresh the live trigger count and last-seen stamp.
         """
         alerts = self._open_alerts()
         if alerts is None:
             return
-        open_keys = {jc.alert_key(a) for a in alerts}
+        open_by_key = {jc.alert_key(a): a for a in alerts}
+        now = time.time()
         changed = False
         for j in self.jobs:
             if not jc.is_open(j) or j.get("source") != "alert":
                 continue
-            if self._job_alert_key(j) not in open_keys:
-                jc.advance(j, "done", ts=time.time(), resolved_by="sensor")
+            al = open_by_key.get(self._job_alert_key(j))
+            if al is not None:                       # still firing — keep it current, cancel any pending close
+                if j.get("clear_seen_ts") is not None:
+                    j["clear_seen_ts"] = None
+                    changed = True
+                j["last_seen_ts"] = now
+                triggers = jc.alert_triggers(al)
+                if triggers != j.get("trigger_count"):
+                    j["trigger_count"] = triggers
+                    changed = True
+                continue
+            if j.get("clear_seen_ts") is None:       # first time we've seen it gone — start the grace, don't close
+                j["clear_seen_ts"] = now
+                changed = True
+            elif now - j["clear_seen_ts"] >= jc.CLEAR_GRACE_S:
+                jc.advance(j, "done", ts=now, resolved_by="sensor",
+                           resolution="Fault cleared — the device reported again and the alert resolved.")
                 changed = True
         if changed:
             self.refresh()
+
+    # -- the periodic auto-check (every 30 min; see async_setup_jobs) ------
+    def auto_check(self, _now: Any = None) -> dict[str, Any]:
+        """Raise jobs for any new open alerts and reconcile existing ones. Runs on a timer and on demand."""
+        self.sync_alerts()
+        return self.sweep()
 
     def sync_auto(self, active_keys: set[str]) -> None:
         """Close every open auto-close job whose rule/target is no longer firing (the reading cleared)."""
@@ -217,11 +247,23 @@ class JobsSensor(SensorEntity):
 
 async def async_setup_jobs(hass: HomeAssistant, entry: ConfigEntry) -> tuple[JobsManager, list]:
     from homeassistant.helpers.storage import Store
+    from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
     mgr = JobsManager(hass, entry)
     mgr.store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.jobs_{entry.entry_id}")
     saved = await mgr.store.async_load()
     if isinstance(saved, dict) and isinstance(saved.get("jobs"), list):
-        mgr.jobs = saved["jobs"]
+        mgr.jobs = [jc.migrate(j) for j in saved["jobs"]]
     mgr.refresh()
+
+    @callback
+    def _auto(now: Any = None) -> None:
+        # sweep open alerts into jobs and reconcile the existing ones, so jobs appear without "Run now"
+        try:
+            mgr.auto_check()
+        except Exception:  # noqa: BLE001 - a bad tick must never take the integration down
+            _LOGGER.warning("Jobs auto-check failed", exc_info=True)
+
+    entry.async_on_unload(async_track_time_interval(hass, _auto, timedelta(minutes=SWEEP_INTERVAL_MIN)))
+    entry.async_on_unload(async_call_later(hass, SWEEP_FIRST_DELAY_S, _auto))
     return mgr, [JobsSensor(hass, entry, mgr)]

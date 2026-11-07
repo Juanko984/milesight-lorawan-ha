@@ -4756,11 +4756,11 @@
   class JobsCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
-    constructor() { super(); this._adding = false; this._toast = null; }
+    constructor() { super(); this._adding = false; this._toast = null; this._resolving = null; }
     _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "jobs") return id; return null; }
     set hass(hass) {
       this._hass = hass;
-      if (this._adding) return;                                 // don't clobber the new-job form on a refresh
+      if (this._adding || this._resolving) return;              // don't clobber an open form / modal on a refresh
       const id = this._find(), s = id ? hass.states[id] : null;
       const sig = s ? s.entity_id + s.last_updated : "none";
       if (sig === this._lastSig) return;
@@ -4796,10 +4796,25 @@
         .jbadge{display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:650;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
         .jbadge.self{background:color-mix(in srgb,var(--ms-good) 15%,transparent);color:var(--ms-good)}
         .jbadge.warn{background:color-mix(in srgb,var(--ms-warn) 16%,transparent);color:var(--ms-warn)}
+        .jbadge.crit{background:color-mix(in srgb,var(--ms-bad) 16%,transparent);color:var(--ms-bad)}
+        .jbadge.clear{background:color-mix(in srgb,var(--ms-good) 13%,transparent);color:var(--ms-good)}
+        .jinfo{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10.5px;color:var(--ms-ink2);opacity:.9}
+        .jinfo .dot{opacity:.5}
+        .jres{font-size:11px;color:var(--ms-ink);line-height:1.4;background:color-mix(in srgb,var(--ms-good) 9%,transparent);border-left:2px solid color-mix(in srgb,var(--ms-good) 55%,transparent);border-radius:5px;padding:5px 8px}
         .jass{background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:7px;padding:3px 7px;font:inherit;font-size:11.5px;width:96px}
         .jfoot{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
         .jx{margin-left:auto;border:0;background:none;color:var(--ms-ink2);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px}
         .jempty{font-size:11.5px;color:var(--ms-ink2);padding:5px 4px}
+        .jmbd{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+        .jmodal{width:min(440px,100%);background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+        .jmodal h3{margin:0;font-size:15px;font-weight:700;color:var(--ms-ink)}
+        .jmodal .jmsub{font-size:12px;color:var(--ms-ink2);margin-top:-6px}
+        .jmodal label{font-size:11.5px;font-weight:600;color:var(--ms-ink2);display:block;margin-bottom:4px}
+        .jmodal input,.jmodal textarea{width:100%;box-sizing:border-box;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:9px;padding:9px 11px;font:inherit;font-size:13px;resize:vertical}
+        .jmodal textarea{min-height:84px}
+        .jmodal .jmact{display:flex;gap:9px;justify-content:flex-end;margin-top:2px}
+        .jchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--ms-line);color:var(--ms-ink2);background:#0f1418;cursor:pointer}
+        .jchip:hover{border-color:var(--ms-accent);color:var(--ms-ink)}
         @media(max-width:720px){.jcols{grid-template-columns:1fr}}
       `;
     }
@@ -4813,14 +4828,17 @@
       const head = h("div", { class: "jh-head" }, [
         h("div", { class: "ic" }, "📋"),
         h("div", {}, [h("div", { class: "ti" }, "Jobs"),
-          h("div", { class: "sub" }, `${a.open || 0} open · ${a.doing || 0} in progress${a.from_sensor_open ? ` · ${a.from_sensor_open} from sensors` : ""}`)]),
+          h("div", { class: "sub" }, `${a.open || 0} open · ${a.doing || 0} in progress`
+            + `${a.from_sensor_open ? ` · ${a.from_sensor_open} from sensors` : ""}`
+            + `${a.unassigned ? ` · ${a.unassigned} unassigned` : ""}`)]),
         h("div", { class: "sp" }),
-        h("button", { class: "jbtn", title: "Scan the site's open alerts and raise a job for each", onclick: () => this._runNow() }, "⟳ Run now"),
+        h("button", { class: "jbtn", title: "Auto-checks every 30 min — this scans the site's open alerts now and raises a job for each", onclick: () => this._runNow() }, "⟳ Check now"),
         h("button", { class: "jbtn p", onclick: () => { this._adding = true; this._render(); } }, "＋ New job"),
       ]);
       const body = [head];
       if (this._toast) body.push(h("div", { class: "jtoast" }, ["✓ ", this._toast]));
       if (this._adding) body.push(this._form());
+      if (this._resolving) body.push(this._resolveModal(this._resolving));
       const cols = [["todo", "To do"], ["doing", "In progress"], ["done", "Done"]];
       body.push(h("div", { class: "jcols" }, cols.map(([key, label]) => {
         let list = jobs.filter((j) => (j.status || "todo") === key);
@@ -4848,30 +4866,84 @@
         h("button", { class: "jbtn p", onclick: add }, "Add"),
         h("button", { class: "jbtn", onclick: () => { this._adding = false; this._render(); } }, "Cancel")]);
     }
+    _ms(ts) { return typeof ts === "number" ? ts * 1000 : Date.parse(ts); }   // job timestamps are epoch seconds
+    _dt(ts) { const t = this._ms(ts); if (!Number.isFinite(t)) return "—"; try { return new Date(t).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return new Date(t).toISOString().slice(0, 16).replace("T", " "); } }
+    _dur(s) { s = Math.max(0, s); if (s < 60) return "under a minute"; if (s < 3600) return `${Math.round(s / 60)}m`; if (s < 86400) return `${Math.round(s / 3600)}h`; return `${Math.round(s / 86400)}d`; }
+    async _setStatus(j, status, extra) { await this._ws("status", { job_id: j.id, status, ...(extra || {}) }); this.set_hass_refresh(); }
     _job(j) {
-      const sr = j.source_rule || {}, fromRule = j.source === "rule";
-      const status = j.status || "todo";
-      const act = async (s) => { await this._ws("status", { job_id: j.id, status: s }); this.set_hass_refresh(); };
+      const sr = j.source_rule || {}, fromRule = j.source === "rule", fromAlert = j.source === "alert";
+      const status = j.status || "todo", auto = fromRule || fromAlert;
       const foot = [];
-      if (status === "todo") { foot.push(h("button", { class: "jbtn sm", onclick: () => act("doing") }, "Start")); foot.push(h("button", { class: "jbtn sm p", onclick: () => act("done") }, "Done")); }
-      else if (status === "doing") foot.push(h("button", { class: "jbtn sm p", onclick: () => act("done") }, "Done"));
-      else foot.push(h("button", { class: "jbtn sm", onclick: () => act("todo") }, "Reopen"));
+      if (status === "todo") { foot.push(h("button", { class: "jbtn sm", onclick: () => this._setStatus(j, "doing") }, "Start")); foot.push(h("button", { class: "jbtn sm p", onclick: () => { this._resolving = j; this._render(); } }, "Done")); }
+      else if (status === "doing") foot.push(h("button", { class: "jbtn sm p", onclick: () => { this._resolving = j; this._render(); } }, "Done"));
+      else foot.push(h("button", { class: "jbtn sm", onclick: () => this._setStatus(j, "todo") }, "Reopen"));
       const ass = h("input", { class: "jass", type: "text", value: j.assignee || "", placeholder: "assign…" });
       ass.addEventListener("change", async () => { await this._ws("assign", { job_id: j.id, assignee: ass.value.trim() || null }); this.set_hass_refresh(); });
-      const fromAlert = j.source === "alert";
+
+      // --- badges: where it came from, urgency, how often it's fired, its clearance state ---
       const meta = [];
       if (fromRule) meta.push(h("span", { class: "jbadge" }, [(sr.icon || "⚡") + " from a rule"]));
       if (fromAlert) meta.push(h("span", { class: "jbadge" }, "⚠ from an alert"));
-      if ((fromRule || fromAlert) && j.auto_close && status !== "done") meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears" }, "self-closing"));
+      if (status !== "done" && (j.priority === "crit")) meta.push(h("span", { class: "jbadge crit" }, "urgent"));
+      const trig = Number(j.trigger_count || 1);
+      if (trig > 1) meta.push(h("span", { class: "jbadge warn", title: "How many times this fault has fired (first alert plus each time it came back)" }, `triggered ${trig}×`));
+      // clearance countdown: a self-closing job whose alert has gone quiet is counting down to auto-close
+      let clearIn = null;
+      if (auto && j.auto_close && status !== "done" && typeof j.clear_seen_ts === "number") {
+        clearIn = Math.max(0, 1200 - (Date.now() / 1000 - j.clear_seen_ts));   // CLEAR_GRACE_S = 1200s
+      }
+      if (clearIn !== null) meta.push(h("span", { class: "jbadge clear", title: "The fault has cleared; closing automatically once it stays clear" }, `✓ fault cleared · closing in ${this._dur(clearIn)}`));
+      else if (auto && j.auto_close && status !== "done") meta.push(h("span", { class: "jbadge self", title: "Closes itself when the reading clears — only after it stays clear for 20 min, so a flapping device won't close it early" }, "self-closing"));
       if (status !== "done" && !j.assignee) meta.push(h("span", { class: "jbadge warn", title: "No one is assigned to this job yet" }, "⚠ needs assigning"));
       if (status === "done" && j.resolved_by === "sensor") meta.push(h("span", { class: "jbadge self" }, "cleared by sensor"));
-      return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : "") }, [
-        h("div", { class: "jt" }, esc(j.title)),
-        j.detail ? h("div", { class: "jd" }, esc(j.detail)) : null,
-        meta.length ? h("div", { class: "jmeta" }, meta) : null,
-        h("div", { class: "jfoot" }, [...foot, ass,
-          h("button", { class: "jx", title: "Delete", onclick: async () => { await this._ws("delete", { job_id: j.id }); this.set_hass_refresh(); } }, "✕")]),
+
+      // --- info line: created / age, or when & who resolved ---
+      const info = [];
+      if (status === "done" && j.done_ts) {
+        const who = j.resolved_by && j.resolved_by !== "sensor" && j.resolved_by !== "person" ? ` · by ${esc(j.resolved_by)}` : (j.resolved_by === "sensor" ? " · by the sensor" : "");
+        info.push(h("span", {}, `Done ${this._dt(j.done_ts)}${who}`));
+      } else if (j.created_ts) {
+        info.push(h("span", {}, `Created ${this._dt(j.created_ts)}`));
+        info.push(h("span", { class: "dot" }, "·"));
+        info.push(h("span", {}, `open ${this._dur(Date.now() / 1000 - j.created_ts)}`));
+      }
+      if (auto && j.created_ts) { info.push(h("span", { class: "dot" }, "·")); info.push(h("span", {}, "auto-created")); }
+
+      const kids = [h("div", { class: "jt" }, esc(j.title))];
+      if (j.detail) kids.push(h("div", { class: "jd" }, esc(j.detail)));
+      else if (auto && j.reason) kids.push(h("div", { class: "jd" }, esc(j.reason)));
+      if (meta.length) kids.push(h("div", { class: "jmeta" }, meta));
+      if (info.length) kids.push(h("div", { class: "jinfo" }, info));
+      if (status === "done" && j.resolution) kids.push(h("div", { class: "jres" }, ["📝 ", esc(j.resolution)]));
+      kids.push(h("div", { class: "jfoot" }, [...foot, ass,
+        h("button", { class: "jx", title: "Delete", onclick: async () => { await this._ws("delete", { job_id: j.id }); this.set_hass_refresh(); } }, "✕")]));
+      return h("div", { class: "jcard " + (j.priority || "info") + (status === "done" ? " done" : "") }, kids);
+    }
+    _resolveModal(j) {
+      const auto = j.source === "rule" || j.source === "alert";
+      const who = h("input", { type: "text", value: j.assignee || "", placeholder: "Your name" });
+      const note = h("textarea", { placeholder: auto ? "What did you find and fix? e.g. replaced the gateway antenna; WS301 back online." : "What was done to resolve this?" });
+      const close = () => { this._resolving = null; this.set_hass_refresh(); };
+      const submit = async () => {
+        await this._setStatus(j, "done", { resolution: note.value.trim() || null, resolved_by: who.value.trim() || null });
+        this._resolving = null; this.set_hass_refresh();
+      };
+      const chips = ["Replaced / repaired hardware", "Reset / power-cycled the device", "Cleared automatically — no action", "Checked, nothing wrong (false alarm)"]
+        .map((t) => h("button", { class: "jchip", onclick: () => { note.value = note.value ? note.value + "; " + t : t; note.focus(); } }, t));
+      const backdrop = h("div", { class: "jmbd", onclick: (e) => { if (e.target === backdrop) close(); } }, [
+        h("div", { class: "jmodal" }, [
+          h("h3", {}, "Mark done"),
+          h("div", { class: "jmsub" }, esc(j.title)),
+          h("div", {}, [h("label", {}, "Resolved by"), who]),
+          h("div", {}, [h("label", {}, "What was done"), note,
+            h("div", { style: "display:flex;gap:6px;flex-wrap:wrap;margin-top:7px" }, chips)]),
+          h("div", { class: "jmact" }, [
+            h("button", { class: "jbtn", onclick: close }, "Cancel"),
+            h("button", { class: "jbtn p", onclick: submit }, "✓ Mark done"),
+          ]),
+        ]),
       ]);
+      return backdrop;
     }
   }
 
