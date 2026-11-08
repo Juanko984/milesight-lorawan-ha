@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.102.0
+- **Set who's on call straight from the Alerts page.** The Escalation card now has an **On call dropdown** —
+  pick anyone from your notification services (mobile apps, platform) and it's saved immediately, no need to
+  open the integration options.
+- **"persistent_notification" now reads "Platform only"** everywhere it showed before (the On-call status tile,
+  the Open-alerts header, and the Escalation card's on-call / primary / last-sent rows), and `mobile_app_` push
+  targets still show as just the person's name.
+- **Alerts page reordered:** the **Last 7 days** summary and **Escalation & notifications** now sit between
+  **Status** and **Open alerts**, so the context is above the live list instead of below it.
+
 ## 0.101.0
 - **A proper device install on the commissioning screen.** The **"New device"** form now captures everything
   needed to set a device up in one go, not just model + name + area:

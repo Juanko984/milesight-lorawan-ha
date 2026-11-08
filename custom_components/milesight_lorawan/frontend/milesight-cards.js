@@ -23,6 +23,17 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const esc = (s) => String(s == null ? "" : s);
 
+  // friendly label for a notify target: "notify.persistent_notification" → "Platform only",
+  // "notify.mobile_app_juan" / "mobile_app_juan" → "Juan", anything else → its trailing name.
+  function prettyTarget(t) {
+    let s = String(t == null ? "" : t).trim().replace(/^notify\./, "");
+    if (!s) return "";
+    if (s === "persistent_notification") return "Platform only";
+    if (s.startsWith("mobile_app_")) s = s.slice("mobile_app_".length);
+    return s;
+  }
+  const prettyTargets = (arr) => (arr || []).map(prettyTarget).filter(Boolean);
+
   function ago(iso) {
     if (!iso) return "—";
     const t = typeof iso === "number" ? iso : Date.parse(iso);
@@ -2285,7 +2296,7 @@
         return this._card(h("div", { class: "wrap" }, [emptyState({ tone: "ok",
           icon: "mdi:check-circle-outline", title: "All clear", hint: "No open alerts." })]));
       }
-      const onCall = a.on_call || [];
+      const onCall = prettyTargets(a.on_call);
       const openCount = alerts.filter((x) => x.status !== "acknowledged").length;
       const header = h("div", { class: "ah" }, [
         cfg.title === false ? null : h("div", { class: "aht" }, cfg.title || "Open alerts"),
@@ -2469,8 +2480,8 @@
       const esc = a.filter((x) => x.status === "escalated").length;
       const acked = a.filter((x) => x.acknowledged_by).length;
       const s = sum ? sum.attributes : {};
-      const onCall = (alo && (alo.attributes.on_call || [])[0]) || null;
-      const backup = (alo && (alo.attributes.backup || [])[0]) || null;
+      const onCall = (alo && prettyTargets(alo.attributes.on_call)[0]) || null;
+      const backup = (alo && prettyTargets(alo.attributes.backup)[0]) || null;
       return [
         { icon: "mdi:bell-ring", label: "Open now", value: String(a.length),
           tone: crit ? "bad" : a.length ? "warn" : "good", sub: a.length ? `${crit} critical · ${warn} warning` : "all clear" },
@@ -2517,6 +2528,20 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _role(role) { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return S[id]; return null; }
     _watch() { return null; }
+    _notifyTargets() { try { return Object.keys(this._hass.services.notify || {}).sort((x, y) => prettyTarget(x).localeCompare(prettyTarget(y))); } catch (e) { return []; } }
+    async _setOncall(a, value) {
+      try { await this._hass.callWS({ type: "milesight_lorawan/alerts/set_oncall", hub: a.hub, targets: value ? [value] : [] }); }
+      catch (e) { /* the reload refreshes the card */ }
+    }
+    _oncallSelect(a) {
+      const cur = (a.primary_raw && a.primary_raw[0]) || "", keys = this._notifyTargets();
+      const sel = h("select", { class: "ocsel" });
+      sel.appendChild(h("option", { value: "" }, "— Nobody —"));
+      keys.forEach((k) => { const full = "notify." + k; const o = h("option", { value: full }, prettyTarget(k)); if (full === cur) o.selected = true; sel.appendChild(o); });
+      if (cur && !keys.map((k) => "notify." + k).includes(cur)) { const o = h("option", { value: cur }, prettyTarget(cur)); o.selected = true; sel.appendChild(o); }
+      sel.addEventListener("change", () => this._setOncall(a, sel.value));
+      return sel;
+    }
     _render() {
       if (!this._hass) return;
       const alo = this._role("alerts_open"), sum = this._role("alerts_summary");
@@ -2533,21 +2558,23 @@
           background:color-mix(in srgb,var(--ms-accent) 14%,transparent);border:1px solid color-mix(in srgb,var(--ms-accent) 40%,var(--ms-line));border-radius:10px;padding:9px 15px}
         .cbtn:hover{border-color:var(--ms-accent)} .cbtn ha-icon{--mdc-icon-size:17px}
         .off{color:var(--ms-ink2)}
+        .ocsel{font:inherit;font-size:13px;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:8px;padding:5px 9px;max-width:60%}
+        .nrow.set{align-items:center}
       `;
       if (!alo) {
         return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:bell-cog-outline",
           title: "No gateway yet", hint: "Escalation and notifications are set on the gateway device." })]));
       }
-      const chain = (a.backup && a.backup.length) ? a.backup.join(" → ") : null;
-      const onCall = (a.on_call && a.on_call.length) ? a.on_call.join(", ") : (a.has_rota ? "nobody on call now" : "—");
-      const primary = (a.primary && a.primary.length) ? a.primary.join(", ") : null;
+      const chain = prettyTargets(a.backup).length ? prettyTargets(a.backup).join(" → ") : null;
+      const primary = prettyTargets(a.primary).length ? prettyTargets(a.primary).join(", ") : null;
       const last = a.last_notification;
       const row = (l, r, mut) => h("div", { class: "nrow" }, [h("span", { class: "l" }, l),
         h("span", { class: "r" + (mut ? " mut" : "") }, r == null ? h("span", { class: "off" }, "not set") : r)]);
       this._card(h("div", { class: "wrap" }, [
         a.escalation_enabled ? null : h("div", { class: "off", style: { marginBottom: "10px" } }, "Escalation is off — alerts still show here but no one is paged."),
         h("p", { class: "sh" }, "Who gets alerted"),
-        row("On call now", onCall),
+        h("div", { class: "nrow set" }, [h("span", { class: "l" }, "On call"), this._oncallSelect(a)]),
+        a.has_rota ? h("div", { class: "off", style: { fontSize: "11.5px", margin: "-2px 0 4px" } }, "A rota is set — it decides who's on call by time; this is the fallback.") : null,
         row("Escalation chain", chain),
         row("Escalate after", num(a.escalate_min) != null ? `${a.escalate_min} min unacked` : null),
         h("p", { class: "sh mt" }, "When"),
@@ -2555,10 +2582,10 @@
         row("Snooze window", num(a.snooze_min) != null ? `${a.snooze_min} min` : null, true),
         h("p", { class: "sh mt" }, "Channels"),
         row("Primary", primary),
-        last ? row("Last sent", `${last.title || "alert"} → ${(last.targets || a.on_call || []).join(", ") || "—"}${last.at ? " · " + last.at : ""}`, true) : null,
+        last ? row("Last sent", `${last.title || "alert"} → ${prettyTargets(last.targets || a.on_call || []).join(", ") || "—"}${last.at ? " · " + last.at : ""}`, true) : null,
         h("div", { class: "btns" }, [
           h("button", { class: "cbtn", onclick: () => navigate("/config/integrations/integration/milesight_lorawan") },
-            [h("ha-icon", { icon: "mdi:cog" }), "Configure notifications"]),
+            [h("ha-icon", { icon: "mdi:cog" }), "More notification settings"]),
         ]),
       ]));
     }

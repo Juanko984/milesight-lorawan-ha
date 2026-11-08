@@ -375,11 +375,11 @@ class OpenAlertsSensor(SensorEntity):
             return f"{int(hour):02d}:00" if isinstance(hour, (int, float)) else None
         quiet = (f"{hhmm(cfg.quiet_start)} – {hhmm(cfg.quiet_end)}"
                  if cfg.quiet_start is not None and cfg.quiet_end is not None else None)
-        return {"milesight_role": "alerts_open", "site": self.entry.title, "alerts": alerts,
+        return {"milesight_role": "alerts_open", "site": self.entry.title, "hub": self.entry.entry_id, "alerts": alerts,
                 "escalation_enabled": cfg.enabled,
                 "on_call": who(cfg.first_line(now_local)) if cfg.enabled else [],
                 "backup": who(list(cfg.backup)),
-                "primary": who(list(cfg.primary)),
+                "primary": who(list(cfg.primary)), "primary_raw": list(cfg.primary),
                 "escalate_min": cfg.escalate_min,
                 "quiet_hours": quiet,
                 "has_rota": bool(cfg.rota),

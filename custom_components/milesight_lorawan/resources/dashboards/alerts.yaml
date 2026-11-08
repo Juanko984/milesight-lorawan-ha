@@ -27,16 +27,6 @@ views:
           - type: custom:milesight-alerts-band
             grid_options: {columns: full}
       - type: grid
-        column_span: 2
-        cards:
-          - type: heading
-            heading: Open alerts
-            icon: mdi:bell-ring
-          # Live open alerts with acknowledge / snooze and who is on call (the same actions as the phone push).
-          - type: custom:milesight-alerts-card
-            title: false
-            grid_options: {columns: full}
-      - type: grid
         cards:
           - type: heading
             heading: Last 7 days
@@ -50,4 +40,14 @@ views:
             heading: Escalation and notifications
             icon: mdi:bell-cog-outline
           - type: custom:milesight-escalation-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Open alerts
+            icon: mdi:bell-ring
+          # Live open alerts with acknowledge / snooze and who is on call (the same actions as the phone push).
+          - type: custom:milesight-alerts-card
+            title: false
             grid_options: {columns: full}
