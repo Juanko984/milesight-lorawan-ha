@@ -81,7 +81,7 @@
       --ms-bad:var(--error-color,#c62828);--ms-accent:var(--primary-color,#1e88e5);
       --ms-ink:var(--primary-text-color,#111);--ms-ink2:var(--secondary-text-color,#666);
       --ms-line:var(--divider-color,rgba(127,127,127,.25));--ms-surface:var(--ha-card-background,var(--card-background-color,#fff));}
-    ha-card{overflow:hidden}
+    ha-card{overflow:hidden;height:100%}
     .wrap{padding:14px 16px}
     .row{display:flex;align-items:center;gap:10px}
     .between{justify-content:space-between}
@@ -2405,7 +2405,7 @@
   // which sensors cry wolf.
   class AlertSummaryCard extends Base {
     static getStubConfig() { return {}; }
-    getGridOptions() { return { columns: 6, rows: "auto", min_columns: 6 }; }  // half-width; pairs with the escalation card
+    getGridOptions() { return { columns: 6, min_columns: 6 }; }  // half the section; pairs with the escalation card (no rows → stretches to equal height)
     _find() {
       for (const id in this._hass.states) if (id.startsWith("sensor.") && this._hass.states[id].attributes.milesight_role === "alerts_summary") return id;
       return null;
@@ -2421,7 +2421,7 @@
         .ashead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
         .asn{font-size:30px;font-weight:720;color:var(--ms-ink);line-height:1}
         .asl{font-size:13px;color:var(--ms-ink2)}
-        .astiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+        .astiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;margin-bottom:14px}
         .astile{border:1px solid var(--ms-line);border-radius:10px;padding:9px 11px}
         .astile .v{font-size:17px;font-weight:700;color:var(--ms-ink)}
         .astile .k{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
@@ -2525,7 +2525,7 @@
   // notify channels — read from the alerts sensors — with a button to open the integration's settings to change it.
   class EscalationCard extends Base {
     static getStubConfig() { return {}; }
-    getGridOptions() { return { columns: 6, rows: "auto", min_columns: 6 }; }  // half-width; pairs with the 7-day summary card
+    getGridOptions() { return { columns: 6, min_columns: 6 }; }  // half the section; pairs with the 7-day summary card (no rows → stretches to equal height)
     _role(role) { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return S[id]; return null; }
     _watch() { return null; }
     _notifyTargets() { try { return Object.keys(this._hass.services.notify || {}).sort((x, y) => prettyTarget(x).localeCompare(prettyTarget(y))); } catch (e) { return []; } }

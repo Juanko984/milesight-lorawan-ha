@@ -26,8 +26,8 @@ views:
             icon: mdi:gauge
           - type: custom:milesight-alerts-band
             grid_options: {columns: full}
-      # The 7-day summary and the escalation / notification setup, as two equal half-width widgets
-      # that line up side by side (each carries its own title, so no separate heading row to misalign).
+      # One full-width section holding both widgets as equal halves (6 of the section's 12 columns each),
+      # so they share a grid row and stretch to the same height — the 7-day summary and the escalation setup.
       - type: grid
         column_span: 3
         cards:

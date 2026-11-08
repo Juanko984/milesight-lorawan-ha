@@ -2,12 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.105.0
+- **Fixed the Alerts "Last 7 days" / "Escalation" widgets** — in 0.104.0 they collapsed to about a third
+  of the width with empty space beside them (an invalid `rows` value on the cards). They are now **two
+  equal half-page cards, side by side, forced to the same height** so their bottom edges line up, under
+  the single "Summary and setup" heading. On a phone they reflow cleanly (the summary tiles stack) instead
+  of overflowing.
+
 ## 0.104.0
 - **Alerts page now spans the full page width** like every other dashboard (it was rendering one column
   narrower), so the status band, open-alerts table and widgets all use the available space.
-- **The "Last 7 days" and "Escalation & notifications" widgets are now equal, aligned half-width cards**
-  sitting side by side under a single "Summary and setup" heading. The escalation card carries its own
-  title so the two line up exactly; neither forces itself to full width any more.
+- **The "Last 7 days" and "Escalation & notifications" widgets** were moved under a single "Summary and
+  setup" heading. (Their side-by-side sizing is corrected in 0.105.0.)
 
 ## 0.103.0
 - **Building analytics area views redesigned.** Each area's Live view now shows a clean **trendline per metric**
