@@ -106,6 +106,20 @@ def _history(entities: list, title: str | None = None, hours: int = 24) -> dict 
     return _g(card, FULL)
 
 
+def _trendline(entity: str | None, name: str | None = None, cols: int = HALF,
+               color: str | None = None, **kw: Any) -> dict | None:
+    """A milesight trendline card (Today / 24 h / 7 d sparkline with the day's min/max) for one sensor."""
+    if not entity:
+        return None
+    card: dict[str, Any] = {"type": "custom:milesight-trendline-card", "entity": entity}
+    if name:
+        card["name"] = name
+    if color:
+        card["color"] = color
+    card.update(kw)
+    return _g(card, cols)
+
+
 def _entities(rows: list) -> dict | None:
     rows = [r for r in rows if r]
     return _g({"type": "entities", "entities": rows}, FULL) if rows else None
@@ -534,16 +548,22 @@ def analytics_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
             co2 = next((e for rt in runtimes if getattr(rt, "entry", None) is not None
                         and (rt.entry.data.get("area") or "").lower() == name.lower()
                         and "co2" in rt.raw and (e := _e(eid, rt, "sensor", "co2"))), None)
-            temp = next((e for rt in runtimes if getattr(rt, "entry", None) is not None
-                         and (rt.entry.data.get("area") or "").lower() == name.lower()
-                         and "temperature" in rt.raw and (e := _e(eid, rt, "sensor", "temperature"))), None)
+            def _area_sensor(rawkey: str, platkey: str) -> str | None:
+                return next((e for rt in runtimes if getattr(rt, "entry", None) is not None
+                             and (rt.entry.data.get("area") or "").lower() == name.lower()
+                             and rawkey in rt.raw and (e := _e(eid, rt, "sensor", platkey))), None)
+            temp = _area_sensor("temperature", "temperature")
+            hum = _area_sensor("humidity", "humidity")
+            # Comfort + occupancy gauges, then a clean trendline (Today / 24 h / 7 d) per metric — the same
+            # look as the Water page's "Level trends", in place of the old flat history-graph.
             out.append(_section(name, [
                 _gauge(comfort, "Comfort", 0, 100, [(0, RED), (50, AMBER), (80, GREEN)]),
                 _gauge(occ, "Occupied today", 0, 100, [(0, GREY), (25, GREEN), (75, AMBER)]),
-                _tile(temp, "Temperature", "mdi:thermometer", THIRD),
-                _tile(co2, "CO₂", "mdi:molecule-co2", THIRD),
-                _tile(comfort, "Humidity", "mdi:water-percent", THIRD, state_content=["humidity"]) if comfort else None,
-                _history([temp, co2], "Last 24 h"),
+                _trendline(temp, "Temperature", HALF, AMBER),
+                _trendline(hum, "Humidity", HALF, BLUE),
+                _trendline(co2, "CO₂", HALF, GREEN),
+                # humidity as a tile too only when there's no dedicated humidity sensor to trend
+                _tile(comfort, "Humidity", "mdi:water-percent", THIRD, state_content=["humidity"]) if (comfort and not hum) else None,
             ], "mdi:texture-box"))
     if names:
         out.insert(0, _section("Occupancy today", [_md(heatmap_md(names))], "mdi:account-clock", span=2))

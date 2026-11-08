@@ -2405,7 +2405,7 @@
   // which sensors cry wolf.
   class AlertSummaryCard extends Base {
     static getStubConfig() { return {}; }
-    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    getGridOptions() { return { columns: 6, rows: "auto", min_columns: 6 }; }  // half-width; pairs with the escalation card
     _find() {
       for (const id in this._hass.states) if (id.startsWith("sensor.") && this._hass.states[id].attributes.milesight_role === "alerts_summary") return id;
       return null;
@@ -2525,7 +2525,7 @@
   // notify channels — read from the alerts sensors — with a button to open the integration's settings to change it.
   class EscalationCard extends Base {
     static getStubConfig() { return {}; }
-    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    getGridOptions() { return { columns: 6, rows: "auto", min_columns: 6 }; }  // half-width; pairs with the 7-day summary card
     _role(role) { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return S[id]; return null; }
     _watch() { return null; }
     _notifyTargets() { try { return Object.keys(this._hass.services.notify || {}).sort((x, y) => prettyTarget(x).localeCompare(prettyTarget(y))); } catch (e) { return []; } }
@@ -2561,8 +2561,10 @@
         .ocsel{font:inherit;font-size:13px;background:#0f1418;border:1px solid var(--ms-line);color:var(--ms-ink);border-radius:8px;padding:5px 9px;max-width:60%}
         .nrow.set{align-items:center}
       `;
+      const cfg = this._cfg || {};
+      const titleEl = cfg.title === false ? null : h("p", { class: "title", style: { marginBottom: "10px" } }, cfg.title || "Escalation and notifications");
       if (!alo) {
-        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:bell-cog-outline",
+        return this._card(h("div", { class: "wrap" }, [titleEl, emptyState({ icon: "mdi:bell-cog-outline",
           title: "No gateway yet", hint: "Escalation and notifications are set on the gateway device." })]));
       }
       const chain = prettyTargets(a.backup).length ? prettyTargets(a.backup).join(" → ") : null;
@@ -2571,6 +2573,7 @@
       const row = (l, r, mut) => h("div", { class: "nrow" }, [h("span", { class: "l" }, l),
         h("span", { class: "r" + (mut ? " mut" : "") }, r == null ? h("span", { class: "off" }, "not set") : r)]);
       this._card(h("div", { class: "wrap" }, [
+        titleEl,
         a.escalation_enabled ? null : h("div", { class: "off", style: { marginBottom: "10px" } }, "Escalation is off — alerts still show here but no one is paged."),
         h("p", { class: "sh" }, "Who gets alerted"),
         h("div", { class: "nrow set" }, [h("span", { class: "l" }, "On call"), this._oncallSelect(a)]),

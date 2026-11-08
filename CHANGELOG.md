@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.104.0
+- **Alerts page now spans the full page width** like every other dashboard (it was rendering one column
+  narrower), so the status band, open-alerts table and widgets all use the available space.
+- **The "Last 7 days" and "Escalation & notifications" widgets are now equal, aligned half-width cards**
+  sitting side by side under a single "Summary and setup" heading. The escalation card carries its own
+  title so the two line up exactly; neither forces itself to full width any more.
+
+## 0.103.0
+- **Building analytics area views redesigned.** Each area's Live view now shows a clean **trendline per metric**
+  — **Temperature, Humidity and CO₂**, each with the **Today / 24 h / 7 d** toggle, the day's **min/max** and the
+  threshold line — the same look as the Water page's "Level trends", in place of the old flat history graph.
+  The Comfort and Occupancy gauges stay on top.
+
 ## 0.102.0
 - **Set who's on call straight from the Alerts page.** The Escalation card now has an **On call dropdown** —
   pick anyone from your notification services (mobile apps, platform) and it's saved immediately, no need to
