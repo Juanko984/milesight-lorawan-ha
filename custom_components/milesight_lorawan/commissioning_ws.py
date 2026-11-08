@@ -94,7 +94,7 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
     if not data.get("commissioning_ws"):
         for handler in (ws_parse, ws_add_gateway, ws_gateways, ws_configure_gateway, ws_refresh_gateway,
                         ws_set_gateway_location, ws_sync_gateway_time, ws_forget_gateway, ws_discovered, ws_ignore,
-                        ws_devices, ws_add, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
+                        ws_devices, ws_add, ws_profiles, ws_watch, ws_fast, ws_end_fast, ws_save, ws_location, ws_phone_location):
             websocket_api.async_register_command(hass, handler)
         from .recipes_ws import register as register_recipe_ws
         register_recipe_ws(hass)
@@ -443,6 +443,8 @@ def ws_devices(hass: HomeAssistant, connection, msg: dict) -> None:
     vol.Required("deveui"): str, vol.Required("model"): str, vol.Optional("name"): str,
     vol.Optional("area"): str, vol.Optional("app_key"): str, vol.Optional("register", default=True): bool,
     vol.Optional("purpose"): str, vol.Optional("hub"): str, vol.Optional("gateway"): str,
+    vol.Optional("latitude"): vol.Any(None, float, int), vol.Optional("longitude"): vol.Any(None, float, int),
+    vol.Optional("accuracy"): vol.Any(None, float, int), vol.Optional("profile"): str,
 })
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -492,7 +494,41 @@ async def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
                                   f"{result.get('reason') or rtype}" + (" (it was registered on the gateway)"
                                                                         if gateway else ""))
             return
-    connection.send_result(msg["id"], {"deveui": deveui, "name": name, "gateway": gateway, "existed": exists})
+    # the entry now exists — set its install-time location and apply a settings profile if asked
+    entry = hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, deveui)
+    by = connection.user.name if connection.user else None
+    located = profiled = None
+    if entry is not None:
+        lat, lon = msg.get("latitude"), msg.get("longitude")
+        if lat is not None and lon is not None and (-90 <= lat <= 90 and -180 <= lon <= 180):
+            try:
+                _save_location(hass, entry, lat, lon, msg.get("accuracy"), by, "install")
+                located = True
+            except Exception:  # noqa: BLE001 - a bad location must not fail the whole add
+                _LOGGER.warning("Could not save install location for %s", deveui, exc_info=True)
+        if msg.get("profile"):
+            from .maintenance_ha import async_apply_profile, async_profiles
+            profs = await async_profiles(hass)
+            prof = profs.get(msg["profile"])
+            if prof and prof.get("model") == msg["model"]:
+                try:                          # options-only during install; the device picks them up on setup
+                    await async_apply_profile(hass, prof, entry, send=False, by=by)
+                    profiled = prof["name"]
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Could not apply profile %s to %s: %s", msg["profile"], deveui, err)
+    connection.send_result(msg["id"], {"deveui": deveui, "name": name, "gateway": gateway, "existed": exists,
+                                       "located": located, "profile_applied": profiled})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/profiles"})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_profiles(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Saved settings profiles, for the install form's 'apply a profile' picker (filtered by model there)."""
+    from .maintenance_ha import async_profiles
+    profs = await async_profiles(hass)
+    out = [{"name": p.get("name"), "model": p.get("model"), "from": p.get("source")} for p in profs.values()]
+    connection.send_result(msg["id"], {"profiles": sorted(out, key=lambda p: str(p.get("name") or "").lower())})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/commission/watch", vol.Required("deveui"): str})

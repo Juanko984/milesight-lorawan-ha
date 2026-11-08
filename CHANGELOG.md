@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.101.0
+- **A proper device install on the commissioning screen.** The **"New device"** form now captures everything
+  needed to set a device up in one go, not just model + name + area:
+  - **Area is a dropdown** of your existing Home Assistant areas — pick one or type a new name.
+  - **"Fitted to" (purpose) is always shown**, even for models that have no typical purpose (it used to be
+    hidden for e.g. tilt sensors), so every device gets categorised at install.
+  - **Location** — a **"📍 Use my location"** button stamps where the device is installed (the installer's GPS),
+    so it appears on the device map straight away.
+  - **Apply a settings profile** — copy a saved device's limits, intervals and settings onto the new one in a
+    single step (filtered to matching models), for a consistent install.
+
 ## 0.100.0
 - **Fixed: open faults showed no job.** A device that was offline for days (or any open alert) often had **no
   job at all**, while the Done column filled with "cleared by sensor". The rules loop was closing **every**

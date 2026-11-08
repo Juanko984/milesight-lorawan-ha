@@ -50,6 +50,7 @@ class MilesightCommissioning extends HTMLElement {
       this._render();
       this._loadDevices();
       this._loadDiscovered();
+      this._loadProfiles();
       this._ticker = setInterval(() => this._updateAgo(), 1000);
     } else {
       const menu = this.shadowRoot.querySelector("ha-menu-button");
@@ -366,8 +367,11 @@ class MilesightCommissioning extends HTMLElement {
     const data = { type: "add", deveui: $("f-deveui").value, model: $("f-model").value, name: $("f-name").value,
                    area: $("f-area").value, register: !!$("f-register")?.checked };
     if ($("f-purpose")?.value) data.purpose = $("f-purpose").value;
+    if ($("f-profile")?.value) data.profile = $("f-profile").value;
     if ($("f-gw")?.value) data.gateway = $("f-gw").value;
     if ($("f-key").value.trim()) data.app_key = $("f-key").value.trim();
+    const ff = this._form || {};
+    if (ff.lat != null && ff.lon != null) { data.latitude = ff.lat; data.longitude = ff.lon; if (ff.acc != null) data.accuracy = ff.acc; }
     if (!data.model) { this._error("Pick the model."); return; }
     this._busy = true; this._render();
     try {
@@ -375,7 +379,8 @@ class MilesightCommissioning extends HTMLElement {
       this._busy = false;
       this._lastAdded = r;
       this._parsed = null;
-      this._info(`${r.name} added${r.gateway === "added" ? " and registered on the gateway" : r.gateway === "exists" ? " (already on the gateway)" : ""}. Switch it on – then start the walk test.`);
+      this._info(`${r.name} added${r.gateway === "added" ? " and registered on the gateway" : r.gateway === "exists" ? " (already on the gateway)" : ""}`
+        + `${r.located ? ", location set" : ""}${r.profile_applied ? `, profile "${r.profile_applied}" applied` : ""}. Switch it on – then start the walk test.`);
       await this._loadDevices();
       this._loadDiscovered();
     } catch (e) { this._busy = false; this._error(e); }
@@ -429,6 +434,32 @@ class MilesightCommissioning extends HTMLElement {
       }
       await this._loadDevices();
     } catch (e) { this._error(e); }
+  }
+
+  _areaNames() {
+    try { return Object.values(this._hass.areas || {}).map((a) => a.name).filter(Boolean).sort((a, b) => a.localeCompare(b)); }
+    catch (e) { return []; }
+  }
+
+  async _loadProfiles() {
+    try { const r = await this._ws({ type: "profiles" }); this._profiles = r.profiles || []; if (this._parsed) this._render(); }
+    catch (e) { this._profiles = []; }
+  }
+
+  // capture the installer's position into the add form (the device doesn't exist yet, so we pass it to 'add')
+  async _captureLocation() {
+    if (!(navigator.geolocation && window.isSecureContext)) {
+      this._error("This page can't read GPS (it needs https://). Add the device, then set its location from Configure → Location.");
+      return;
+    }
+    try {
+      this._info("Reading your location…");
+      const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, fail,
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }));
+      const c = pos.coords;
+      this._form = { ...(this._form || {}), lat: c.latitude, lon: c.longitude, acc: c.accuracy };
+      this._msg = null; this._render();
+    } catch (e) { this._error("Couldn't read your location: " + ((e && e.message) || e) + ". You can set it after adding."); }
   }
 
   async _location(clear) {
@@ -670,8 +701,15 @@ class MilesightCommissioning extends HTMLElement {
     const chosen = f.model ?? p.model;
     const models = p.models.map((m) => `<option value="${m.value}" ${m.value === chosen ? "selected" : ""}>${esc(m.label)}</option>`).join("");
     const fam = new Set(((p.families || {})[chosen]) || []);
-    const purposes = (p.purposes || []).filter((x) => x.families.some((y) => fam.has(y)))
-      .map((x) => `<option value="${x.value}" ${x.value === f.purpose ? "selected" : ""}>${esc(x.label)}</option>`).join("");
+    const matched = (p.purposes || []).filter((x) => x.families.some((y) => fam.has(y)));
+    const purposeList = matched.length ? matched : (p.purposes || []);   // always offer a purpose, even if the model has no typical one
+    const purposes = purposeList.map((x) => `<option value="${x.value}" ${x.value === f.purpose ? "selected" : ""}>${esc(x.label)}</option>`).join("");
+    const areas = this._areaNames();
+    const profs = (this._profiles || []).filter((x) => x.model === chosen);
+    const profOpts = profs.map((x) => `<option value="${esc(x.name)}" ${x.name === f.profile ? "selected" : ""}>${esc(x.name)}${x.from ? " · from " + esc(x.from) : ""}</option>`).join("");
+    const loc = (f.lat != null && f.lon != null)
+      ? `<div class="hint" style="display:flex;align-items:center;gap:12px">📍 ${f.lat.toFixed(6)}, ${f.lon.toFixed(6)}${f.acc != null ? ` (±${Math.round(f.acc)} m)` : ""}<button id="f-loc-clear">Clear</button></div>`
+      : `<div class="row"><button id="f-loc">📍 Use my location</button></div>`;
     return `
       <div class="card">
         <h2>${p.exists ? "Already set up" : "New device"}</h2>
@@ -683,8 +721,11 @@ class MilesightCommissioning extends HTMLElement {
         ${purposes ? `<label>Fitted to (purpose)<select id="f-purpose"><option value="">– not set –</option>${purposes}</select></label>` : ""}
         <div class="row">
           <label>Name<input id="f-name" value="${esc(f.name || "")}" placeholder="${esc((p.model || "Device") + " " + (p.deveui || "").slice(-4).toUpperCase())}"></label>
-          <label>Area<input id="f-area" value="${esc(f.area || "")}" placeholder="e.g. Cold room"></label>
+          <label>Area<input id="f-area" list="f-areas-dl" value="${esc(f.area || "")}" placeholder="${areas.length ? "Pick or type an area" : "e.g. Cold room"}"><datalist id="f-areas-dl">${areas.map((a) => `<option value="${esc(a)}"></option>`).join("")}</datalist></label>
         </div>
+        <label>Location (optional) — where the device is installed${loc}</label>
+        ${profOpts ? `<label>Apply a settings profile (optional)<select id="f-profile"><option value="">– none –</option>${profOpts}</select></label>
+          <p class="hint" style="margin-top:-6px">Copies a saved ${esc(chosen)} device's limits, intervals and settings onto this one.</p>` : ""}
         <label>AppKey ${p.has_app_key ? "(from the code)" : "(empty = the gateway's default key)"}
           <input id="f-key" type="password" value="${esc(f.key ?? (p.app_key || ""))}" autocomplete="off"></label>
         ${(() => {
@@ -817,12 +858,14 @@ class MilesightCommissioning extends HTMLElement {
     on("manual", "input", (e) => { this._manual = e.target.value; });
     for (const [id, key, prop] of [["f-deveui", "deveui", "value"], ["f-model", "model", "value"], ["f-name", "name", "value"],
                                    ["f-area", "area", "value"], ["f-key", "key", "value"], ["f-register", "register", "checked"],
-                                   ["f-purpose", "purpose", "value"], ["f-gw", "gw", "value"]]) {
-      on(id, ["f-model", "f-register", "f-purpose", "f-gw"].includes(id) ? "change" : "input", (e) => {
+                                   ["f-purpose", "purpose", "value"], ["f-profile", "profile", "value"], ["f-gw", "gw", "value"]]) {
+      on(id, ["f-model", "f-register", "f-purpose", "f-profile", "f-gw"].includes(id) ? "change" : "input", (e) => {
         this._form = { ...(this._form || {}), [key]: e.target[prop] };
-        if (id === "f-model") this._render();            // the purposes depend on the model
+        if (id === "f-model") this._render();            // the purposes and profiles depend on the model
       });
     }
+    on("f-loc", "click", () => this._captureLocation());
+    on("f-loc-clear", "click", () => { this._form = { ...(this._form || {}), lat: undefined, lon: undefined, acc: undefined }; this._render(); });
     on("b-again", "click", () => { this._parsed = null; this._gateway = null; this._form = {}; this._msg = null; this._render(); });
     on("b-add-gw", "click", () => this._addGateway());
     on("g-name", "input", (e) => { this._form = { ...(this._form || {}), gname: e.target.value }; });
