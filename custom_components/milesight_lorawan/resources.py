@@ -118,7 +118,7 @@ async def async_install_blueprints(hass: HomeAssistant, state: dict[str, Any]) -
 
 
 async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
-                                   tags: set[str] | None = None) -> dict[str, list[str]]:
+                                   tags: set[str] | None = None, force: bool = False) -> dict[str, list[str]]:
     import yaml
     from .dashboard import _lovelace_dashboards, _register
 
@@ -160,9 +160,10 @@ async def async_install_dashboards(hass: HomeAssistant, state: dict[str, Any],
                 current = await dash.async_load(False)
             except Exception:  # noqa: BLE001 - not saved yet
                 current = None
-            if current is not None and _hash(current) != mine.get("hash") and _hash(current) != _hash(config):
+            if (not force and current is not None and _hash(current) != mine.get("hash")
+                    and _hash(current) != _hash(config)):
                 result["kept"].append(title)          # edited in Home Assistant: keep the user's version
-                continue
+                continue                               # (force, from the "Install dashboards" button, overwrites ours anyway)
         if mine is not None and current is not None and _hash(current) == mine.get("hash") == _hash(config):
             if mine.get("hidden"):
                 mine["hidden"] = False              # back in the sidebar, nothing to rewrite
@@ -227,7 +228,7 @@ async def async_install(hass: HomeAssistant, version: str | None = None, force: 
     out = {"blueprints": await async_install_blueprints(hass, state)}
     try:
         tags = site_tags(hass)
-        out["dashboards"] = await async_install_dashboards(hass, state, tags)
+        out["dashboards"] = await async_install_dashboards(hass, state, tags, force=force)
         state["tags"] = sorted(tags)
         state["live"] = _hash([_live(hass, f, {}) for f in DASHBOARDS])
     except Exception as err:  # noqa: BLE001 - dashboards (lovelace) not available

@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.106.0
+- **The Alerts "Last 7 days" / "Escalation" widgets now sit side by side at equal size and height**, for
+  real this time. The 0.104/0.105 attempts used two half-width grid columns, which some Home Assistant
+  themes/versions render at a third of the width with empty space beside them. They now use a
+  **horizontal-stack**, which fills the width and forces both cards to the same height regardless of theme.
+- **"Install dashboards and blueprints" now always refreshes the dashboards.** Previously, once a
+  dashboard's stored copy drifted from what the integration last wrote — which a regenerated "Live" view
+  (e.g. **Building analytics**) does on its own between restarts — the integration treated it as
+  hand-edited and left it frozen, so dashboard changes from an update never appeared. The button now
+  overwrites the integration's own dashboards, so after updating you can press it once to pull in the
+  latest layouts. **After upgrading, press the gateway's "Install dashboards and blueprints" button** (or
+  it is applied on the next version install) to get the new Alerts layout and the Building-analytics
+  trendlines.
+
 ## 0.105.0
 - **Fixed the Alerts "Last 7 days" / "Escalation" widgets** — in 0.104.0 they collapsed to about a third
   of the width with empty space beside them (an invalid `rows` value on the cards). They are now **two

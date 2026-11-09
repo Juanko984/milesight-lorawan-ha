@@ -26,20 +26,22 @@ views:
             icon: mdi:gauge
           - type: custom:milesight-alerts-band
             grid_options: {columns: full}
-      # One full-width section holding both widgets as equal halves (6 of the section's 12 columns each),
-      # so they share a grid row and stretch to the same height — the 7-day summary and the escalation setup.
+      # The 7-day summary and the escalation setup, as two equal half-width widgets. A horizontal-stack
+      # (not two 6-column cards) is used deliberately: it fills the width and forces both to the same
+      # height regardless of theme / HA version, where section-grid column sizing proved unreliable.
       - type: grid
         column_span: 3
         cards:
           - type: heading
             heading: Summary and setup
             icon: mdi:chart-timeline-variant
-          - type: custom:milesight-alert-summary-card
-            title: Last 7 days
-            grid_options: {columns: 6}
-          - type: custom:milesight-escalation-card
-            title: Escalation and notifications
-            grid_options: {columns: 6}
+          - type: horizontal-stack
+            grid_options: {columns: full}
+            cards:
+              - type: custom:milesight-alert-summary-card
+                title: Last 7 days
+              - type: custom:milesight-escalation-card
+                title: Escalation and notifications
       - type: grid
         column_span: 3
         cards:
