@@ -71,6 +71,8 @@ CONF_MODEL = "model"
 
 # Device options
 CONF_MAX_GAP_MIN = "max_gap_min"
+CONF_OFFLINE_AUTO = "offline_auto"       # derive the offline time from the device's own reporting cadence
+CONF_OFFLINE_FACTOR = "offline_factor"   # ... as this many missed reports
 CONF_LEFT_OPEN_MIN = "left_open_min"
 CONF_EMPTY_GRACE_MIN = "empty_grace_min"
 CONF_OPEN_HOUR = "open_hour"
@@ -123,6 +125,12 @@ CONF_TARIFF_FEED = "tariff_feed_t"           # feed, currency per tonne
 DEFAULT_CURRENCY = "R"
 
 DEFAULT_MAX_GAP_MIN = 120
+DEFAULT_OFFLINE_AUTO = True               # auto-set the offline time from the reporting interval
+DEFAULT_OFFLINE_FACTOR = 3               # miss ~3 reports in a row -> offline
+OFFLINE_FLOOR_S = 600                    # never flag offline in under 10 min (ride out a brief outage)
+OFFLINE_CEIL_S = 86400                   # ... and always within 24 h
+OFFLINE_MIN_SAMPLES = 5                  # learned uplinks before the measured cadence is trusted
+OFFLINE_GAP_WINDOW = 20                  # rolling inter-uplink gaps kept for the median
 DEFAULT_LEFT_OPEN_MIN = 10
 DEFAULT_EMPTY_GRACE_MIN = 2
 DEFAULT_OPEN_HOUR = 8

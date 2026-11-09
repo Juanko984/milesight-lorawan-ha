@@ -237,6 +237,8 @@
         "title": "Device settings",
         "data": {
           "model": "Model",
+          "offline_auto": "Set the offline time automatically",
+          "offline_factor": "Offline after this many missed reports",
           "max_gap_min": "Offline gap (minutes)",
           "left_open_min": "Door left open after (minutes)",
           "empty_grace_min": "Count as empty after (minutes at 0 people)",
@@ -259,7 +261,9 @@
           "display_max_bytes": "Max bytes per display downlink"
         },
         "data_description": {
-          "max_gap_min": "Time is not counted across gaps longer than this, so an offline sensor doesn't add phantom open/occupied time. Set it above the device's reporting interval.",
+          "offline_auto": "Learns how often this device reports and marks it offline after a few missed reports — so a fridge reporting every 10 min alerts in ~30 min, while a daily sensor isn't flagged early. Turn off to use the fixed offline gap below.",
+          "offline_factor": "How many reports in a row may be missed before offline (default 3). Only used when the offline time is set automatically.",
+          "max_gap_min": "The fixed offline time used when automatic is off. Also the gap beyond which open/occupied time is not counted, so an offline sensor doesn't add phantom time. Set it above the device's reporting interval.",
           "open_hour": "Used for utilisation %.",
           "close_hour": "Use 24 for midnight.",
           "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page.",

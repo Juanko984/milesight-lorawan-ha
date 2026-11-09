@@ -117,6 +117,8 @@ from .const import (
     CONF_LEFT_OPEN_MIN,
     CONF_MAX_GAP_MIN,
     CONF_MODEL,
+    CONF_OFFLINE_AUTO,
+    CONF_OFFLINE_FACTOR,
     CONF_OPEN_DAYS,
     CONF_OPEN_HOUR,
     CONF_PAYLOAD_ENCODING,
@@ -129,6 +131,8 @@ from .const import (
     DEFAULT_EMPTY_GRACE_MIN,
     DEFAULT_LEFT_OPEN_MIN,
     DEFAULT_MAX_GAP_MIN,
+    DEFAULT_OFFLINE_AUTO,
+    DEFAULT_OFFLINE_FACTOR,
     DEFAULT_OPEN_DAYS,
     DEFAULT_OPEN_HOUR,
     DEFAULT_RUN_THRESHOLD_A,
@@ -1081,6 +1085,10 @@ class MilesightOptionsFlow(OptionsFlow):
         features = MODELS[model].features
         schema = {
             vol.Required(CONF_MODEL, default=model): _model_selector(),
+            vol.Required(CONF_OFFLINE_AUTO,
+                         default=opts.get(CONF_OFFLINE_AUTO, DEFAULT_OFFLINE_AUTO)): BooleanSelector(),
+            vol.Required(CONF_OFFLINE_FACTOR,
+                         default=opts.get(CONF_OFFLINE_FACTOR, DEFAULT_OFFLINE_FACTOR)): _int_box(2, 10),
             vol.Required(CONF_MAX_GAP_MIN, default=opts.get(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)): _int_box(5, 1440),
         }
         if pulse_capable(model):

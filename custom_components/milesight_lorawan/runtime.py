@@ -39,6 +39,8 @@ from .const import (
     CONF_LEFT_OPEN_MIN,
     CONF_MAX_GAP_MIN,
     CONF_MODEL,
+    CONF_OFFLINE_AUTO,
+    CONF_OFFLINE_FACTOR,
     CONF_OPEN_DAYS,
     CONF_OPEN_HOUR,
     DEFAULT_BATTERY_LOW,
@@ -47,8 +49,14 @@ from .const import (
     DEFAULT_EMPTY_GRACE_MIN,
     DEFAULT_LEFT_OPEN_MIN,
     DEFAULT_MAX_GAP_MIN,
+    DEFAULT_OFFLINE_AUTO,
+    DEFAULT_OFFLINE_FACTOR,
     DEFAULT_OPEN_DAYS,
     DEFAULT_OPEN_HOUR,
+    OFFLINE_CEIL_S,
+    OFFLINE_FLOOR_S,
+    OFFLINE_GAP_WINDOW,
+    OFFLINE_MIN_SAMPLES,
     DEFAULT_RUN_THRESHOLD_A,
     DOMAIN,
     SIGNAL_EVENT,
@@ -139,6 +147,20 @@ ALARM_FLAGS = {
 }
 
 
+def _dur(seconds: float | None) -> str | None:
+    """A compact, human duration: '45 s', '20 min', '1 h 30 min', '2 h'."""
+    if not seconds or seconds <= 0:
+        return None
+    s = int(round(seconds))
+    if s < 90:
+        return f"{s} s"
+    m = int(round(s / 60))
+    if m < 90:
+        return f"{m} min"
+    h, rem = divmod(m, 60)
+    return f"{h} h {rem} min" if rem else f"{h} h"
+
+
 def _co2_text(co2: Any) -> str | None:
     if not isinstance(co2, (int, float)):
         return None
@@ -224,6 +246,46 @@ class DeviceRuntime:
     def _opt(self, key: str, default: Any) -> Any:
         return self.entry.options.get(key, default)
 
+    # ---------------------------------------------------- offline / reporting cadence
+    def _learn_interval(self, prev_seen: float | None, ts: float) -> None:
+        """Keep a rolling window of the gaps between uplinks, so the device's real reporting cadence
+        can be measured (Milesight sensors never send their configured interval in the payload)."""
+        if not prev_seen:
+            return
+        gap = ts - prev_seen
+        # drop bursts / near-duplicates (< 20 s) and anything over a day (a real outage, not the cadence);
+        # the median shrugs off the occasional outlier that slips through.
+        if 20 <= gap <= OFFLINE_CEIL_S:
+            gaps = self.meta.setdefault("_gaps", [])
+            gaps.append(round(gap))
+            if len(gaps) > OFFLINE_GAP_WINDOW:
+                del gaps[:-OFFLINE_GAP_WINDOW]
+
+    def _report_interval_s(self) -> tuple[float | None, str]:
+        """The device's reporting interval in seconds, and where it came from: the measured median once
+        enough uplinks are in, else the interval we commanded, else Milesight's factory default."""
+        import statistics
+        gaps = self.meta.get("_gaps") or []
+        if len(gaps) >= OFFLINE_MIN_SAMPLES:
+            return float(statistics.median(gaps)), "measured"
+        spec = downlinks(self.model.key).get("report_interval") or {}
+        unit_s = 60 if spec.get("unit") == "min" else 1
+        commanded = self.meta.get("config", {}).get("report_interval")
+        if commanded:
+            return float(commanded) * unit_s, "configured"
+        if spec:
+            from .commissioning import default_interval
+            return float(default_interval(spec.get("unit", "s"))) * unit_s, "default"
+        return None, "none"
+
+    def _offline_threshold_s(self) -> tuple[float, float | None, str]:
+        """(offline_after_s, interval_s, source). Auto = factor × reporting interval, clamped to a sane
+        band; otherwise the manual 'offline time' (max_gap) the user set."""
+        interval, source = self._report_interval_s()
+        if not self._offline_auto or interval is None:
+            return self.max_gap_s, interval, ("manual" if not self._offline_auto else source)
+        return min(OFFLINE_CEIL_S, max(OFFLINE_FLOOR_S, self._offline_factor * interval)), interval, source
+
     async def async_load(self) -> None:
         data = await self.store.async_load() or {}
         self.raw = data.get("raw", {})
@@ -237,6 +299,10 @@ class DeviceRuntime:
         f = self.model.features
         max_gap_s = float(self._opt(CONF_MAX_GAP_MIN, DEFAULT_MAX_GAP_MIN)) * 60
         self.max_gap_s = max_gap_s
+        # Offline detection derives its own timeout from the device's reporting cadence (auto), falling back
+        # to the manual "offline time" (max_gap) when auto is off or the cadence isn't known yet.
+        self._offline_auto = bool(self._opt(CONF_OFFLINE_AUTO, DEFAULT_OFFLINE_AUTO))
+        self._offline_factor = max(2, int(self._opt(CONF_OFFLINE_FACTOR, DEFAULT_OFFLINE_FACTOR)))
         self.battery_low_pct = float(self._opt(CONF_BATTERY_LOW, DEFAULT_BATTERY_LOW))
         self._fleet_state: tuple | None = None
 
@@ -350,6 +416,7 @@ class DeviceRuntime:
             self._network_changed()
         self._handle_display(decoded)
         prev_seen = self.meta.get("last_seen")
+        self._learn_interval(prev_seen, ts)
         if up.raw:
             self._handle_history(up.raw)
         if prev_seen and ts - prev_seen > self.max_gap_s and self._opt("auto_backfill", True):
@@ -1347,7 +1414,16 @@ class DeviceRuntime:
 
         self._link_values(v, ts)
         last = self.meta.get("last_seen")
-        v["online"] = (ts - last <= self.max_gap_s) if last else None       # unknown until the first uplink
+        offline_s, interval_s, src = self._offline_threshold_s()
+        v["online"] = (ts - last <= offline_s) if last else None            # unknown until the first uplink
+        self.attrs["online"] = {
+            "reports_every": _dur(interval_s), "offline_after": _dur(offline_s),
+            "interval_source": {"measured": "measured from uplinks", "configured": "set via Home Assistant",
+                                "default": "model default", "manual": "manual setting",
+                                "none": "unknown"}.get(src, src),
+            "interval_s": round(interval_s) if interval_s else None, "offline_after_s": round(offline_s),
+            "reports_seen": len(self.meta.get("_gaps") or []) + (1 if last else 0),
+        }
         if isinstance(v.get("battery"), (int, float)):
             v["battery_low"] = v["battery"] < self.battery_low_pct
         self._battery_values(v, ts)

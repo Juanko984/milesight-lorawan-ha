@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.107.0
+- **Offline alerts now set themselves from each device's reporting interval.** Milesight sensors don't
+  broadcast their reporting interval, so the integration now **learns it from the uplink cadence** (the
+  median gap over the last ~20 uplinks), falling back to the interval you set through Home Assistant, then
+  the model's factory default. A device is marked **offline after ~3 missed reports** (configurable),
+  clamped to a sane 10 min – 24 h band — so a fridge reporting every 10 min alerts in ~30 min, while a
+  once-a-day sensor isn't flagged early.
+  - New per-device options: **"Set the offline time automatically"** (on by default) and **"Offline after
+    this many missed reports"** (default 3). Turn auto off to keep a fixed offline gap.
+  - The **Online** sensor now shows what it worked out — `reports_every`, `offline_after`, and whether the
+    interval was *measured*, *configured* or a *model default*.
+
 ## 0.106.0
 - **The Alerts "Last 7 days" / "Escalation" widgets now sit side by side at equal size and height**, for
   real this time. The 0.104/0.105 attempts used two half-width grid columns, which some Home Assistant
