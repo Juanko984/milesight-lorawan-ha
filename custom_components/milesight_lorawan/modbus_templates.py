@@ -236,6 +236,64 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
          "totals, which saves 6 channels."),
         "Input Register(INT16)",
     ),
+    Template(
+        "witmotion_wtvb01", "WitMotion WTVB01-485 triaxial vibration sensor (RS485)", "WitMotion", 0x50, 9600, "8N1",
+        "03 (holding register)",
+        (
+            # the ISO-10816 motor/pump health metric: RMS vibration velocity per axis (mm/s), raw = mm/s
+            Reg("vx", 0x3A, "Vibration velocity X", "mm/s", "1", 0, None, 0, "measurement", signed=True,
+                group="Velocity", toolbox="VibVelX", note="ISO 10816 velocity; raw register is already mm/s"),
+            Reg("vy", 0x3B, "Vibration velocity Y", "mm/s", "1", 0, None, 0, "measurement", signed=True,
+                group="Velocity", toolbox="VibVelY"),
+            Reg("vz", 0x3C, "Vibration velocity Z", "mm/s", "1", 0, None, 0, "measurement", signed=True,
+                group="Velocity", toolbox="VibVelZ"),
+            Reg("dx", 0x41, "Vibration displacement X", "µm", "1", 0, None, 0, "measurement", signed=True,
+                group="Displacement", toolbox="VibDispX", note="raw register is already µm"),
+            Reg("dy", 0x42, "Vibration displacement Y", "µm", "1", 0, None, 0, "measurement", signed=True,
+                group="Displacement", toolbox="VibDispY"),
+            Reg("dz", 0x43, "Vibration displacement Z", "µm", "1", 0, None, 0, "measurement", signed=True,
+                group="Displacement", toolbox="VibDispZ"),
+            Reg("hzx", 0x44, "Vibration frequency X", "Hz", "1", 0, "frequency", 0, "measurement", signed=True,
+                group="Frequency", toolbox="VibFreqX"),
+            Reg("hzy", 0x45, "Vibration frequency Y", "Hz", "1", 0, "frequency", 0, "measurement", signed=True,
+                group="Frequency", toolbox="VibFreqY"),
+            Reg("hzz", 0x46, "Vibration frequency Z", "Hz", "1", 0, "frequency", 0, "measurement", signed=True,
+                group="Frequency", toolbox="VibFreqZ"),
+            Reg("temp", 0x40, "Temperature", "°C", "0.01", 0, "temperature", 1, "measurement", signed=True,
+                group="Temperature", toolbox="Temp", note="raw / 100 °C, signed (can read below zero)"),
+            # optional raw IMU values: vibration angle, acceleration and angular velocity
+            Reg("adx", 0x3D, "Vibration angle X", "°", "0.005493", 0, None, 2, "measurement", signed=True,
+                group="Angle", toolbox="VibAngX", optional=True, note="raw / 32768 × 180°"),
+            Reg("ady", 0x3E, "Vibration angle Y", "°", "0.005493", 0, None, 2, "measurement", signed=True,
+                group="Angle", toolbox="VibAngY", optional=True),
+            Reg("adz", 0x3F, "Vibration angle Z", "°", "0.005493", 0, None, 2, "measurement", signed=True,
+                group="Angle", toolbox="VibAngZ", optional=True),
+            Reg("ax", 0x34, "Acceleration X", "g", "0.000488", 0, None, 3, "measurement", signed=True,
+                group="Acceleration", toolbox="AccX", optional=True, note="raw / 32768 × 16 g"),
+            Reg("ay", 0x35, "Acceleration Y", "g", "0.000488", 0, None, 3, "measurement", signed=True,
+                group="Acceleration", toolbox="AccY", optional=True),
+            Reg("az", 0x36, "Acceleration Z", "g", "0.000488", 0, None, 3, "measurement", signed=True,
+                group="Acceleration", toolbox="AccZ", optional=True),
+            Reg("gx", 0x37, "Angular velocity X", "°/s", "0.061035", 0, None, 1, "measurement", signed=True,
+                group="Angular velocity", toolbox="GyroX", optional=True, note="raw / 32768 × 2000 °/s"),
+            Reg("gy", 0x38, "Angular velocity Y", "°/s", "0.061035", 0, None, 1, "measurement", signed=True,
+                group="Angular velocity", toolbox="GyroY", optional=True),
+            Reg("gz", 0x39, "Angular velocity Z", "°/s", "0.061035", 0, None, 1, "measurement", signed=True,
+                group="Angular velocity", toolbox="GyroZ", optional=True),
+        ),
+        ("Default Modbus address 0x50 (80), 9600 baud 8N1, holding registers (function 03). The manual gives "
+         "9600 as the default baud; it doesn't state parity/stop bits, so 8N1 is the usual choice — match "
+         "whatever the sensor is set to (every probe on one RS485 bus must share the baud rate).",
+         "Vibration velocity (mm/s) is the ISO 10816 health metric for motors and pumps: X/Y/Z are the default "
+         "values, alongside displacement (µm), frequency (Hz) and temperature (raw ÷ 100).",
+         "Values are read signed (the manual casts them to a 16-bit short). Velocity, displacement and frequency "
+         "are positive magnitudes; temperature and the optional angles can go negative.",
+         "Two sensors on one bus need different addresses: write a new address (0x01–0x7F) to register 0x1A with "
+         "WitMotion's own tool before wiring them — the controller only reads.",
+         "Angle, acceleration (g) and angular velocity (°/s) are the raw IMU values; leave them unticked unless "
+         "you need them."),
+        "Holding Register(INT16)",
+    ),
 )}
 
 

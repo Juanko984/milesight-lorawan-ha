@@ -24,13 +24,3 @@ views:
           # on the gateway; actions fire Home Assistant notifications, services and downlink buttons.
           - type: custom:milesight-recipes-card
             grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Ready-made automations
-            icon: mdi:puzzle-outline
-          # The automation blueprints shipped with the integration (leak, door-left-open, temperature out of
-          # range, battery / device / gateway offline …). Each "Set up" opens Home Assistant's Blueprints page.
-          - type: custom:milesight-blueprints-card
-            grid_options: {columns: full}

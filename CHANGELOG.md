@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.111.0
+- **New RS485 sensor template: WitMotion WTVB01-485 triaxial vibration sensor** (for motor & pump condition
+  monitoring). Apply it to a UC100/UC300/UC50x and it maps the registers to Modbus channels and lists the
+  ToolBox settings. Default values are **vibration velocity, displacement and frequency on X/Y/Z, plus
+  temperature** (10 channels); vibration angle, acceleration (g) and angular velocity (°/s) are optional.
+  Register map taken from WitMotion's WTVB01-485 manual (holding registers, default address 0x50, 9600 8N1,
+  velocity 0x3A–0x3C mm/s, temperature 0x40 = raw ÷ 100, displacement 0x41–0x43 µm, frequency 0x44–0x46 Hz).
+
+## 0.110.0
+- **Removed the "Ready-made automations" section from the Rules page.** Its "Set up" button couldn't reliably
+  open Home Assistant's Blueprints page (HA routes same-origin links through its own navigation, which
+  wouldn't resolve the target on this setup), so the section is gone. The blueprints themselves are
+  unchanged and still available under **Settings → Automations & Scenes → Blueprints**.
+
 ## 0.109.0
 - **Fixed the "Set up" button on the Rules page blueprints** doing nothing. It's now a real link to Home
   Assistant's Blueprints page (`/config/blueprints/dashboard`) instead of a scripted navigation that some
