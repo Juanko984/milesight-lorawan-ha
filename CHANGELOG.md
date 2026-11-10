@@ -2,6 +2,11 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.109.0
+- **Fixed the "Set up" button on the Rules page blueprints** doing nothing. It's now a real link to Home
+  Assistant's Blueprints page (`/config/blueprints/dashboard`) instead of a scripted navigation that some
+  themes/HA versions swallowed, so it always opens.
+
 ## 0.108.0
 - **The Rules page now lists the ready-made automation blueprints** the integration ships (leak, door left
   open, temperature out of range, battery / device / gateway offline, alarms, button actions, coop heater

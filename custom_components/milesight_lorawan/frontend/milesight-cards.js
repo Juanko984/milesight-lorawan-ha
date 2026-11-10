@@ -4736,7 +4736,7 @@
         .bpn{font-size:14px;font-weight:600;color:var(--ms-ink)}
         .bpd{font-size:12.5px;color:var(--ms-ink2);margin-top:2px}
         .bpbtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:600;
-          color:var(--ms-ink);cursor:pointer;background:color-mix(in srgb,var(--ms-accent) 12%,transparent);
+          color:var(--ms-ink);text-decoration:none;cursor:pointer;background:color-mix(in srgb,var(--ms-accent) 12%,transparent);
           border:1px solid color-mix(in srgb,var(--ms-accent) 38%,var(--ms-line));border-radius:9px;padding:7px 13px}
         .bpbtn:hover{border-color:var(--ms-accent)} .bpbtn ha-icon{--mdc-icon-size:16px}
       `;
@@ -4760,11 +4760,13 @@
           valve_schedule: "mdi:sprinkler-variant" };
         return m[slug] || "mdi:puzzle-outline";
       };
+      // A real anchor (new tab) rather than a scripted navigate(): it opens the Blueprints page reliably
+      // regardless of theme / HA version, and never silently does nothing.
       const rows = this._bps.map((bp) => h("div", { class: "bprow" }, [
         h("div", { class: "bpic" }, [h("ha-icon", { icon: ic(bp.slug) })]),
         h("div", { class: "bpl" }, [h("div", { class: "bpn" }, esc(bp.name.replace(/^Milesight\s*[–-]\s*/i, ""))),
           bp.description ? h("div", { class: "bpd" }, esc(bp.description)) : null]),
-        h("button", { class: "bpbtn", onclick: () => navigate(url) }, [h("ha-icon", { icon: "mdi:plus" }), "Set up"]),
+        h("a", { class: "bpbtn", href: url }, [h("ha-icon", { icon: "mdi:plus" }), "Set up"]),
       ]));
       this._card(h("div", { class: "wrap" }, [
         h("div", { class: "bphead" }, [h("p", { class: "title", style: { margin: 0 } }, "Ready-made automations"),
