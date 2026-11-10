@@ -147,6 +147,11 @@ ALARM_FLAGS = {
 }
 
 
+def _nz(v: Any) -> float | None:
+    """A number or None (ignores booleans and non-numeric values)."""
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
 def _dur(seconds: float | None) -> str | None:
     """A compact, human duration: '45 s', '20 min', '1 h 30 min', '2 h'."""
     if not seconds or seconds <= 0:
@@ -593,16 +598,76 @@ class DeviceRuntime:
         specs += channel_specs(self.channels)
         if self._vibration_applied() is not None:      # a WitMotion WTVB01-485 template → an ISO 10816 verdict sensor
             specs.append(EntitySpec("vibration", "Vibration", unit="mm/s", icon="mdi:vibrate", precision=1))
+        if self._weather_applied() is not None:         # an Ecowitt WS90 template → a weather-station sensor
+            specs.append(EntitySpec("weather", "Weather", unit="°C", device_class="temperature",
+                                    icon="mdi:weather-partly-cloudy", precision=1))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
 
-    def _vibration_applied(self) -> dict | None:
-        """The applied WitMotion WTVB01-485 Modbus template on this controller, if any (has first channel + keys)."""
+    def _applied_template(self, key: str) -> dict | None:
         for a in self.entry.options.get("channel_templates", []):
-            if a.get("template") == "witmotion_wtvb01":
+            if a.get("template") == key:
                 return a
         return None
+
+    def _template_values(self, applied: dict, v: dict) -> dict:
+        """Register key → current (scaled) channel value for an applied Modbus template."""
+        first, keys = applied.get("first", 1), applied.get("keys") or []
+        return {k: v.get(f"modbus_chn_{first + i}") for i, k in enumerate(keys)}
+
+    def _vibration_applied(self) -> dict | None:
+        """The applied WitMotion WTVB01-485 Modbus template on this controller, if any (has first channel + keys)."""
+        return self._applied_template("witmotion_wtvb01")
+
+    def _weather_applied(self) -> dict | None:
+        """The applied Ecowitt WS90 Modbus template on this controller, if any."""
+        return self._applied_template("ecowitt_ws90")
+
+    def _weather_assess(self, v: dict, ts: float) -> dict | None:
+        """Turn the WS90 channel values into the weather card's attributes (condition, wind, rain, pressure trend)."""
+        applied = self._weather_applied()
+        if applied is None:
+            return None
+        from . import weather_calc as _wc
+        val = self._template_values(applied, v)
+        temp, hum = _nz(val.get("temperature")), _nz(val.get("humidity"))
+        pressure, rain, uvi = _nz(val.get("pressure")), _nz(val.get("rain")), _nz(val.get("uvi"))
+        gust, wdir = _nz(val.get("gust")), _nz(val.get("wind_direction"))
+        counter = _nz(val.get("rain_counter"))
+        # 3-hour pressure change, from a small rolling history kept on the device
+        delta3h = None
+        if pressure is not None:
+            hist = self.meta.setdefault("_wx_p", [])
+            hist.append([round(ts), round(pressure, 1)])
+            cutoff = ts - 3.6 * 3600
+            while len(hist) > 1 and hist[0][0] < cutoff:
+                del hist[0]
+            old = next((p for t, p in hist if t <= ts - 3 * 3600), hist[0][1])
+            delta3h = round(pressure - old, 1)
+        # rain since local midnight, from the lifetime counter
+        rain_today = None
+        if counter is not None:
+            day = self._day(ts)
+            r = self.meta.get("_wx_rain")
+            if not r or r.get("day") != day or _nz(r.get("base")) is None or counter < r["base"]:
+                self.meta["_wx_rain"] = {"day": day, "base": counter}
+            rain_today = round(max(0.0, counter - self.meta["_wx_rain"]["base"]), 1)
+        trend, forecast, p_sev = _wc.pressure_trend(delta3h)
+        uv_label, uv_sev = _wc.uv_risk(uvi)
+        feels = _heat_index(temp, hum) if temp is not None and hum is not None else temp
+        return {
+            "milesight_role": "weather", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WS90",
+            "temperature": temp, "humidity": hum, "feels_like": None if feels is None else round(feels, 1),
+            "condition": _wc.condition(rain, uvi, val.get("light")),
+            "wind_speed": _nz(val.get("wind_speed")), "gust": gust, "wind_unit": "km/h",
+            "wind_direction": wdir, "wind_compass": _wc.compass(wdir), "wind_severity": _wc.wind_severity(gust),
+            "rain": rain, "rain_today": rain_today, "rain_total": counter,
+            "pressure": pressure, "pressure_trend": trend, "forecast": forecast, "pressure_severity": p_sev,
+            "uvi": uvi, "uv_risk": uv_label, "uv_severity": uv_sev, "light": _nz(val.get("light")),
+            "last_seen": self.meta.get("last_seen"),
+        }
 
     def _vibration_assess(self, v: dict) -> dict | None:
         """ISO 10816 verdict from the WTVB01 channel values currently in the values dict (keyed by register)."""
@@ -1462,6 +1527,10 @@ class DeviceRuntime:
         if vib is not None:
             v["vibration"] = vib["worst_value"]        # the worst-axis velocity; attrs carry the full verdict
             self.attrs["vibration"] = vib
+        wx = self._weather_assess(v, ts)
+        if wx is not None:
+            v["weather"] = wx["temperature"]           # state = temperature; attrs carry the full conditions
+            self.attrs["weather"] = wx
         if self.fixed_location() is not None:
             v["fixed_location"] = "fixed"
         fleet = (v["online"], v.get("battery_low"))

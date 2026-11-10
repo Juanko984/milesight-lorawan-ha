@@ -23,6 +23,13 @@ views:
       - type: grid
         column_span: 3
         cards:
+          # Ecowitt WS90 weather station(s) on a UC controller. The card has its own title and hides itself
+          # (no heading) when there is no weather sensor, so it only shows where one is fitted.
+          - type: custom:milesight-weather-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
           - type: heading
             heading: At a glance
             icon: mdi:view-dashboard-outline

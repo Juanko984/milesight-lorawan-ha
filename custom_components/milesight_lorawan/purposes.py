@@ -21,6 +21,7 @@ GROUPS = {
     "assets": ("Milesight · Assets & vehicles", "mdi:truck-fast"),
     "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
     "people": ("Milesight · People & occupancy", "mdi:account-group"),
+    "weather": ("Milesight · Weather", "mdi:weather-partly-cloudy"),
 }
 
 # settings a purpose can set (defaults) and the user can override (option "p_<name>")
@@ -69,6 +70,8 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("vibration", "Vibration — motor / pump (small / medium machine)", "pump", "controller", "Vibration",
        "mdi:vibrate"),
     _p("vibration_large", "Vibration — large machine", "pump", "controller", "Vibration", "mdi:vibrate"),
+    # ---- weather station (an Ecowitt WS90 on a UC controller)
+    _p("weather", "Weather station", "weather", "controller", "Weather", "mdi:weather-partly-cloudy"),
     # ---- HVAC and energy
     _p("ac", "Air conditioner / heat pump", "hvac", "load", "Air conditioner", "mdi:air-conditioner",
        after_hours=True),

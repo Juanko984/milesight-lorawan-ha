@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.113.0
+- **New Weather widget for the Ecowitt WS90.** When the WS90 template is applied to a UC controller, the
+  integration adds a **Weather** sensor and a card (on the **Building analytics** dashboard) showing current
+  **temperature + condition + feels-like**, a **wind compass** (direction, speed, gust), and tiles for
+  **rain today**, **pressure** with a rising/steady/falling **trend → fair/change/stormy forecast**,
+  **UV index** (risk-coloured) and **light**. Rain-today and the 3-hour pressure trend are tracked on the
+  device; the condition and feels-like are derived (feels-like from temp + humidity).
+- **New "Fitted to" purpose: Weather station.** A UC controller can be set to **Weather station**; it is
+  labelled **Milesight · Weather** and brings in the Building-analytics dashboard. The card self-discovers —
+  no entity ids.
+
 ## 0.112.0
 - **New Vibration widget for the WitMotion WTVB01-485** (motor & pump condition monitoring). When the
   WTVB01-485 template is applied to a UC controller, the integration adds a **Vibration** sensor that works

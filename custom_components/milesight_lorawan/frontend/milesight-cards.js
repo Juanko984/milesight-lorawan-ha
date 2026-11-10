@@ -4826,6 +4826,136 @@
     }
   }
 
+  // ================================================================ weather station (Ecowitt WS90)
+  // Self-discovers the "weather" role sensors (an Ecowitt WS90 read over a UC controller) and shows current
+  // conditions: temperature + condition + feels-like, a wind compass, and rain / pressure / UV / light tiles.
+  class WeatherCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "weather") out.push(S[id]); }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _condIcon(cond) {
+      const c = String(cond || "").toLowerCase();
+      return c.indexOf("rain") >= 0 ? "mdi:weather-pouring" : c.indexOf("partly") >= 0 ? "mdi:weather-partly-cloudy"
+        : c.indexOf("cloud") >= 0 ? "mdi:weather-cloudy" : c.indexOf("clear") >= 0 ? "mdi:weather-night"
+        : "mdi:weather-sunny";
+    }
+    _lux(light) {
+      const lx = num(light); if (lx == null) return "—";
+      return lx < 1 ? "dark" : lx < 1500 ? "overcast" : lx < 15000 ? "cloudy" : lx < 50000 ? "hazy sun" : "bright sun";
+    }
+    _glyph(cond) {
+      const c = String(cond || "").toLowerCase();
+      if (c.indexOf("rain") >= 0) return svgNS(`<svg viewBox="0 0 64 64" width="66" height="66"><path d="M22 34a11 11 0 010-22 13 13 0 0124 5 9 9 0 01-2 17H22z" fill="#90a4ae"/><g stroke="#4aa3ff" stroke-width="3" stroke-linecap="round"><path d="M22 46l-3 8M34 46l-3 8M46 46l-3 8"/></g></svg>`);
+      if (c.indexOf("cloud") >= 0) return svgNS(`<svg viewBox="0 0 64 64" width="66" height="66"><path d="M20 44a12 12 0 010-24 14 14 0 0126 6 10 10 0 01-2 18H20z" fill="#b0bec5"/></svg>`);
+      return svgNS(`<svg viewBox="0 0 64 64" width="66" height="66"><circle cx="32" cy="30" r="13" fill="#ffca28"/><g stroke="#ffca28" stroke-width="3" stroke-linecap="round"><path d="M32 6v7M32 47v7M9 30h7M48 30h7M15 13l5 5M44 42l5 5M49 13l-5 5M20 42l-5 5"/></g></svg>`);
+    }
+    _compass(deg) {
+      const d = num(deg); const rot = d == null ? 0 : d;
+      return svgNS(`<svg viewBox="0 0 66 66" width="64" height="64">
+        <circle cx="33" cy="33" r="30" fill="none" stroke="var(--ms-line)" stroke-width="2"/>
+        <text x="33" y="12" text-anchor="middle" font-size="9" fill="var(--ms-ink2)">N</text>
+        <text x="33" y="61" text-anchor="middle" font-size="9" fill="var(--ms-ink2)">S</text>
+        <text x="58" y="36" text-anchor="middle" font-size="9" fill="var(--ms-ink2)">E</text>
+        <text x="8" y="36" text-anchor="middle" font-size="9" fill="var(--ms-ink2)">W</text>
+        ${d == null ? "" : `<g transform="rotate(${rot} 33 33)"><path d="M33 15 L39 40 L33 34 L27 40 Z" fill="var(--ms-accent)"/></g>`}
+      </svg>`);
+    }
+    _tile(icon, cls, value, unit, label, labelHtml) {
+      return h("div", { class: "wtile" + (cls ? " " + cls : "") }, [
+        h("div", { class: "wti" }, [h("ha-icon", { icon })]),
+        h("div", { class: "wtd" }, [
+          h("div", { class: "wtv" }, value == null ? "—" : [String(value), unit ? h("small", {}, " " + unit) : null]),
+          labelHtml || h("div", { class: "wtk" }, label)]),
+      ]);
+    }
+    _block(st) {
+      const a = st.attributes, temp = num(a.temperature), feels = num(a.feels_like), hum = num(a.humidity);
+      const windSev = a.wind_severity, gust = num(a.gust), rate = num(a.rain), today = num(a.rain_today);
+      const press = num(a.pressure), uvi = num(a.uvi), light = num(a.light);
+      const head = h("div", { class: "whd" }, [
+        h("div", { class: "wic" }, [h("ha-icon", { icon: this._condIcon(a.condition) })]),
+        h("div", { class: "whl" }, [h("div", { class: "whn" }, esc(a.device || "Weather")),
+          h("div", { class: "whs" }, "WS90" + (a.area ? " · " + esc(a.area) : ""))]),
+        h("span", { class: "wdot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const hero = h("div", { class: "whero" }, [
+        h("div", {}, [
+          h("div", { class: "wtemp" }, [temp == null ? "—" : String(temp.toFixed(1)), h("sup", {}, "°C")]),
+          h("div", { class: "wcond" }, [esc(a.condition || ""),
+            h("small", {}, (feels != null ? `feels ${feels.toFixed(1)}°` : "")
+              + (feels != null && hum != null ? " · " : "") + (hum != null ? `humidity ${Math.round(hum)}%` : ""))]),
+        ]),
+        h("div", { class: "wglyph" }, [this._glyph(a.condition)]),
+      ]);
+      const wind = h("div", { class: "wwind" }, [this._compass(a.wind_direction),
+        h("div", { class: "wwtx" }, [
+          h("div", { class: "wwv" }, [a.wind_speed == null ? "—" : String(Math.round(num(a.wind_speed))),
+            h("small", {}, " " + (a.wind_unit || "km/h"))]),
+          h("div", { class: "wwl" }, ["from ", h("b", {}, esc(a.wind_compass || "—")), " · gust ",
+            h("b", gust != null && windSev !== "ok" ? { class: "warn" } : {},
+              gust == null ? "—" : `${Math.round(gust)} ${a.wind_unit || "km/h"}`)])]),
+      ]);
+      const rainLbl = today != null
+        ? h("div", { class: "wtk" }, rate ? ["today · ", h("b", {}, `${rate} mm/h`)] : "today · dry")
+        : h("div", { class: "wtk" }, rate ? ["rate ", h("b", {}, `${rate} mm/h`)] : "dry");
+      const pressLbl = h("div", { class: "wtk" }, [h("b", a.pressure_severity === "warning" ? { class: "warn" } : {},
+        esc(a.pressure_trend || "steady")), a.forecast && a.forecast !== "—" ? " · " + esc(a.forecast) : ""]);
+      const tiles = h("div", { class: "wtiles" }, [
+        this._tile("mdi:weather-pouring", "rain", today != null ? today : (rate != null ? rate : null), "mm", null, rainLbl),
+        this._tile("mdi:gauge", "", press != null ? Math.round(press) : null, "hPa", null, pressLbl),
+        this._tile("mdi:weather-sunny-alert", a.uv_severity === "warning" || a.uv_severity === "critical" ? "uvh" : "",
+          uvi != null ? Math.round(uvi) : null, "UV", a.uv_risk || "—"),
+        this._tile("mdi:white-balance-sunny", "", light != null ? +(light / 1000).toFixed(light < 10000 ? 1 : 0) : null,
+          "klx", this._lux(light)),
+      ]);
+      return h("div", { class: "wblock" }, [head, hero, wind, tiles]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .wblock{padding:2px 0} .wblock + .wblock{margin-top:8px;padding-top:16px;border-top:1px solid var(--ms-line)}
+        .whd{display:flex;align-items:center;gap:11px}
+        .wic{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+          background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent)}
+        .wic ha-icon{--mdc-icon-size:21px}
+        .whl{flex:1 1 auto;min-width:0} .whn{font-size:15px;font-weight:650} .whs{font-size:12px;color:var(--ms-ink2);margin-top:1px}
+        .wdot{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ms-ink2)}
+        .wdot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .whero{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px}
+        .wtemp{font-size:42px;font-weight:300;line-height:1;letter-spacing:-1px}
+        .wtemp sup{font-size:18px;font-weight:400;vertical-align:top;color:var(--ms-ink2)}
+        .wcond{font-size:14px;font-weight:600;margin-top:3px}
+        .wcond small{display:block;color:var(--ms-ink2);font-weight:400;font-size:12.5px;margin-top:2px}
+        .wglyph svg{width:62px;height:62px}
+        .wwind{display:flex;align-items:center;gap:14px;margin-top:14px;padding-top:13px;border-top:1px solid var(--ms-line)}
+        .wwv{font-size:20px;font-weight:650} .wwv small{font-size:12px;color:var(--ms-ink2);font-weight:500}
+        .wwl{font-size:12px;color:var(--ms-ink2);margin-top:2px} .wwl b{color:var(--ms-ink);font-weight:600}
+        .wwl b.warn,.wtk b.warn{color:var(--ms-warn)}
+        .wtiles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}
+        .wtile{border:1px solid var(--ms-line);border-radius:11px;padding:10px 12px;display:flex;align-items:center;gap:10px}
+        .wti{flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+          background:color-mix(in srgb,var(--ms-accent) 13%,transparent);color:var(--ms-accent)}
+        .wti ha-icon{--mdc-icon-size:17px}
+        .wtile.rain .wti{background:color-mix(in srgb,#4aa3ff 16%,transparent);color:#4aa3ff}
+        .wtile.uvh .wti{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .wtd{min-width:0} .wtv{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums} .wtv small{font-size:11px;color:var(--ms-ink2);font-weight:500}
+        .wtk{font-size:11px;color:var(--ms-ink2);margin-top:1px} .wtk b{color:var(--ms-ink);font-weight:600}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "4px" } }, "Weather"),
+        ...items.map((st) => this._block(st)),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -5631,7 +5761,8 @@
         ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card",
         GATEWAYS_TAG = "milesight-gateways-card", JOBS_TAG = "milesight-jobs-card",
         TEAM_TAG = "milesight-team-card",
-        VIBRATION_TAG = "milesight-vibration-card";
+        VIBRATION_TAG = "milesight-vibration-card",
+        WEATHER_TAG = "milesight-weather-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -5680,6 +5811,7 @@
     [JOBS_TAG, JobsCard, "Milesight Jobs", "Plan → assign → record: a jobs board; sensor alerts raise jobs that close when the reading clears"],
     [TEAM_TAG, TeamCard, "Milesight Team", "Workers & clock-in from the mobile app; off-site clock-ins are blocked and recorded; timesheets"],
     [VIBRATION_TAG, VibrationCard, "Milesight Vibration", "WTVB01-485 condition monitoring: ISO 10816 velocity verdict, per-axis velocity, displacement and frequency"],
+    [WEATHER_TAG, WeatherCard, "Milesight Weather", "Ecowitt WS90 weather station: temperature, wind compass, rain, pressure trend, UV and light"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {
