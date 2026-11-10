@@ -4956,6 +4956,189 @@
     }
   }
 
+  // ================================================================ level models (tank / silo / dam / drain / bin)
+  // Self-discovers the "tank" and "flood" role sensors and draws a 2D cutaway of the right container — chosen
+  // from its contents — filled to the live level, with a subtle isometric-3D look.
+  const LV_COL = {   // mid, edge (darker side), top (lighter surface)
+    water: ["#2f9fe0", "#2378ab", "#64c4f6"], fuel: ["#c98a2b", "#9c6a1e", "#e3ac4e"],
+    feed: ["#c8a15a", "#9c7a3e", "#ddba7b"], dam: ["#2f9fe0", "#2378ab", "#64c4f6"],
+    waste: ["#8c979f", "#67727a", "#a8b2ba"], other: ["#2f9fe0", "#2378ab", "#64c4f6"],
+  };
+  class LevelModelCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const a = S[id].attributes; if (a && (a.milesight_role === "tank" || a.milesight_role === "flood")) out.push(S[id]); }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _model(a) {
+      if (a.milesight_role === "flood") return "drain";
+      const c = (a.contents || "water");
+      if (a.is_silo || c === "feed") return "silo";
+      if (c === "waste") return "bin"; if (c === "dam") return "dam";
+      return "tank";
+    }
+    _frac(a) {
+      if (a.milesight_role === "flood") {
+        const lvl = num(a.level_cm) || 0, dz = num(a.danger_cm), scale = Math.max(lvl, dz || 0, 60) * 1.25;
+        return { frac: clamp(lvl / scale, 0, 1), dangerFrac: dz ? clamp(dz / scale, 0, 1) : null };
+      }
+      return { frac: clamp((num(a.fill) || 0) / 100, 0, 1) };
+    }
+    _svg(a, uid) {
+      const m = this._model(a), f = this._frac(a);
+      const col = LV_COL[a.contents] || LV_COL.water;
+      if (m === "silo") return this._silo(f.frac, LV_COL.feed, uid);
+      if (m === "bin") return this._bin(f.frac, LV_COL.waste, uid);
+      if (m === "dam") return this._dam(f.frac, uid);
+      if (m === "drain") return this._drain(f.frac, f.dangerFrac, a.rising, a.danger, uid);
+      return this._tank(f.frac, col, uid);
+    }
+    _grad(uid, col) {
+      return `<linearGradient id="gb${uid}" x1="0" x2="1"><stop offset="0" stop-color="#4a545d"/><stop offset=".5" stop-color="#2b323a"/><stop offset="1" stop-color="#4a545d"/></linearGradient>
+        <linearGradient id="gf${uid}" x1="0" x2="1"><stop offset="0" stop-color="${col[1]}"/><stop offset=".5" stop-color="${col[0]}"/><stop offset="1" stop-color="${col[1]}"/></linearGradient>`;
+    }
+    _tank(frac, col, uid) {
+      const y0 = 26, y1 = 140, fy = y1 - (y1 - y0) * frac;
+      return svgNS(`<svg width="100" height="150" viewBox="0 0 104 150"><defs>${this._grad(uid, col)}</defs>
+        <rect x="18" y="26" width="68" height="114" rx="10" fill="url(#gb${uid})" stroke="#5c6670" stroke-width="1.5"/>
+        <clipPath id="c${uid}"><rect x="20" y="28" width="64" height="110" rx="8"/></clipPath>
+        <g clip-path="url(#c${uid})"><rect x="20" y="${fy}" width="64" height="${y1 - fy}" fill="url(#gf${uid})"/>
+          <ellipse cx="52" cy="${fy}" rx="32" ry="4.5" fill="${col[2]}"/></g>
+        <ellipse cx="52" cy="26" rx="34" ry="8" fill="#5c6670"/><ellipse cx="52" cy="26" rx="27" ry="5" fill="#1b2026"/>
+        <rect x="48" y="14" width="8" height="12" rx="2" fill="#727d87"/><rect x="86" y="128" width="13" height="7" rx="1" fill="#5c6670"/></svg>`);
+    }
+    _silo(frac, col, uid) {
+      const yTop = 46, yBot = 148, fy = yBot - (yBot - yTop) * frac, peak = Math.max(yTop, fy - 7);
+      return svgNS(`<svg width="100" height="156" viewBox="0 0 104 156"><defs>${this._grad(uid, col)}</defs>
+        <path d="M24 46 L52 14 L80 46 Z" fill="#3a434c" stroke="#5c6670" stroke-width="1.5"/>
+        <rect x="24" y="46" width="56" height="74" fill="url(#gb${uid})" stroke="#5c6670" stroke-width="1.5"/>
+        <path d="M24 120 L80 120 L64 148 L40 148 Z" fill="url(#gb${uid})" stroke="#5c6670" stroke-width="1.5"/>
+        <clipPath id="c${uid}"><path d="M25 47 H79 V120 L63 147 H41 L25 120 Z"/></clipPath>
+        <g clip-path="url(#c${uid})"><rect x="25" y="${fy}" width="54" height="${yBot - fy}" fill="url(#gf${uid})"/>
+          <path d="M25 ${fy} Q52 ${peak} 79 ${fy} L79 ${fy + 6} L25 ${fy + 6} Z" fill="${col[2]}"/></g>
+        <ellipse cx="52" cy="46" rx="28" ry="5" fill="#2b323a" opacity=".5"/>
+        <rect x="48" y="9" width="8" height="7" rx="2" fill="#727d87"/>
+        <path d="M40 148 L35 156 M64 148 L69 156" stroke="#5c6670" stroke-width="2"/></svg>`);
+    }
+    _dam(frac, uid) {
+      const y0 = 50, y1 = 110, fy = y1 - (y1 - y0) * frac, col = LV_COL.water;
+      return svgNS(`<svg width="150" height="150" viewBox="0 0 150 120"><defs>
+        <linearGradient id="gf${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col[2]}"/><stop offset="1" stop-color="${col[1]}"/></linearGradient></defs>
+        <path d="M0 120 V58 Q22 42 44 54 L44 120 Z" fill="#4a3b2e"/><path d="M150 120 V40 L120 40 L120 120 Z" fill="#4a3b2e"/>
+        <path d="M44 120 V54 Q22 42 6 60 V120 Z" fill="#3a2f24"/>
+        <rect x="8" y="${fy}" width="112" height="${y1 + 10 - fy}" fill="url(#gf${uid})"/>
+        <line x1="8" y1="${fy}" x2="120" y2="${fy}" stroke="${col[2]}" stroke-width="2"/>
+        <path d="M118 36 L140 36 L146 120 L120 120 Z" fill="#6b7680" stroke="#848f99" stroke-width="1.5"/>
+        <path d="M118 36 L124 34 L146 118 L146 120 L140 120 Z" fill="#848f99" opacity=".5"/>
+        <line x1="6" y1="50" x2="118" y2="50" stroke="#9aa4ad" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="9" y="47" font-size="8" fill="#9aa4ad">full</text>
+        <rect x="124" y="30" width="7" height="10" rx="2" fill="#9aa4ad"/></svg>`);
+    }
+    _drain(frac, dangerFrac, rising, over, uid) {
+      const y0 = 36, y1 = 142, fy = y1 - (y1 - y0) * (frac || 0), col = over ? ["#b23b30", "#8a2c24", "#d6564a"] : LV_COL.water;
+      const dy = dangerFrac != null ? y1 - (y1 - y0) * dangerFrac : null;
+      return svgNS(`<svg width="100" height="152" viewBox="0 0 104 152"><defs>${this._grad(uid, col)}</defs>
+        <rect x="6" y="26" width="92" height="10" fill="#4a3b2e"/>
+        <g stroke="#6b7680" stroke-width="2"><path d="M26 26 V36 M38 26 V36 M50 26 V36 M62 26 V36 M74 26 V36"/></g>
+        <rect x="30" y="36" width="44" height="106" fill="#191e24" stroke="#5c6670" stroke-width="1.5"/>
+        <clipPath id="c${uid}"><rect x="31" y="37" width="42" height="104"/></clipPath>
+        <g clip-path="url(#c${uid})"><rect x="31" y="${fy}" width="42" height="${y1 - fy}" fill="url(#gf${uid})"/>
+          <rect x="31" y="${fy}" width="42" height="4" fill="${col[2]}"/></g>
+        ${dy == null ? "" : `<line x1="28" y1="${dy}" x2="76" y2="${dy}" stroke="var(--ms-bad)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="78" y="${dy + 3}" font-size="8" fill="var(--ms-bad)">danger</text>`}
+        ${rising ? `<g stroke="var(--ms-warn)" stroke-width="2" fill="none" stroke-linecap="round"><path d="M52 ${fy - 6} V${fy - 18} M47 ${fy - 13} L52 ${fy - 18} L57 ${fy - 13}"/></g>` : ""}</svg>`);
+    }
+    _bin(frac, col, uid) {
+      const y0 = 44, y1 = 132, fy = y1 - (y1 - y0) * frac;
+      return svgNS(`<svg width="100" height="152" viewBox="0 0 104 152"><defs>${this._grad(uid, col)}</defs>
+        <path d="M20 42 L84 42 L80 33 L24 33 Z" fill="#5c6670"/><rect x="49" y="26" width="6" height="9" rx="2" fill="#727d87"/>
+        <path d="M24 44 L80 44 L74 132 L30 132 Z" fill="url(#gb${uid})" stroke="#5c6670" stroke-width="1.5"/>
+        <clipPath id="c${uid}"><path d="M25 45 L79 45 L73.3 131 L30.7 131 Z"/></clipPath>
+        <g clip-path="url(#c${uid})"><rect x="25" y="${fy}" width="54" height="${y1 - fy}" fill="url(#gf${uid})"/>
+          <path d="M25 ${fy} Q40 ${fy - 7} 54 ${fy - 1} T79 ${fy - 2} L79 ${fy + 5} L25 ${fy + 5} Z" fill="${col[2]}"/></g>
+        <path d="M24 44 L30 132 L30.7 131 L25 45 Z" fill="#1b2026" opacity=".4"/>
+        <circle cx="35" cy="138" r="6" fill="#191e24" stroke="#5c6670"/><circle cx="69" cy="138" r="6" fill="#191e24" stroke="#5c6670"/></svg>`);
+    }
+    _verdict(a) {
+      if (a.milesight_role === "flood") return a.danger ? ["bad", "flood risk"] : a.rising ? ["warn", "rising"] : ["ok", "normal"];
+      const fill = num(a.fill);
+      if (a.contents === "waste") return fill >= 90 ? ["bad", "collection due"] : fill >= 75 ? ["warn", "collection due"] : ["ok", "ok"];
+      if (a.low) return [a.is_silo || a.contents === "feed" ? "bad" : "bad", a.is_silo ? "reorder" : "low"];
+      return ["ok", "healthy"];
+    }
+    _readings(a) {
+      if (a.milesight_role === "flood") {
+        const lvl = num(a.level_cm), rate = num(a.rate_cm_h);
+        return { big: lvl == null ? "—" : Math.round(lvl), unit: "cm",
+          vol: a.rising && rate ? h("span", {}, [h("b", {}, "rising"), ` ${rate} cm/h`]) : "steady",
+          sub: a.danger_cm ? `danger at ${a.danger_cm} cm` : "" };
+      }
+      const fill = num(a.fill), cap = num(a.capacity_l), contents = a.contents || "water";
+      let vol = contents, sub = "";
+      if (contents === "waste") { vol = "general waste"; sub = fill >= 85 ? "collection due" : "filling"; }
+      else if (a.is_silo || contents === "feed") {
+        vol = num(a.mass_t) != null ? h("span", {}, [h("b", {}, `${a.mass_t} t`), " stored"]) : "feed";
+        sub = num(a.days_left) != null ? `~${a.days_left} days left` : "feed";
+      } else if (contents === "dam") {
+        vol = cap && cap >= 1e6 ? h("span", {}, [h("b", {}, `${(cap * fill / 100 / 1e6).toFixed(2)} ML`), ` of ${(cap / 1e6).toFixed(1)}`])
+          : (cap ? h("span", {}, [h("b", {}, `${Math.round(cap * fill / 100)} L`), ` of ${cap}`]) : "water");
+        sub = num(a.days_left) != null ? `~${a.days_left} days` : "water";
+      } else {
+        vol = cap ? h("span", {}, [h("b", {}, `${Math.round(cap * fill / 100).toLocaleString()} L`), ` of ${cap.toLocaleString()}`]) : contents;
+        sub = num(a.days_left) != null ? `~${a.days_left} days at this use` : contents;
+      }
+      return { big: fill == null ? "—" : Math.round(fill), unit: "%", vol, sub };
+    }
+    _block(st, i) {
+      const a = st.attributes, [tone, chip] = this._verdict(a), r = this._readings(a);
+      const head = h("div", { class: "lhd" }, [
+        h("div", { class: "lhn" }, [esc(a.device || "Level"), h("small", {},
+          (a.model || "") + (a.area ? (a.model ? " · " : "") + esc(a.area) : ""))]),
+        h("span", { class: "ldot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const body = h("div", { class: "lbody" }, [
+        h("div", { class: "lmodel" }, [this._svg(a, i)]),
+        h("div", { class: "lread" }, [
+          h("div", { class: "lpct" }, [String(r.big), h("small", {}, r.unit)]),
+          h("div", { class: "lvol" }, r.vol),
+          r.sub ? h("div", { class: "lsub" }, r.sub) : null,
+          h("span", { class: "lchip " + tone }, "● " + chip),
+        ]),
+      ]);
+      return h("div", { class: "lblock" }, [head, body]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .lblock{padding:2px 0} .lblock + .lblock{margin-top:8px;padding-top:16px;border-top:1px solid var(--ms-line)}
+        .lhd{display:flex;align-items:center;gap:9px}
+        .lhn{flex:1 1 auto;min-width:0;font-size:14.5px;font-weight:650;line-height:1.1}
+        .lhn small{display:block;font-size:11.5px;color:var(--ms-ink2);font-weight:400;margin-top:1px}
+        .ldot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:4px}
+        .ldot i{width:6px;height:6px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .lbody{display:flex;align-items:center;gap:14px;margin-top:8px}
+        .lmodel{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:100px}
+        .lread{flex:1 1 auto;min-width:0}
+        .lpct{font-size:34px;font-weight:720;line-height:1} .lpct small{font-size:15px;color:var(--ms-ink2);font-weight:600;margin-left:2px}
+        .lvol{font-size:13px;color:var(--ms-ink);margin-top:4px} .lvol b{font-weight:650}
+        .lsub{font-size:12px;color:var(--ms-ink2);margin-top:5px}
+        .lchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;margin-top:10px}
+        .lchip.ok{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .lchip.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .lchip.bad{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "4px" } }, "Levels"),
+        ...items.map((st, i) => this._block(st, i)),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -5762,7 +5945,8 @@
         GATEWAYS_TAG = "milesight-gateways-card", JOBS_TAG = "milesight-jobs-card",
         TEAM_TAG = "milesight-team-card",
         VIBRATION_TAG = "milesight-vibration-card",
-        WEATHER_TAG = "milesight-weather-card";
+        WEATHER_TAG = "milesight-weather-card",
+        LEVELMODEL_TAG = "milesight-level-model-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -5812,6 +5996,7 @@
     [TEAM_TAG, TeamCard, "Milesight Team", "Workers & clock-in from the mobile app; off-site clock-ins are blocked and recorded; timesheets"],
     [VIBRATION_TAG, VibrationCard, "Milesight Vibration", "WTVB01-485 condition monitoring: ISO 10816 velocity verdict, per-axis velocity, displacement and frequency"],
     [WEATHER_TAG, WeatherCard, "Milesight Weather", "Ecowitt WS90 weather station: temperature, wind compass, rain, pressure trend, UV and light"],
+    [LEVELMODEL_TAG, LevelModelCard, "Milesight Level Model", "A 2D cutaway model of each level sensor — tank, silo, dam, storm drain or waste bin — filled to the live level"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

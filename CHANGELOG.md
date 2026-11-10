@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.114.0
+- **New Level model card** — a 2D cutaway of each level sensor, filled to the live level with a subtle
+  isometric-3D look. The shape is chosen automatically from the sensor's **contents**: a liquid **tank**
+  (water blue / fuel amber), a grain **silo** (cone + hopper), an earth **dam**, a storm-water **drain**
+  (rising level + danger line, from the flood sensors), or a **waste bin**. Each shows the headline figure
+  (% for a container, cm + rate for a drain), volume/mass vs capacity, a status line (days of supply, rising
+  rate, or "collection due") and a colour chip. It's on the **Water** dashboard and self-discovers.
+- **Two new tank contents: Dam / reservoir and Waste bin / skip** — set a level sensor's *What it holds* to
+  one of these to get the dam or bin model (they install the Water dashboard like other tanks).
+
 ## 0.113.0
 - **New Weather widget for the Ecowitt WS90.** When the WS90 template is applied to a UC controller, the
   integration adds a **Weather** sensor and a card (on the **Building analytics** dashboard) showing current

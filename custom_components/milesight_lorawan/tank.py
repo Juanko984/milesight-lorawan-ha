@@ -42,8 +42,8 @@ class TankConfig:
         return self.contents == "feed"
 
 
-CONTENTS = ("water", "fuel", "feed", "other")       # what the tank holds
-DEFAULT_DENSITY = {"water": 1000, "fuel": 840, "feed": 650, "other": 0}   # kg/m³, used when density left at 0
+CONTENTS = ("water", "fuel", "feed", "dam", "waste", "other")       # what the tank holds (also picks the card's model)
+DEFAULT_DENSITY = {"water": 1000, "fuel": 840, "feed": 650, "dam": 1000, "waste": 0, "other": 0}   # kg/m³, used when density left at 0
 
 
 def tank_config(opts: dict[str, Any]) -> TankConfig:

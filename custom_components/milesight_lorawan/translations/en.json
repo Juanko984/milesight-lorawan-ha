@@ -672,6 +672,8 @@
         "water": "Water",
         "fuel": "Fuel / diesel",
         "feed": "Grain or feed (silo)",
+        "dam": "Dam / reservoir",
+        "waste": "Waste bin / skip",
         "other": "Other liquid"
       }
     }

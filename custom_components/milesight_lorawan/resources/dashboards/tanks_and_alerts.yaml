@@ -21,6 +21,13 @@ views:
       - type: grid
         column_span: 3
         cards:
+          # A 2D cutaway model of each level sensor (tank / silo / dam / storm drain / waste bin), chosen from
+          # its contents and filled to the live level. The card has its own title and hides itself when empty.
+          - type: custom:milesight-level-model-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
           # Water recipes (plain-language automations). Hidden when there are none for this domain.
           - type: custom:milesight-recipe-strip-card
             category: [water]
