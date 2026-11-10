@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.108.0
+- **The Rules page now lists the ready-made automation blueprints** the integration ships (leak, door left
+  open, temperature out of range, battery / device / gateway offline, alarms, button actions, coop heater
+  and lights, valve schedule …), under a new **"Ready-made automations"** heading. Each shows what it does
+  and a **Set up** button that opens Home Assistant's Blueprints page to create an automation from it. The
+  card self-discovers the installed blueprints — no entity ids to set.
+
 ## 0.107.0
 - **Offline alerts now set themselves from each device's reporting interval.** Milesight sensors don't
   broadcast their reporting interval, so the integration now **learns it from the uplink cadence** (the

@@ -4702,6 +4702,80 @@
     }
   }
 
+  // ================================================================ ready-made automations (blueprints)
+  // Lists the automation blueprints the integration ships. They are instantiated in Home Assistant's own
+  // automation editor, so the card is a catalogue with a jump to the Blueprints page (no entity ids).
+  class BlueprintsCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    set hass(hass) {
+      const first = !this._hass; this._hass = hass;
+      if (first) this._load();
+      else if (this._bps !== undefined) this._render();        // cheap re-render on refresh, no re-fetch
+    }
+    async _load() {
+      try {
+        const r = await this._hass.callWS({ type: "milesight_lorawan/blueprints" });
+        this._bps = (r && r.blueprints) || [];
+        this._url = (r && r.url) || "/config/blueprints/dashboard";
+      } catch (e) { this._bps = null; this._err = (e && e.message) || "could not load"; }
+      this._render();
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .bphead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
+        .bpcount{font-size:12px;color:var(--ms-ink2)}
+        .bplist{display:flex;flex-direction:column}
+        .bprow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--ms-line)}
+        .bprow:last-child{border-bottom:none}
+        .bpic{flex:0 0 auto;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+          background:color-mix(in srgb,var(--ms-accent) 14%,transparent);color:var(--ms-accent)}
+        .bpic ha-icon{--mdc-icon-size:19px}
+        .bpl{flex:1 1 auto;min-width:0}
+        .bpn{font-size:14px;font-weight:600;color:var(--ms-ink)}
+        .bpd{font-size:12.5px;color:var(--ms-ink2);margin-top:2px}
+        .bpbtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:600;
+          color:var(--ms-ink);cursor:pointer;background:color-mix(in srgb,var(--ms-accent) 12%,transparent);
+          border:1px solid color-mix(in srgb,var(--ms-accent) 38%,var(--ms-line));border-radius:9px;padding:7px 13px}
+        .bpbtn:hover{border-color:var(--ms-accent)} .bpbtn ha-icon{--mdc-icon-size:16px}
+      `;
+      if (this._bps === undefined) {
+        return this._card(h("div", { class: "wrap" }, [h("div", { class: "muted", style: { padding: "8px 2px" } }, "Loading blueprints…")]));
+      }
+      if (this._bps === null) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:puzzle-outline",
+          title: "Couldn't load blueprints", hint: this._err || "Open the Blueprints page to see them." })]));
+      }
+      if (!this._bps.length) {
+        return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:puzzle-outline",
+          title: "No blueprints installed yet", hint: "Press the gateway's “Install dashboards and blueprints” button." })]));
+      }
+      const url = this._url || "/config/blueprints/dashboard";
+      const ic = (slug) => {
+        const m = { leak: "mdi:water-alert", door_left_open: "mdi:door-open", temperature_out_of_range: "mdi:thermometer-alert",
+          battery_low: "mdi:battery-alert-variant-outline", device_offline: "mdi:lan-disconnect", gateway_offline: "mdi:router-wireless-off",
+          command_failed: "mdi:alert-circle-check-outline", alarm: "mdi:bell-alert-outline", button_actions: "mdi:gesture-tap-button",
+          coop_heater: "mdi:radiator", coop_lights: "mdi:lightbulb-on-outline", ds3604_room_status: "mdi:sign-text",
+          valve_schedule: "mdi:sprinkler-variant" };
+        return m[slug] || "mdi:puzzle-outline";
+      };
+      const rows = this._bps.map((bp) => h("div", { class: "bprow" }, [
+        h("div", { class: "bpic" }, [h("ha-icon", { icon: ic(bp.slug) })]),
+        h("div", { class: "bpl" }, [h("div", { class: "bpn" }, esc(bp.name.replace(/^Milesight\s*[–-]\s*/i, ""))),
+          bp.description ? h("div", { class: "bpd" }, esc(bp.description)) : null]),
+        h("button", { class: "bpbtn", onclick: () => navigate(url) }, [h("ha-icon", { icon: "mdi:plus" }), "Set up"]),
+      ]));
+      this._card(h("div", { class: "wrap" }, [
+        h("div", { class: "bphead" }, [h("p", { class: "title", style: { margin: 0 } }, "Ready-made automations"),
+          h("span", { class: "bpcount" }, `${this._bps.length} blueprints`)]),
+        h("p", { class: "sub", style: { marginTop: "-6px", marginBottom: "12px" } },
+          "Installed with the integration for the common cases. “Set up” opens Home Assistant's Blueprints page, where you create an automation from one in a couple of taps."),
+        h("div", { class: "bplist" }, rows),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -5506,7 +5580,8 @@
         RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
         ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card",
         GATEWAYS_TAG = "milesight-gateways-card", JOBS_TAG = "milesight-jobs-card",
-        TEAM_TAG = "milesight-team-card";
+        TEAM_TAG = "milesight-team-card",
+        BLUEPRINTS_TAG = "milesight-blueprints-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -5549,6 +5624,7 @@
     [COSTSTRIP_TAG, CostStripCard, "Milesight Cost Strip", "A small water / diesel / feed cost-today strip for a page other than Energy"],
     [RECIPES_TAG, RecipesCard, "Milesight Rules", "Plain-language automations: browse, toggle, tune and add rules"],
     [RECIPESTRIP_TAG, RecipeStripCard, "Milesight Rule Strip", "A compact per-domain rule strip with toggles for a dashboard"],
+    [BLUEPRINTS_TAG, BlueprintsCard, "Milesight Blueprints", "The ready-made automation blueprints the integration ships, with a link to set each one up"],
     [ATTENTION_TAG, AttentionCard, "Milesight Needs Attention", "Open alerts, most severe first — collapses when all-clear (for the Overview)"],
     [SYSTEMS_TAG, SystemsCard, "Milesight Systems", "Every system the site has as equal-size panels — the Overview single pane of glass"],
     [GATEWAYS_TAG, GatewaysCard, "Milesight Gateway", "The gateway(s): live status, click-through to the device page, and a settings button"],
