@@ -2014,6 +2014,8 @@ def families(model_key: str) -> frozenset[str]:
         out.add("air")
     if model_key.startswith(("UC51", "UC52")):
         out.add("valve")
+    if model_key.startswith(("UC1", "UC3", "UC50", "UC51", "UC52")):   # RS485/Modbus controllers (vibration etc.)
+        out.add("controller")
     return frozenset(out)
 
 

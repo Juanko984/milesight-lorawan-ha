@@ -30,6 +30,13 @@ views:
           - type: custom:milesight-fleet-band
             grid_options: {columns: full}
       - type: grid
+        column_span: 3
+        cards:
+          # Condition monitoring for WitMotion WTVB01-485 sensors on UC controllers (ISO 10816 velocity).
+          # The card has its own title and hides itself (no heading) when there are no vibration sensors.
+          - type: custom:milesight-vibration-card
+            grid_options: {columns: full}
+      - type: grid
         cards:
           - type: heading
             heading: Batteries

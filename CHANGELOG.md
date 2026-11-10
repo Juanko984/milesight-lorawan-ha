@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.112.0
+- **New Vibration widget for the WitMotion WTVB01-485** (motor & pump condition monitoring). When the
+  WTVB01-485 template is applied to a UC controller, the integration adds a **Vibration** sensor that works
+  out the **ISO 10816 velocity verdict** (Good / Satisfactory / Unsatisfactory / Unacceptable) from the
+  worst of the three axes. A new card on the **Maintenance** dashboard shows the verdict, a zone bar, the
+  per-axis velocity, and displacement (µm) / frequency (Hz) / temperature — one block per sensor, worst first.
+- **New "Fitted to" purpose: Vibration.** A UC controller can now be set to **Vibration — motor / pump** or
+  **Vibration — large machine**; the machine class picks the ISO 10816 zone edges (small/medium default
+  2.8 / 4.5 / 7.1 mm/s, large 4.5 / 7.1 / 11). The card and sensor appear automatically — no entity ids.
+
 ## 0.111.0
 - **New RS485 sensor template: WitMotion WTVB01-485 triaxial vibration sensor** (for motor & pump condition
   monitoring). Apply it to a UC100/UC300/UC50x and it maps the registers to Modbus channels and lists the

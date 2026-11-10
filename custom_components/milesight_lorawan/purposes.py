@@ -65,6 +65,10 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("air_compressor", "Air compressor", "pump", "load", "Compressor", "mdi:air-filter", after_hours=True,
        max_run_h=1),
     _p("motor", "Motor / conveyor / machine", "pump", "load", "Motor", "mdi:engine", service_h=500),
+    # ---- vibration monitoring (a WTVB01-485 on a UC controller). The machine class sets the ISO 10816 zone edges.
+    _p("vibration", "Vibration — motor / pump (small / medium machine)", "pump", "controller", "Vibration",
+       "mdi:vibrate"),
+    _p("vibration_large", "Vibration — large machine", "pump", "controller", "Vibration", "mdi:vibrate"),
     # ---- HVAC and energy
     _p("ac", "Air conditioner / heat pump", "hvac", "load", "Air conditioner", "mdi:air-conditioner",
        after_hours=True),

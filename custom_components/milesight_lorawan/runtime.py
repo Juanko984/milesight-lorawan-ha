@@ -591,9 +591,40 @@ class DeviceRuntime:
         if self.pivot is not None:
             specs += pivot_specs()
         specs += channel_specs(self.channels)
+        if self._vibration_applied() is not None:      # a WitMotion WTVB01-485 template → an ISO 10816 verdict sensor
+            specs.append(EntitySpec("vibration", "Vibration", unit="mm/s", icon="mdi:vibrate", precision=1))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
+
+    def _vibration_applied(self) -> dict | None:
+        """The applied WitMotion WTVB01-485 Modbus template on this controller, if any (has first channel + keys)."""
+        for a in self.entry.options.get("channel_templates", []):
+            if a.get("template") == "witmotion_wtvb01":
+                return a
+        return None
+
+    def _vibration_assess(self, v: dict) -> dict | None:
+        """ISO 10816 verdict from the WTVB01 channel values currently in the values dict (keyed by register)."""
+        applied = self._vibration_applied()
+        if applied is None:
+            return None
+        from . import vibration_calc as _vc
+        first, keys = applied.get("first", 1), applied.get("keys") or []
+        val = {k: v.get(f"modbus_chn_{first + i}") for i, k in enumerate(keys)}
+        machine_class = "large" if self._pkey == "vibration_large" else "small"
+        res = _vc.assess({"x": val.get("vx"), "y": val.get("vy"), "z": val.get("vz")}, machine_class)
+        axes = ("x", "y", "z")
+        res.update({
+            "milesight_role": "vibration", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WTVB01-485",
+            "velocity": {a: val.get("v" + a) for a in axes},
+            "displacement": {a: val.get("d" + a) for a in axes},
+            "frequency": {a: val.get("hz" + a) for a in axes},
+            "temperature": val.get("temp"),
+            "last_seen": self.meta.get("last_seen"),
+        })
+        return res
 
     def fixed_location(self) -> tuple[float, float] | None:
         """Where the device is mounted (captured on the phone in the commissioning panel, or set in its options)."""
@@ -1427,6 +1458,10 @@ class DeviceRuntime:
         if isinstance(v.get("battery"), (int, float)):
             v["battery_low"] = v["battery"] < self.battery_low_pct
         self._battery_values(v, ts)
+        vib = self._vibration_assess(v)
+        if vib is not None:
+            v["vibration"] = vib["worst_value"]        # the worst-axis velocity; attrs carry the full verdict
+            self.attrs["vibration"] = vib
         if self.fixed_location() is not None:
             v["fixed_location"] = "fixed"
         fleet = (v["online"], v.get("battery_low"))

@@ -4702,6 +4702,130 @@
     }
   }
 
+  // ================================================================ vibration (WTVB01-485, ISO 10816)
+  // Self-discovers the "vibration" role sensors (a WitMotion WTVB01-485 read over a UC controller) and shows the
+  // ISO 10816 velocity verdict per machine: worst-axis zone, a zone bar, per-axis velocity, displacement/frequency.
+  class VibrationCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "vibration") out.push(S[id]); }
+      return out.sort((x, y) => (y.attributes.zone_index || 0) - (x.attributes.zone_index || 0)
+                                || String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _tone(zi) { return zi >= 3 ? "bad" : zi === 2 ? "unsat" : zi === 1 ? "sat" : "good"; }
+    _fill(zi) { return "fill-" + this._tone(zi); }
+    _zoneBar(a) {
+      const th = a.thresholds || [2.8, 4.5, 7.1], top = th[2] * 1.4;
+      const seg = (cls, w) => h("span", { class: cls, style: { flex: String(Math.max(0.01, w)) } });
+      const bar = h("div", { class: "vzbar" }, [seg("z-a", th[0]), seg("z-b", th[1] - th[0]),
+        seg("z-c", th[2] - th[1]), seg("z-d", top - th[2])]);
+      const mk = h("div", { class: "vzmark", style: { left: Math.round(Math.min(1, (a.worst_value || 0) / top) * 100) + "%" } });
+      const lbl = h("div", { class: "vzlabels" }, [h("span", {}, "0"), h("span", {}, String(th[0])),
+        h("span", {}, String(th[1])), h("span", {}, String(th[2])), h("span", {}, Math.round(top) + "+")]);
+      return h("div", { class: "vzband" }, [bar, mk, lbl]);
+    }
+    _axisRows(a) {
+      const th = a.thresholds || [2.8, 4.5, 7.1], top = th[2] * 1.4, vel = a.velocity || {};
+      const zoneOf = (v) => v < th[0] ? 0 : v < th[1] ? 1 : v < th[2] ? 2 : 3;
+      return ["x", "y", "z"].map((ax) => {
+        const v = num(vel[ax]); const worst = a.worst_axis && ax === String(a.worst_axis).toLowerCase();
+        return h("div", { class: "vaxis" + (worst ? " worst" : "") }, [
+          h("span", { class: "vax" }, ax.toUpperCase()),
+          h("span", { class: "vtr" }, [v == null ? null : h("i", { class: this._fill(zoneOf(v)),
+            style: { width: Math.round(Math.min(1, v / top) * 100) + "%" } })]),
+          h("span", { class: "vvv" }, v == null ? "—" : [String(v), h("small", {}, " mm/s")]),
+        ]);
+      });
+    }
+    _axesTile(label, unit, obj) {
+      const cell = (ax) => { const v = num((obj || {})[ax]); return h("div", {}, [h("span", {}, ax.toUpperCase()),
+        v == null ? "—" : String(Math.round(v))]); };
+      return h("div", { class: "vtile" }, [h("div", { class: "vk" }, [label, h("span", { class: "vu" }, " " + unit)]),
+        h("div", { class: "vaxes" }, [cell("x"), cell("y"), cell("z")])]);
+    }
+    _block(st) {
+      const a = st.attributes, zi = a.zone_index == null ? 0 : a.zone_index, tone = this._tone(zi);
+      const temp = num(a.temperature);
+      const head = h("div", { class: "vhd" }, [
+        h("div", { class: "vic " + tone }, [h("ha-icon", { icon: "mdi:vibrate" })]),
+        h("div", { class: "vhl" }, [h("div", { class: "vhn" }, esc(a.device || "Vibration")),
+          h("div", { class: "vhs" }, "WTVB01-485" + (a.area ? " · " + esc(a.area) : ""))]),
+        h("div", { class: "vhr" }, [
+          h("span", { class: "vdot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+          temp == null ? null : h("span", { class: "vtemp" }, [String(temp.toFixed(1)), h("small", {}, "°C")]),
+        ]),
+      ]);
+      const verdict = a.verdict
+        ? h("div", { class: "vhero" }, [h("div", { class: "vverdict " + tone }, esc(a.verdict)),
+            h("div", { class: "vmeta" }, ["worst axis ", h("b", {}, `${a.worst_value} mm/s`),
+              ` · ISO 10816 zone ${a.zone}`])])
+        : h("div", { class: "vmeta", style: { marginTop: "10px" } }, "Waiting for the first reading…");
+      return h("div", { class: "vblock" }, [head, verdict, a.verdict ? this._zoneBar(a) : null,
+        h("p", { class: "vsec" }, "Vibration velocity · mm/s"), ...this._axisRows(a),
+        h("div", { class: "vtiles" }, [this._axesTile("Displacement", "µm", a.displacement),
+          this._axesTile("Frequency", "Hz", a.frequency)])]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .vblock{padding:2px 0}  .vblock + .vblock{margin-top:8px;padding-top:16px;border-top:1px solid var(--ms-line)}
+        .vhd{display:flex;align-items:center;gap:11px}
+        .vic{flex:0 0 auto;width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+          background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent)}
+        .vic.sat{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .vic.unsat{background:color-mix(in srgb,#fb8c00 20%,transparent);color:#fb8c00}
+        .vic.bad{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
+        .vic ha-icon{--mdc-icon-size:20px}
+        .vhl{flex:1 1 auto;min-width:0} .vhn{font-size:15px;font-weight:650} .vhs{font-size:12px;color:var(--ms-ink2);margin-top:1px}
+        .vhr{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+        .vdot{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ms-ink2)}
+        .vdot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .vtemp{font-size:13px;font-weight:600} .vtemp small{color:var(--ms-ink2);font-weight:500}
+        .vhero{margin-top:14px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+        .vverdict{font-size:22px;font-weight:720;line-height:1}
+        .vverdict.good{color:var(--ms-good)} .vverdict.sat{color:var(--ms-warn)}
+        .vverdict.unsat{color:#fb8c00} .vverdict.bad{color:var(--ms-bad)}
+        .vmeta{font-size:12.5px;color:var(--ms-ink2)} .vmeta b{color:var(--ms-ink);font-weight:600}
+        .vzband{position:relative;margin:12px 0 2px}
+        .vzbar{display:flex;height:9px;border-radius:5px;overflow:hidden}
+        .vzbar span{display:block} .z-a{background:var(--ms-good)} .z-b{background:var(--ms-warn)}
+        .z-c{background:#fb8c00} .z-d{background:var(--ms-bad)}
+        .vzmark{position:absolute;top:-4px;width:2px;height:17px;background:var(--ms-ink);border-radius:2px;box-shadow:0 0 0 2px var(--ms-surface)}
+        .vzlabels{display:flex;justify-content:space-between;font-size:10px;color:var(--ms-ink2);margin-top:5px}
+        .vsec{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);margin:15px 0 9px;font-weight:700}
+        .vaxis{display:flex;align-items:center;gap:11px;margin-bottom:9px}
+        .vaxis .vax{flex:0 0 14px;font-size:12.5px;font-weight:700;color:var(--ms-ink2)}
+        .vaxis .vtr{flex:1 1 auto;height:7px;border-radius:5px;background:color-mix(in srgb,var(--ms-ink) 9%,transparent);overflow:hidden}
+        .vaxis .vtr>i{display:block;height:100%;border-radius:5px}
+        .vaxis .vvv{flex:0 0 78px;text-align:right;font-variant-numeric:tabular-nums;font-size:13px;color:var(--ms-ink)}
+        .vaxis .vvv small{color:var(--ms-ink2);font-weight:500;font-size:11px}
+        .vaxis.worst .vvv{font-weight:700}
+        .fill-good{background:var(--ms-good)} .fill-sat{background:var(--ms-warn)} .fill-unsat{background:#fb8c00} .fill-bad{background:var(--ms-bad)}
+        .vtiles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:6px}
+        .vtile{border:1px solid var(--ms-line);border-radius:11px;padding:10px 12px}
+        .vk{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-ink2);font-weight:700}
+        .vu{text-transform:none;font-weight:500}
+        .vaxes{display:flex;gap:12px;margin-top:6px}
+        .vaxes>div{font-size:13px;color:var(--ms-ink);font-variant-numeric:tabular-nums}
+        .vaxes span{color:var(--ms-ink2);font-size:11px;margin-right:3px}
+      `;
+      const items = this._find();
+      if (!items.length) {                              // nothing to monitor: hide the card (and its heading-less section)
+        this.style.display = "none";
+        if (this.shadowRoot) this.shadowRoot.textContent = "";
+        return;
+      }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "4px" } }, "Vibration · condition monitoring"),
+        ...items.map((st) => this._block(st)),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -5506,7 +5630,8 @@
         RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
         ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card",
         GATEWAYS_TAG = "milesight-gateways-card", JOBS_TAG = "milesight-jobs-card",
-        TEAM_TAG = "milesight-team-card";
+        TEAM_TAG = "milesight-team-card",
+        VIBRATION_TAG = "milesight-vibration-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -5554,6 +5679,7 @@
     [GATEWAYS_TAG, GatewaysCard, "Milesight Gateway", "The gateway(s): live status, click-through to the device page, and a settings button"],
     [JOBS_TAG, JobsCard, "Milesight Jobs", "Plan → assign → record: a jobs board; sensor alerts raise jobs that close when the reading clears"],
     [TEAM_TAG, TeamCard, "Milesight Team", "Workers & clock-in from the mobile app; off-site clock-ins are blocked and recorded; timesheets"],
+    [VIBRATION_TAG, VibrationCard, "Milesight Vibration", "WTVB01-485 condition monitoring: ISO 10816 velocity verdict, per-axis velocity, displacement and frequency"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {
