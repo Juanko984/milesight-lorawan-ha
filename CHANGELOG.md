@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.115.0
+- **New Soil widget for the CWT 7-in-1 (THCPH-S).** When the CWT template is applied to a UC controller, the
+  integration adds a **Soil** sensor and a card (on the **Farm** dashboard) showing moisture with a soil-profile
+  glyph, soil temperature, conductivity, a colour-coded **pH scale** and the **N·P·K** nutrient bars, plus
+  salinity / TDS. **Each value's text is coloured by its band — red when high, amber when low** — against
+  sensible agronomic defaults.
+- **New Liquid-level widget for the WoMaster WS101LL.** Adds a **Liquid level** sensor and a card (on the
+  **Water** dashboard) showing the level as a filled shaft with **mm and % of the configured range** plus a
+  trend. It reads the sensor's own decimals/full-point registers so the numbers match.
+- **Two new "Fitted to" purposes:** **Soil probe** and **Liquid level probe** for a UC controller; the cards
+  self-discover, no entity ids.
+
 ## 0.114.0
 - **New Level model card** — a 2D cutaway of each level sensor, filled to the live level with a subtle
   isometric-3D look. The shape is chosen automatically from the sensor's **contents**: a liquid **tank**

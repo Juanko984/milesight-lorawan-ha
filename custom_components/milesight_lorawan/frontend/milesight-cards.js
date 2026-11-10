@@ -5139,6 +5139,172 @@
     }
   }
 
+  // ================================================================ soil probe (CWT 7-in-1 THCPH-S)
+  // Self-discovers the "soil" role sensors and shows moisture + soil profile, pH scale and N·P·K bars.
+  // Each value's text is coloured by its band: red when high, amber when low (grey/normal in range).
+  class SoilCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "soil") out.push(S[id]); }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _cls(a, key) { const s = (a.status || {})[key]; return s === "high" ? " hi" : s === "low" ? " lo" : ""; }
+    _profile(moist) {
+      const m = clamp((num(moist) || 0) / 100, 0, 1), satTop = 1 - m;   // wet fraction from the bottom
+      return svgNS(`<svg width="86" height="100" viewBox="0 0 92 104">
+        <g stroke="#43a047" stroke-width="2.5" fill="none" stroke-linecap="round"><path d="M46 30 V16"/><path d="M46 22 q-7 -2 -9 -9 q8 0 9 7"/><path d="M46 20 q7 -2 9 -9 q-8 0 -9 7"/></g>
+        <rect x="10" y="32" width="72" height="66" rx="4" fill="#5b4631"/>
+        <defs><linearGradient id="soil${(num(moist) || 0) | 0}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b4631" stop-opacity="0"/><stop offset="${satTop}" stop-color="#5b4631" stop-opacity="0"/><stop offset="${satTop}" stop-color="#3b6b86" stop-opacity=".55"/><stop offset="1" stop-color="#2f6f8f" stop-opacity=".7"/></linearGradient></defs>
+        <rect x="10" y="32" width="72" height="66" rx="4" fill="url(#soil${(num(moist) || 0) | 0})"/>
+        <g fill="#6b5640"><circle cx="24" cy="46" r="1.5"/><circle cx="60" cy="52" r="1.5"/><circle cx="40" cy="70" r="1.5"/><circle cx="70" cy="80" r="1.5"/><circle cx="20" cy="84" r="1.5"/></g>
+        <rect x="43" y="26" width="6" height="40" rx="2" fill="#9aa4ad"/>
+        <g stroke="#c4ccd3" stroke-width="2.5" stroke-linecap="round"><path d="M46 66 V88"/><path d="M41 64 V82"/><path d="M51 64 V82"/></g></svg>`);
+    }
+    _nrow(label, abbr, key, val, pct, cls, a) {
+      return h("div", { class: "nrow" }, [h("span", { class: "nl" }, [h("b", {}, label), ` (${abbr})`]),
+        h("span", { class: "nt" }, [val == null ? null : h("i", { class: cls, style: { width: Math.round(pct) + "%" } })]),
+        h("span", { class: "nv" + this._cls(a, key) }, val == null ? "—" : [String(Math.round(val)), h("small", {}, " mg/kg")])]);
+    }
+    _tile(val, unit, label, cls) {
+      return h("div", { class: "stile" }, [h("div", { class: "v" + cls }, val == null ? "—" : [String(val), h("small", {}, " " + unit)]),
+        h("div", { class: "k" }, label)]);
+    }
+    _block(st) {
+      const a = st.attributes, ph = num(a.ph), moist = num(a.moisture), temp = num(a.temperature), ec = num(a.ec);
+      const head = h("div", { class: "shd" }, [
+        h("div", { class: "sic" }, [h("ha-icon", { icon: "mdi:sprout" })]),
+        h("div", { class: "shl" }, [esc(a.device || "Soil"), h("small", {}, "THCPH-S" + (a.area ? " · " + esc(a.area) : ""))]),
+        h("span", { class: "sdot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const hero = h("div", { class: "shero" }, [
+        h("div", { class: "sprof" }, [this._profile(moist)]),
+        h("div", { class: "sbig" }, [h("div", { class: "mv" + this._cls(a, "moisture") }, [moist == null ? "—" : String(Math.round(moist)), h("small", {}, "%")]),
+          h("div", { class: "ml" }, "soil moisture" + (a.moisture_label ? " · " + a.moisture_label : ""))]),
+        h("div", { class: "stiles" }, [this._tile(temp == null ? null : temp.toFixed(1), "°C", "soil temp", ""),
+          this._tile(ec == null ? null : Math.round(ec), "µS/cm", "conductivity", this._cls(a, "ec"))]),
+      ]);
+      const phMk = ph == null ? null : h("div", { class: "phbar" }, [h("div", { class: "phmk", style: { left: clamp((ph - 3) / 6 * 100, 0, 100) + "%" } })]);
+      const phRow = h("div", {}, [h("p", { class: "ssec" }, "Acidity"),
+        h("div", { class: "phrow" }, [h("span", { class: "phv" + this._cls(a, "ph") }, ph == null ? "pH —" : `pH ${ph}`),
+          phMk, h("span", { class: "phlab" }, a.ph_label || "")])]);
+      const npk = h("div", {}, [h("p", { class: "ssec" }, "Nutrients (N–P–K)"), h("div", { class: "npk" }, [
+        this._nrow("Nitrogen", "N", "nitrogen", num(a.nitrogen), clamp((num(a.nitrogen) || 0) / 200 * 100, 0, 100), "fill-n", a),
+        this._nrow("Phosphorus", "P", "phosphorus", num(a.phosphorus), clamp((num(a.phosphorus) || 0) / 100 * 100, 0, 100), "fill-p", a),
+        this._nrow("Potassium", "K", "potassium", num(a.potassium), clamp((num(a.potassium) || 0) / 400 * 100, 0, 100), "fill-k", a),
+      ])]);
+      const row2 = h("div", { class: "srow2" }, [
+        h("div", { class: "stile", style: { flex: "1" } }, [h("div", { class: "v" + this._cls(a, "salinity") }, num(a.salinity) == null ? "—" : [String(Math.round(num(a.salinity))), h("small", {}, " mg/L")]), h("div", { class: "k" }, "salinity")]),
+        h("div", { class: "stile", style: { flex: "1" } }, [h("div", { class: "v" + this._cls(a, "tds") }, num(a.tds) == null ? "—" : [String(Math.round(num(a.tds))), h("small", {}, " mg/L")]), h("div", { class: "k" }, "TDS")]),
+      ]);
+      return h("div", { class: "sblock" }, [head, hero, phRow, npk, row2]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .sblock{padding:2px 0} .sblock + .sblock{margin-top:8px;padding-top:16px;border-top:1px solid var(--ms-line)}
+        .shd{display:flex;align-items:center;gap:9px}
+        .sic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .sic ha-icon{--mdc-icon-size:19px}
+        .shl{flex:1 1 auto;min-width:0;font-size:14.5px;font-weight:650;line-height:1.1}
+        .shl small{display:block;font-size:11.5px;color:var(--ms-ink2);font-weight:400;margin-top:1px}
+        .sdot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:4px}
+        .sdot i{width:6px;height:6px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .shero{display:flex;align-items:center;gap:14px;margin-top:10px;flex-wrap:wrap}
+        .sprof{flex:0 0 auto}
+        .sbig .mv{font-size:38px;font-weight:720;line-height:1} .sbig .mv small{font-size:16px;color:var(--ms-ink2);font-weight:600}
+        .sbig .ml{font-size:12.5px;color:var(--ms-ink2);margin-top:2px}
+        .stiles{display:flex;gap:9px;margin-left:auto}
+        .stile{border:1px solid var(--ms-line);border-radius:10px;padding:8px 11px;text-align:center;min-width:70px}
+        .stile .v{font-size:15px;font-weight:650} .stile .v small{font-size:10.5px;color:var(--ms-ink2);font-weight:500}
+        .stile .k{font-size:10.5px;color:var(--ms-ink2);margin-top:2px}
+        .ssec{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);font-weight:700;margin:14px 0 8px}
+        .phrow{display:flex;align-items:center;gap:10px}
+        .phv{font-size:14px;font-weight:650;flex:0 0 auto} .phlab{font-size:11.5px;color:var(--ms-ink2);flex:0 0 auto}
+        .phbar{flex:1 1 auto;height:9px;border-radius:5px;position:relative;background:linear-gradient(90deg,#db4437,#fb8c00,#43a047 45% 60%,#4aa3ff,#8e7cc3)}
+        .phmk{position:absolute;top:-4px;width:2px;height:17px;background:var(--ms-ink);border-radius:2px;box-shadow:0 0 0 2px var(--ms-surface)}
+        .npk{display:flex;flex-direction:column;gap:9px}
+        .nrow{display:flex;align-items:center;gap:10px}
+        .nrow .nl{flex:0 0 106px;font-size:12.5px;color:var(--ms-ink2)} .nrow .nl b{color:var(--ms-ink);font-weight:600}
+        .nrow .nt{flex:1 1 auto;height:8px;border-radius:5px;background:color-mix(in srgb,var(--ms-ink) 9%,transparent);overflow:hidden}
+        .nrow .nt>i{display:block;height:100%;border-radius:5px}
+        .nrow .nv{flex:0 0 76px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums} .nrow .nv small{color:var(--ms-ink2);font-size:10.5px}
+        .fill-n{background:var(--ms-good)} .fill-p{background:#fb8c00} .fill-k{background:#8e7cc3}
+        .srow2{display:flex;gap:9px;margin-top:11px}
+        .v.hi,.nv.hi,.phv.hi,.mv.hi{color:var(--ms-bad)} .v.lo,.nv.lo,.phv.lo,.mv.lo{color:var(--ms-warn)}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "4px" } }, "Soil"),
+        ...items.map((st) => this._block(st))]));
+    }
+  }
+
+  // ================================================================ liquid level (WoMaster WS101LL)
+  class LiquidLevelCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "liquid_level") out.push(S[id]); }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _shaft(pct) {
+      const f = clamp((num(pct) || 0) / 100, 0, 1), y0 = 29, y1 = 143, fy = y1 - (y1 - y0) * f;
+      return svgNS(`<svg width="88" height="150" viewBox="0 0 92 150"><defs><linearGradient id="llw" x1="0" x2="1"><stop offset="0" stop-color="#2378ab"/><stop offset=".5" stop-color="#2f9fe0"/><stop offset="1" stop-color="#2378ab"/></linearGradient></defs>
+        <rect x="4" y="20" width="84" height="8" fill="#4a3b2e"/><rect x="38" y="10" width="16" height="12" rx="2" fill="#6b7680"/>
+        <rect x="22" y="28" width="48" height="116" fill="#20262c" stroke="#525c66" stroke-width="1.5"/>
+        <clipPath id="llc"><rect x="23" y="29" width="46" height="114"/></clipPath>
+        <g clip-path="url(#llc)"><rect x="23" y="${fy}" width="46" height="${y1 - fy}" fill="url(#llw)"/><rect x="23" y="${fy}" width="46" height="4" fill="#5cc0f5"/></g>
+        <g stroke="#6b7680" stroke-width="1"><path d="M70 29 h6 M70 86 h4 M70 143 h6"/></g>
+        <line x1="46" y1="22" x2="46" y2="${fy}" stroke="#6b7680" stroke-width="1" stroke-dasharray="2 3"/></svg>`);
+    }
+    _block(st) {
+      const a = st.attributes, lvl = num(a.level_mm), rng = num(a.range_mm), pct = num(a.pct), rate = num(a.rate_mm_h);
+      const head = h("div", { class: "lgh" }, [
+        h("div", { class: "lgic" }, [h("ha-icon", { icon: "mdi:cup-water" })]),
+        h("div", { class: "lghl" }, [esc(a.device || "Liquid level"), h("small", {}, "WS101LL" + (a.area ? " · " + esc(a.area) : ""))]),
+        h("span", { class: "lgdot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const body = h("div", { class: "lgbody" }, [
+        h("div", {}, [this._shaft(pct)]),
+        h("div", { class: "lgread" }, [
+          h("div", { class: "lgv" }, [lvl == null ? "—" : lvl.toLocaleString(), h("small", {}, " mm")]),
+          h("div", { class: "lgsub" }, pct == null ? (rng ? `of ${rng} mm` : "") : [h("b", {}, `${pct}%`), rng ? ` of ${(rng / 1000).toFixed(rng % 1000 ? 2 : 1)} m` : ""]),
+          h("div", { class: "lgtr" }, a.trend === "rising" ? [h("b", {}, "rising"), rate ? ` +${rate} mm/h` : ""]
+            : a.trend === "falling" ? [h("b", {}, "falling"), rate ? ` ${rate} mm/h` : ""] : "steady"),
+        ]),
+      ]);
+      return h("div", { class: "lgblock" }, [head, body]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .lgblock{padding:2px 0} .lgblock + .lgblock{margin-top:8px;padding-top:16px;border-top:1px solid var(--ms-line)}
+        .lgh{display:flex;align-items:center;gap:9px}
+        .lgic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .lgic ha-icon{--mdc-icon-size:19px}
+        .lghl{flex:1 1 auto;min-width:0;font-size:14.5px;font-weight:650;line-height:1.1}
+        .lghl small{display:block;font-size:11.5px;color:var(--ms-ink2);font-weight:400;margin-top:1px}
+        .lgdot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:4px}
+        .lgdot i{width:6px;height:6px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .lgbody{display:flex;align-items:center;gap:16px;margin-top:10px}
+        .lgread .lgv{font-size:36px;font-weight:720;line-height:1} .lgread .lgv small{font-size:15px;color:var(--ms-ink2);font-weight:600}
+        .lgread .lgsub{font-size:13px;color:var(--ms-ink);margin-top:3px} .lgread .lgsub b{font-weight:650}
+        .lgread .lgtr{font-size:12px;color:var(--ms-ink2);margin-top:7px} .lgread .lgtr b{color:var(--ms-ink);font-weight:600}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "4px" } }, "Liquid level"),
+        ...items.map((st) => this._block(st))]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -5946,7 +6112,9 @@
         TEAM_TAG = "milesight-team-card",
         VIBRATION_TAG = "milesight-vibration-card",
         WEATHER_TAG = "milesight-weather-card",
-        LEVELMODEL_TAG = "milesight-level-model-card";
+        LEVELMODEL_TAG = "milesight-level-model-card",
+        SOIL_TAG = "milesight-soil-card",
+        LIQLEVEL_TAG = "milesight-liquid-level-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -5997,6 +6165,8 @@
     [VIBRATION_TAG, VibrationCard, "Milesight Vibration", "WTVB01-485 condition monitoring: ISO 10816 velocity verdict, per-axis velocity, displacement and frequency"],
     [WEATHER_TAG, WeatherCard, "Milesight Weather", "Ecowitt WS90 weather station: temperature, wind compass, rain, pressure trend, UV and light"],
     [LEVELMODEL_TAG, LevelModelCard, "Milesight Level Model", "A 2D cutaway model of each level sensor — tank, silo, dam, storm drain or waste bin — filled to the live level"],
+    [SOIL_TAG, SoilCard, "Milesight Soil", "CWT 7-in-1 soil probe: moisture, temperature, pH, conductivity and N·P·K, with values flagged high/low"],
+    [LIQLEVEL_TAG, LiquidLevelCard, "Milesight Liquid Level", "WoMaster WS101LL liquid level: a filled shaft with mm and % of range, plus a trend"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

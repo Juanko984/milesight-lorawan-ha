@@ -72,6 +72,9 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("vibration_large", "Vibration — large machine", "pump", "controller", "Vibration", "mdi:vibrate"),
     # ---- weather station (an Ecowitt WS90 on a UC controller)
     _p("weather", "Weather station", "weather", "controller", "Weather", "mdi:weather-partly-cloudy"),
+    # ---- RS485 probes on a UC controller
+    _p("soil", "Soil probe (moisture / NPK)", "irrigation", "controller", "Soil", "mdi:sprout"),
+    _p("liquid_level", "Liquid level probe", "tank", "controller", "Level", "mdi:cup-water"),
     # ---- HVAC and energy
     _p("ac", "Air conditioner / heat pump", "hvac", "load", "Air conditioner", "mdi:air-conditioner",
        after_hours=True),

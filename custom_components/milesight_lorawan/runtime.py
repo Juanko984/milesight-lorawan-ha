@@ -601,6 +601,10 @@ class DeviceRuntime:
         if self._weather_applied() is not None:         # an Ecowitt WS90 template → a weather-station sensor
             specs.append(EntitySpec("weather", "Weather", unit="°C", device_class="temperature",
                                     icon="mdi:weather-partly-cloudy", precision=1))
+        if self._applied_template("cwt_soil_thcph") is not None:      # a CWT 7-in-1 → a soil sensor
+            specs.append(EntitySpec("soil", "Soil", unit="%", icon="mdi:sprout", precision=0))
+        if self._applied_template("womaster_ws101ll") is not None:    # a WoMaster WS101LL → a liquid-level sensor
+            specs.append(EntitySpec("liquid_level", "Liquid level", unit="mm", device_class="distance", icon="mdi:cup-water"))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
@@ -623,6 +627,54 @@ class DeviceRuntime:
     def _weather_applied(self) -> dict | None:
         """The applied Ecowitt WS90 Modbus template on this controller, if any."""
         return self._applied_template("ecowitt_ws90")
+
+    def _soil_assess(self, v: dict) -> dict | None:
+        """CWT 7-in-1 (THCPH-S) channel values → the soil card's readings, each tagged high / low / ok."""
+        applied = self._applied_template("cwt_soil_thcph")
+        if applied is None:
+            return None
+        from . import soil_calc as _sc
+        val = self._template_values(applied, v)
+        keys = ("moisture", "temperature", "ec", "ph", "nitrogen", "phosphorus", "potassium", "salinity", "tds")
+        readings = {k: _nz(val.get(k)) for k in keys}
+        st = {k: _sc.status(k, readings[k]) for k in keys if k != "temperature"}
+        return {
+            "milesight_role": "soil", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "THCPH-S",
+            **readings, "status": st, "moisture_label": _sc.moisture_label(readings["moisture"]),
+            "ph_label": _sc.ph_label(readings["ph"]),
+            "severity": {"high": "warning", "low": "warning", "ok": "ok"}[_sc.worst(list(st.values()))],
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _level_assess(self, v: dict, ts: float) -> dict | None:
+        """WoMaster WS101LL channel values → a liquid-level reading (mm, % of range, trend)."""
+        applied = self._applied_template("womaster_ws101ll")
+        if applied is None:
+            return None
+        val = self._template_values(applied, v)
+        level, full = _nz(val.get("level")), _nz(val.get("full"))
+        decimals = _nz(val.get("decimals"))
+        scale = 10 ** int(decimals) if decimals else 1          # WS101LL reports the value × 10^decimals
+        lvl = level / scale if level is not None else None
+        rng = full / scale if full is not None else None
+        pct = round(lvl / rng * 100, 1) if lvl is not None and rng else None
+        rate = trend = None
+        if lvl is not None:
+            hist = self.meta.setdefault("_lvl_h", [])
+            hist.append([round(ts), round(lvl, 1)])
+            while len(hist) > 1 and hist[0][0] < ts - 3600:     # 1-hour window
+                del hist[0]
+            dt = ts - hist[0][0]
+            if dt >= 300:
+                rate = round((lvl - hist[0][1]) / (dt / 3600), 1)
+                trend = "rising" if rate > 2 else "falling" if rate < -2 else "steady"
+        return {
+            "milesight_role": "liquid_level", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WS101LL",
+            "level_mm": None if lvl is None else round(lvl), "range_mm": None if rng is None else round(rng),
+            "pct": pct, "rate_mm_h": rate, "trend": trend or "steady", "last_seen": self.meta.get("last_seen"),
+        }
 
     def _weather_assess(self, v: dict, ts: float) -> dict | None:
         """Turn the WS90 channel values into the weather card's attributes (condition, wind, rain, pressure trend)."""
@@ -1531,6 +1583,14 @@ class DeviceRuntime:
         if wx is not None:
             v["weather"] = wx["temperature"]           # state = temperature; attrs carry the full conditions
             self.attrs["weather"] = wx
+        soil = self._soil_assess(v)
+        if soil is not None:
+            v["soil"] = soil["moisture"]               # state = moisture; attrs carry the full readings + status
+            self.attrs["soil"] = soil
+        lvl = self._level_assess(v, ts)
+        if lvl is not None:
+            v["liquid_level"] = lvl["level_mm"]
+            self.attrs["liquid_level"] = lvl
         if self.fixed_location() is not None:
             v["fixed_location"] = "fixed"
         fleet = (v["online"], v.get("battery_low"))

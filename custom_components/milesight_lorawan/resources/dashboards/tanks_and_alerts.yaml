@@ -28,6 +28,12 @@ views:
       - type: grid
         column_span: 3
         cards:
+          # WoMaster WS101LL liquid-level probes on a UC controller (mm + % of range). Self-hiding.
+          - type: custom:milesight-liquid-level-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
           # Water recipes (plain-language automations). Hidden when there are none for this domain.
           - type: custom:milesight-recipe-strip-card
             category: [water]

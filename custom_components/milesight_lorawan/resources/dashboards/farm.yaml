@@ -24,6 +24,13 @@ views:
             category: [farm, pumps]
             grid_options: {columns: full}
       - type: grid
+        column_span: 3
+        cards:
+          # CWT 7-in-1 soil probes on a UC controller (moisture, pH, EC, N·P·K). Has its own title and hides
+          # itself when there are no soil probes.
+          - type: custom:milesight-soil-card
+            grid_options: {columns: full}
+      - type: grid
         cards:
           - type: heading
             heading: Irrigation and frost
