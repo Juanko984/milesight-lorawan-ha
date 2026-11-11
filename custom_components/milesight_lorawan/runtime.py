@@ -616,9 +616,26 @@ class DeviceRuntime:
         return None
 
     def _template_values(self, applied: dict, v: dict) -> dict:
-        """Register key → current (scaled) channel value for an applied Modbus template."""
-        first, keys = applied.get("first", 1), applied.get("keys") or []
-        return {k: v.get(f"modbus_chn_{first + i}") for i, k in enumerate(keys)}
+        """Register key → current channel value for an applied Modbus template.
+
+        The value is scaled the same way its named channel entity is (via the channel map), so the role
+        sensors read true units (soil moisture 100 %, not the raw 1000) rather than the raw register. The
+        register keys come from the applied record; records written by an older build may not carry them, so
+        we fall back to the template's own register order (the channels it would have written, in order)."""
+        first = applied.get("first", 1)
+        keys = applied.get("keys")
+        if not keys:                                        # record from a build before keys were stored
+            from . import modbus_templates as _mt
+            t = _mt.TEMPLATES.get(applied.get("template"))
+            n = (applied.get("last", first) or first) - first + 1
+            keys = [r.key for r in t.regs if r.key in t.defaults()][:n] if t is not None else []
+        out: dict = {}
+        for i, k in enumerate(keys):
+            ck = f"modbus_chn_{first + i}"
+            raw = v.get(ck)
+            ch = self.channels.get(ck)
+            out[k] = ch.apply(raw) if (ch is not None and raw is not None) else raw
+        return out
 
     def _vibration_applied(self) -> dict | None:
         """The applied WitMotion WTVB01-485 Modbus template on this controller, if any (has first channel + keys)."""
@@ -727,8 +744,7 @@ class DeviceRuntime:
         if applied is None:
             return None
         from . import vibration_calc as _vc
-        first, keys = applied.get("first", 1), applied.get("keys") or []
-        val = {k: v.get(f"modbus_chn_{first + i}") for i, k in enumerate(keys)}
+        val = self._template_values(applied, v)
         machine_class = "large" if self._pkey == "vibration_large" else "small"
         res = _vc.assess({"x": val.get("vx"), "y": val.get("vy"), "z": val.get("vz")}, machine_class)
         axes = ("x", "y", "z")

@@ -1931,6 +1931,16 @@ def channel_specs(channels: dict) -> list[EntitySpec]:
 from .purposes import GROUPS as _GROUPS, PURPOSES as _PURPOSES, for_families as _for_families
 TAGS = dict(_GROUPS)  # tag -> (Home Assistant label name, icon)
 
+# Which ready-made dashboard each RS485 sensor template's role card belongs on. Several templates can be
+# applied to one UC controller, so these tags are added on top of the device Purpose (not instead of it).
+TEMPLATE_TAGS: dict[str, frozenset[str]] = {
+    "cwt_soil_thcph": frozenset({"irrigation"}),    # soil card → Farm
+    "womaster_ws101ll": frozenset({"tank"}),        # liquid-level card → Water
+    "ecowitt_ws90": frozenset({"weather"}),         # weather card → Building analytics
+    "witmotion_wtvb01": frozenset({"pump"}),        # vibration card → Maintenance (always installed) + Farm pumps
+    "luxpower_lxp": frozenset({"energy"}),          # inverter → Energy
+}
+
 
 def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
     """What a device is used for (its model, plus what its options say: a clamp set up as a pump, a tracker on a
@@ -1971,6 +1981,11 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
             tags.add("fence")
         if key == "toilet":                    # a washroom / toilet purpose installs the Washroom dashboard
             tags.add("washroom")
+    # Several RS485 sensors can share one UC controller (a soil probe and a liquid-level probe on the same
+    # UC502), so a single device Purpose can't cover them all: each applied template contributes its own
+    # dashboard tag, so every one of its widgets lights up the dashboard it belongs on.
+    for a in options.get("channel_templates", []) or []:
+        tags |= TEMPLATE_TAGS.get(a.get("template"), frozenset())
     # any electricity-monitoring device (CT clamp, smart socket, electricity/gas meter) installs the Energy
     # dashboard — even before a specific purpose is set — unless it's already a pump (that lives on Farm)
     if ("pump" not in tags and (model.features & {"ct", "load", "socket"}

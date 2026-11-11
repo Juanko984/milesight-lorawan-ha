@@ -1,0 +1,299 @@
+<!doctype html>
+<!-- Headless render guard: loads the shipped card bundle, instantiates every card and every table preset with
+     representative fake `hass` data, and lets tests/cards/render.cjs fail the build on any console/page error.
+     Open manually in a browser too — each card renders below. -->
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+ body{margin:0;padding:16px;font-family:system-ui,sans-serif;background:#eef0f2;
+  --primary-text-color:#1b1b1b;--secondary-text-color:#6b6b6b;--divider-color:rgba(0,0,0,.14);
+  --card-background-color:#fff;--ha-card-background:#fff;--primary-color:#1e88e5;
+  --success-color:#2e7d32;--warning-color:#e67e00;--error-color:#c62828;}
+ h3{font:600 12px system-ui;color:#555;margin:14px 0 4px}
+ ha-card{display:block;background:#fff;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,.08);border:1px solid var(--divider-color);margin-bottom:10px}
+ ha-icon{display:inline-flex}
+</style></head><body>
+<script src="../../custom_components/milesight_lorawan/frontend/milesight-cards.js"></script>
+<div id="root"></div>
+<script>
+ customElements.define("ha-icon", class extends HTMLElement { connectedCallback(){ this.textContent="□"; }});
+ customElements.define("ha-card", class extends HTMLElement {});
+
+ const devs = [];
+ for (let i = 0; i < 12; i++) devs.push({
+   name: "Dev " + i, model: "EM300-TH", area: i % 2 ? "Field" : "Barn", online: i < 10,
+   battery: 60 - i * 4, battery_low: i > 8, battery_days_left: i > 8 ? 10 + i : 120,
+   battery_replace_by: "2026-12-01", battery_forecast: "steady", rssi: -100 - i, snr: 7 - i, sf: 7 + (i % 5),
+   gateways_heard: 1 + (i % 2), packet_loss: i, signal: i > 8 ? "poor" : "good", firmware: "1." + (i % 3),
+   offline_hours: i >= 10 ? 48 : 0, last_seen: "x",
+   service: i === 0 ? [{ at: "2026-10-20T08:00:00Z", kind: "firmware", text: "v1.6->v1.7", by: "Sam" }] : [],
+ });
+ const gws = [{ id: "24e124445566", name: "GW-A", online: true, packets_today: 4000, devices_today: 20 },
+              { id: "24e124778899", name: "GW-B", online: false, packets_today: 0, devices_today: 0 }];
+ const alerts = [
+   { id: "a1", title: "Fridge warm", message: "6.8 °C for 25 min", severity: "critical", category: "cold_chain", since: "22 Oct 14:05", status: "escalated", acknowledged_by: null },
+   { id: "a2", title: "Pump dry-run", message: "2.1 A", severity: "warning", category: "pumps", since: "22 Oct 09:10", status: "notified", acknowledged_by: null },
+   { id: "a3", title: "Tank low", message: "8% left", severity: "warning", category: "tank", since: "21 Oct", status: "acknowledged", acknowledged_by: "Juan" },
+ ];
+ const S = {
+   "sensor.gw": { state: "online", attributes: { friendly_name: "UG65", eui: "24e124", packets_today: 1200, devices: 20, connection: "MQTT", clock: "synced", last_heard: Date.now() / 1000 } },
+   "sensor.temp": { state: "4.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Fridge", device_class: "temperature", unit_of_measurement: "°C", alarm_low: 2, alarm_high: 8, min_today: 3, max_today: 6 } },
+   "sensor.fleet": { state: "12", attributes: { milesight_role: "fleet_total", devices: devs, site: "Acme Farm" } },
+   "sensor.gws": { state: "2", attributes: { milesight_role: "net_gateways_online", gateways: gws } },
+   "sensor.gwconn": { state: "Semtech UDP + MQTT", attributes: { milesight_role: "gateway_connection", gateway_id: "24E124445566", ip_address: "192.168.1.50" } },
+   "sensor.alo": { state: "2", attributes: { milesight_role: "alerts_open", hub: "hub1", alerts: alerts, escalation_enabled: true, on_call: ["persistent_notification"], backup: [], primary: ["persistent_notification"], primary_raw: ["notify.persistent_notification"], escalate_min: 15, quiet_hours: "22:00 – 06:00", has_rota: false, snooze_min: 60, last_notification: { title: "Offline – CTH01", targets: ["notify.persistent_notification"], at: "08 Nov 17:27" } } },
+   "sensor.health": { state: "89", attributes: { milesight_role: "building_health" } },
+   "sensor.bcomfort": { state: "84", attributes: { milesight_role: "building_comfort", areas: 6, comfortable_areas: 5 } },
+   "sensor.bair": { state: "Moderate", attributes: { milesight_role: "building_air_quality", score: 72 } },
+   "sensor.bpeople": { state: "23", attributes: { milesight_role: "building_people", areas: 6, occupied_areas: 4 } },
+   "sensor.bco2": { state: "840", attributes: { milesight_role: "building_avg_co2", unit_of_measurement: "ppm" } },
+   "sensor.btemp": { state: "22.4", attributes: { milesight_role: "building_avg_temperature", unit_of_measurement: "°C" } },
+   "sensor.bpm": { state: "9", attributes: { milesight_role: "building_avg_pm2_5", unit_of_measurement: "μg/m³" } },
+   "sensor.btvoc": { state: "260", attributes: { milesight_role: "building_avg_tvoc", unit_of_measurement: "μg/m³" } },
+   "sensor.bhum": { state: "45", attributes: { milesight_role: "building_avg_humidity", unit_of_measurement: "%" } },
+   "sensor.retail": { state: "1213", attributes: { milesight_role: "retail", visitors_today: 1213, visitors_yesterday: 1150, in_store_now: 37, out_today: 1176,
+     peak_today: 118, peak_today_at: "13:00", avg_dwell: "14m", avg_dwell_s: 840, dwell_source: "estimated", compare_pct: 5, staff_coverage: "6h 12m", staff_coverage_s: 22320,
+     hourly_in: [0,0,0,0,0,0,0,20,55,90,120,140,160,150,130,118,95,70,40,15,0,0,0,0],
+     hourly_out: [0,0,0,0,0,0,0,8,40,80,110,135,150,150,140,120,100,78,55,30,0,0,0,0],
+     entrances: [{ device: "Front door", area: "Store", in: 912, out: 890, net: 22 }, { device: "Mall entrance", area: "Store", in: 301, out: 286, net: 15 }],
+     zones: [{ name: "Promo end-cap", area: "Store", avg_dwell_s: 190, avg_dwell: "3m", people_now: 4 }, { name: "Chilled aisle", area: "Store", avg_dwell_s: 144, avg_dwell: "2m", people_now: 2 }],
+     staff_zones: [{ name: "Checkout", area: "Store", coverage_s: 22320, coverage: "6h 12m", people_now: 1 }] } },
+   "binary_sensor.mains": { state: "off", attributes: { milesight_role: "mains", device: "Main board", area: "Main shed", currents: [18, 16, 19], phase_imbalance: 9, phase_imbalance_high: false, current_total: 53, power_w: 12400 } },
+   "binary_sensor.trough1": { state: "on", attributes: { milesight_role: "water_trough", device: "Paddock trough", area: "North paddock", empty: true, since: Date.now() / 1000 - 5400, empty_confirmed: true } },
+   "binary_sensor.trough2": { state: "off", attributes: { milesight_role: "water_trough", device: "Barn trough", area: "Barn", empty: false, since: null } },
+   "sensor.flood1": { state: "62", attributes: { milesight_role: "flood", device: "Bridge culvert", area: "River Rd", level_cm: 62, rate_cm_h: 14, rising: true, danger: true, danger_cm: 50, empty_distance_mm: 3000 } },
+   "sensor.flood2": { state: "18", attributes: { milesight_role: "flood", device: "Storm drain 3", area: "Depot", level_cm: 18, rate_cm_h: 0, rising: false, danger: false, danger_cm: 60, empty_distance_mm: 2000 } },
+   "binary_sensor.fence1": { state: "on", attributes: { milesight_role: "electric_fence", device: "North boundary", area: "North paddock", fault: true, since: Date.now() / 1000 - 1200 } },
+   "binary_sensor.fence2": { state: "off", attributes: { milesight_role: "electric_fence", device: "Yard perimeter", area: "Yard", fault: false, since: null } },
+   "sensor.washroom": { state: "3", attributes: { milesight_role: "washroom", count: 3, need_cleaning: 1, low_supplies: 2, odour_issues: 1, alerts: 1, occupied_now: 1,
+     rooms: [
+       { area: "L1 Men", odour: "Fresh", odour_bad: false, co2: 620, co2_high: false, sound_db: 48, occupied: true, people: 2, supply_min: 31, clean_due: false, clean_visits: 100, visits_since_clean: 74, vape: true, leak: false, smoke: false, attention: true,
+         supplies: [{ name: "Paper", remaining: 31 }, { name: "Soap", remaining: 64 }], issues: [{ level: "bad", text: "Vaping detected" }] },
+       { area: "L2 Women", odour: "Strong", odour_bad: true, co2: 1180, co2_high: false, sound_db: 41, occupied: false, people: null, supply_min: 4, clean_due: true, clean_visits: 100, visits_since_clean: 103, vape: false, leak: false, smoke: false, attention: true,
+         supplies: [{ name: "Soap", remaining: 4 }, { name: "Towels", remaining: 22 }], issues: [{ level: "bad", text: "Soap empty" }, { level: "warn", text: "Strong odour · ventilate" }] },
+       { area: "Lobby WC", odour: "Fresh", odour_bad: false, co2: 540, co2_high: false, sound_db: 38, occupied: false, people: null, supply_min: 72, clean_due: false, clean_visits: 80, visits_since_clean: 12, vape: false, leak: false, smoke: false, attention: false,
+         supplies: [{ name: "Soap", remaining: 88 }, { name: "Paper", remaining: 72 }], issues: [] } ] } },
+   "sensor.ld2": { state: "6", attributes: { milesight_role: "load", device: "Packshed lights", purpose_label: "Lighting", area: "Packshed", running: true, duty_today: 60, duty_24h: 35, starts_today: 2, after_hours: true } },
+   "sensor.tank1": { state: "1200", attributes: { milesight_role: "tank", device: "Diesel", area: "Yard", contents: "fuel", fill: 14, low: true, sudden_drop: true, capacity_l: 5000, usage_per_day: 120, days_left: 5, low_pct: 20, free_l: 3800, drop_amount_l: 210, empty_at: Date.now() / 1000 + 5 * 86400, last_refill: Date.now() / 1000 - 4 * 86400, last_refill_added_l: 4000 } },
+   "sensor.silo1": { state: "9800", attributes: { milesight_role: "tank", device: "Feed silo A", area: "Barn", contents: "feed", is_silo: true, fill: 18, low: true, capacity_l: 20000, mass_t: 12.7, usage_per_day: 900, days_left: 3, low_pct: 20 } },
+   "sensor.tank3": { state: "13500", attributes: { milesight_role: "tank", device: "Header tank", area: "Roof", fill: 86, low: false, sudden_drop: false, capacity_l: 16000, usage_per_day: 420, days_left: 20, low_pct: 20, free_l: 2500, last_refill: Date.now() / 1000 - 9 * 86400, last_refill_added_l: 7900 } },
+   "sensor.coopwater": { state: "80", attributes: { milesight_role: "tank", device: "Coop water", area: "Chicken coop", fill: 80, low: false, sudden_drop: false, capacity_l: 50, usage_per_day: 8, days_left: 6 } },
+   "sensor.pump1": { state: "3", attributes: { milesight_role: "pump", device: "Borehole", running: true, dry_run: true, current: 2.1, normal_current: 9.8, starts_last_hour: 1 } },
+   "sensor.pivot1": { state: "running", attributes: { milesight_role: "pivot", device: "Pivot 1", status: "running", angle: 198, speed: 12, finish_in_h: 3.2 } },
+   "sensor.load1": { state: "4", attributes: { milesight_role: "load", group: "cold_chain", device: "Compressor", area: "Cold room", running: true, duty_today: 44, duty_24h: 40, starts_today: 12 } },
+   "sensor.compliance": { state: "2026-10-18T09:00:00+00:00", attributes: { milesight_role: "compliance_reports", schedule: "every Monday", email: ["a@x", "b@x"], reports: [{ unit: "Fridge 1", period: "last week", status: "compliant", excursions: 0, coverage: 99, url: "/local/x.pdf" }, { unit: "Freezer", period: "last week", status: "attention", excursions: 2, coverage: 97, url: "/local/y.pdf" }] } },
+   "text.ca": { state: "door seal replaced", attributes: { milesight_role: "corrective_action", device: "Fridge 1" } },
+   "sensor.costs": { state: "184.62", attributes: { milesight_role: "costs", site: "Green Acres", currency: "R", today: 184.62, month: 4210, projected: 4230, yesterday: 164, last_month: 4420, rate_per_h: 11.4,
+     day_of_month: 31, days_in_month: 31, priced_resources: ["electricity", "water", "diesel", "feed"],
+     by_resource_today: { electricity: 148.8, water: 4.9, diesel: 22.0, feed: 8.8 },
+     leaderboard: [
+       { id: "a:elec", label: "Borehole pump", icon: "⚙️", resource: "electricity", today: 78.3, month: 1840, qty_today: 12.1, unit: "kWh" },
+       { id: "b:elec", label: "Cold room", icon: "❄️", resource: "electricity", today: 41.1, month: 980, qty_today: 6.3, unit: "kWh" },
+       { id: "c:diesel", label: "Genset", icon: "⛽", resource: "diesel", today: 22.0, month: 410, qty_today: 1.0, unit: "L" },
+       { id: "d:feed", label: "Feed silo A", icon: "🌾", resource: "feed", today: 8.8, month: 190, qty_today: 0.0022, unit: "t" },
+       { id: "e:water", label: "Municipal", icon: "🚰", resource: "water", today: 4.9, month: 120, qty_today: 0.26, unit: "kL" } ] } },
+   "sensor.cc1": { state: "12", attributes: { milesight_role: "cold_chain", device: "Fridge 1", area: "Kitchen", temperature: 9.1, low: 2, high: 8, min_today: 3, max_today: 9, alarm: true, door_open: true, excursions_today: 1, in_range_7d: 96.4,
+     log: [{ day: "Mon 17", min: 3, max: 6, out_min: 0, excursions: 0 }, { day: "Tue 18", min: 2, max: 9, out_min: 45, excursions: 1 }, { day: "Wed 19", min: 3, max: 7, out_min: 0, excursions: 0 }, { day: "Thu 20", min: 4, max: 12, out_min: 180, excursions: 3 }] } },
+   "sensor.asum": { state: "14", attributes: { milesight_role: "alerts_summary", days: 7, critical: 3, acknowledged: 9, not_acknowledged: 2, escalated: 1, snoozed: 2, mtta_min: 7.5,
+     by_category: { cold_chain: 6, pumps: 4, tank: 3, gateways: 1 }, noisiest: [{ source: "Fridge 1", alerts: 5, flaps: 2 }, { source: "Borehole", alerts: 4, flaps: 0 }], on_call_now: ["notify.mobile_app_juan"], escalation_chain: ["notify.mobile_app_sam"] } },
+   "sensor.recipes": { state: "4", attributes: { milesight_role: "recipes", site: "Green Acres", hub: "hub1", running: 4, paused: 1, fired_today: 4,
+     recipes: [
+       { id: "low_tank", title: "Low tank → notify", cond: { type: "threshold", role: "tank", attr: "fill", op: "<", not_silo: true }, catalog: "low_tank", enabled: true, category: "water", icon: "💧", sentence: "If any tank drops below 20% for 2 h → notify on-call, raise an alert", params: { threshold: 20, duration_min: 120 }, scope: { mode: "any" }, actions: [{ type: "notify", target: "on_call" }, { type: "raise_alert" }], guards: { debounce_min: 30, working_hours: false }, covers: 7, fired_today: 1, firing_now: 1, last_fire: Date.now() / 1000 - 10800 },
+       { id: "pump_dry_run", title: "Pump dry-run → switch off", cond: { type: "edge_count", role: "pump", attr: "dry_run" }, catalog: "pump_dry_run", enabled: true, category: "pumps", icon: "⚙️", sentence: "If any pump dry-runs 3× within 1 h → switch a device, notify on-call", params: { count: 3, window_min: 60 }, scope: { mode: "any" }, actions: [{ type: "press", entity: null }, { type: "notify", target: "on_call" }], guards: { debounce_min: 30 }, covers: 2, fired_today: 0, firing_now: 0, last_fire: null },
+       { id: "fridge_over", title: "Fridge over limit → notify", cond: { type: "threshold", role: "cold_chain", attr: "temperature", op: ">", limit_attr: "high" }, catalog: "fridge_over", enabled: true, category: "cold_chain", icon: "❄️", sentence: "If any fridge / freezer is above its limit for 15 min → notify on-call, raise an alert", params: { duration_min: 15 }, scope: { mode: "any" }, actions: [{ type: "notify", target: "on_call" }, { type: "raise_alert" }], guards: { debounce_min: 30 }, covers: 4, fired_today: 1, firing_now: 1, last_fire: Date.now() / 1000 - 2160 },
+       { id: "device_offline", title: "Device silent → notify", cond: { type: "offline" }, catalog: "device_offline", enabled: true, category: "devices", icon: "📡", sentence: "If any device sends nothing for 1 h → notify maintenance", params: { duration_min: 60 }, scope: { mode: "any" }, actions: [{ type: "notify", target: "maintenance" }], guards: { debounce_min: 30 }, covers: 39, fired_today: 2, firing_now: 0, last_fire: Date.now() / 1000 - 600 },
+       { id: "silo_days", title: "Silo running out → notify", cond: { type: "threshold", role: "tank", attr: "days_left", op: "<", is_silo: true }, catalog: "silo_days", enabled: false, category: "farm", icon: "🌾", sentence: "If any feed silo has under 3 days left → notify farm manager", params: { threshold: 3, duration_min: 0 }, scope: { mode: "any" }, actions: [{ type: "notify", target: "farm_manager" }], guards: { debounce_min: 30 }, covers: 1, fired_today: 0, firing_now: 0, last_fire: null } ],
+     catalog: [
+       { key: "spend_spike", category: "energy", icon: "💸", title: "Spend spike → notify", sentence: "If today's spend is on track to beat your usual day by 25% → notify on-call", enabled: false },
+       { key: "overnight_flow", category: "water", icon: "🚰", title: "Overnight flow → notify", sentence: "If a water meter keeps flowing overnight (> 50 L, 0–5h) → notify on-call, raise an alert", enabled: false },
+       { key: "mains_outage", category: "energy", icon: "🔌", title: "Mains outage → notify", sentence: "If any mains board has no power → notify on-call, log", enabled: false },
+       { key: "low_battery_sweep", category: "devices", icon: "🔋", title: "Weekly low-battery sweep", sentence: "If any device battery is under 15% (weekly digest) → notify maintenance", enabled: false },
+       { key: "empty_trough", category: "farm", icon: "🐄", title: "Empty trough → notify", sentence: "If any trough reads empty for 30 min → notify on-call", enabled: false },
+       { key: "left_farm", category: "security", icon: "🚜", title: "Left the farm → notify", sentence: "If any GPS tracker moves more than 500 m from the site → notify on-call, raise an alert", enabled: false } ] } },
+   "sensor.jobs": { state: "3", attributes: { milesight_role: "jobs", site: "Green Acres", hub: "hub1", open: 3, todo: 2, doing: 1, done: 2, overdue: 1, from_sensor_open: 2, clearing: 1, unassigned: 1, total: 5,
+     jobs: [
+       { id: "job_1", title: "Fridge over limit · Fridge 1", detail: "Fridge 1: 9.1 over 5", description: "Cold-room fridge 1 has been above its 5°C limit. Check the door seal and the compressor.", device: "Fridge 1", status: "todo", priority: "crit", area: "Cold room", assignee: "Riaan du Plessis", assignee_notify: "notify.mobile_app_riaan", checklist: [], source: "rule", source_rule: { rule_id: "fridge_over", target_key: "sensor.tltemp", icon: "❄️", catalog: "fridge_over" }, auto_close: true, reason: "Fridge 1: 9.1 over 5", trigger_count: 3, last_seen_ts: Date.now() / 1000 - 60, clear_seen_ts: null, resolution: "", created_ts: Date.now() / 1000 - 2000, updated_ts: Date.now() / 1000 - 1500, done_ts: null, resolved_by: null, history: [ { kind: "created", ts: Date.now() / 1000 - 2000, by: null, note: "Raised by a rule — Fridge 1: 9.1 over 5" }, { kind: "assigned", ts: Date.now() / 1000 - 1500, by: "Juan Korb", note: "Assigned to Riaan du Plessis" } ] },
+       { id: "job_2", title: "Pump dry-run · Borehole", detail: "Borehole: 3× in 60 min", status: "doing", priority: "crit", area: "Yard", assignee: "JM", checklist: [], source: "rule", source_rule: { rule_id: "pump_dry_run", target_key: "sensor.pump1", icon: "⚙️", catalog: "pump_dry_run" }, auto_close: false, reason: "Borehole: 3× in 60 min", trigger_count: 1, clear_seen_ts: null, resolution: "", created_ts: Date.now() / 1000 - 5400, done_ts: null, resolved_by: null },
+       { id: "job_3", title: "Service tractor MF-390", detail: "", status: "todo", priority: "warn", area: null, assignee: "KL", checklist: [], source: "manual", source_rule: null, auto_close: false, reason: "", trigger_count: 1, clear_seen_ts: null, resolution: "", created_ts: Date.now() / 1000 - 9000, done_ts: null, resolved_by: null },
+       { id: "job_6", title: "Gateway offline – UG65", detail: "UG65 has not forwarded any packets.", status: "todo", priority: "crit", area: null, assignee: null, checklist: [], source: "alert", source_alert: { alert_id: "a9", alert_key: "gw1:offline", severity: "critical", category: "gateway", since: "13 Oct 09:12" }, auto_close: true, reason: "UG65 has not forwarded any packets.", trigger_count: 4, last_seen_ts: Date.now() / 1000 - 1300, clear_seen_ts: Date.now() / 1000 - 300, resolution: "", created_ts: Date.now() / 1000 - 1000, done_ts: null, resolved_by: null },
+       { id: "job_7", title: "Power outage – CT303", detail: "CT303: no current on any phase.", status: "todo", priority: "crit", area: null, assignee: "juan", checklist: [], source: "alert", source_alert: { alert_id: "a10", alert_key: "ct303:mains", severity: "critical", category: "energy" }, auto_close: true, reason: "CT303: no current on any phase.", trigger_count: 1, clear_seen_ts: null, resolution: "", created_ts: Date.now() / 1000 - 800, done_ts: null, resolved_by: null },
+       { id: "job_4", title: "Low tank · Rainwater 2", detail: "Rainwater 2: 14%", description: "", device: "Rainwater 2", status: "done", priority: "warn", area: "Roof", assignee: null, checklist: [], source: "rule", source_rule: { rule_id: "low_tank", target_key: "sensor.tank1", icon: "💧", catalog: "low_tank" }, auto_close: true, reason: "Rainwater 2: 14%", trigger_count: 1, clear_seen_ts: null, resolution: "Fault cleared — the device reported again and the alert resolved.", created_ts: Date.now() / 1000 - 20000, updated_ts: Date.now() / 1000 - 1200, done_ts: Date.now() / 1000 - 1200, resolved_by: "sensor", history: [ { kind: "created", ts: Date.now() / 1000 - 20000, by: null, note: "Raised by a rule" }, { kind: "done", ts: Date.now() / 1000 - 1200, by: "sensor", note: "Fault cleared — the device reported again and the alert resolved." } ] },
+       { id: "job_5", title: "Replace washroom supplies", detail: "", status: "done", priority: "info", area: "Washroom", assignee: "AT", checklist: [], source: "manual", source_rule: null, auto_close: false, reason: "", trigger_count: 1, clear_seen_ts: null, resolution: "Restocked soap and towels.", created_ts: Date.now() / 1000 - 40000, done_ts: Date.now() / 1000 - 3600, resolved_by: "AT" } ] } },
+   "sensor.team": { state: "2", attributes: { milesight_role: "team", site: "Green Acres", hub: "hub1", on_site: 2, total: 3, blocked_today: 1, late_today: 1, on_behalf_today: 1, radius_m: 300, currency: "R",
+     payroll: { label: "November 2026", months_ago: 0, currency: "R", total: 24180, ot_hours: 12, ot_mult: 1.5, rows: [
+       { id: "w_1", name: "John Mokoena", initials: "JM", role: "Supervisor", pay_type: "salary", rate: null, salary: 12000, days_per_week: 5, hours: 36, reg_hours: 36, ot_hours: 0, ot_pay: 0, days_worked: 4, expected_days: 5, days_absent: 1, leave_days: 0, gross: 12000 },
+       { id: "w_2", name: "Anna Theron", initials: "AT", role: "Operator", pay_type: "hourly", rate: 85, salary: null, days_per_week: 6, hours: 38.5, reg_hours: 38.5, ot_hours: 0, ot_pay: 0, days_worked: 5, expected_days: 6, days_absent: 0, leave_days: 1, gross: 3272 },
+       { id: "w_3", name: "Koos Louw", initials: "KL", role: "General", pay_type: "hourly", rate: 72, salary: null, days_per_week: 6, hours: 123, reg_hours: 111, ot_hours: 12, ot_pay: 1296, days_worked: 6, expected_days: 6, days_absent: 0, leave_days: 0, gross: 8856 } ], leave: [ { worker: "w_2", date: "2026-11-10", kind: "sick", note: null } ] },
+     workers: [
+       { id: "w_1", name: "John Mokoena", initials: "JM", role: "Supervisor", tracker: "device_tracker.john_phone", method: "app", active: true, pay_type: "salary", rate: null, salary: 12000, days_per_week: 5, shift_start: "08:00", shift_end: "17:00", ot_weekly_h: null, on_site: true, since: Date.now() / 1000 - 7200, today_h: 2, week_h: 31, late_today: 12 },
+       { id: "w_2", name: "Anna Theron", initials: "AT", role: "Operator", tracker: "device_tracker.anna_phone", method: "qr", active: true, pay_type: "hourly", rate: 85, salary: null, days_per_week: 6, shift_start: null, shift_end: null, ot_weekly_h: 45, on_site: true, since: Date.now() / 1000 - 5400, today_h: 1.5, week_h: 28, late_today: null },
+       { id: "w_3", name: "Koos Louw", initials: "KL", role: "General", tracker: null, method: "face", active: true, pay_type: "hourly", rate: 72, salary: null, days_per_week: 6, shift_start: "07:00", shift_end: "16:00", ot_weekly_h: 45, on_site: false, since: null, today_h: 0, week_h: 22, late_today: null } ],
+     events: [
+       { worker: "w_1", worker_name: "John Mokoena", kind: "in", ts: Date.now() / 1000 - 7200, status: "on_site", lat: -33.9, lon: 18.4, distance_m: 40, accuracy: 8, by: "Juan Korb", self: false, late_min: 12, early_min: null, note: "forgot phone" },
+       { worker: "w_2", worker_name: "Anna Theron", kind: "in", ts: Date.now() / 1000 - 5400, status: "on_site", lat: -33.9, lon: 18.4, distance_m: 70, accuracy: 10, by: null, self: true, late_min: 0, early_min: null, note: null },
+       { worker: "w_3", worker_name: "Koos Louw", kind: "in", ts: Date.now() / 1000 - 3600, status: "off_site_blocked", lat: -33.88, lon: 18.42, distance_m: 2100, accuracy: 12, by: null, self: true, late_min: null, early_min: null, note: null } ] } },
+   "sensor.vib1": { state: "4.9", attributes: { milesight_role: "vibration", device: "Packshed compressor", area: "Packshed", model: "WTVB01-485",
+     verdict: "Unsatisfactory", zone: "C", zone_index: 2, severity: "warning", worst_axis: "Y", worst_value: 4.9, thresholds: [2.8, 4.5, 7.1], machine_class: "small",
+     per_axis: { x: "B", y: "C", z: "A" }, velocity: { x: 2.9, y: 4.9, z: 2.1 }, displacement: { x: 44, y: 83, z: 26 }, frequency: { x: 48, y: 48, z: 96 },
+     temperature: 58.2, last_seen: Date.now() / 1000 - 60 } },
+   "sensor.vib2": { state: "2.1", attributes: { milesight_role: "vibration", device: "Barn chiller fan", area: "Cold room", model: "WTVB01-485",
+     verdict: "Good", zone: "A", zone_index: 0, severity: "ok", worst_axis: "Y", worst_value: 2.1, thresholds: [2.8, 4.5, 7.1], machine_class: "small",
+     per_axis: { x: "A", y: "A", z: "A" }, velocity: { x: 1.8, y: 2.1, z: 1.4 }, displacement: { x: 22, y: 31, z: 15 }, frequency: { x: 24, y: 24, z: 49 },
+     temperature: 41.3, last_seen: Date.now() / 1000 - 240 } },
+   "sensor.wx1": { state: "16.8", attributes: { milesight_role: "weather", device: "Rooftop weather", area: "Main yard", model: "WS90",
+     temperature: 16.8, humidity: 92, feels_like: 15.9, condition: "Rain", wind_speed: 38, gust: 61, wind_unit: "km/h",
+     wind_direction: 315, wind_compass: "NW", wind_severity: "warning", rain: 7.2, rain_today: 14.6, rain_total: 812.4,
+     pressure: 998, pressure_trend: "falling fast", forecast: "stormy", pressure_severity: "warning",
+     uvi: 1, uv_risk: "Low", uv_severity: "ok", light: 3000, last_seen: Date.now() / 1000 - 30 } },
+   "sensor.wx2": { state: "23.4", attributes: { milesight_role: "weather", device: "Farm weather", area: "North field", model: "WS90",
+     temperature: 23.4, humidity: 54, feels_like: 24.1, condition: "Sunny", wind_speed: 12, gust: 24, wind_unit: "km/h",
+     wind_direction: 200, wind_compass: "SSW", wind_severity: "ok", rain: 0, rain_today: 0, rain_total: 804.1,
+     pressure: 1014, pressure_trend: "steady", forecast: "fair", pressure_severity: "ok",
+     uvi: 5, uv_risk: "Moderate", uv_severity: "ok", light: 58000, last_seen: Date.now() / 1000 - 60 } },
+   "sensor.lv_tank": { state: "62", attributes: { milesight_role: "tank", device: "Header tank", area: "Roof", contents: "water", is_silo: false, fill: 62, capacity_l: 15000, days_left: 20, low: false, last_seen: Date.now() / 1000 - 180 } },
+   "sensor.lv_fuel": { state: "41", attributes: { milesight_role: "tank", device: "Diesel bowser", area: "Yard", contents: "fuel", is_silo: false, fill: 41, capacity_l: 5000, days_left: 9, low: false, last_seen: Date.now() / 1000 - 600 } },
+   "sensor.lv_silo": { state: "18", attributes: { milesight_role: "tank", device: "Feed silo A", area: "Barn", contents: "feed", is_silo: true, fill: 18, capacity_l: 20000, mass_t: 2.3, days_left: 3, low: true, last_seen: Date.now() / 1000 - 60 } },
+   "sensor.lv_dam": { state: "78", attributes: { milesight_role: "tank", device: "Irrigation dam", area: "East paddock", contents: "dam", is_silo: false, fill: 78, capacity_l: 2500000, days_left: 40, low: false, last_seen: Date.now() / 1000 - 360 } },
+   "sensor.lv_bin": { state: "85", attributes: { milesight_role: "tank", device: "Skip — back dock", area: "Yard", contents: "waste", is_silo: false, fill: 85, capacity_l: 1100, low: false, last_seen: Date.now() / 1000 - 720 } },
+   "sensor.lv_drain": { state: "62", attributes: { milesight_role: "flood", device: "Culvert — Bridge Rd", area: "River Rd", level_cm: 62, rate_cm_h: 14, rising: true, danger: true, danger_cm: 50, last_seen: Date.now() / 1000 - 30 } },
+   "sensor.soil1": { state: "34", attributes: { milesight_role: "soil", device: "North field — bed 3", area: "North field", model: "THCPH-S",
+     moisture: 34, temperature: 18.2, ec: 420, ph: 6.4, nitrogen: 48, phosphorus: 22, potassium: 180, salinity: 210, tds: 300,
+     moisture_label: "moist", ph_label: "optimal", severity: "ok",
+     status: { moisture: "ok", ec: "ok", ph: "ok", nitrogen: "ok", phosphorus: "ok", potassium: "high", salinity: "ok", tds: "ok" }, last_seen: Date.now() / 1000 - 120 } },
+   "sensor.soil2": { state: "12", attributes: { milesight_role: "soil", device: "Greenhouse bench", area: "Greenhouse", model: "THCPH-S",
+     moisture: 12, temperature: 24.5, ec: 2400, ph: 5.1, nitrogen: 18, phosphorus: 90, potassium: 60, salinity: 520, tds: 700,
+     moisture_label: "dry", ph_label: "acidic", severity: "warning",
+     status: { moisture: "low", ec: "high", ph: "low", nitrogen: "low", phosphorus: "high", potassium: "low", salinity: "high", tds: "high" }, last_seen: Date.now() / 1000 - 90 } },
+   "sensor.ll1": { state: "1420", attributes: { milesight_role: "liquid_level", device: "Borehole sump", area: "Pump house", model: "WS101LL",
+     level_mm: 1420, range_mm: 3000, pct: 47.3, rate_mm_h: 2, trend: "steady", last_seen: Date.now() / 1000 - 40 } },
+   "sensor.cmf1": { state: "82", attributes: { kind: "comfort", area: "Reception", temperature: 22, humidity: 45, co2: 620 } },
+   "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
+   "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
+   "sensor.level1": { state: "62", last_changed: new Date().toISOString(), attributes: { milesight_role: "tank", device: "Water tank", fill: 62, capacity_l: 10000 } },
+   "sensor.tltemp": { state: "9.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Fridge 1", ms_model: "TS301 · cold chain", unit_of_measurement: "°C", ms_limit_high: 8, ms_limit_low: 2, ms_trend: "cold_chain" } },
+   "sensor.tltemp2": { state: "4.1", last_changed: new Date().toISOString(), attributes: { friendly_name: "Freezer", ms_model: "TS301", unit_of_measurement: "°C", ms_limit_high: -15, ms_limit_low: -25, ms_trend: "cold_chain" } },
+   "sensor.tlco2": { state: "640", last_changed: new Date().toISOString(), attributes: { friendly_name: "Barn CO₂", ms_model: "AM308", unit_of_measurement: "ppm", ms_limit_high: 1200, ms_trend: "air" } },
+   "sensor.tlfill": { state: "14", last_changed: new Date().toISOString(), attributes: { friendly_name: "Diesel tank", unit_of_measurement: "%", ms_limit_low: 20, ms_trend: "tank" } },
+ };
+ const hass = {
+   config: { location_name: "Acme Farm" },
+   panels: { "building-acme": { url_path: "building-acme", title: "Acme Farm", icon: "mdi:home" },
+             "milesight-maintenance": { url_path: "milesight-maintenance", title: "Maintenance" },
+             "milesight-water": { url_path: "milesight-water", title: "Tanks" } },
+   states: S, entities: {}, devices: {}, user: { name: "Juan Korb" },
+   services: { notify: { persistent_notification: {}, mobile_app_juan: {}, mobile_app_riaan: {} } },
+   areas: { a1: { area_id: "a1", name: "Cold room" }, a2: { area_id: "a2", name: "Yard" }, a3: { area_id: "a3", name: "Office" } },
+   callService: () => {},
+   callWS: (msg) => {
+     if (msg && msg.type === "history/history_during_period") {
+       const id = msg.entity_ids[0]; const cur = parseFloat(S[id] && S[id].state); const c = isFinite(cur) ? cur : 10;
+       const base = c * 0.45, n = 32, start = Date.parse(msg.start_time), end = Date.now(), arr = [];
+       for (let i = 0; i < n; i++) { const f = i / (n - 1); arr.push({ lu: (start + (end - start) * f) / 1000, s: (base + (c - base) * f * f).toFixed(2) }); }
+       return Promise.resolve({ [id]: arr });
+     }
+     if (msg && msg.type === "milesight_lorawan/jobs/people") {
+       return Promise.resolve({ people: [
+         { name: "Juan Korb", notify: "notify.mobile_app_juan", source: "worker" },
+         { name: "Riaan du Plessis", notify: "notify.mobile_app_riaan", source: "worker" },
+         { name: "Piet", notify: "notify.mobile_app_piet", source: "notify" },
+         { name: "Koos Louw", notify: null, source: "worker" } ] });
+     }
+     return Promise.resolve({});
+   },
+ };
+
+ const root = document.getElementById("root");
+ function mount(tag, cfg, label) {
+   const h = document.createElement("h3"); h.textContent = label || tag; root.appendChild(h);
+   const el = document.createElement(tag);
+   try { el.setConfig(cfg || {}); el.hass = hass; } catch (e) { console.error("setConfig " + tag + ": " + e.message); }
+   root.appendChild(el);
+   return el;
+ }
+
+ const cards = [
+   ["milesight-gateway-card", { entity: "sensor.gw" }],
+   ["milesight-device-card", { entity: "sensor.temp" }],
+   ["milesight-trend-card", { entity: "sensor.temp" }],
+   ["milesight-trendline-card", { entity: "sensor.tltemp" }],
+   ["milesight-trendline-card", { entity: "sensor.tlco2", color: "#4aa3ff" }],
+   ["milesight-trendline-grid-card", { trend: "cold_chain", columns: 2 }],
+   ["milesight-trendline-grid-card", { trend: "tank", columns: 2 }],
+   ["milesight-level-card", {}],
+   ["milesight-gauge-card", { entity: "sensor.temp", min: 0, max: 10, shape: "arc" }],
+   ["milesight-page-header", { title: "Maintenance", subtitle: "Health", icon: "mdi:wrench-clock" }],
+   ["milesight-onboarding", {}],
+   ["milesight-alerts-card", { title: false }],
+   ["milesight-coldlog-card", {}],
+   ["milesight-alert-summary-card", {}],
+   ["milesight-alerts-band", {}],
+   ["milesight-escalation-card", {}],
+   ["milesight-status-band", {}],
+   ["milesight-fleet-band", {}],
+   ["milesight-coldchain-band", {}],
+   ["milesight-building-band", {}],
+   ["milesight-air-card", {}],
+   ["milesight-retail-band", {}],
+   ["milesight-footfall-card", {}],
+   ["milesight-zones-card", {}],
+   ["milesight-tank-band", {}],
+   ["milesight-tank-band", { silo: true }],
+   ["milesight-tank-supply-card", {}],
+   ["milesight-trough-card", {}],
+   ["milesight-flood-card", {}],
+   ["milesight-fence-card", {}],
+   ["milesight-washroom-band", {}],
+   ["milesight-washroom-card", {}],
+   ["milesight-compliance-card", {}],
+   ["milesight-mains-card", {}],
+   ["milesight-load-summary-card", {}],
+   ["milesight-running-costs-card", {}],
+   ["milesight-cost-strip-card", { resources: ["water", "diesel", "feed"] }],
+   ["milesight-recipes-card", {}],
+   ["milesight-recipe-strip-card", { category: ["water", "pumps"] }],
+   ["milesight-status-band", { lead: true }],
+   ["milesight-attention-card", {}],
+   ["milesight-systems-card", {}],
+   ["milesight-gateways-card", {}],
+   ["milesight-jobs-card", {}],
+   ["milesight-team-card", {}],
+   ["milesight-vibration-card", {}],
+   ["milesight-weather-card", {}],
+   ["milesight-level-model-card", {}],
+   ["milesight-soil-card", {}],
+   ["milesight-liquid-level-card", {}],
+   ["milesight-domain-card", { domain: "tanks" }],
+   ["milesight-domain-card", { domain: "cold_chain" }],
+   ["milesight-domain-card", { domain: "farm" }],
+   ["milesight-domain-card", { domain: "energy" }],
+   ["milesight-domain-card", { domain: "climate" }],
+   ["milesight-domain-card", { domain: "fleet" }],
+   ["milesight-domain-card", { domain: "gateways" }],
+   ["milesight-domain-card", { domain: "recipes" }],
+   ["milesight-domain-card", { domain: "jobs" }],
+   ["milesight-domain-card", { domain: "team" }],
+   ["milesight-device-panel", { entity: "sensor.temp" }],
+ ];
+ cards.forEach(([t, c]) => mount(t, c, t));
+
+ ["devices", "offline", "weak", "firmware", "cold_chain", "compressors", "loads", "pumps", "pivots",
+  "batteries", "service", "gateways", "tanks", "silos", "comfort", "utilisation"].forEach((p) =>
+   mount("milesight-table-card", { preset: p, title: false }, "table: " + p));
+
+ // area-scoped (coop page) — filters to one HA area
+ mount("milesight-table-card", { preset: "tanks", area: "Chicken coop", title: false }, "table: tanks @ Chicken coop");
+ mount("milesight-level-card", { area: "Chicken coop" }, "level @ Chicken coop");
+
+ // also exercise empty states: a hass with no milesight sensors
+ const emptyHass = { config: {}, panels: {}, states: {}, entities: {}, devices: {}, callService: () => {} };
+ ["batteries", "gateways", "tanks", "comfort"].forEach((p) => {
+   const el = document.createElement("milesight-table-card");
+   try { el.setConfig({ preset: p, title: false }); el.hass = emptyHass; } catch (e) { console.error("empty " + p + ": " + e.message); }
+   root.appendChild(el);
+ });
+ const al = document.createElement("milesight-alerts-card");
+ try { al.setConfig({}); al.hass = emptyHass; } catch (e) { console.error("empty alerts: " + e.message); }
+ root.appendChild(al);
+
+ window.__rendered = root.querySelectorAll("*").length;
+ window.__cardCount = root.querySelectorAll("[class*='milesight-'],milesight-table-card").length;
+ document.title = "rendered";
+</script></body></html>

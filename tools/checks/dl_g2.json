@@ -1,0 +1,1549 @@
+{
+ "vs-series/vs121": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 5,
+   "max": 65535,
+   "payload": {
+    "from_now_on_report_interval": 300
+   },
+   "note": "key from_now_on_report_interval; only effective when periodic_report_scheme=from_now_on (f91001). on_the_dot alternative: f911 + enum(0:5min..8:12h)"
+  },
+  "sync_time": {
+   "hex": "f9910000000000",
+   "payload": {
+    "time_config": {
+     "mode": "sync_from_gateway"
+    }
+   },
+   "note": "sets time mode = sync from gateway (config, not a one-shot request)"
+  },
+  "set_time": {
+   "prefix": "f99101",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 2147483647,
+   "payload": {
+    "time_config": {
+     "mode": "manual",
+     "timestamp": 1710489600
+    }
+   },
+   "note": "manual time mode with timestamp"
+  },
+  "_note": "no report_status command"
+ },
+ "vs-series/vs321": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 2,
+   "max": 60,
+   "payload": {
+    "collection_interval": 10
+   },
+   "values": [
+    2,
+    5,
+    10,
+    15,
+    30,
+    60
+   ],
+   "note": "only these values allowed"
+  },
+  "report_status": {
+   "hex": "f96cff",
+   "payload": {
+    "detect": "yes"
+   },
+   "note": "'detect' = trigger a detection/report now"
+  },
+  "_note": "no sync_time command"
+ },
+ "vs-series/vs340": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   },
+   "note": "key query_device_status"
+  },
+  "_note": "no sync_time"
+ },
+ "vs-series/vs341": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   },
+   "note": "key query_device_status"
+  },
+  "_note": "no sync_time"
+ },
+ "vs-series/vs370": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e01",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   },
+   "note": "note the 0x01 sub-byte (others use ff8e00)"
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff2801",
+   "payload": {
+    "report_status": "periodic"
+   },
+   "note": "report_status enum: plan->ff2800, periodic->ff2801"
+  }
+ },
+ "vs-series/vs132": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u8",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 255,
+   "payload": {
+    "report_interval": 200
+   },
+   "note": "OFFICIAL ENCODER BUG: validates 1..64800 s but writes only 1 byte (value truncated to low byte, e.g. 300 -> ff032c). vs133/135 use ff03+u16le; device most likely expects u16le - unverified"
+  },
+  "_note": "no sync_time/report_status"
+ },
+ "vs-series/vs133": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 300
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1710489600
+   },
+   "note": "fw>=v1.0.9"
+  },
+  "sync_time_from_gateway": {
+   "prefix": "f98401",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "sync_time_from_gateway_config": {
+     "enable": "enable",
+     "period": 10
+    }
+   },
+   "note": "config: enable periodic gateway time sync with period (min), fw>=v1.0.9"
+  },
+  "_note": "no report_status"
+ },
+ "vs-series/vs135": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 64800,
+   "payload": {
+    "report_interval": 300
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1710489600
+   },
+   "note": "fw>=v1.0.9"
+  },
+  "sync_time_from_gateway": {
+   "prefix": "f98401",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "sync_time_from_gateway_config": {
+     "enable": "enable",
+     "period": 10
+    }
+   },
+   "note": "config: enable periodic gateway time sync with period (min), fw>=v1.0.9"
+  },
+  "_note": "no report_status"
+ },
+ "vs-series/vs330": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 60,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 10,
+   "payload": {
+    "collection_interval": 5
+   }
+  },
+  "_note": "no sync_time/report_status"
+ },
+ "vs-series/vs350": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  }
+ },
+ "vs-series/vs351": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "query_device_status": "yes"
+   }
+  },
+  "_note": "no sync_time"
+ },
+ "vs-series/vs360": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  }
+ },
+ "uc-series/uc11-t1": {
+  "_fport": 85,
+  "_note": "Official encoder milesightDeviceEncode() is empty (returns []); no downlink command can be verified from it."
+ },
+ "uc-series/uc11xx": {
+  "_fport": 85,
+  "_note": "Official encoder milesightDeviceEncode() is empty (returns []); no downlink command can be verified from it. Decoder exposes gpio_output_1/gpio_output_2 (uplink channels 0x09/0x0A) but no output control command is available in the official encoder."
+ },
+ "uc-series/uc11-n1": {
+  "_fport": 85,
+  "_note": "Official encoder milesightDeviceEncode() is empty (returns []); no downlink command can be verified from it."
+ },
+ "uc-series/uc300": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder only rejects <0"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1710489600
+   },
+   "note": "absolute timestamp"
+  },
+  "report_status": {
+   "hex": "ff94ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "outputs": {
+   "output_1": {
+    "key": "gpio_output_1",
+    "on": {
+     "hex": "0701ff",
+     "payload": {
+      "gpio_output_1": "on"
+     }
+    },
+    "off": {
+     "hex": "0700ff",
+     "payload": {
+      "gpio_output_1": "off"
+     }
+    },
+    "on_for": {
+     "prefix": "ff930101",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295,
+     "payload": {
+      "gpio_output_1_control": {
+       "duration": 1000,
+       "status": "on"
+      }
+     },
+     "note": "switch ON for duration (ms) then revert"
+    },
+    "off_for": {
+     "prefix": "ff930100",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295,
+     "payload": {
+      "gpio_output_1_control": {
+       "duration": 2000,
+       "status": "off"
+      }
+     },
+     "note": "switch OFF for duration (ms) then revert"
+    }
+   },
+   "output_2": {
+    "key": "gpio_output_2",
+    "on": {
+     "hex": "0801ff",
+     "payload": {
+      "gpio_output_2": "on"
+     }
+    },
+    "off": {
+     "hex": "0800ff",
+     "payload": {
+      "gpio_output_2": "off"
+     }
+    },
+    "on_for": {
+     "prefix": "ff930201",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295,
+     "payload": {
+      "gpio_output_2_control": {
+       "duration": 1000,
+       "status": "on"
+      }
+     },
+     "note": "switch ON for duration (ms) then revert"
+    },
+    "off_for": {
+     "prefix": "ff930200",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "ms",
+     "min": 0,
+     "max": 4294967295,
+     "payload": {
+      "gpio_output_2_control": {
+       "duration": 2000,
+       "status": "off"
+      }
+     },
+     "note": "switch OFF for duration (ms) then revert"
+    }
+   }
+  }
+ },
+ "uc-series/uc501": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder only rejects <0"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1710489600
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "outputs": {
+   "output_1": {
+    "key": "gpio_output_1",
+    "on": {
+     "hex": "0301ffff",
+     "payload": {
+      "gpio_output_1": "on"
+     }
+    },
+    "off": {
+     "hex": "0300ffff",
+     "payload": {
+      "gpio_output_1": "off"
+     }
+    },
+    "note": "GPIO 1 must be configured as digital output; uplink 0x03 0x01 -> gpio_output_1"
+   },
+   "output_2": {
+    "key": "gpio_output_2",
+    "on": {
+     "hex": "0401ffff",
+     "payload": {
+      "gpio_output_2": "on"
+     }
+    },
+    "off": {
+     "hex": "0400ffff",
+     "payload": {
+      "gpio_output_2": "off"
+     }
+    },
+    "note": "GPIO 2 must be configured as digital output; uplink 0x04 0x01 -> gpio_output_2"
+   }
+  }
+ },
+ "uc-series/uc502": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 600
+   },
+   "note": "encoder only rejects <0"
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1710489600
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "outputs": {
+   "output_1": {
+    "key": "gpio_output_1",
+    "on": {
+     "hex": "0301ffff",
+     "payload": {
+      "gpio_output_1": "on"
+     }
+    },
+    "off": {
+     "hex": "0300ffff",
+     "payload": {
+      "gpio_output_1": "off"
+     }
+    },
+    "note": "GPIO 1 must be configured as digital output; uplink 0x03 0x01 -> gpio_output_1"
+   },
+   "output_2": {
+    "key": "gpio_output_2",
+    "on": {
+     "hex": "0401ffff",
+     "payload": {
+      "gpio_output_2": "on"
+     }
+    },
+    "off": {
+     "hex": "0400ffff",
+     "payload": {
+      "gpio_output_2": "off"
+     }
+    },
+    "note": "GPIO 2 must be configured as digital output; uplink 0x04 0x01 -> gpio_output_2"
+   }
+  }
+ },
+ "uc-series/uc511": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   },
+   "note": "since hw v2.0 / fw v2.1"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   },
+   "note": "since hw v3.0 / fw v3.1"
+  },
+  "outputs": {
+   "valve_1": {
+    "key": "valve_1",
+    "on": {
+     "hex": "ff1d200000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "off": {
+     "hex": "ff1d000000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "close",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "open_for": {
+     "prefix": "ff1da000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "enable",
+       "pulse_rule_enable": "disable",
+       "duration": 600,
+       "valve_pulse": 0
+      }
+     },
+     "note": "ff1d ctrl seq duration(u24le) pulse(u32le); ctrl=bit7 time rule|bit5 open|valve idx. duration is u24 - encoded here as u32le whose 4th byte (=0) is the first pulse byte; unit not stated in encoder (seconds per UC51x user guide)"
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6000000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "enable",
+       "duration": 0,
+       "valve_pulse": 1000
+      }
+     },
+     "note": "open until valve_pulse count reached (flow meter pulses)"
+    },
+    "clear_pulse": {
+     "hex": "ff4e0100",
+     "payload": {
+      "clear_valve_1_pulse": "yes"
+     }
+    },
+    "note": "sequence_id 0 = force execute. valve_task @since hw v4.0/fw v1.1 per encoder. uplink 0x03 0x01 -> valve_1 (0 close/1 open), valve_1_pulse from 0x04 0xC8"
+   },
+   "valve_2": {
+    "key": "valve_2",
+    "on": {
+     "hex": "ff1d210000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "off": {
+     "hex": "ff1d010000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "close",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "open_for": {
+     "prefix": "ff1da100",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "enable",
+       "pulse_rule_enable": "disable",
+       "duration": 600,
+       "valve_pulse": 0
+      }
+     },
+     "note": "ff1d ctrl seq duration(u24le) pulse(u32le); ctrl=bit7 time rule|bit5 open|valve idx. duration is u24 - encoded here as u32le whose 4th byte (=0) is the first pulse byte; unit not stated in encoder (seconds per UC51x user guide)"
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6100000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "enable",
+       "duration": 0,
+       "valve_pulse": 1000
+      }
+     },
+     "note": "open until valve_pulse count reached (flow meter pulses)"
+    },
+    "clear_pulse": {
+     "hex": "ff4e0200",
+     "payload": {
+      "clear_valve_2_pulse": "yes"
+     }
+    },
+    "note": "sequence_id 0 = force execute. valve_task @since hw v4.0/fw v1.1 per encoder. uplink 0x05 0x01 -> valve_2 (0 close/1 open), valve_2_pulse from 0x06 0xC8"
+   }
+  }
+ },
+ "uc-series/uc512": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "collection_interval": {
+   "prefix": "ff02",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "collection_interval": 300
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   },
+   "note": "since hw v2.0 / fw v2.1"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   },
+   "note": "since hw v3.0 / fw v3.1"
+  },
+  "outputs": {
+   "valve_1": {
+    "key": "valve_1",
+    "on": {
+     "hex": "ff1d200000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "off": {
+     "hex": "ff1d000000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "close",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "open_for": {
+     "prefix": "ff1da000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "enable",
+       "pulse_rule_enable": "disable",
+       "duration": 600,
+       "valve_pulse": 0
+      }
+     },
+     "note": "ff1d ctrl seq duration(u24le) pulse(u32le); ctrl=bit7 time rule|bit5 open|valve idx. duration is u24 - encoded here as u32le whose 4th byte (=0) is the first pulse byte; unit not stated in encoder (seconds per UC51x user guide)"
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6000000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 1",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "enable",
+       "duration": 0,
+       "valve_pulse": 1000
+      }
+     },
+     "note": "open until valve_pulse count reached (flow meter pulses)"
+    },
+    "clear_pulse": {
+     "hex": "ff4e0100",
+     "payload": {
+      "clear_valve_1_pulse": "yes"
+     }
+    },
+    "note": "sequence_id 0 = force execute. valve_task @since hw v4.0/fw v1.1 per encoder. uplink 0x03 0x01 -> valve_1 (0 close/1 open), valve_1_pulse from 0x04 0xC8"
+   },
+   "valve_2": {
+    "key": "valve_2",
+    "on": {
+     "hex": "ff1d210000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "off": {
+     "hex": "ff1d010000000000000000",
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "close",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "disable",
+       "duration": 0,
+       "valve_pulse": 0
+      }
+     }
+    },
+    "open_for": {
+     "prefix": "ff1da100",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "000000",
+     "unit": "s",
+     "min": 1,
+     "max": 16777215,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "enable",
+       "pulse_rule_enable": "disable",
+       "duration": 600,
+       "valve_pulse": 0
+      }
+     },
+     "note": "ff1d ctrl seq duration(u24le) pulse(u32le); ctrl=bit7 time rule|bit5 open|valve idx. duration is u24 - encoded here as u32le whose 4th byte (=0) is the first pulse byte; unit not stated in encoder (seconds per UC51x user guide)"
+    },
+    "open_until_pulses": {
+     "prefix": "ff1d6100000000",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295,
+     "payload": {
+      "valve_task": {
+       "valve_index": "valve 2",
+       "sequence_id": 0,
+       "valve_status": "open",
+       "time_rule_enable": "disable",
+       "pulse_rule_enable": "enable",
+       "duration": 0,
+       "valve_pulse": 1000
+      }
+     },
+     "note": "open until valve_pulse count reached (flow meter pulses)"
+    },
+    "clear_pulse": {
+     "hex": "ff4e0200",
+     "payload": {
+      "clear_valve_2_pulse": "yes"
+     }
+    },
+    "note": "sequence_id 0 = force execute. valve_task @since hw v4.0/fw v1.1 per encoder. uplink 0x05 0x01 -> valve_2 (0 close/1 open), valve_2_pulse from 0x06 0xC8"
+   }
+  }
+ },
+ "uc-series/uc521": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 1440,
+   "payload": {
+    "report_interval": 20
+   }
+  },
+  "collection_interval": {
+   "prefix": "f9680101",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "pressure_1_collection_interval": {
+     "enable": "enable",
+     "collection_interval": 300
+    }
+   },
+   "note": "pressure 1 sampling interval (enable=1)"
+  },
+  "collection_interval_pressure_2": {
+   "prefix": "f9680201",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 10,
+   "max": 64800,
+   "payload": {
+    "pressure_2_collection_interval": {
+     "enable": "enable",
+     "collection_interval": 300
+    }
+   }
+  },
+  "sync_time": {
+   "hex": "ff4aff",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "outputs": {
+   "valve_1": {
+    "key": "valve_1_opening",
+    "on": {
+     "hex": "f919000064",
+     "payload": {
+      "valve_1_task": {
+       "valve_opening": 100
+      }
+     }
+    },
+    "off": {
+     "hex": "f919000000",
+     "payload": {
+      "valve_1_task": {
+       "valve_opening": 0
+      }
+     }
+    },
+    "set": {
+     "prefix": "f9190000",
+     "value": "u8",
+     "scale": 1,
+     "suffix": "",
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "payload": {
+      "valve_1_task": {
+       "valve_opening": 55
+      }
+     },
+     "note": "opening percent; 3-way valves report >100 as 'right' direction (decoder subtracts 100) - encoder ignores direction"
+    },
+    "open_for": {
+     "prefix": "f919800064",
+     "value": "u16le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "min",
+     "min": 1,
+     "max": 65535,
+     "payload": {
+      "valve_1_task": {
+       "valve_opening": 100,
+       "time": 30
+      }
+     },
+     "note": "opening 100% for time (min, encoder doc), then close. Generic: f919 [0x80|0] task_id opening u16le(time)"
+    },
+    "open_until_pulses": {
+     "prefix": "f919400064",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295,
+     "payload": {
+      "valve_1_task": {
+       "valve_opening": 100,
+       "pulse": 1000
+      }
+     }
+    },
+    "clear_pulse": {
+     "hex": "ff4e0100",
+     "payload": {
+      "clear_valve_1_pulse": "yes"
+     }
+    },
+    "note": "f919 ctrl(bit7 time,bit6 pulse,bits0.. valve idx 0/1) task_id(0=force) opening(u8). uplink 0x03 0xF6 -> valve_1_opening (+valve_1_type)"
+   },
+   "valve_2": {
+    "key": "valve_2_opening",
+    "on": {
+     "hex": "f919010064",
+     "payload": {
+      "valve_2_task": {
+       "valve_opening": 100
+      }
+     }
+    },
+    "off": {
+     "hex": "f919010000",
+     "payload": {
+      "valve_2_task": {
+       "valve_opening": 0
+      }
+     }
+    },
+    "set": {
+     "prefix": "f9190100",
+     "value": "u8",
+     "scale": 1,
+     "suffix": "",
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "payload": {
+      "valve_2_task": {
+       "valve_opening": 55
+      }
+     },
+     "note": "opening percent; 3-way valves report >100 as 'right' direction (decoder subtracts 100) - encoder ignores direction"
+    },
+    "open_for": {
+     "prefix": "f919810064",
+     "value": "u16le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "min",
+     "min": 1,
+     "max": 65535,
+     "payload": {
+      "valve_2_task": {
+       "valve_opening": 100,
+       "time": 30
+      }
+     },
+     "note": "opening 100% for time (min, encoder doc), then close. Generic: f919 [0x80|1] task_id opening u16le(time)"
+    },
+    "open_until_pulses": {
+     "prefix": "f919410064",
+     "value": "u32le",
+     "scale": 1,
+     "suffix": "",
+     "unit": "pulses",
+     "min": 1,
+     "max": 4294967295,
+     "payload": {
+      "valve_2_task": {
+       "valve_opening": 100,
+       "pulse": 1000
+      }
+     }
+    },
+    "clear_pulse": {
+     "hex": "ff4e0200",
+     "payload": {
+      "clear_valve_2_pulse": "yes"
+     }
+    },
+    "note": "f919 ctrl(bit7 time,bit6 pulse,bits0.. valve idx 0/1) task_id(0=force) opening(u8). uplink 0x05 0xF6 -> valve_2_opening (+valve_2_type)"
+   }
+  }
+ },
+ "uc-series/uc100": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "_note": "No sync_time/report_status/outputs in encoder (Modbus converter; Modbus writes not supported by encoder)."
+ },
+ "uc-series/uc100-v2": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff03",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "s",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 600
+   }
+  },
+  "sync_time": {
+   "hex": "ff4a00",
+   "payload": {
+    "sync_time": "yes"
+   }
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "_note": "No controllable outputs (Modbus writes not in encoder)."
+ },
+ "vs-series/vs373": {
+  "_fport": 85,
+  "reboot": {
+   "hex": "ff10ff",
+   "payload": {
+    "reboot": "yes"
+   }
+  },
+  "report_interval": {
+   "prefix": "ff8e00",
+   "value": "u16le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "min",
+   "min": 1,
+   "max": 65535,
+   "payload": {
+    "report_interval": 20
+   },
+   "note": "encoder has no range check"
+  },
+  "report_status": {
+   "hex": "ff28ff",
+   "payload": {
+    "report_status": "yes"
+   }
+  },
+  "sync_time": {
+   "hex": "f9910000000000",
+   "payload": {
+    "time_sync_config": {
+     "mode": "sync_from_gateway"
+    }
+   },
+   "note": "sets time sync mode = gateway (config), since v1.0.2"
+  },
+  "set_time": {
+   "prefix": "ff11",
+   "value": "u32le",
+   "scale": 1,
+   "suffix": "",
+   "unit": "unix_s",
+   "min": 0,
+   "max": 4294967295,
+   "payload": {
+    "timestamp": 1710489600
+   },
+   "note": "since v1.0.2"
+  },
+  "outputs": {
+   "output_1": {
+    "key": null,
+    "on": {
+     "hex": "f94e01",
+     "payload": {
+      "digital_output": "high"
+     }
+    },
+    "off": {
+     "hex": "f94e00",
+     "payload": {
+      "digital_output": "low"
+     }
+    },
+    "note": "digital_output high/low. Our decode_vs373 has no key for it (official decoder only reports it in the 0xF9 0x4E downlink response as digital_output). trigger_digital_output_config (f9b5 + 6 enable bytes) makes DO follow fall/lying/out_of_bed/dwell/motionless alarms"
+   }
+  }
+ }
+}

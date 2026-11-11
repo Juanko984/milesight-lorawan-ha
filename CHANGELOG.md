@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.116.0
+- **More than one RS485 sensor on a single UC controller now works end to end.** A UC502 (or any UC) carrying
+  both a soil probe **and** a liquid-level probe used to show values on only one of them, because one device
+  Purpose couldn't cover both. Each applied RS485 template now contributes its own dashboard automatically —
+  the CWT soil probe lights up **Farm**, the WoMaster level probe lights up **Water**, the WS90 lights up
+  **Building analytics**, and so on — stacked on top of whatever Purpose the device is set to. Apply the
+  templates and every widget appears; the single Purpose field no longer has to choose between them.
+- **Fixed: the Soil and Liquid-level widgets showing only dashes.** The role sensors now read their channel
+  values **scaled the same way their named channel entities are** (so soil moisture reads 100 %, not the raw
+  register 1000, and pH 3.0 not 30), and they recover the register layout from the template itself when an
+  applied record was saved by an earlier build without it — so widgets that sat empty after upgrading fill in
+  on the next report.
+
 ## 0.115.0
 - **New Soil widget for the CWT 7-in-1 (THCPH-S).** When the CWT template is applied to a UC controller, the
   integration adds a **Soil** sensor and a card (on the **Farm** dashboard) showing moisture with a soil-profile
