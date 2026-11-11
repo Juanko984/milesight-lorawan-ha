@@ -26,10 +26,13 @@ views:
       - type: grid
         column_span: 3
         cards:
-          # CWT 7-in-1 soil probes on a UC controller (moisture, pH, EC, N·P·K). Has its own title and hides
-          # itself when there are no soil probes.
+          # Soil probe (CWT 7-in-1: moisture, pH, EC, N·P·K) and the weather station (Ecowitt WS90) side by side.
+          # Each has its own title and hides itself when its sensor isn't fitted, so the row collapses to whichever
+          # one is present (or disappears entirely).
           - type: custom:milesight-soil-card
-            grid_options: {columns: full}
+            grid_options: {columns: 6}
+          - type: custom:milesight-weather-card
+            grid_options: {columns: 6}
       - type: grid
         cards:
           - type: heading

@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.117.0
+- **Soil, Weather and Level widgets are more compact and lay out side by side.** The soil and weather cards had
+  oversized hero numbers and glyphs and stretched across the whole width; they're now sized proportionally.
+- **Weather station added to the Farm dashboard, next to the soil probe.** The two sit side by side (each
+  half-width), and the row collapses to whichever sensor is actually fitted.
+- **Level widgets tile side by side.** The **Levels** card (tanks / silos / dams / drains / bins) and the
+  **Liquid level** card now arrange their vessels in a responsive grid instead of one tall column per vessel, so
+  several fit across the Water dashboard.
+
 ## 0.116.0
 - **More than one RS485 sensor on a single UC controller now works end to end.** A UC502 (or any UC) carrying
   both a soil probe **and** a liquid-level probe used to show values on only one of them, because one device
