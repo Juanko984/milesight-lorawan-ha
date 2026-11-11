@@ -174,6 +174,24 @@ def _co2_text(co2: Any) -> str | None:
     if co2 < 1200:
         return "Moderate"
     return "Poor"
+
+
+# The properties an AM air-quality monitor can show, in the order they appear on the card. Each: the value key,
+# label, unit, mdi icon, trend-line colour, and sensible default high / low limits (so a chip flags red / amber
+# and the trend draws a threshold line even before a purpose sets one). CO₂'s high limit comes from the device.
+_AIR_METRICS = (
+    ("co2",         "CO₂",         "ppm",    "mdi:molecule-co2",   "#4aa3ff", None,  None),
+    ("temperature", "Temperature", "°C",     "mdi:thermometer",    "#ff8a5c", None,  None),
+    ("humidity",    "Humidity",    "%",      "mdi:water-percent",  "#4ab0c4", None,  None),
+    ("pm2_5",       "PM2.5",       "µg/m³",  "mdi:blur",           "#c98a2b", 35.0,  None),
+    ("pm10",        "PM10",        "µg/m³",  "mdi:blur-linear",    "#b2762a", 50.0,  None),
+    ("tvoc_iaq",    "TVOC index",  "",       "mdi:air-filter",     "#8e7cc3", 3.0,   None),
+    ("hcho",        "HCHO",        "mg/m³",  "mdi:flask-outline",  "#db4437", 0.1,   None),
+    ("o3",          "Ozone",       "ppm",    "mdi:weather-hazy",   "#80cbc4", 0.1,   None),
+    ("pressure",    "Pressure",    "hPa",    "mdi:gauge",          "#6fae6f", None,  None),
+    ("light_level", "Light",       "",       "mdi:brightness-6",   "#ffca28", None,  None),
+)
+_AIR_FEATURES = frozenset({"co2", "tvoc", "pm", "pm25_only", "hcho", "o3", "pressure"})
 def _odour_text(nh3: Any, h2s: Any) -> str | None:
     """Rough odour rating. Typical perception thresholds: NH3 ~ 1-5 ppm, H2S ~ 0.01-0.1 ppm."""
     if not isinstance(nh3, (int, float)) and not isinstance(h2s, (int, float)):
@@ -605,6 +623,8 @@ class DeviceRuntime:
             specs.append(EntitySpec("soil", "Soil", unit="%", icon="mdi:sprout", precision=0))
         if self._applied_template("womaster_ws101ll") is not None:    # a WoMaster WS101LL → a liquid-level sensor
             specs.append(EntitySpec("liquid_level", "Liquid level", unit="mm", device_class="distance", icon="mdi:cup-water"))
+        if self._air_applies():      # an AM air-quality monitor → one card with a chip per property + a trend line
+            specs.append(EntitySpec("air_monitor", "Air quality", icon="mdi:air-filter"))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
@@ -691,6 +711,43 @@ class DeviceRuntime:
             "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WS101LL",
             "level_mm": None if lvl is None else round(lvl), "range_mm": None if rng is None else round(rng),
             "pct": pct, "rate_mm_h": rate, "trend": trend or "steady", "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _air_applies(self) -> bool:
+        """An AM-range air-quality monitor (AM103/107, AM307/308, AM319 …) – not the temp/humidity-only AM102/104."""
+        return self.model.key.startswith("AM") and bool(self.model.features & _AIR_FEATURES)
+
+    def _air_monitor(self, v: dict) -> dict | None:
+        """The AM device's live properties as one role sensor: a metric per reading, each with its entity id (so the
+        card can draw its trend), unit, icon, colour and high/low limit. CO₂ is the headline; the card lets you click
+        any metric to drive the trend line."""
+        if not self._air_applies():
+            return None
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            reg = None
+        metrics = []
+        for key, label, unit, icon, colour, hi, lo in _AIR_METRICS:
+            val = _nz(v.get(key))
+            if val is None:
+                continue
+            if key == "co2":
+                hi = self.limits.get("co2")                 # the device's own CO₂ limit
+            status = "high" if (hi is not None and val >= hi) else "low" if (lo is not None and val <= lo) else "ok"
+            eid = reg.async_get_entity_id("sensor", DOMAIN, f"{self.deveui}_{key}") if reg is not None else None
+            metrics.append({"key": key, "label": label, "unit": unit, "icon": icon, "color": colour,
+                            "value": round(val, 3), "entity_id": eid, "status": status,
+                            "limit_high": hi, "limit_low": lo})
+        if len(metrics) < 2:
+            return None
+        primary = next((m for m in metrics if m["key"] == "co2"), metrics[0])
+        return {
+            "milesight_role": "air_monitor", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "metrics": metrics, "primary": primary["key"], "air_quality": _co2_text(v.get("co2")),
+            "last_seen": self.meta.get("last_seen"),
         }
 
     def _weather_assess(self, v: dict, ts: float) -> dict | None:
@@ -1628,6 +1685,11 @@ class DeviceRuntime:
             co2_lim = self.limits.get("co2")        # tag CO₂ for the trendline grid; expose its limit to flash on
             self.attrs["co2"] = {**(self.attrs.get("co2") or {}), "ms_trend": "air",
                                  **({"ms_limit_high": co2_lim} if co2_lim else {})}
+        air = self._air_monitor(v)                  # AM air-quality monitor: all properties on one card + a trend
+        if air is not None:
+            pm = next((m for m in air["metrics"] if m["key"] == air["primary"]), None)
+            v["air_monitor"] = pm["value"] if pm else None
+            self.attrs["air_monitor"] = air
         height = float(self._opt(CONF_INSTALL_HEIGHT_MM, 0) or 0)
         if "em400" in self.model.features and height > 0 and isinstance(v.get("distance"), (int, float)):
             # distance = sensor to surface; full when the surface reaches the sensor

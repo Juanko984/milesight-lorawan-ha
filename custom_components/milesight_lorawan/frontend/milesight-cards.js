@@ -5310,6 +5310,130 @@
     }
   }
 
+  // ================================================================ AM air-quality monitor (AM103/107, AM307/308, AM319)
+  // Self-discovers the "air_monitor" role sensors. One card per AM device: a chip for every property the model
+  // measures (temperature, humidity, CO₂, PM2.5/PM10, TVOC, HCHO, O₃, pressure, light), and below them the trend
+  // for the selected property — the existing trendline card, re-pointed when a chip is clicked. A chip (and the
+  // trend) flags red / amber when a reading is over / under its limit. Default selection: CO₂, else the first.
+  function _airFmt(v, unit) {
+    if (v == null) return "—";
+    const n = Number(v);
+    const s = Math.abs(n) >= 100 ? String(Math.round(n)) : Math.abs(n) >= 10 ? n.toFixed(1) : (+n.toFixed(2)).toString();
+    return unit ? [s, h("small", {}, " " + unit)] : s;
+  }
+  class AMAirCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) {
+        const st = S[id], a = st.attributes;
+        if (a && a.milesight_role === "air_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+      }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const m of (st.attributes.metrics || [])) if (m.entity_id) ids.push(m.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;   // keep the embedded trends live
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _selKey(roleId, a) {
+      const metrics = a.metrics || [];
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msAirMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && metrics.some((m) => m.key === s)) return s;
+      const prim = metrics.find((m) => m.key === a.primary) || metrics.find((m) => m.entity_id) || metrics[0];
+      return prim ? prim.key : null;
+    }
+    _pick(roleId, key) {
+      this._sel = this._sel || {}; this._sel[roleId] = key;
+      try { localStorage.setItem("msAirMetric:" + roleId, key); } catch (e) { /* private */ }
+      this._render();
+    }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, metrics = a.metrics || [];
+      const selKey = this._selKey(roleId, a);
+      const sel = metrics.find((m) => m.key === selKey) || metrics[0];
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:air-filter" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Air quality")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const chips = h("div", { class: "achips" }, metrics.map((m) => h("div", {
+        class: "achip" + (m.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, m.key),
+      }, [
+        m.status === "high" ? h("span", { class: "abadge hi" }, "HIGH") : m.status === "low" ? h("span", { class: "abadge lo" }, "LOW") : null,
+        h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: m.icon }), m.label]),
+        h("div", { class: "achv" + (m.status === "high" ? " hi" : m.status === "low" ? " lo" : "") }, _airFmt(m.value, m.unit)),
+      ])));
+      // the trend for the selected metric: the existing trendline card, re-pointed on selection
+      let trend;
+      if (sel && sel.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        const cfgSig = sel.entity_id;
+        if (el.__cfgSig !== cfgSig) {
+          el.setConfig({ entity: sel.entity_id, name: sel.label, sub: a.model, unit: sel.unit,
+            color: sel.color, max: sel.limit_high != null ? sel.limit_high : undefined,
+            min: sel.limit_low != null ? sel.limit_low : undefined });
+          el.__cfgSig = cfgSig;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      } else {
+        trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } },
+          "History for this reading isn't available yet.");
+      }
+      return h("div", { class: "ablock" }, [head, chips, trend]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .achips{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:13px 0 2px}
+        .achip{border:1px solid var(--ms-line);border-radius:11px;padding:8px 10px;cursor:pointer;position:relative;transition:.12s}
+        .achip:hover{border-color:color-mix(in srgb,var(--ms-ink) 25%,transparent)}
+        .achip.sel{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);box-shadow:inset 0 0 0 1px var(--ms-accent)}
+        .achl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ms-ink2);min-width:0}
+        .achl .aci{--mdc-icon-size:14px;flex:0 0 auto;color:var(--ms-ink2)}
+        .achv{font-size:18px;font-weight:720;color:var(--ms-ink);margin-top:5px;line-height:1;font-variant-numeric:tabular-nums}
+        .achv small{font-size:10.5px;color:var(--ms-ink2);font-weight:600}
+        .achv.hi{color:var(--ms-bad)} .achv.lo{color:var(--ms-warn)}
+        .abadge{position:absolute;top:8px;right:9px;font-size:9px;font-weight:800;letter-spacing:.03em}
+        .abadge.hi{color:var(--ms-bad)} .abadge.lo{color:var(--ms-warn)}
+        .atrend{margin-top:10px;padding-top:4px;border-top:1px solid var(--ms-line)}
+        .atrend milesight-trendline-card{display:block}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      // drop cached sub-cards for devices that disappeared
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "6px" } }, "Air quality"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st))),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -6119,7 +6243,8 @@
         WEATHER_TAG = "milesight-weather-card",
         LEVELMODEL_TAG = "milesight-level-model-card",
         SOIL_TAG = "milesight-soil-card",
-        LIQLEVEL_TAG = "milesight-liquid-level-card";
+        LIQLEVEL_TAG = "milesight-liquid-level-card",
+        AIRQ_TAG = "milesight-air-quality-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -6172,6 +6297,7 @@
     [LEVELMODEL_TAG, LevelModelCard, "Milesight Level Model", "A 2D cutaway model of each level sensor — tank, silo, dam, storm drain or waste bin — filled to the live level"],
     [SOIL_TAG, SoilCard, "Milesight Soil", "CWT 7-in-1 soil probe: moisture, temperature, pH, conductivity and N·P·K, with values flagged high/low"],
     [LIQLEVEL_TAG, LiquidLevelCard, "Milesight Liquid Level", "WoMaster WS101LL liquid level: a filled shaft with mm and % of range, plus a trend"],
+    [AIRQ_TAG, AMAirCard, "Milesight Air Quality", "AM air monitor: a chip per property (CO₂, PM, TVOC, HCHO …); click one to drive the trend line"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

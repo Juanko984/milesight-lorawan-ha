@@ -903,6 +903,26 @@ assert {"irrigation", "tank"} <= models.device_tags("UC502", {"channel_templates
 del entries.items[_dual_from:]                               # keep these test devices out of later global state
 print("soil + level ok")
 
+# AM air-quality monitor role sensor (AM307): one metric per property, CO₂ headline, chip status from limits
+_air_from = len(entries.items)
+_, _am = make_with("00000000000eair07", "AM307", {}, title="Office AM307", area="Office")
+assert "air_monitor" in {sp.key for sp in _am.extra_specs()}
+for _k, _v in {"co2": 782, "temperature": 23.4, "humidity": 48, "pm2_5": 44, "tvoc_iaq": 1.8, "pressure": 1013}.items():
+    _am.raw[_k] = _v
+_am.meta["last_seen"] = time.time(); _am._publish(time.time())
+_am_a = _am.attrs["air_monitor"]
+assert _am_a["milesight_role"] == "air_monitor" and _am_a["device"] == "Office AM307" and _am_a["primary"] == "co2"
+_mk = {m["key"]: m for m in _am_a["metrics"]}
+assert _mk["co2"]["value"] == 782 and _mk["co2"]["status"] == "ok" and _mk["co2"]["limit_high"] == 1000   # device CO₂ limit
+assert _mk["pm2_5"]["status"] == "high" and _mk["pm2_5"]["limit_high"] == 35                               # 44 > 35 → red
+assert [m["key"] for m in _am_a["metrics"]][0] == "co2" and _am.values["air_monitor"] == 782
+assert "temperature" in _mk and "humidity" in _mk and "pressure" in _mk
+# a plain temperature/humidity AM102 is not an air monitor; a non-AM sensor never is
+_, _am102 = make_with("00000000000eair02", "AM102", {})
+assert "air_monitor" not in {sp.key for sp in _am102.extra_specs()} and _am102._air_monitor({"temperature": 21}) is None
+del entries.items[_air_from:]
+print("air monitor ok")
+
 def em400(distance_mm):
     return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")
 e_tank, rt = make_with("0000000000400001", "EM400-UDL",

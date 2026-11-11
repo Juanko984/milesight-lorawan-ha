@@ -47,6 +47,16 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Air monitors
+            icon: mdi:air-filter
+          # One card per AM air sensor (AM103/107, AM307/308, AM319): a chip for every property it measures;
+          # click a chip to drive the trend below. Hides itself when there are no AM monitors.
+          - type: custom:milesight-air-quality-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: CO₂ trends
             icon: mdi:chart-line
           # One trendline per CO₂ sensor — flashes when CO₂ climbs over its limit.

@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.118.0
+- **New Air-quality widget for the AM range** (AM103/107, AM307/308, AM319 HCHO/O₃, AM305L). One card per AM
+  monitor with a **chip for every property it measures** — temperature, humidity, CO₂, PM2.5/PM10, TVOC, HCHO,
+  O₃, pressure, light. **Click a chip and the trend line below switches to that property**, reusing the existing
+  trendline (dashed threshold line, live min/max with the time each happened, and the Today / 24 h / 7 d toggle).
+  Chips flag **red when a reading is over its limit, amber when under**; it opens on CO₂ by default. Added to the
+  **Building analytics** dashboard (self-hiding when no AM monitors are present).
+
 ## 0.117.0
 - **Soil, Weather and Level widgets are more compact and lay out side by side.** The soil and weather cards had
   oversized hero numbers and glyphs and stretched across the whole width; they're now sized proportionally.
