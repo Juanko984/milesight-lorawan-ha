@@ -2,6 +2,22 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.120.0
+- **Hover tooltip on every trend line.** Moving the pointer across a trendline now snaps to the nearest reading
+  and shows its **value and date / time** in a small tooltip, with a guide line and a dot on the point. Works on
+  the standalone trendlines (cold-chain, tanks, CO₂) and on the trends embedded in the Air-quality and
+  Environment cards. Touch is supported too (drag along the line).
+
+## 0.119.0
+- **New Environment widget for multi-property sensors** — EM300-TH / MCS / SLD / ZLD, EM320-TH, TS201/301/302,
+  WS202/203, AM102/104 and similar. Built on the AM card: one card per device with a **chip for each property**.
+  **Numeric properties (temperature, humidity, battery, light) are clickable and drive the trend** below (reusing
+  the trendline — threshold line, min/max, Today / 24 h / 7 d toggle), and the temperature trend picks up the
+  device's own alarm band automatically. **Door, leak and motion show as status chips** — green when safe, amber
+  or red when open / wet / moving — with how long they've held that state. Added to **Building analytics** and
+  **Cold storage** (self-hiding when no such sensors are present). Single-property sensors (a door-only WS301,
+  the AM air monitors) keep their existing cards.
+
 ## 0.118.0
 - **New Air-quality widget for the AM range** (AM103/107, AM307/308, AM319 HCHO/O₃, AM305L). One card per AM
   monitor with a **chip for every property it measures** — temperature, humidity, CO₂, PM2.5/PM10, TVOC, HCHO,

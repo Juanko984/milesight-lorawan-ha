@@ -532,6 +532,29 @@
         h("div", { class: "tlt" }, "at " + this._tlabel(ts, i === lastI, this._window())),
       ]);
       const wl = { today: "today", "24h": "24 h", "7d": "7 d" }[this._window()] || "today";
+      // hover tooltip: snap to the nearest point and show its value + date/time
+      const hvLine = h("span", { class: "tlhv-line" }), hvDot = h("span", { class: "tlhv-dot" });
+      const hvTip = h("div", { class: "tlhv-tip" }, [h("b", {}), h("i", {})]);
+      const hv = h("div", { class: "tlhv" }, [hvLine, hvDot, hvTip]);
+      const hvVal = (v) => (v == null ? "—" : String(Math.abs(v) >= 100 ? Math.round(v) : +v.toFixed(2))) + (unit ? " " + unit : "");
+      const hvTime = (t) => { try { const d = new Date(t); return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" }) + ", " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+      const hvMove = (e) => {
+        const box = hv.parentNode; if (!box) return;
+        const r = box.getBoundingClientRect(); if (!r.width) return;
+        const cx = e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX;
+        const mx = clamp((cx - r.left) / r.width, 0, 1), tt = t0 + mx * (t1 - t0);
+        let bi = 0, bd = Infinity;
+        for (let i = 0; i < pts.length; i++) { const dd = Math.abs(pts[i][0] - tt); if (dd < bd) { bd = dd; bi = i; } }
+        const p = pts[bi], lx = 1 + fx(p[0]) * 98, ly = (1 - fy(p[1])) * 100;
+        hv.style.display = "block";
+        hvLine.style.left = lx.toFixed(2) + "%";
+        hvDot.style.left = lx.toFixed(2) + "%"; hvDot.style.top = ly.toFixed(2) + "%";
+        hvTip.firstChild.textContent = hvVal(p[1]); hvTip.lastChild.textContent = hvTime(p[0]);
+        hvTip.style.left = clamp(lx, 15, 85).toFixed(2) + "%"; hvTip.style.top = Math.max(0, ly - 6).toFixed(2) + "%";
+      };
+      const hvHide = () => { hv.style.display = "none"; };
+      const chart = h("div", { class: "tlchart", onmousemove: hvMove, onmouseleave: hvHide,
+        ontouchstart: hvMove, ontouchmove: hvMove, ontouchend: hvHide }, [svg, ...overlay, hv]);
       this._css = this._style(color);
       this._card(h("div", { class: "wrap tlcard " + (breach === "hi" ? "tlbreach-hi" : breach === "lo" ? "tlbreach-lo" : "") }, [
         h("div", { class: "tlhead" }, [
@@ -540,7 +563,7 @@
           toggle,
         ]),
         h("div", { class: "tlval" }, [h("b", {}, curV == null ? "—" : esc(st.state)), unit ? h("u", {}, esc(unit)) : null, pill]),
-        h("div", { class: "tlchart" }, [svg, ...overlay]),
+        chart,
         h("div", { class: "tlfoot" }, [
           stat("min", "Min " + wl, vmin, pts[minI][0], minI),
           stat("max", "Max " + wl, vmax, pts[maxI][0], maxI),
@@ -563,12 +586,18 @@
         .tlpill{margin-left:6px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.04em}
         .tlpill.hi{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
         .tlpill.lo{background:color-mix(in srgb,var(--ms-warn) 22%,transparent);color:var(--ms-warn)}
-        .tlchart{position:relative;margin-top:4px;height:120px}
-        .tlmk{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);border:1.5px solid var(--ms-card);box-sizing:border-box}
+        .tlchart{position:relative;margin-top:4px;height:120px;cursor:crosshair}
+        .tlmk{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);border:1.5px solid var(--ms-card);box-sizing:border-box;pointer-events:none}
         .tlmk.min{background:#4aa3ff}.tlmk.max{background:var(--ms-accent)}.tlmk.cur{background:${color}}
         .tlbreach-hi .tlmk.cur{background:var(--ms-bad)}.tlbreach-lo .tlmk.cur{background:var(--ms-warn)}
         .tlmk.ping{animation:tlping 1.25s ease-in-out infinite}
-        .tlth{position:absolute;right:3px;transform:translateY(-130%);font-size:10.5px;font-weight:600;white-space:nowrap;opacity:.85}
+        .tlth{position:absolute;right:3px;transform:translateY(-130%);font-size:10.5px;font-weight:600;white-space:nowrap;opacity:.85;pointer-events:none}
+        .tlhv{position:absolute;inset:0;display:none;pointer-events:none}
+        .tlhv-line{position:absolute;top:0;bottom:0;width:1px;background:var(--ms-ink2);opacity:.45;transform:translateX(-.5px)}
+        .tlhv-dot{position:absolute;width:9px;height:9px;border-radius:50%;background:${color};transform:translate(-50%,-50%);border:2px solid var(--ms-surface);box-shadow:0 0 0 1px ${color}}
+        .tlhv-tip{position:absolute;transform:translate(-50%,-100%) translateY(-9px);background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:8px;padding:5px 9px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.4);z-index:6;text-align:center}
+        .tlhv-tip b{display:block;font-size:13px;font-weight:700;color:var(--ms-ink);font-variant-numeric:tabular-nums}
+        .tlhv-tip i{font-style:normal;font-size:10.5px;color:var(--ms-ink2)}
         .tlfoot{display:flex;gap:20px;margin-top:11px;padding-top:11px;border-top:1px solid var(--ms-line);flex-wrap:wrap}
         .tlstat{display:flex;align-items:center;gap:8px}
         .tldot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
@@ -5434,6 +5463,139 @@
     }
   }
 
+  // ================================================================ environment monitor (EM300-TH/MCS/SLD, TS, WS202/203…)
+  // Self-discovers the "env_monitor" role sensors. One card per device: numeric properties (temperature, humidity,
+  // battery, light) as chips that drive the trend when clicked — the existing trendline card, re-pointed — plus
+  // door / leak / motion shown as status chips (green when safe, amber / red when open / wet / moving). Based on
+  // the AM air-quality card. Default trend: temperature, else the first numeric property.
+  function _envDur(sinceSec) {
+    if (!sinceSec) return "";
+    const s = Math.max(0, Date.now() / 1000 - sinceSec);
+    if (s < 90) return "just now";
+    const m = Math.round(s / 60);
+    if (m < 60) return "for " + m + " m";
+    const h = Math.floor(m / 60), rm = m % 60;
+    return "for " + h + " h" + (rm ? " " + rm + " m" : "");
+  }
+  class EnvMonitorCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) {
+        const st = S[id], a = st.attributes;
+        if (a && a.milesight_role === "env_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+      }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const m of (st.attributes.metrics || [])) if (m.entity_id) ids.push(m.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _selKey(roleId, a) {
+      const metrics = a.metrics || [];
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msEnvMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && metrics.some((m) => m.key === s)) return s;
+      const prim = metrics.find((m) => m.key === a.primary) || metrics.find((m) => m.entity_id) || metrics[0];
+      return prim ? prim.key : null;
+    }
+    _pick(roleId, key) {
+      this._sel = this._sel || {}; this._sel[roleId] = key;
+      try { localStorage.setItem("msEnvMetric:" + roleId, key); } catch (e) { /* private */ }
+      this._render();
+    }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, metrics = a.metrics || [], states = a.states || [];
+      const selKey = this._selKey(roleId, a);
+      const sel = metrics.find((m) => m.key === selKey) || metrics[0];
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:home-thermometer" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Environment")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const numChips = metrics.map((m) => h("div", {
+        class: "achip" + (m.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, m.key),
+      }, [
+        h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: m.icon }), m.label]),
+        h("div", { class: "achv" }, _airFmt(m.value, m.unit)),
+      ]));
+      const binChips = states.map((s) => h("div", { class: "achip bin" }, [
+        h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: s.icon }), s.label]),
+        h("div", { class: "astat " + (s.tone === "critical" ? "bad" : s.tone === "warning" ? "warn" : s.tone === "ok" ? "ok" : "unk") },
+          [h("span", { class: "sd" }), esc(s.text)]),
+        s.active && s.since ? h("div", { class: "asince" }, _envDur(s.since)) : null,
+      ]));
+      const chips = h("div", { class: "achips" }, numChips.concat(binChips));
+      let trend;
+      if (sel && sel.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        if (el.__cfgSig !== sel.entity_id) {
+          el.setConfig({ entity: sel.entity_id, name: sel.label, sub: a.model, unit: sel.unit, color: sel.color });
+          el.__cfgSig = sel.entity_id;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      } else {
+        trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } },
+          "No numeric property to trend.");
+      }
+      return h("div", { class: "ablock" }, [head, chips, trend]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .achips{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;margin:13px 0 2px}
+        .achip{border:1px solid var(--ms-line);border-radius:11px;padding:8px 10px;cursor:pointer;position:relative;transition:.12s}
+        .achip:hover{border-color:color-mix(in srgb,var(--ms-ink) 25%,transparent)}
+        .achip.sel{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);box-shadow:inset 0 0 0 1px var(--ms-accent)}
+        .achip.bin{cursor:default} .achip.bin:hover{border-color:var(--ms-line)}
+        .achl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ms-ink2);min-width:0}
+        .achl .aci{--mdc-icon-size:14px;flex:0 0 auto;color:var(--ms-ink2)}
+        .achv{font-size:18px;font-weight:720;color:var(--ms-ink);margin-top:5px;line-height:1;font-variant-numeric:tabular-nums}
+        .achv small{font-size:10.5px;color:var(--ms-ink2);font-weight:600}
+        .astat{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;font-weight:650;line-height:1}
+        .astat .sd{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+        .astat.ok{color:var(--ms-good)} .astat.ok .sd{background:var(--ms-good)}
+        .astat.warn{color:var(--ms-warn)} .astat.warn .sd{background:var(--ms-warn)}
+        .astat.bad{color:var(--ms-bad)} .astat.bad .sd{background:var(--ms-bad)}
+        .astat.unk{color:var(--ms-ink2)} .astat.unk .sd{background:var(--ms-ink2)}
+        .asince{font-size:10px;color:var(--ms-ink2);margin-top:3px}
+        .atrend{margin-top:10px;padding-top:4px;border-top:1px solid var(--ms-line)}
+        .atrend milesight-trendline-card{display:block}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "6px" } }, "Environment"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st))),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -6244,7 +6406,8 @@
         LEVELMODEL_TAG = "milesight-level-model-card",
         SOIL_TAG = "milesight-soil-card",
         LIQLEVEL_TAG = "milesight-liquid-level-card",
-        AIRQ_TAG = "milesight-air-quality-card";
+        AIRQ_TAG = "milesight-air-quality-card",
+        ENVMON_TAG = "milesight-environment-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -6298,6 +6461,7 @@
     [SOIL_TAG, SoilCard, "Milesight Soil", "CWT 7-in-1 soil probe: moisture, temperature, pH, conductivity and N·P·K, with values flagged high/low"],
     [LIQLEVEL_TAG, LiquidLevelCard, "Milesight Liquid Level", "WoMaster WS101LL liquid level: a filled shaft with mm and % of range, plus a trend"],
     [AIRQ_TAG, AMAirCard, "Milesight Air Quality", "AM air monitor: a chip per property (CO₂, PM, TVOC, HCHO …); click one to drive the trend line"],
+    [ENVMON_TAG, EnvMonitorCard, "Milesight Environment", "Temp / humidity / door / leak / motion sensor: numeric chips drive the trend, door/leak/motion show status"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

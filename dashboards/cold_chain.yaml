@@ -56,6 +56,16 @@ views:
             trend: cold_chain
             columns: 2
             grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Environment sensors
+            icon: mdi:home-thermometer
+          # Temp / humidity / door / leak / motion sensors (EM300-TH/MCS/SLD, TS, WS203 …): numeric chips drive the
+          # trend, door/leak/motion show status. Hides itself when there are no such sensors.
+          - type: custom:milesight-environment-card
+            grid_options: {columns: full}
   - title: Compliance
     path: compliance
     icon: mdi:file-certificate-outline

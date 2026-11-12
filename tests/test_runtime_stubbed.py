@@ -923,6 +923,25 @@ assert "air_monitor" not in {sp.key for sp in _am102.extra_specs()} and _am102._
 del entries.items[_air_from:]
 print("air monitor ok")
 
+# Environment monitor role sensor (EM300-MCS: temperature + humidity + door, status-only binary)
+_env_from = len(entries.items)
+_, _em = make_with("00000000000eenv01", "EM300-MCS", {}, title="Cold room door", area="Cold room")
+assert _em._env_applies() and "env_monitor" in {sp.key for sp in _em.extra_specs()}
+_ev = _em._env_monitor({"temperature": 4.6, "humidity": 61, "battery": 88, "door_active": False, "door_since": None})
+assert _ev["milesight_role"] == "env_monitor" and _ev["primary"] == "temperature" and _ev["device"] == "Cold room door"
+_evm = {m["key"]: m for m in _ev["metrics"]}
+assert _evm["temperature"]["value"] == 4.6 and "humidity" in _evm and "battery" in _evm
+_evs = {s["key"]: s for s in _ev["states"]}
+assert _evs["door"]["text"] == "Closed" and _evs["door"]["tone"] == "ok"      # door closed → green, status only
+assert _em._env_monitor({"temperature": 4.6, "humidity": 61, "door_active": True, "door_since": 1})["states"][0]["tone"] == "warning"
+# EM300-TH (temp+humidity) qualifies; a UC controller, an AM air monitor and a door-only WS301 do not
+_, _th = make_with("00000000000eenv02", "EM300-TH", {}); assert _th._env_applies()
+_, _uc = make_with("00000000000eenv03", "UC300", {}); assert not _uc._env_applies()
+_, _am7 = make_with("00000000000eenv04", "AM307", {}); assert not _am7._env_applies()   # uses the air card instead
+_, _ws3 = make_with("00000000000eenv05", "WS301", {}); assert not _ws3._env_applies()   # door only (single property)
+del entries.items[_env_from:]
+print("env monitor ok")
+
 def em400(distance_mm):
     return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")
 e_tank, rt = make_with("0000000000400001", "EM400-UDL",

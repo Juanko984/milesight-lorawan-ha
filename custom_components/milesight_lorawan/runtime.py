@@ -192,6 +192,27 @@ _AIR_METRICS = (
     ("light_level", "Light",       "",       "mdi:brightness-6",   "#ffca28", None,  None),
 )
 _AIR_FEATURES = frozenset({"co2", "tvoc", "pm", "pm25_only", "hcho", "o3", "pressure"})
+
+# The Environment card (EM300-TH/MCS/SLD, EM320-TH, TS201/301/302, WS202/203, AM102/104 …): numeric properties
+# that drive a trend when clicked, and binary states (door / leak / motion) shown as status chips.
+_ENV_NUM = (   # key, label, unit, icon, trend colour
+    ("temperature",   "Temperature",    "°C", "mdi:thermometer",   "#ff8a5c"),
+    ("temperature_1", "Temp (probe 1)", "°C", "mdi:thermometer",   "#ff8a5c"),
+    ("temperature_2", "Temp (probe 2)", "°C", "mdi:thermometer",   "#ffb07c"),
+    ("humidity",      "Humidity",       "%",  "mdi:water-percent", "#4ab0c4"),
+    ("light_level",   "Light",          "",   "mdi:brightness-6",  "#ffca28"),
+    ("illumination",  "Light",          "lx", "mdi:brightness-6",  "#ffca28"),
+    ("battery",       "Battery",        "%",  "mdi:battery",       "#6fae6f"),
+)
+_ENV_BIN = (   # feature, label, icon, on-text, off-text, tone when on
+    ("door",   "Door",   "mdi:door",         "Open",   "Closed", "warning"),
+    ("leak",   "Leak",   "mdi:water-alert",  "Leak",   "Dry",    "critical"),
+    ("motion", "Motion", "mdi:motion-sensor", "Motion", "Clear",  "warning"),
+)
+# Device families that have their own cards (or aren't environmental) and so never show an Environment card.
+_ENV_SKIP_PREFIX = ("UC", "VS", "GS", "CT", "DS", "WT")
+
+
 def _odour_text(nh3: Any, h2s: Any) -> str | None:
     """Rough odour rating. Typical perception thresholds: NH3 ~ 1-5 ppm, H2S ~ 0.01-0.1 ppm."""
     if not isinstance(nh3, (int, float)) and not isinstance(h2s, (int, float)):
@@ -625,6 +646,8 @@ class DeviceRuntime:
             specs.append(EntitySpec("liquid_level", "Liquid level", unit="mm", device_class="distance", icon="mdi:cup-water"))
         if self._air_applies():      # an AM air-quality monitor → one card with a chip per property + a trend line
             specs.append(EntitySpec("air_monitor", "Air quality", icon="mdi:air-filter"))
+        if self._env_applies():      # a multi-property env sensor → an Environment card (temp/humidity/door/leak/motion)
+            specs.append(EntitySpec("env_monitor", "Environment", icon="mdi:home-thermometer"))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
@@ -723,11 +746,7 @@ class DeviceRuntime:
         any metric to drive the trend line."""
         if not self._air_applies():
             return None
-        try:
-            from homeassistant.helpers import entity_registry as er
-            reg = er.async_get(self.hass)
-        except Exception:  # noqa: BLE001
-            reg = None
+        resolve = self._entity_id_resolver()
         metrics = []
         for key, label, unit, icon, colour, hi, lo in _AIR_METRICS:
             val = _nz(v.get(key))
@@ -736,7 +755,7 @@ class DeviceRuntime:
             if key == "co2":
                 hi = self.limits.get("co2")                 # the device's own CO₂ limit
             status = "high" if (hi is not None and val >= hi) else "low" if (lo is not None and val <= lo) else "ok"
-            eid = reg.async_get_entity_id("sensor", DOMAIN, f"{self.deveui}_{key}") if reg is not None else None
+            eid = resolve(key)
             metrics.append({"key": key, "label": label, "unit": unit, "icon": icon, "color": colour,
                             "value": round(val, 3), "entity_id": eid, "status": status,
                             "limit_high": hi, "limit_low": lo})
@@ -747,6 +766,97 @@ class DeviceRuntime:
             "milesight_role": "air_monitor", "device": self.entry.title,
             "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
             "metrics": metrics, "primary": primary["key"], "air_quality": _co2_text(v.get("co2")),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _entity_id_resolver(self):
+        """A function value-key → this device's HA sensor entity id (for the air / env cards' trends). Resilient:
+        returns None for any key when the entity registry isn't available (so a card still shows current values)."""
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            reg = None
+
+        def resolve(key: str):
+            if reg is None:
+                return None
+            try:
+                return reg.async_get_entity_id("sensor", DOMAIN, f"{self.deveui}_{key}")
+            except Exception:  # noqa: BLE001
+                return None
+        return resolve
+
+    def _env_props(self) -> set:
+        """Which environmental properties this model exposes, from its features / entities (temp, humidity, door,
+        leak, motion, light). Used to decide whether it earns an Environment card (needs at least two)."""
+        from .models import entity_specs
+        f = self.model.features
+        keys = {s.key for s in entity_specs(self.model.key)}
+        props = set()
+        if {"temperature", "temperature_1"} & keys:
+            props.add("temp")
+        if {"humidity", "humidity_1"} & keys:
+            props.add("humidity")
+        if f & {"door", "ts_contact"}:
+            props.add("door")
+        if "leak" in f:
+            props.add("leak")
+        if (f & {"motion", "pir"}) or self.model.occupancy_fn is not None:
+            props.add("motion")
+        if {"light_level", "illumination"} & keys or (f & {"am10x_light", "ws202", "light"}):
+            props.add("light")
+        return props
+
+    def _env_applies(self) -> bool:
+        """A multi-property environmental sensor (temp / humidity / door / leak / motion / light) that isn't a UC
+        controller, an AM air monitor, a thermostat or a people / odour device – those have their own cards."""
+        if self.model.key.startswith(_ENV_SKIP_PREFIX) or self.model.climate or self._air_applies():
+            return False
+        if self.model.occupancy_fn is not None and self.model.counting:    # a people counter, not an env sensor
+            return False
+        return len(self._env_props()) >= 2
+
+    def _env_monitor(self, v: dict) -> dict | None:
+        """The device's live properties as one role sensor: numeric metrics (each with its entity id so the card can
+        trend it) plus door / leak / motion status. Temperature is the headline; the card trends whichever you pick."""
+        if not self._env_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        metrics, seen = [], set()
+        for key, label, unit, icon, colour in _ENV_NUM:
+            val = _nz(v.get(key))
+            if val is None or label in seen:               # one Light chip, whichever key the model uses
+                continue
+            seen.add(label)
+            eid = resolve(key)
+            metrics.append({"key": key, "label": label, "unit": unit, "icon": icon, "color": colour,
+                            "value": round(val, 2), "entity_id": eid})
+        states = []
+        for feat, label, icon, on_t, off_t, tone in _ENV_BIN:
+            active = since = None
+            if feat == "motion":
+                if v.get("motion_active") is not None or "motion" in self.binary:
+                    active, since = v.get("motion_active"), v.get("motion_since")
+                elif self.occupancy is not None:
+                    active, since = v.get("occ_occupied"), v.get("occ_occupied_since")
+                else:
+                    continue
+            elif (feat in self.binary) or (feat == "door" and "door" in self.binary):
+                active, since = v.get(f"{feat}_active"), v.get(f"{feat}_since")
+            else:
+                continue
+            on = active is True
+            states.append({"key": feat, "label": label, "icon": icon, "active": active,
+                           "text": on_t if on else off_t if active is False else "—",
+                           "tone": (tone if on else "ok") if active is not None else "unknown", "since": since})
+        if len(metrics) + len(states) < 2:
+            return None
+        primary = next((m for m in metrics if m["key"].startswith("temperature")), metrics[0] if metrics else None)
+        return {
+            "milesight_role": "env_monitor", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "metrics": metrics, "states": states, "primary": primary["key"] if primary else None,
             "last_seen": self.meta.get("last_seen"),
         }
 
@@ -1690,6 +1800,11 @@ class DeviceRuntime:
             pm = next((m for m in air["metrics"] if m["key"] == air["primary"]), None)
             v["air_monitor"] = pm["value"] if pm else None
             self.attrs["air_monitor"] = air
+        env = self._env_monitor(v)                  # multi-property environmental sensor: properties + door/leak/motion
+        if env is not None:
+            pm = next((m for m in env["metrics"] if m["key"] == env["primary"]), None)
+            v["env_monitor"] = pm["value"] if pm else None
+            self.attrs["env_monitor"] = env
         height = float(self._opt(CONF_INSTALL_HEIGHT_MM, 0) or 0)
         if "em400" in self.model.features and height > 0 and isinstance(v.get("distance"), (int, float)):
             # distance = sensor to surface; full when the surface reaches the sensor
