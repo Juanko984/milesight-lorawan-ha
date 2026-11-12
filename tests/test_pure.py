@@ -1088,6 +1088,28 @@ def test_alert_escalation():
     assert "450 L" in al["abc:tank_drop"]["message"] and al["abc:tank_drop"]["severity"] == "critical"
     assert alr.device_alerts("x", "e", {"online": None, "leak_active": False}) == {}
 
+    # sensor-widget alerts: air quality, weather, vibration, soil (flags set by the role sensors)
+    sa = alr.device_alerts("Line 2 motor", "m2", {
+        "air_breaches": [{"label": "CO₂", "value": 1180, "unit": "ppm", "limit": 1000},
+                         {"label": "HCHO", "value": 0.14, "unit": "mg/m³", "limit": 0.1}],
+        "wx_wind": {"severity": "critical", "gust": 68, "unit": "km/h"},
+        "wx_storm": {"trend": "falling fast", "forecast": "stormy"},
+        "vib_alert": {"zone": "D", "verdict": "Unacceptable", "severity": "critical", "value": 11.4, "axis": "Y"},
+        "soil_breaches": [{"key": "moisture", "kind": "low", "value": 12},
+                          {"key": "ph", "kind": "low", "value": 4.9},
+                          {"key": "ec", "kind": "high", "value": 2400}],
+    }, "Packshed")
+    assert {"m2:air_co₂", "m2:air_hcho", "m2:wx_wind", "m2:wx_storm", "m2:vibration",
+            "m2:soil_dry", "m2:soil_ph", "m2:soil_ec"} <= set(sa)
+    assert sa["m2:air_co₂"]["category"] == "building" and "over 1000 ppm" in sa["m2:air_co₂"]["message"]
+    assert sa["m2:wx_wind"]["severity"] == "critical" and sa["m2:wx_wind"]["title"].startswith("Gale")
+    assert sa["m2:vibration"]["severity"] == "critical" and sa["m2:vibration"]["category"] == "pumps"
+    assert sa["m2:soil_ph"]["category"] == "irrigation" and "too acidic" in sa["m2:soil_ph"]["message"]
+    assert alr.device_alerts("ok", "o", {"air_breaches": [], "soil_breaches": []}) == {}   # no breaches → nothing
+    wf = alr.device_alerts("Gents WC", "w3", {"sound_flow": {"db": 61, "minutes": 12, "alert": True, "limit_min": 5}}, "Block C")
+    assert wf["w3:sound_flow"]["category"] == "facilities" and "left running" in wf["w3:sound_flow"]["message"]
+    assert alr.device_alerts("q", "q", {"sound_flow": {"alert": False}}) == {}   # flowing but under the time → no alert
+
 
 def test_ns_api_helpers():
     rid, text = nsa.build_request("post", "/api/urdevices", {"a": 1}, "24E124FFFEF00001", rid="r1")

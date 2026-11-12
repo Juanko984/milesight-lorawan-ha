@@ -212,6 +212,17 @@ _ENV_BIN = (   # feature, label, icon, on-text, off-text, tone when on
 # Device families that have their own cards (or aren't environmental) and so never show an Environment card.
 _ENV_SKIP_PREFIX = ("UC", "VS", "GS", "CT", "DS", "WT")
 
+# GS odour / vape detectors (GS301 NH₃·H₂S, GS601 vape). Numeric chips drive a trend; odour / vape show as states.
+_GAS_NUM = (   # key, label, unit, icon, colour
+    ("vaping_index", "Vaping index", "",       "mdi:smoking-off",   "#db4437"),
+    ("nh3",          "NH₃",          "ppm",    "mdi:scent",         "#8e7cc3"),
+    ("h2s",          "H₂S",          "ppm",    "mdi:scent",         "#b2762a"),
+    ("pm2_5",        "PM2.5",        "µg/m³",  "mdi:blur",          "#c98a2b"),
+    ("tvoc",         "TVOC",         "µg/m³",  "mdi:air-filter",    "#8e7cc3"),
+    ("temperature",  "Temperature",  "°C",     "mdi:thermometer",   "#ff8a5c"),
+    ("humidity",     "Humidity",     "%",      "mdi:water-percent", "#4ab0c4"),
+)
+
 
 def _odour_text(nh3: Any, h2s: Any) -> str | None:
     """Rough odour rating. Typical perception thresholds: NH3 ~ 1-5 ppm, H2S ~ 0.01-0.1 ppm."""
@@ -648,6 +659,16 @@ class DeviceRuntime:
             specs.append(EntitySpec("air_monitor", "Air quality", icon="mdi:air-filter"))
         if self._env_applies():      # a multi-property env sensor → an Environment card (temp/humidity/door/leak/motion)
             specs.append(EntitySpec("env_monitor", "Environment", icon="mdi:home-thermometer"))
+        if self._energy_applies():   # a CT current-transformer clamp → an Energy card (phase currents + power)
+            specs.append(EntitySpec("energy_monitor", "Energy", icon="mdi:flash"))
+        if self._gas_applies():      # a GS odour / vape detector → a Gas & vape card
+            specs.append(EntitySpec("gas_monitor", "Gas & vape", icon="mdi:scent"))
+        if self.occupancy is not None and self.model.key.startswith("VS"):   # a VS occupancy / people sensor → Spaces
+            specs.append(EntitySpec("space", "Space", icon="mdi:seat"))
+        if (getattr(self.model, "gangs", 0) or 0) >= 1 and self.model.control:   # a WS558 / switch → the Light card
+            specs.append(EntitySpec("switch_panel", "Switch panel", icon="mdi:light-switch"))
+        if "ws302" in self.model.features:   # a WS302 sound sensor → the Sound / water-flow card
+            specs.append(EntitySpec("sound_monitor", "Sound", unit="dB", icon="mdi:volume-high", precision=1))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
@@ -858,6 +879,173 @@ class DeviceRuntime:
             "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
             "metrics": metrics, "states": states, "primary": primary["key"] if primary else None,
             "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _energy_applies(self) -> bool:
+        """A CT current-transformer clamp (CT101/103 single, CT303/305/310 three-phase). Not the 12-circuit CTH01."""
+        return "ct" in self.model.features
+
+    def _energy_monitor(self, v: dict) -> dict | None:
+        """A CT clamp's live power as one role sensor: the phase currents as clickable/trendable metrics, plus total
+        current, estimated power, energy and phase imbalance. Single-channel clamps have one current metric."""
+        if not self._energy_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        three = "ct3" in self.model.features
+        metrics = []
+        if three:
+            for n in (1, 2, 3):
+                cur = _nz(v.get(f"current_{n}"))
+                metrics.append({"key": f"current_{n}", "label": f"L{n}", "unit": "A", "color": "#4aa3ff",
+                                "value": None if cur is None else round(cur, 2), "entity_id": resolve(f"current_{n}")})
+            ph = [m["value"] for m in metrics if m["value"] is not None]
+            imb = None
+            if len(ph) == 3:
+                mean = sum(ph) / 3
+                imb = round((max(ph) - min(ph)) / mean * 100, 0) if mean >= 2 else 0.0
+            summary = {"total_current": _nz(v.get("current_total")), "power": _nz(v.get("power")),
+                       "imbalance": imb, "imbalance_status": "high" if (imb is not None and imb > 10) else "ok"}
+        else:
+            cur = _nz(v.get("current"))
+            metrics.append({"key": "current", "label": "Current", "unit": "A", "color": "#4aa3ff",
+                            "value": None if cur is None else round(cur, 2), "entity_id": resolve("current")})
+            summary = {"power": _nz(v.get("power")), "energy": _nz(v.get("energy"))}
+        if not any(m["value"] is not None for m in metrics):     # nothing measured yet
+            return None
+        primary = next((m for m in metrics if m["value"] is not None), metrics[0])
+        return {
+            "milesight_role": "energy_monitor", "device": self.entry.title,
+            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "three_phase": three, "metrics": metrics, "summary": summary,
+            "primary": primary["key"], "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _area(self):
+        return self.entry.data.get("area") or self.entry.options.get("area")
+
+    # ---------------------------------------------------------------- GS gas / vape
+    def _gas_applies(self) -> bool:
+        return bool(self.model.features & {"gs301", "gs601", "vape"})
+
+    def _gas_monitor(self, v: dict) -> dict | None:
+        """GS301 odour (NH₃ / H₂S) or GS601 vape as one role sensor: numeric chips + odour / vape status."""
+        if not self._gas_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        metrics = []
+        for key, label, unit, icon, colour in _GAS_NUM:
+            val = _nz(v.get(key))
+            if val is None:
+                continue
+            metrics.append({"key": key, "label": label, "unit": unit, "icon": icon, "color": colour,
+                            "value": round(val, 3), "entity_id": resolve(key)})
+        states = []
+        if isinstance(v.get("odour_level"), str):
+            lv = v["odour_level"]
+            tone = "critical" if lv.lower() in ("high", "strong", "severe") else "warning" if lv.lower() in ("moderate", "medium") else "ok"
+            states.append({"key": "odour", "label": "Odour", "icon": "mdi:scent", "text": lv, "tone": tone, "since": None})
+        if "vape" in self.model.features or "gs601" in self.model.features:
+            on = v.get("vaping_index_alarm_active") is True or v.get("vape_active") is True
+            states.append({"key": "vape", "label": "Vape", "icon": "mdi:smoking-off",
+                           "text": "Detected" if on else "Clear", "tone": "critical" if on else "ok",
+                           "since": v.get("vape_since")})
+        if len(metrics) + len(states) < 2:
+            return None
+        primary = next((m for m in metrics if m["key"] in ("vaping_index", "nh3")), metrics[0] if metrics else None)
+        return {
+            "milesight_role": "gas_monitor", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "metrics": metrics, "states": states,
+            "primary": primary["key"] if primary else None, "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- VS occupancy / space
+    def _space(self, v: dict) -> dict | None:
+        """One VS occupancy / people sensor as a 'space': busy / free, people count, since-time and utilisation.
+        Scoped to the VS range (other devices with a presence feature – GS601, WS203, AM30x – have their own cards)."""
+        if self.occupancy is None or not self.model.key.startswith("VS"):
+            return None
+        occupied = v.get("occ_occupied")
+        if occupied is None and v.get("occ_status") is None:
+            return None
+        return {
+            "milesight_role": "space", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "occupied": occupied, "status": v.get("occ_status"),
+            "people": v.get("occ_people_count") if self.model.counting else None,
+            "counting": bool(self.model.counting), "since": v.get("occ_occupied_since"),
+            "utilisation": _nz(v.get("occ_utilisation_today_pct")), "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- WS558 switch / light panel
+    def _switch_panel(self, v: dict) -> dict | None:
+        """A multi-gang switch (WS558 lights, smart sockets, wall switches): the channels and their on/off state, so
+        the Light card can toggle them. Resolves each gang's switch entity id for the card's service calls."""
+        gangs = getattr(self.model, "gangs", 0) or 0
+        if gangs < 1 or not self.model.control:
+            return None
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            reg = None
+        channels = []
+        for n in range(1, gangs + 1):
+            key = f"switch_{n}" if gangs > 1 else "switch_1"
+            eid = None
+            if reg is not None:
+                try:
+                    eid = reg.async_get_entity_id("switch", DOMAIN, f"{self.deveui}_{key}")
+                except Exception:  # noqa: BLE001
+                    eid = None
+            channels.append({"channel": n, "key": key, "entity_id": eid, "on": v.get(key)})
+        return {
+            "milesight_role": "switch_panel", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "gangs": gangs, "channels": channels,
+            "power": _nz(v.get("power")), "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- WS302 sound level / water-flow
+    def _sound_assess(self, v: dict, ts: float) -> dict | None:
+        """WS302 sound: current / LAeq / max dB, a learned quiet baseline, and continuous-flow detection. If the
+        level stays a margin above baseline for longer than the set time, it flags 'left running' (tap / cistern)."""
+        if "ws302" not in self.model.features:
+            return None
+        level = _nz(v.get("sound_level"))
+        laeq = _nz(v.get("sound_level_eq"))
+        smax = _nz(v.get("sound_level_max"))
+        now_db = laeq if laeq is not None else level            # LAeq is the better "is it continuous" measure
+        if now_db is None:
+            return None
+        opts = self.entry.options
+        margin = float(opts.get("sound_margin") or 8)
+        minutes = float(opts.get("sound_minutes") or 5)
+        manual = _nz(opts.get("sound_baseline"))
+        # learn the quiet baseline: keep a rolling window of recent readings, take a low percentile
+        hist = self.meta.setdefault("_snd", [])
+        hist.append([round(ts), round(now_db, 1)])
+        while len(hist) > 1 and hist[0][0] < ts - 6 * 3600:      # 6-hour learning window
+            del hist[0]
+        learned = None
+        if hist:
+            vals = sorted(x[1] for x in hist)
+            learned = vals[max(0, int(len(vals) * 0.15) - 1)]    # ~15th percentile = the quiet floor
+        baseline = manual if manual is not None else learned
+        threshold = round(baseline + margin, 1) if baseline is not None else None
+        flowing = threshold is not None and now_db >= threshold
+        since = self.meta.get("_snd_flow_since")
+        if flowing:
+            if since is None:
+                since = self.meta["_snd_flow_since"] = round(ts)
+        else:
+            since = self.meta["_snd_flow_since"] = None
+        dur = (ts - since) if since else 0
+        alert = bool(since and dur >= minutes * 60)
+        return {
+            "milesight_role": "sound_monitor", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "level": now_db, "current": level, "laeq": laeq, "max": smax,
+            "baseline": None if baseline is None else round(baseline, 1), "threshold": threshold,
+            "margin": margin, "minutes": minutes, "manual_baseline": manual is not None,
+            "flowing": flowing, "flow_since": since, "flow_s": round(dur), "alert": alert,
+            "weighting": v.get("sound_weighting"), "last_seen": self.meta.get("last_seen"),
         }
 
     def _weather_assess(self, v: dict, ts: float) -> dict | None:
@@ -1762,14 +1950,26 @@ class DeviceRuntime:
         if vib is not None:
             v["vibration"] = vib["worst_value"]        # the worst-axis velocity; attrs carry the full verdict
             self.attrs["vibration"] = vib
+            if vib.get("zone") in ("C", "D"):          # ISO 10816 unsatisfactory / unacceptable → an alert
+                v["vib_alert"] = {"zone": vib["zone"], "verdict": vib.get("verdict"), "severity": vib.get("severity"),
+                                  "value": vib.get("worst_value"), "axis": vib.get("worst_axis")}
         wx = self._weather_assess(v, ts)
         if wx is not None:
             v["weather"] = wx["temperature"]           # state = temperature; attrs carry the full conditions
             self.attrs["weather"] = wx
+            if wx.get("wind_severity") in ("warning", "critical"):
+                v["wx_wind"] = {"severity": wx["wind_severity"], "gust": wx.get("gust"), "unit": wx.get("wind_unit", "km/h")}
+            if wx.get("pressure_severity") == "warning" or wx.get("forecast") == "stormy":
+                v["wx_storm"] = {"trend": wx.get("pressure_trend"), "forecast": wx.get("forecast")}
         soil = self._soil_assess(v)
         if soil is not None:
             v["soil"] = soil["moisture"]               # state = moisture; attrs carry the full readings + status
             self.attrs["soil"] = soil
+            _st = soil.get("status", {})               # alert only on the agronomic headliners (not every N/P/K reading)
+            _sb = [{"key": k, "kind": _st.get(k), "value": soil.get(k)}
+                   for k in ("moisture", "ph", "ec", "salinity") if _st.get(k) in ("high", "low")]
+            if _sb:
+                v["soil_breaches"] = _sb
         lvl = self._level_assess(v, ts)
         if lvl is not None:
             v["liquid_level"] = lvl["level_mm"]
@@ -1800,11 +2000,40 @@ class DeviceRuntime:
             pm = next((m for m in air["metrics"] if m["key"] == air["primary"]), None)
             v["air_monitor"] = pm["value"] if pm else None
             self.attrs["air_monitor"] = air
+            _ab = [{"label": m["label"], "value": m["value"], "unit": m["unit"], "limit": m["limit_high"]}
+                   for m in air["metrics"] if m.get("status") == "high"]
+            if _ab:
+                v["air_breaches"] = _ab
         env = self._env_monitor(v)                  # multi-property environmental sensor: properties + door/leak/motion
         if env is not None:
             pm = next((m for m in env["metrics"] if m["key"] == env["primary"]), None)
             v["env_monitor"] = pm["value"] if pm else None
             self.attrs["env_monitor"] = env
+        energy = self._energy_monitor(v)            # CT clamp: phase currents + total / power / imbalance
+        if energy is not None:
+            pm = next((m for m in energy["metrics"] if m["key"] == energy["primary"]), None)
+            v["energy_monitor"] = pm["value"] if pm else None
+            self.attrs["energy_monitor"] = energy
+        gas = self._gas_monitor(v)                  # GS odour / vape detector: chips + odour / vape status
+        if gas is not None:
+            pm = next((m for m in gas["metrics"] if m["key"] == gas["primary"]), None)
+            v["gas_monitor"] = pm["value"] if pm else None
+            self.attrs["gas_monitor"] = gas
+        space = self._space(v)                      # VS occupancy / people sensor → the Spaces card
+        if space is not None:
+            v["space"] = space["occupied"]
+            self.attrs["space"] = space
+        panel = self._switch_panel(v)               # WS558 / switch: channels + state for the Light card
+        if panel is not None:
+            v["switch_panel"] = sum(1 for c in panel["channels"] if c["on"] is True)
+            self.attrs["switch_panel"] = panel
+        snd = self._sound_assess(v, ts)             # WS302 sound: level, baseline, continuous-flow detection
+        if snd is not None:
+            v["sound_monitor"] = snd["level"]
+            self.attrs["sound_monitor"] = snd
+            if snd["flowing"]:                      # flag for the "water left running" alert
+                v["sound_flow"] = {"db": snd["level"], "minutes": round(snd["flow_s"] / 60, 1),
+                                   "alert": snd["alert"], "limit_min": snd["minutes"]}
         height = float(self._opt(CONF_INSTALL_HEIGHT_MM, 0) or 0)
         if "em400" in self.model.features and height > 0 and isinstance(v.get("distance"), (int, float)):
             # distance = sensor to surface; full when the surface reaches the sensor

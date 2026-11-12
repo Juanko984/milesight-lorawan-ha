@@ -5596,6 +5596,606 @@
     }
   }
 
+  // ================================================================ energy / power (CT current-transformer clamps)
+  // Self-discovers the "energy_monitor" role sensors. One card per clamp: phase currents (L1/L2/L3) as chips that
+  // drive the trend when clicked, total current, estimated power and phase-imbalance status. Single-channel clamps
+  // show one current chip plus power and energy. Based on the AM air-quality card.
+  class EnergyCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) {
+        const st = S[id], a = st.attributes;
+        if (a && a.milesight_role === "energy_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+      }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const m of (st.attributes.metrics || [])) if (m.entity_id) ids.push(m.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _selKey(roleId, a) {
+      const metrics = a.metrics || [];
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msEnergyMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && metrics.some((m) => m.key === s)) return s;
+      const prim = metrics.find((m) => m.key === a.primary) || metrics.find((m) => m.value != null) || metrics[0];
+      return prim ? prim.key : null;
+    }
+    _pick(roleId, key) {
+      this._sel = this._sel || {}; this._sel[roleId] = key;
+      try { localStorage.setItem("msEnergyMetric:" + roleId, key); } catch (e) { /* private */ }
+      this._render();
+    }
+    _tile(val, unit, label, cls) {
+      return h("div", { class: "etile" }, [
+        cls ? h("div", { class: "estat " + cls }, [h("span", { class: "d" }), _airFmt(val, unit)])
+          : h("div", { class: "ev" }, _airFmt(val, unit)),
+        h("div", { class: "ek" }, label)]);
+    }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, metrics = a.metrics || [], sum = a.summary || {};
+      const selKey = this._selKey(roleId, a);
+      const sel = metrics.find((m) => m.key === selKey) || metrics[0];
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:flash" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Energy")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      // phase / current chips
+      const maxA = Math.max(1, ...metrics.map((m) => Math.abs(num(m.value) || 0)));
+      const chips = h("div", { class: a.three_phase ? "ephrow" : "achips" }, metrics.map((m) => h("div", {
+        class: "ephchip" + (m.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, m.key),
+      }, [
+        h("div", { class: "epl" }, m.label),
+        h("div", { class: "epv" }, _airFmt(m.value, m.unit)),
+        a.three_phase ? h("div", { class: "ephbar", style: { width: Math.round((Math.abs(num(m.value) || 0) / maxA) * 100) + "%" } }) : null,
+      ])));
+      const tiles = a.three_phase
+        ? h("div", { class: "esum" }, [this._tile(sum.total_current, "A", "total current"),
+            this._tile(sum.power == null ? null : sum.power / 1000, "kW", "est. power"),
+            h("div", { class: "etile" }, [sum.imbalance == null ? h("div", { class: "ev" }, "—")
+              : h("div", { class: "estat " + (sum.imbalance_status === "high" ? "warn" : "ok") }, [h("span", { class: "d" }), sum.imbalance + "%"]),
+              h("div", { class: "ek" }, "imbalance")])])
+        : h("div", { class: "esum" }, [this._tile(sum.power == null ? null : sum.power / 1000, "kW", "est. power"),
+            this._tile(sum.energy, "kWh", "energy")]);
+      let trend;
+      if (sel && sel.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        if (el.__cfgSig !== sel.entity_id) {
+          el.setConfig({ entity: sel.entity_id, name: a.three_phase ? "Current · " + sel.label : "Current",
+            sub: a.model, unit: "A", color: sel.color });
+          el.__cfgSig = sel.entity_id;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      } else {
+        trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } }, "No current to trend yet.");
+      }
+      return h("div", { class: "ablock" }, [head, chips, tiles, trend]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .ephrow{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:13px 0 2px}
+        .achips{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:13px 0 2px}
+        .ephchip{border:1px solid var(--ms-line);border-radius:11px;padding:9px 11px;cursor:pointer;position:relative;transition:.12s}
+        .ephchip:hover{border-color:color-mix(in srgb,var(--ms-ink) 25%,transparent)}
+        .ephchip.sel{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);box-shadow:inset 0 0 0 1px var(--ms-accent)}
+        .epl{font-size:11px;color:var(--ms-ink2)}
+        .epv{font-size:19px;font-weight:720;color:var(--ms-ink);margin-top:4px;line-height:1;font-variant-numeric:tabular-nums}
+        .epv small{font-size:10.5px;color:var(--ms-ink2);font-weight:600}
+        .ephbar{height:4px;border-radius:3px;margin-top:7px;background:var(--ms-accent);min-width:3px}
+        .esum{display:flex;gap:9px;margin-top:10px}
+        .etile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:8px 10px;text-align:center}
+        .etile .ev{font-size:15px;font-weight:700;color:var(--ms-ink);font-variant-numeric:tabular-nums} .etile .ev small{font-size:10px;color:var(--ms-ink2)}
+        .etile .ek{font-size:10.5px;color:var(--ms-ink2);margin-top:2px}
+        .estat{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:700;justify-content:center}
+        .estat .d{width:8px;height:8px;border-radius:50%} .estat small{font-size:10px;color:var(--ms-ink2);font-weight:600}
+        .estat.ok{color:var(--ms-good)} .estat.ok .d{background:var(--ms-good)}
+        .estat.warn{color:var(--ms-warn)} .estat.warn .d{background:var(--ms-warn)}
+        .atrend{margin-top:10px;padding-top:4px;border-top:1px solid var(--ms-line)}
+        .atrend milesight-trendline-card{display:block}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "6px" } }, "Energy"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st))),
+      ]));
+    }
+  }
+
+  // ================================================================ climate control (WT thermostats / radiator valves)
+  // Self-discovers the WT climate entities ('thermostat' role). One card per device: current temperature + what it's
+  // doing, a −/+ setpoint, mode and fan chips (these call the standard HA climate services), valve opening, and a
+  // temperature trend. Interactive — unlike the monitoring cards.
+  const HVAC_LABEL = { off: "Off", heat: "Heat", cool: "Cool", auto: "Auto", heat_cool: "Auto", fan_only: "Fan", dry: "Dry" };
+  class ThermostatCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) {
+        const st = S[id], a = st.attributes;
+        if (id.startsWith("climate.") && a && a.milesight_role === "thermostat") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+      }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); if (st.attributes.temp_entity_id) ids.push(st.attributes.temp_entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _svc(service, data) { try { this._hass.callService("climate", service, data); } catch (e) { /* surfaced by HA */ } }
+    _bump(id, a, dir) {
+      const step = num(a.step) || 0.5, cur = num(a.temperature);
+      if (cur == null) return;
+      let t = Math.round((cur + dir * step) / step) * step;
+      const lo = num(a.min_temp), hi = num(a.max_temp);
+      if (lo != null) t = Math.max(lo, t); if (hi != null) t = Math.min(hi, t);
+      this._svc("set_temperature", { entity_id: id, temperature: +t.toFixed(2) });
+    }
+    _block(st) {
+      const id = st.entity_id, a = st.attributes, mode = st.state;
+      const cur = num(a.current_temperature), target = num(a.temperature), hum = num(a.current_humidity);
+      const action = a.hvac_action || (mode === "off" ? "off" : null);
+      const heating = action === "heating", cooling = action === "cooling";
+      const accent = cooling ? "var(--ms-cool)" : heating ? "var(--ms-heat)" : "var(--ms-accent)";
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: { background: "color-mix(in srgb," + accent + " 16%,transparent)", color: accent } },
+          [h("ha-icon", { icon: (a.model || "").startsWith("WT1") ? "mdi:radiator" : "mdi:thermostat" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Thermostat")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const badge = h("span", { class: "tcact " + (heating ? "heat" : cooling ? "cool" : "idle") },
+        [h("span", { class: "d" }), heating ? "Heating" : cooling ? "Cooling" : mode === "off" ? "Off" : "Idle"]);
+      const hero = h("div", { class: "tchero" }, [
+        h("div", { class: "tcnow" }, [h("div", { class: "t" }, [cur == null ? "—" : String(cur.toFixed(1)), h("sup", {}, "°C")]),
+          h("div", { class: "s" }, "now" + (hum != null ? " · " + Math.round(hum) + "% RH" : ""))]),
+        badge,
+      ]);
+      const setp = mode === "off" ? null : h("div", { class: "tcsetp" }, [
+        h("button", { onclick: () => this._bump(id, a, -1) }, "−"),
+        h("div", { class: "val" }, [h("b", { style: { color: accent } }, [target == null ? "—" : String(target.toFixed(1)), h("sup", {}, "°C")]),
+          h("span", {}, "target")]),
+        h("button", { onclick: () => this._bump(id, a, 1) }, "+"),
+      ]);
+      const modes = (a.hvac_modes || []);
+      const modeRow = modes.length > 1 ? h("div", { class: "tcrow" }, modes.map((m) => h("div", {
+        class: "tcchip" + (m === mode ? " on " + (m === "cool" ? "cool" : m === "heat" ? "heat" : "") : ""),
+        onclick: () => this._svc("set_hvac_mode", { entity_id: id, hvac_mode: m }),
+      }, HVAC_LABEL[m] || m))) : null;
+      const fans = (a.fan_modes || []);
+      const fanRow = fans.length ? [h("div", { class: "tclbl" }, "Fan"), h("div", { class: "tcrow" }, fans.map((f) => h("div", {
+        class: "tcfan" + (f === a.fan_mode ? " on" : ""), onclick: () => this._svc("set_fan_mode", { entity_id: id, fan_mode: f }),
+      }, esc(f[0].toUpperCase() + f.slice(1)))))] : [];
+      const valve = num(a.valve);
+      const valveRow = valve != null ? h("div", { class: "tcvalve" }, [h("span", { class: "l" }, "Valve"),
+        h("div", { class: "bar" }, [h("i", { style: { width: Math.round(valve) + "%" } })]),
+        h("span", { class: "l" }, [h("b", {}, Math.round(valve) + "%"), " open"])]) : null;
+      let trend = null;
+      if (a.temp_entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[id];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[id] = el; }
+        if (el.__cfgSig !== a.temp_entity_id) {
+          el.setConfig({ entity: a.temp_entity_id, name: "Temperature",
+            sub: (a.model || "") + (target != null ? " · target " + target.toFixed(1) + " °C" : ""), unit: "°C", color: accent });
+          el.__cfgSig = a.temp_entity_id;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      }
+      return h("div", { class: "ablock" }, [head, hero, setp, modeRow, ...fanRow, valveRow, trend].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .tchero{display:flex;align-items:center;gap:14px;margin:14px 0 4px}
+        .tcnow .t{font-size:32px;font-weight:720;color:var(--ms-ink);line-height:1} .tcnow .t sup{font-size:14px;color:var(--ms-ink2);font-weight:600}
+        .tcnow .s{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .tcact{margin-left:auto;font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;display:inline-flex;align-items:center;gap:6px}
+        .tcact .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+        .tcact.heat{background:color-mix(in srgb,var(--ms-heat) 20%,transparent);color:var(--ms-heat)}
+        .tcact.cool{background:color-mix(in srgb,var(--ms-cool) 20%,transparent);color:var(--ms-cool)}
+        .tcact.idle{background:color-mix(in srgb,var(--ms-ink2) 20%,transparent);color:var(--ms-ink2)}
+        .tcsetp{display:flex;align-items:center;justify-content:center;gap:16px;margin:12px 0 2px;padding:9px;border:1px solid var(--ms-line);border-radius:12px}
+        .tcsetp button{width:40px;height:40px;border-radius:50%;border:1px solid var(--ms-line);background:none;color:var(--ms-ink);font-size:22px;cursor:pointer;line-height:1}
+        .tcsetp button:hover{background:color-mix(in srgb,var(--ms-ink) 8%,transparent)}
+        .tcsetp .val{text-align:center} .tcsetp .val b{font-size:28px;font-weight:720} .tcsetp .val b sup{font-size:13px;color:var(--ms-ink2);font-weight:600}
+        .tcsetp .val span{display:block;font-size:10px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+        .tcrow{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+        .tcchip{flex:1 1 0;min-width:52px;text-align:center;border:1px solid var(--ms-line);border-radius:10px;padding:7px 4px;font-size:12px;color:var(--ms-ink2);cursor:pointer}
+        .tcchip.on{color:var(--ms-ink);font-weight:650;border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 14%,transparent);box-shadow:inset 0 0 0 1px var(--ms-accent)}
+        .tcchip.on.heat{border-color:var(--ms-heat);background:color-mix(in srgb,var(--ms-heat) 14%,transparent);box-shadow:inset 0 0 0 1px var(--ms-heat)}
+        .tcchip.on.cool{border-color:var(--ms-cool);background:color-mix(in srgb,var(--ms-cool) 14%,transparent);box-shadow:inset 0 0 0 1px var(--ms-cool)}
+        .tclbl{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ms-ink2);font-weight:700;margin:12px 0 0}
+        .tcfan{flex:1 1 0;text-align:center;border:1px solid var(--ms-line);border-radius:10px;padding:6px 4px;font-size:12px;color:var(--ms-ink2);cursor:pointer}
+        .tcfan.on{color:var(--ms-ink);font-weight:650;border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 14%,transparent)}
+        .tcvalve{display:flex;align-items:center;gap:10px;margin-top:12px}
+        .tcvalve .l{font-size:11.5px;color:var(--ms-ink2)} .tcvalve .l b{color:var(--ms-ink)}
+        .tcvalve .bar{flex:1;height:8px;border-radius:5px;background:color-mix(in srgb,var(--ms-ink) 10%,transparent);overflow:hidden}
+        .tcvalve .bar i{display:block;height:100%;background:var(--ms-heat);border-radius:5px}
+        .atrend{margin-top:12px;padding-top:4px;border-top:1px solid var(--ms-line)}
+        .atrend milesight-trendline-card{display:block}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "6px" } }, "Climate"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st))),
+      ]));
+    }
+  }
+
+  // Shared CSS for the chip+trend monitoring cards (gas, and reused by sound). Pass the class prefix is 'a'.
+  const MON_CSS = `
+    .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+    .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+    .ahd{display:flex;align-items:center;gap:11px}
+    .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+    .aic ha-icon{--mdc-icon-size:19px}
+    .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+    .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+    .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+    .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+    .achips{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin:13px 0 2px}
+    .achip{border:1px solid var(--ms-line);border-radius:11px;padding:8px 10px;cursor:pointer;position:relative;transition:.12s}
+    .achip:hover{border-color:color-mix(in srgb,var(--ms-ink) 25%,transparent)}
+    .achip.sel{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);box-shadow:inset 0 0 0 1px var(--ms-accent)}
+    .achip.bin{cursor:default} .achip.bin:hover{border-color:var(--ms-line)}
+    .achl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ms-ink2);min-width:0}
+    .achl .aci{--mdc-icon-size:14px;flex:0 0 auto;color:var(--ms-ink2)}
+    .achv{font-size:17px;font-weight:720;color:var(--ms-ink);margin-top:5px;line-height:1;font-variant-numeric:tabular-nums}
+    .achv small{font-size:10.5px;color:var(--ms-ink2);font-weight:600}
+    .achv.hi{color:var(--ms-bad)} .achv.lo{color:var(--ms-warn)}
+    .abadge{position:absolute;top:8px;right:9px;font-size:9px;font-weight:800}
+    .abadge.hi{color:var(--ms-bad)} .abadge.lo{color:var(--ms-warn)}
+    .astat{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;font-weight:650;line-height:1}
+    .astat .sd{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+    .astat.ok{color:var(--ms-good)} .astat.ok .sd{background:var(--ms-good)}
+    .astat.warn{color:var(--ms-warn)} .astat.warn .sd{background:var(--ms-warn)}
+    .astat.bad{color:var(--ms-bad)} .astat.bad .sd{background:var(--ms-bad)}
+    .atrend{margin-top:10px;padding-top:4px;border-top:1px solid var(--ms-line)}
+    .atrend milesight-trendline-card{display:block}
+  `;
+
+  // ================================================================ GS gas & vape (GS301 odour / GS601 vape)
+  // Self-discovers the "gas_monitor" role sensors. One card per detector: numeric chips (NH₃ / H₂S / vaping index /
+  // PM / TVOC …) drive the trend; odour level and vape detection show as status chips. Based on the AM air card.
+  class GasCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "gas_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const m of (st.attributes.metrics || [])) if (m.entity_id) ids.push(m.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _selKey(roleId, a) {
+      const metrics = a.metrics || [];
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msGasMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && metrics.some((m) => m.key === s)) return s;
+      const prim = metrics.find((m) => m.key === a.primary) || metrics.find((m) => m.entity_id) || metrics[0];
+      return prim ? prim.key : null;
+    }
+    _pick(roleId, key) { this._sel = this._sel || {}; this._sel[roleId] = key; try { localStorage.setItem("msGasMetric:" + roleId, key); } catch (e) { /* private */ } this._render(); }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, metrics = a.metrics || [], states = a.states || [];
+      const selKey = this._selKey(roleId, a), sel = metrics.find((m) => m.key === selKey) || metrics[0];
+      const alarm = states.some((s) => s.tone === "critical");
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: alarm ? { background: "color-mix(in srgb,var(--ms-bad) 16%,transparent)", color: "var(--ms-bad)" } : {} }, [h("ha-icon", { icon: "mdi:scent" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Gas")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const numChips = metrics.map((m) => h("div", { class: "achip" + (m.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, m.key) }, [
+        h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: m.icon }), m.label]),
+        h("div", { class: "achv" }, _airFmt(m.value, m.unit))]));
+      const binChips = states.map((s) => h("div", { class: "achip bin" }, [
+        s.tone === "critical" ? h("span", { class: "abadge hi" }, "ALARM") : null,
+        h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: s.icon }), s.label]),
+        h("div", { class: "astat " + (s.tone === "critical" ? "bad" : s.tone === "warning" ? "warn" : "ok") }, [h("span", { class: "sd" }), esc(s.text)])]));
+      const chips = h("div", { class: "achips" }, numChips.concat(binChips));
+      let trend;
+      if (sel && sel.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        if (el.__cfgSig !== sel.entity_id) { el.setConfig({ entity: sel.entity_id, name: sel.label, sub: a.model, unit: sel.unit, color: sel.color }); el.__cfgSig = sel.entity_id; }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      } else { trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } }, "No reading to trend."); }
+      return h("div", { class: "ablock" }, [head, chips, trend]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Gas & vape"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ WS302 sound level / water-flow
+  // Self-discovers the "sound_monitor" role sensors. Current / LAeq / max dB, a learned quiet baseline, and
+  // continuous-flow detection — flags "water flowing" above the baseline, and "left running" once it's been
+  // continuous past the set time. Includes the sound-level trend (with baseline + flow lines via the trendline).
+  function _flowDur(s) {
+    if (!s) return "";
+    if (s < 90) return Math.round(s) + "s";
+    const m = Math.round(s / 60);
+    if (m < 60) return m + "m";
+    return Math.floor(m / 60) + "h " + (m % 60) + "m";
+  }
+  class SoundCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "sound_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { if (!this._hass) return null; const ids = []; for (const st of this._find()) ids.push(st.entity_id); return ids; }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig(); if (sig !== null && sig === this._lastSig) return; this._lastSig = sig; this._render();
+    }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, db = num(a.level);
+      const tone = a.alert ? "bad" : a.flowing ? "warn" : "ok";
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: a.alert ? { background: "color-mix(in srgb,var(--ms-bad) 16%,transparent)", color: "var(--ms-bad)" } : {} }, [h("ha-icon", { icon: "mdi:volume-high" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Sound")),
+          h("div", { class: "ahs" }, esc((a.model || "WS302") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const hero = h("div", { class: "sdhero" }, [
+        h("div", {}, [h("div", { class: "sdbig" + (a.alert ? " bad" : "") }, [db == null ? "—" : String(db.toFixed(1)), h("small", {}, " dBA")]),
+          h("div", { class: "sdbase" }, a.baseline == null ? "learning baseline…" : ["baseline " + a.baseline + " dB", a.manual_baseline ? " (set)" : "", a.margin != null ? " · +" + a.margin + " dB" : ""])]),
+        h("div", { class: "sdst" }, [
+          h("span", { class: "sds " + tone }, [h("span", { class: "d" }), a.alert ? "Left running!" : a.flowing ? "Water flowing" : "Quiet"]),
+          a.flowing && a.flow_s ? h("div", { class: "sddur" }, "continuous for " + _flowDur(a.flow_s)) : null]),
+      ]);
+      const tiles = h("div", { class: "sdtiles" }, [
+        h("div", { class: "sdtile" }, [h("div", { class: "v" }, _airFmt(a.laeq, "dB")), h("div", { class: "k" }, "LAeq")]),
+        h("div", { class: "sdtile" }, [h("div", { class: "v" }, _airFmt(a.max, "dB")), h("div", { class: "k" }, "max today")]),
+        h("div", { class: "sdtile" }, [h("div", { class: "v" }, _airFmt(a.threshold, "dB")), h("div", { class: "k" }, "flow threshold")]),
+      ]);
+      let trend = null;
+      if (st.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        const cfgSig = st.entity_id + ":" + a.threshold + ":" + a.baseline;
+        if (el.__cfgSig !== cfgSig) {
+          el.setConfig({ entity: st.entity_id, name: "Sound level", sub: (a.model || "WS302") + (a.baseline != null ? " · baseline " + a.baseline + " dB" : ""),
+            unit: "dB", color: a.alert ? "var(--ms-bad)" : "var(--ms-accent)", max: a.threshold != null ? a.threshold : undefined, min: a.baseline != null ? a.baseline : undefined });
+          el.__cfgSig = cfgSig;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      }
+      const note = a.alert
+        ? h("div", { class: "sdnote bad" }, "● Alert raised — flowing " + _flowDur(a.flow_s) + " (> " + (a.minutes || 5) + " min).")
+        : h("div", { class: "sdnote" }, ["Alerts if flow continues longer than ", h("b", {}, (a.minutes || 5) + " min"), " — likely a tap or cistern left running."]);
+      return h("div", { class: "ablock" }, [head, hero, tiles, trend, note].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .sdhero{display:flex;align-items:center;gap:14px;margin:13px 0 2px}
+        .sdbig{font-size:32px;font-weight:720;color:var(--ms-ink);line-height:1} .sdbig small{font-size:14px;color:var(--ms-ink2);font-weight:600} .sdbig.bad{color:var(--ms-bad)}
+        .sdbase{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .sdst{margin-left:auto;text-align:right}
+        .sds{font-size:13px;font-weight:700;padding:4px 11px;border-radius:999px;display:inline-flex;align-items:center;gap:6px}
+        .sds .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+        .sds.ok{background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+        .sds.warn{background:color-mix(in srgb,var(--ms-warn) 20%,transparent);color:var(--ms-warn)}
+        .sds.bad{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
+        .sddur{font-size:11px;color:var(--ms-ink2);margin-top:4px}
+        .sdtiles{display:flex;gap:9px;margin-top:10px} .sdtile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:7px 10px;text-align:center}
+        .sdtile .v{font-size:14px;font-weight:700;color:var(--ms-ink)} .sdtile .v small{font-size:10px;color:var(--ms-ink2)} .sdtile .k{font-size:10px;color:var(--ms-ink2);margin-top:2px}
+        .sdnote{font-size:11px;color:var(--ms-ink2);margin-top:10px} .sdnote.bad{color:var(--ms-bad)} .sdnote b{color:var(--ms-ink)}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Sound & water flow"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ WS558 light / switch control (interactive)
+  // Self-discovers the "switch_panel" role sensors. Per-channel on/off toggles that call switch.turn_on/off, plus
+  // all-on / all-off. Channel names come from each gang's switch entity.
+  class LightControlCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "switch_panel") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const c of (st.attributes.channels || [])) if (c.entity_id) ids.push(c.entity_id); }
+      return ids;
+    }
+    _svc(service, data) { try { this._hass.callService("switch", service, data); } catch (e) { /* surfaced by HA */ } }
+    _channel(c) {
+      const sw = c.entity_id ? this._hass.states[c.entity_id] : null;
+      const on = sw ? sw.state === "on" : c.on === true;
+      const name = (sw && sw.attributes.friendly_name) || ("Channel " + c.channel);
+      return h("div", { class: "lgang" }, [
+        h("div", { class: "nm" }, [esc(name), h("div", { class: "sub" }, "Ch " + c.channel)]),
+        h("div", { class: "tog" + (on ? " on" : ""), onclick: () => c.entity_id && this._svc(on ? "turn_off" : "turn_on", { entity_id: c.entity_id }) }, [h("i")]),
+      ]);
+    }
+    _block(st) {
+      const a = st.attributes, chans = a.channels || [], ids = chans.map((c) => c.entity_id).filter(Boolean);
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: { background: "color-mix(in srgb,var(--ms-warn) 16%,transparent)", color: "var(--ms-warn)" } }, [h("ha-icon", { icon: "mdi:lightbulb-group" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Lights")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "") + (a.power != null ? " · " + Math.round(a.power) + " W" : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const grid = h("div", { class: "lgrid" }, chans.map((c) => this._channel(c)));
+      const all = ids.length ? h("div", { class: "lall" }, [
+        h("button", { onclick: () => this._svc("turn_on", { entity_id: ids }) }, "All on"),
+        h("button", { onclick: () => this._svc("turn_off", { entity_id: ids }) }, "All off"),
+      ]) : null;
+      return h("div", { class: "ablock" }, [head, grid, all].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:13px 0 2px}
+        .lgang{display:flex;align-items:center;gap:10px;border:1px solid var(--ms-line);border-radius:11px;padding:9px 11px}
+        .lgang .nm{flex:1;min-width:0;font-size:12.5px;color:var(--ms-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .lgang .sub{font-size:10.5px;color:var(--ms-ink2)}
+        .tog{width:40px;height:23px;border-radius:999px;background:#2a333a;position:relative;flex:0 0 auto;cursor:pointer}
+        .tog i{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#8a97a0;transition:.15s}
+        .tog.on{background:color-mix(in srgb,var(--ms-good) 60%,transparent)} .tog.on i{left:19px;background:#eafff0}
+        .lall{display:flex;gap:8px;margin-top:10px} .lall button{flex:1;border:1px solid var(--ms-line);background:none;color:var(--ms-ink);border-radius:10px;padding:8px;font:inherit;font-size:12.5px;cursor:pointer}
+        .lall button:hover{background:color-mix(in srgb,var(--ms-ink) 8%,transparent)}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Lights & switches"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ VS occupancy / spaces
+  // Self-discovers the "space" role sensors and lists them: busy / free, people count, since-time and utilisation.
+  class SpacesCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "space") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { if (!this._hass) return null; return this._find().map((s) => s.entity_id); }
+    _row(st) {
+      const a = st.attributes, busy = a.occupied === true;
+      const icon = a.counting ? "mdi:account-group" : "mdi:seat";
+      const sub = esc((a.model || "") + (a.status ? " · " + a.status.replace(/^Occupied/, "occupied").replace(/^Empty/, "free") : ""));
+      const tag = a.counting && num(a.people) != null && busy ? (a.people + (a.people === 1 ? " person" : " people"))
+        : busy ? "Occupied" : a.occupied === false ? "Free" : "—";
+      const util = num(a.utilisation);
+      return h("div", { class: "sprow" }, [
+        h("div", { class: "spic " + (busy ? "busy" : "free") }, [h("ha-icon", { icon })]),
+        h("div", { class: "spnm" }, [h("b", {}, esc(a.device || "Space")), h("div", { class: "m" }, sub)]),
+        h("div", { class: "sptag " + (busy ? "busy" : "free") }, tag),
+        h("div", { class: "sputil" }, [h("div", { class: "t" }, util == null ? "" : Math.round(util) + "%"),
+          util == null ? null : h("div", { class: "b" }, [h("i", { style: { width: Math.round(clamp(util, 0, 100)) + "%" } })])]),
+      ]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .ahd{display:flex;align-items:center;gap:11px;margin-bottom:4px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink)} .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .sprow{display:flex;align-items:center;gap:11px;padding:10px 2px;border-bottom:1px solid var(--ms-line)} .sprow:last-child{border-bottom:none}
+        .spic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:0 0 auto} .spic ha-icon{--mdc-icon-size:16px}
+        .spic.busy{background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent)}
+        .spic.free{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .spnm{flex:1;min-width:0} .spnm b{font-size:13px;color:var(--ms-ink);font-weight:600} .spnm .m{font-size:11px;color:var(--ms-ink2)}
+        .sptag{font-size:12px;font-weight:650;flex:0 0 auto} .sptag.busy{color:var(--ms-accent)} .sptag.free{color:var(--ms-good)}
+        .sputil{width:64px;text-align:right;flex:0 0 auto} .sputil .t{font-size:10.5px;color:var(--ms-ink2)}
+        .sputil .b{height:6px;border-radius:4px;background:color-mix(in srgb,var(--ms-ink) 10%,transparent);overflow:hidden;margin-top:4px} .sputil .b i{display:block;height:100%;background:var(--ms-accent);border-radius:4px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      const busy = items.filter((s) => s.attributes.occupied === true).length;
+      this._card(h("div", { class: "wrap" }, [
+        h("div", { class: "ahd" }, [h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:floor-plan" })]),
+          h("div", {}, [h("div", { class: "ahn" }, "Spaces"), h("div", { class: "ahs" }, busy + " of " + items.length + " in use")])]),
+        ...items.map((st) => this._row(st)),
+      ]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -6407,7 +7007,13 @@
         SOIL_TAG = "milesight-soil-card",
         LIQLEVEL_TAG = "milesight-liquid-level-card",
         AIRQ_TAG = "milesight-air-quality-card",
-        ENVMON_TAG = "milesight-environment-card";
+        ENVMON_TAG = "milesight-environment-card",
+        ENERGY_TAG = "milesight-energy-card",
+        THERMOSTAT_TAG = "milesight-climate-card",
+        GAS_TAG = "milesight-gas-card",
+        SOUND_TAG = "milesight-sound-card",
+        LIGHT_TAG = "milesight-light-card",
+        SPACES_TAG = "milesight-spaces-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -6462,6 +7068,12 @@
     [LIQLEVEL_TAG, LiquidLevelCard, "Milesight Liquid Level", "WoMaster WS101LL liquid level: a filled shaft with mm and % of range, plus a trend"],
     [AIRQ_TAG, AMAirCard, "Milesight Air Quality", "AM air monitor: a chip per property (CO₂, PM, TVOC, HCHO …); click one to drive the trend line"],
     [ENVMON_TAG, EnvMonitorCard, "Milesight Environment", "Temp / humidity / door / leak / motion sensor: numeric chips drive the trend, door/leak/motion show status"],
+    [ENERGY_TAG, EnergyCard, "Milesight Energy", "CT clamp: phase currents (L1/L2/L3) as chips that drive the trend, total current, estimated power and imbalance"],
+    [THERMOSTAT_TAG, ThermostatCard, "Milesight Climate", "WT thermostat control: current temp, −/+ setpoint, mode and fan chips, valve opening and a temperature trend"],
+    [GAS_TAG, GasCard, "Milesight Gas & Vape", "GS301 odour / GS601 vape: numeric chips drive the trend, odour / vape show status"],
+    [SOUND_TAG, SoundCard, "Milesight Sound", "WS302 sound level with a learned baseline and continuous water-flow / 'left running' detection"],
+    [LIGHT_TAG, LightControlCard, "Milesight Lights", "WS558 / switch control: per-channel on/off toggles and all-on / all-off"],
+    [SPACES_TAG, SpacesCard, "Milesight Spaces", "VS occupancy / people sensors as a list: busy / free, people count and utilisation"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

@@ -63,6 +63,7 @@ class MilesightClimate(MilesightEntity, ClimateEntity):
     def __init__(self, runtime, spec) -> None:
         super().__init__(runtime, spec)
         self.kind: str = runtime.model.climate
+        self._temp_eid: str | None = None            # resolved temperature sensor id (for the Climate card's trend)
         self._attr_name = None                       # the device itself
         self._attr_hvac_modes = list(HVAC_MAP[self.kind])
         self._attr_target_temperature_step = STEP.get(self.kind, 0.5)
@@ -147,6 +148,26 @@ class MilesightClimate(MilesightEntity, ClimateEntity):
     def fan_mode(self) -> str | None:
         fan = self._v.get("fan_speed" if self.kind == "wt30x" else "fan_mode")
         return fan if fan in (self._attr_fan_modes or []) else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Extras the Climate card self-discovers on ('thermostat' role) and shows alongside the native climate
+        attributes: model / area, battery, valve opening, window-open, and the temperature sensor id for its trend."""
+        rt, v = self.runtime, self._v
+        if self._temp_eid is None:
+            try:
+                from homeassistant.helpers import entity_registry as er
+                from .const import DOMAIN
+                self._temp_eid = er.async_get(rt.hass).async_get_entity_id("sensor", DOMAIN, f"{rt.deveui}_temperature") or ""
+            except Exception:  # noqa: BLE001
+                self._temp_eid = ""
+        return {
+            "milesight_role": "thermostat", "device": rt.entry.title, "model": rt.model.key,
+            "area": rt.entry.data.get("area") or rt.entry.options.get("area"),
+            "battery": v.get("battery"), "valve": v.get("valve_opening"),
+            "window_open": v.get("window_open"), "temp_entity_id": self._temp_eid or None,
+            "step": self._attr_target_temperature_step, "last_seen": rt.meta.get("last_seen"),
+        }
 
     # -------------------------------------------------------------- control
     async def _send(self, action: str, value: Any, **kw: Any) -> None:

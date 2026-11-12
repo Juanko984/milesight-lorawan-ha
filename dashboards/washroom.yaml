@@ -35,3 +35,22 @@ views:
             icon: mdi:human-male-female
           - type: custom:milesight-washroom-card
             grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Odour & vape
+            icon: mdi:scent
+          # GS301 odour (NH₃ / H₂S) and GS601 vape detectors: numeric chips drive the trend, odour/vape show status.
+          - type: custom:milesight-gas-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Sound & water flow
+            icon: mdi:volume-high
+          # WS302 sound sensors: a learned quiet baseline + continuous-flow detection raises a "water left running"
+          # alert when the level stays up past the set time. Hides itself when there are no WS302s.
+          - type: custom:milesight-sound-card
+            grid_options: {columns: full}

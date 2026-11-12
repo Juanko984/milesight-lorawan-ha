@@ -2,6 +2,43 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.123.0
+- **New cards for the GS, VS and WS ranges:**
+  - **Gas & vape (GS301 / GS601)** — odour (NH₃ / H₂S) and vape detectors: numeric chips drive the trend, odour
+    level and vape detection show as status. On the **Washroom** dashboard.
+  - **Sound & water-flow (WS302)** — sound level with a **learned quiet baseline** and **continuous-flow
+    detection**: flags "water flowing" above the baseline and raises a **"water left running"** alert once it
+    stays up past the set time (default **+8 dB for 5 min**, tunable per device, with an optional manual
+    baseline). On the **Washroom** dashboard; the alert is a *Facilities* alert.
+  - **Lights & switches (WS558 / sockets / wall switches)** — interactive **per-channel on/off toggles** and
+    all-on / all-off, calling the switch services. On the **Energy & HVAC** dashboard.
+  - **Spaces (VS occupancy / people counters)** — a live list of each space: busy / free, people count and
+    today's utilisation. On the **Building analytics** dashboard.
+  All four self-hide when their devices aren't present.
+
+## 0.122.0
+- **New Climate control card for WT thermostats** (WT101/102 radiator valves, WT201/211, WT301/401). Current
+  temperature and what it's doing, a **−/+ setpoint**, **mode** (heat / cool / auto / off) and **fan** chips that
+  send the change to the device (via the standard climate services), the **valve opening** for radiator heads, and
+  a temperature trend. Interactive — unlike the monitoring cards.
+- **New Energy card for CT current-transformer clamps** (CT101/103 single, CT303/305/310 three-phase). The **phase
+  currents (L1/L2/L3) are clickable chips that drive the trend**, with **total current, estimated power and phase
+  imbalance** alongside; single-channel clamps show current / power / energy. (The 12-circuit CTH01 gets its own
+  view in a later release.)
+- Both cards live on the **Energy & HVAC** dashboard and hide themselves when the matching devices aren't present;
+  WT thermostats now tag that dashboard so it installs for a thermostat-only site.
+
+## 0.121.0
+- **Air, weather, vibration and soil sensors now raise alerts.** The new widgets fed the dashboards; now their
+  thresholds flow into the Alerts engine too (dedup, acknowledge, escalation, notifications and the Alerts page):
+  - **Air quality** — CO₂ over the device's limit, PM2.5 / PM10, TVOC, HCHO or O₃ over their limits → *Building*.
+  - **Weather** — strong wind / gale from the gust, and a "storm likely" warning when pressure is falling fast → *Facilities*.
+  - **Vibration** — ISO 10816 zone C (unsatisfactory, warning) or zone D (unacceptable, critical) → *Pumps*.
+  - **Soil** — dry soil, pH out of range, or high conductivity / salinity → *Irrigation*.
+  Each alert carries the live value and an "open dashboard" action. Thresholds reuse the same limits the chips
+  already colour by, so there's nothing to configure. The **Building** alert category is now on by default (so
+  air-quality alerts fire out of the box); anyone who had explicitly turned it off keeps it off.
+
 ## 0.120.0
 - **Hover tooltip on every trend line.** Moving the pointer across a trendline now snaps to the nearest reading
   and shows its **value and date / time** in a small tooltip, with a guide line and a dot on the point. Works on

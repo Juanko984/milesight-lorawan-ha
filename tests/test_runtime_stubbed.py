@@ -793,6 +793,7 @@ va = rtv.attrs["vibration"]
 assert va["milesight_role"] == "vibration" and va["device"] == "Packshed compressor" and va["area"] == "Packshed"
 assert va["zone"] == "C" and va["verdict"] == "Unsatisfactory" and va["worst_axis"] == "Y" and va["worst_value"] == 4.9
 assert va["severity"] == "warning" and va["per_axis"] == {"x": "B", "y": "C", "z": "A"}
+assert rtv.values["vib_alert"]["zone"] == "C" and rtv.values["vib_alert"]["axis"] == "Y"   # zone C → an alert flag
 assert va["velocity"]["y"] == 4.9 and va["displacement"]["y"] == 83 and va["frequency"]["z"] == 96 and va["temperature"] == 58.2
 assert rtv.values["vibration"] == 4.9
 # the same readings on a large machine (purpose) sit one zone lower
@@ -853,6 +854,9 @@ assert sa["status"]["ec"] == "high" and sa["status"]["ph"] == "low" and sa["stat
 assert sa["status"]["nitrogen"] == "low" and sa["status"]["salinity"] == "high" and sa["status"]["moisture"] == "ok"
 assert sa["moisture_label"] == "moist" and sa["ph_label"] == "acidic" and sa["severity"] == "warning"
 assert rts.values["soil"] == 34
+# soil breach flags for alerts: ec high + ph low + salinity high surface; N/P/K are not alerted on
+_sbk = {b["key"]: b["kind"] for b in rts.values.get("soil_breaches", [])}
+assert _sbk == {"ph": "low", "ec": "high", "salinity": "high"}
 
 # WoMaster WS101LL liquid-level role sensor on a UC100 (mm, % of range; decimals scales the value)
 _, rtl = make_with("00000000000e9202", "UC100", {"purpose": "liquid_level", "channel_templates": [
@@ -941,6 +945,62 @@ _, _am7 = make_with("00000000000eenv04", "AM307", {}); assert not _am7._env_appl
 _, _ws3 = make_with("00000000000eenv05", "WS301", {}); assert not _ws3._env_applies()   # door only (single property)
 del entries.items[_env_from:]
 print("env monitor ok")
+
+# Energy monitor role sensor: CT303 three-phase (phase chips + imbalance) and CT101 single-channel
+_en_from = len(entries.items)
+_, _ct3 = make_with("00000000000eeng03", "CT303", {}, title="Main board", area="Plant room")
+assert _ct3._energy_applies() and "energy_monitor" in {sp.key for sp in _ct3.extra_specs()}
+for _k, _v in {"current_1": 12.4, "current_2": 11.8, "current_3": 14.1, "current_total": 38.3, "power": 8400}.items():
+    _ct3.raw[_k] = _v
+_ct3.meta["last_seen"] = time.time(); _ct3._publish(time.time())
+_em = _ct3.attrs["energy_monitor"]
+assert _em["three_phase"] is True and _em["primary"] == "current_1" and [m["label"] for m in _em["metrics"]] == ["L1", "L2", "L3"]
+assert _em["metrics"][2]["value"] == 14.1 and _em["summary"]["total_current"] == 38.3 and _em["summary"]["power"] == 8400
+assert _em["summary"]["imbalance"] == 18.0 and _em["summary"]["imbalance_status"] == "high"   # (14.1-11.8)/12.77*100
+assert _ct3.values["energy_monitor"] == 12.4
+_, _ct1 = make_with("00000000000eeng01", "CT101", {}, title="Feeder")
+for _k, _v in {"current": 9.2, "power": 2040, "energy": 41.6}.items():
+    _ct1.raw[_k] = _v
+_ct1._publish(time.time())
+_em1 = _ct1.attrs["energy_monitor"]
+assert _em1["three_phase"] is False and [m["label"] for m in _em1["metrics"]] == ["Current"] and _em1["summary"]["energy"] == 41.6
+# CTH01 (12-circuit) and a non-CT device are not energy monitors
+_, _cth = make_with("00000000000eeng12", "CTH01", {}); assert not _cth._energy_applies()
+_, _th = make_with("00000000000eeng99", "EM300-TH", {}); assert not _th._energy_applies()
+del entries.items[_en_from:]
+print("energy monitor ok")
+
+# GS / VS / WS roles
+_gvw_from = len(entries.items)
+# GS601 vape detector → gas_monitor with a vape-detected state
+_, _gs = make_with("00000000000egsv01", "GS601", {}, title="Boys bathroom", area="Block C")
+assert _gs._gas_applies() and "gas_monitor" in {sp.key for sp in _gs.extra_specs()}
+_gm = _gs._gas_monitor({"vaping_index": 78, "pm2_5": 24, "tvoc": 310, "temperature": 24.0, "humidity": 50,
+                        "vaping_index_alarm_active": True})
+assert _gm["primary"] == "vaping_index" and {m["key"] for m in _gm["metrics"]} >= {"vaping_index", "pm2_5"}
+assert any(s["key"] == "vape" and s["tone"] == "critical" for s in _gm["states"])
+# WS302 sound → learned/manual baseline, continuous-flow + "left running" alert past the set time
+_, _ws = make_with("00000000000ewss02", "WS302", {"sound_baseline": 40, "sound_margin": 8, "sound_minutes": 5},
+                   title="Gents WC", area="Block C")
+assert "sound_monitor" in {sp.key for sp in _ws.extra_specs()}
+_t0 = time.time()
+_sa = _ws._sound_assess({"sound_level": 61.0, "sound_level_eq": 60.0, "sound_level_max": 68.0}, _t0)
+assert _sa["baseline"] == 40 and _sa["threshold"] == 48 and _sa["flowing"] is True and _sa["alert"] is False
+_sa2 = _ws._sound_assess({"sound_level": 61.0, "sound_level_eq": 60.0}, _t0 + 330)   # continuous > 5 min
+assert _sa2["alert"] is True and _sa2["flow_s"] >= 300
+assert _ws._sound_assess({"sound_level": 41.0, "sound_level_eq": 41.0}, _t0 + 400)["flowing"] is False   # quiet → reset
+# VS occupancy → a space
+_, _vs = make_with("00000000000evs340", "VS340", {}, title="Desk 4", area="Floor 2")
+assert _vs.occupancy is not None and "space" in {sp.key for sp in _vs.extra_specs()}
+_sp = _vs._space({"occ_occupied": True, "occ_status": "Occupied since 09:40", "occ_utilisation_today_pct": 61})
+assert _sp["occupied"] is True and _sp["utilisation"] == 61
+# WS558 → a switch panel with 8 channels
+_, _w5 = make_with("00000000000ews558", "WS558", {}, title="Open-plan lighting", area="Floor 2")
+assert "switch_panel" in {sp.key for sp in _w5.extra_specs()}
+_pan = _w5._switch_panel({f"switch_{n}": (n % 2 == 1) for n in range(1, 9)})
+assert _pan["gangs"] == 8 and len(_pan["channels"]) == 8 and _pan["channels"][0]["on"] is True
+del entries.items[_gvw_from:]
+print("gs/vs/ws roles ok")
 
 def em400(distance_mm):
     return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")

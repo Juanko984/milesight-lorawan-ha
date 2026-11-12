@@ -32,6 +32,9 @@ DEVICE = {s.option: s for s in (
     Setpoint("p_temp_low", "Temperature alarm below", "°C", -40, 90, 0.5, "mdi:thermometer-chevron-down"),
     Setpoint("p_temp_high", "Temperature alarm above", "°C", -40, 90, 0.5, "mdi:thermometer-chevron-up"),
     Setpoint("p_left_open_min", "Left-open alarm after", "min", 1, 240, 1, "mdi:door-open"),
+    Setpoint("sound_baseline", "Sound baseline (0 = auto)", "dB", 0, 120, 1, "mdi:volume-low", box=True, config=True),
+    Setpoint("sound_margin", "Flow margin over baseline", "dB", 2, 40, 1, "mdi:volume-plus", config=True),
+    Setpoint("sound_minutes", "Flow alert after", "min", 1, 120, 1, "mdi:timer-alert-outline", config=True),
 )}
 HUB = {s.option: s for s in (
     Setpoint("irr_target", "Irrigation target soil moisture", "%", 5, 80, 1, "mdi:water-percent"),
@@ -83,6 +86,11 @@ def device_values(rt: Any) -> dict[str, float]:
                 out[f"p_{name}"] = pcfg[name]
     if "contact" in getattr(rt, "_pfam", ()) and isinstance(pcfg.get("left_open_min"), (int, float)):
         out["p_left_open_min"] = pcfg["left_open_min"]
+    if "ws302" in getattr(model, "features", ()):     # WS302 water-flow tuning (baseline / margin / duration)
+        opts = dict(rt.entry.options)
+        out["sound_baseline"] = float(opts.get("sound_baseline") or 0)
+        out["sound_margin"] = float(opts.get("sound_margin") or 8)
+        out["sound_minutes"] = float(opts.get("sound_minutes") or 5)
     return out
 
 

@@ -85,6 +85,15 @@ views:
             title: false
             grid_options: {columns: full}
       - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Spaces
+            icon: mdi:floor-plan
+          # VS occupancy / people sensors as a live list: busy / free, people count and today's utilisation.
+          - type: custom:milesight-spaces-card
+            grid_options: {columns: full}
+      - type: grid
         cards:
           - type: heading
             heading: Occupancy today

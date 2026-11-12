@@ -12,7 +12,7 @@ from typing import Any
 CATEGORIES = ("safety", "cold_chain", "security", "tank", "pumps", "irrigation", "energy", "facilities", "building",
               "devices", "gateways", "commands")
 DEFAULT_CATEGORIES = ["safety", "cold_chain", "security", "tank", "pumps", "irrigation", "energy", "facilities",
-                      "devices", "gateways"]
+                      "building", "devices", "gateways"]   # building on by default so air-quality alerts fire
 # purpose group -> alert category
 GROUP_CATEGORY = {"cold_chain": "cold_chain", "security": "security", "energy": "energy", "hvac": "energy",
                   "pump": "pumps", "water": "safety", "tank": "tank", "irrigation": "irrigation",
@@ -518,6 +518,7 @@ def device_alerts(name: str, deveui: str, values: dict[str, Any], area: str | No
             "message": f"{where} has stopped moving" + (f" at {ang:.0f}°" if isinstance(ang, (int, float)) else "")
                        + " during a round."}
     out.update(_purpose_alerts(name, deveui, values, where))
+    out.update(_sensor_alerts(name, deveui, values, where))
     if values.get("online") is False:
         out[f"{deveui}:offline"] = {"title": f"Offline – {name}", "severity": "warning", "category": "devices",
                                     "message": f"{where} has not reported for a while."}
@@ -532,6 +533,67 @@ def device_alerts(name: str, deveui: str, values: dict[str, Any], area: str | No
 
 def _num(v: Any, fmt: str = "{:g}") -> str:
     return fmt.format(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else "–"
+
+
+_SOIL_ALERT = {   # soil breach key -> (what, which direction is the problem the text describes)
+    "moisture": ("Soil dry", "%"), "ph": ("Soil pH", ""), "ec": ("Soil salinity high", " µS/cm"),
+    "salinity": ("Soil salinity high", " mg/L"),
+}
+
+
+def _sensor_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> dict[str, dict]:
+    """Alerts from the air-quality / weather / vibration / soil sensor widgets (flags set by the role sensors)."""
+    out: dict[str, dict] = {}
+
+    def add(key: str, title: str, message: str, category: str, severity: str = "warning") -> None:
+        out[f"{deveui}:{key}"] = {"title": f"{title} – {name}", "message": message,
+                                  "category": category, "severity": severity, "action": True}
+
+    # Air quality — one alert per property over its limit (CO₂ uses the device's own limit)
+    for b in v.get("air_breaches") or []:
+        val, unit, lim = b.get("value"), (b.get("unit") or ""), b.get("limit")
+        add(f"air_{str(b.get('label','')).lower().replace(' ', '_').replace('.', '')}", f"{b.get('label')} high",
+            f"{where}: {b.get('label')} {_num(val)}{(' ' + unit) if unit else ''}"
+            + (f" (over {_num(lim)}{(' ' + unit) if unit else ''})." if lim is not None else "."), "building")
+    # Weather — strong wind / gale, and a falling-fast "storm coming" warning
+    w = v.get("wx_wind")
+    if w:
+        g, u = w.get("gust"), w.get("unit") or "km/h"
+        add("wx_wind", "Gale" if w.get("severity") == "critical" else "Strong wind",
+            f"{where}: gusting {_num(g)} {u}.", "facilities", severity=w.get("severity", "warning"))
+    s = v.get("wx_storm")
+    if s:
+        add("wx_storm", "Storm likely", f"{where}: pressure {esc_trend(s.get('trend'))} – "
+            f"{s.get('forecast') or 'unsettled'} weather likely.", "facilities")
+    # WS302 sound — water / tap left running (continuous flow above the quiet baseline past the set time)
+    sf = v.get("sound_flow")
+    if sf and sf.get("alert"):
+        add("sound_flow", "Water left running",
+            f"{where}: continuous water flow for {_num(sf.get('minutes'))} min "
+            f"(over {_num(sf.get('limit_min'))} min) – check for a tap or cistern left running.", "facilities")
+    # Vibration — ISO 10816 zone C (unsatisfactory) / zone D (unacceptable)
+    vib = v.get("vib_alert")
+    if vib:
+        add("vibration", f"Vibration {vib.get('verdict') or vib.get('zone')}",
+            f"{where}: worst axis {vib.get('axis')} at {_num(vib.get('value'))} mm/s "
+            f"(ISO zone {vib.get('zone')}) – inspect the machine.", "pumps",
+            severity="critical" if vib.get("zone") == "D" else "warning")
+    # Soil — dry / pH out of band / salinity high
+    for b in v.get("soil_breaches") or []:
+        k, kind, val = b.get("key"), b.get("kind"), b.get("value")
+        if k == "ph":
+            add("soil_ph", "Soil pH out of range",
+                f"{where}: pH {_num(val)} – too {'acidic' if kind == 'low' else 'alkaline'}.", "irrigation")
+        elif k == "moisture" and kind == "low":
+            add("soil_dry", "Soil dry", f"{where}: soil moisture {_num(val)} % – below the dry threshold.", "irrigation")
+        elif k in ("ec", "salinity") and kind == "high":
+            what, unit = _SOIL_ALERT[k]
+            add(f"soil_{k}", what, f"{where}: {k.upper() if k == 'ec' else 'salinity'} {_num(val)}{unit} – high.", "irrigation")
+    return out
+
+
+def esc_trend(t: Any) -> str:
+    return str(t) if t else "falling fast"
 
 
 def _purpose_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> dict[str, dict]:

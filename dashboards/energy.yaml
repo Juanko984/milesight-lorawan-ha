@@ -57,6 +57,35 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Current clamps
+            icon: mdi:flash
+          # One card per CT clamp: phase currents (L1/L2/L3) as chips that drive the trend, total current, estimated
+          # power and phase imbalance. Single-channel clamps show current / power / energy. Hides itself when absent.
+          - type: custom:milesight-energy-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Thermostats
+            icon: mdi:thermostat
+          # WT thermostats / radiator valves: current temperature, −/+ setpoint, mode and fan controls, valve opening
+          # and a temperature trend. Hides itself when there are no WT devices.
+          - type: custom:milesight-climate-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Lights & switches
+            icon: mdi:lightbulb-group
+          # WS558 / smart sockets / wall switches: per-channel on/off toggles and all-on / all-off. Self-hiding.
+          - type: custom:milesight-light-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Loads
             icon: mdi:power-plug
           - type: custom:milesight-table-card

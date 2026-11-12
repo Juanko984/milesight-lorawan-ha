@@ -1961,7 +1961,7 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
         tags.add("retail")
     if {"temperature", "humidity"} <= keys or "co2" in keys:
         tags.add("comfort")
-    if model_key in ("GS301", "GS601", "WS201", "VS330"):   # odour / vape / supplies / bathroom occupancy
+    if model_key in ("GS301", "GS601", "WS201", "VS330", "WS302"):   # odour / vape / supplies / bathroom occupancy / sound
         tags.add("washroom")
     if "load" in model.features and options.get("pump_enabled"):
         tags.add("pump")
@@ -1990,6 +1990,10 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
     # dashboard — even before a specific purpose is set — unless it's already a pump (that lives on Farm)
     if ("pump" not in tags and (model.features & {"ct", "load", "socket"}
                                 or options.get("meter_type") in ("energy", "gas"))):
+        tags.add("energy")
+    if model.climate:                       # WT thermostats / radiator valves → the Energy & HVAC dashboard
+        tags.add("hvac")
+    if "switch" in model.features:          # WS558 / smart sockets / wall switches → the Lights card on Energy & HVAC
         tags.add("energy")
     return frozenset(tags)
 
