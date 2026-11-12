@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.124.0
+- **Two more VS cards, completing the VS range:**
+  - **People counter (VS121 / VS132 / VS133 / VS135 / VS350 / VS351 / VS360)** — a card per entrance / passage:
+    how many **inside now**, **in / out / net today**, **capacity** and the day's occupancy trend. Set a capacity
+    per device to get the bar and an **over-capacity** alert. (The site-wide Footfall card still shows the roll-up.)
+  - **Fall detection (VS373)** — radar presence: **in bed / out of bed / vacant / fall**, respiration where
+    monitored, dwell and the last alarm. A **fall / motionless / abnormal-breathing** alarm now raises a critical
+    **Safety** alert (dwell → warning). On the **Building analytics** dashboard with the other occupancy widgets.
+  Together with the Spaces card (0.123), this covers VS occupancy, people counting and fall detection.
+
 ## 0.123.0
 - **New cards for the GS, VS and WS ranges:**
   - **Gas & vape (GS301 / GS601)** — odour (NH₃ / H₂S) and vape detectors: numeric chips drive the trend, odour

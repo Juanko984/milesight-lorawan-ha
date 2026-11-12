@@ -286,6 +286,14 @@
    "sensor.sp1": { state: "on", attributes: { milesight_role: "space", device: "Meeting room A", area: "Floor 2", model: "VS321", occupied: true, counting: true, people: 2, status: "Occupied since 09:40", utilisation: 61, last_seen: Date.now() / 1000 - 20 } },
    "sensor.sp2": { state: "off", attributes: { milesight_role: "space", device: "Desk 4", area: "Floor 2", model: "VS340", occupied: false, counting: false, status: "Empty", utilisation: 22, last_seen: Date.now() / 1000 - 40 } },
    "sensor.sp3": { state: "on", attributes: { milesight_role: "space", device: "Bathroom 1", area: "Floor 2", model: "VS330", occupied: true, counting: false, status: "Occupied since 10:05", utilisation: 44, last_seen: Date.now() / 1000 - 10 } },
+   // VS people counters
+   "sensor.vs133_inside": { state: "24", last_changed: new Date().toISOString(), attributes: { friendly_name: "Inside", unit_of_measurement: "people" } },
+   "sensor.vs133_count": { state: "24", attributes: { milesight_role: "people_counter", device: "Main entrance", area: "Lobby", model: "VS133", inside: 24, in_today: 312, out_today: 288, net: 24, capacity: 50, over: false, trend_key: "people_count_all", trend_entity_id: "sensor.vs133_inside", last_seen: Date.now() / 1000 - 30 } },
+   "sensor.vs350_in": { state: "142", last_changed: new Date().toISOString(), attributes: { friendly_name: "In today", unit_of_measurement: "people" } },
+   "sensor.vs350_count": { state: "162", attributes: { milesight_role: "people_counter", device: "Passage A", area: "Corridor", model: "VS350", inside: 162, in_today: 162, out_today: 140, net: 22, capacity: 100, over: false, trend_key: "people_in_today", trend_entity_id: "sensor.vs350_in", last_seen: Date.now() / 1000 - 60 } },
+   // VS373 fall detection — one fall alarm, one healthy in-bed
+   "sensor.vs373_a": { state: "fall", attributes: { milesight_role: "fall_monitor", device: "Room 12", area: "Care wing", model: "VS373", state: "fall", state_label: "Fall detected", tone: "critical", respiration: null, dwell_s: 120, occupied: true, alarms: ["fall"], last_alarm: "fall", last_alarm_at: Date.now() / 1000 - 90, last_seen: Date.now() / 1000 - 10 } },
+   "sensor.vs373_b": { state: "in_bed", attributes: { milesight_role: "fall_monitor", device: "Room 8", area: "Care wing", model: "VS373", state: "in_bed", state_label: "In bed", tone: "ok", respiration: 16, respiration_status: "normal", dwell_s: 32400, occupied: true, alarms: [], last_seen: Date.now() / 1000 - 25 } },
    "sensor.cmf1": { state: "82", attributes: { kind: "comfort", area: "Reception", temperature: 22, humidity: 45, co2: 620 } },
    "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
    "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
@@ -390,6 +398,8 @@
    ["milesight-sound-card", {}],
    ["milesight-light-card", {}],
    ["milesight-spaces-card", {}],
+   ["milesight-people-counter-card", {}],
+   ["milesight-fall-card", {}],
    ["milesight-domain-card", { domain: "tanks" }],
    ["milesight-domain-card", { domain: "cold_chain" }],
    ["milesight-domain-card", { domain: "farm" }],

@@ -1002,6 +1002,24 @@ assert _pan["gangs"] == 8 and len(_pan["channels"]) == 8 and _pan["channels"][0]
 del entries.items[_gvw_from:]
 print("gs/vs/ws roles ok")
 
+# VS people counter + VS373 fall detection
+_vs_from = len(entries.items)
+_, _pc = make_with("00000000000evs133", "VS133", {"capacity": 50}, title="Main entrance", area="Lobby")
+assert _pc._counter_applies() and "people_counter" in {sp.key for sp in _pc.extra_specs()}
+assert "space" not in {sp.key for sp in _pc.extra_specs()}            # a pure counter is not also a Space
+_pcr = _pc._people_counter({"people_count_all": 24, "people_in_today": 312, "people_out_today": 288})
+assert _pcr["inside"] == 24 and _pcr["in_today"] == 312 and _pcr["net"] == 24 and _pcr["capacity"] == 50 and _pcr["over"] is False
+assert _pc._people_counter({"people_count_all": 60, "people_in_today": 1, "people_out_today": 0})["over"] is True  # over 50
+# VS373 fall → fall_monitor role (critical) and the existing SAFETY fall alert
+_, _fd = make_with("00000000000evs373", "VS373", {}, title="Room 12", area="Care wing")
+assert "fall_monitor" in {sp.key for sp in _fd.extra_specs()}
+_fm = _fd._fall_monitor({"detection_status": "fall", "alarm_fall": True, "dwell_time_max": 120})
+assert _fm["state"] == "fall" and _fm["tone"] == "critical" and _fm["alarms"] == ["fall"]
+_ok = _fd._fall_monitor({"detection_status": "in_bed", "respiratory_rate": 16.0, "respiratory_status": "normal"})
+assert _ok["state"] == "in_bed" and _ok["tone"] == "ok" and _ok["respiration"] == 16.0
+del entries.items[_vs_from:]
+print("vs counter/fall ok")
+
 def em400(distance_mm):
     return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")
 e_tank, rt = make_with("0000000000400001", "EM400-UDL",

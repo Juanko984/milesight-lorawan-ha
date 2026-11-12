@@ -1109,6 +1109,10 @@ def test_alert_escalation():
     wf = alr.device_alerts("Gents WC", "w3", {"sound_flow": {"db": 61, "minutes": 12, "alert": True, "limit_min": 5}}, "Block C")
     assert wf["w3:sound_flow"]["category"] == "facilities" and "left running" in wf["w3:sound_flow"]["message"]
     assert alr.device_alerts("q", "q", {"sound_flow": {"alert": False}}) == {}   # flowing but under the time → no alert
+    oc = alr.device_alerts("Main entrance", "e1", {"capacity_alert": {"inside": 62, "capacity": 50}}, "Lobby")
+    assert oc["e1:over_capacity"]["category"] == "building" and "62 people inside" in oc["e1:over_capacity"]["message"]
+    fa = alr.device_alerts("Room 12", "r1", {"alarm_fall": True, "alarm_motionless": True})
+    assert fa["r1:alarm_fall"]["severity"] == "critical" and fa["r1:alarm_motionless"]["severity"] == "critical"
 
 
 def test_ns_api_helpers():

@@ -94,6 +94,25 @@ views:
           - type: custom:milesight-spaces-card
             grid_options: {columns: full}
       - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: People counters
+            icon: mdi:account-group
+          # VS people counters (per entrance / passage): inside now, in / out / net today, capacity + occupancy trend.
+          - type: custom:milesight-people-counter-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Fall detection & presence
+            icon: mdi:account-alert
+          # VS373 radar: in bed / out of bed / vacant / fall, respiration and dwell. A fall / motionless alarm is a
+          # critical Safety alert. Hides itself when there are no VS373s.
+          - type: custom:milesight-fall-card
+            grid_options: {columns: full}
+      - type: grid
         cards:
           - type: heading
             heading: Occupancy today

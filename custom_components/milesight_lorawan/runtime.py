@@ -663,8 +663,12 @@ class DeviceRuntime:
             specs.append(EntitySpec("energy_monitor", "Energy", icon="mdi:flash"))
         if self._gas_applies():      # a GS odour / vape detector → a Gas & vape card
             specs.append(EntitySpec("gas_monitor", "Gas & vape", icon="mdi:scent"))
-        if self.occupancy is not None and self.model.key.startswith("VS"):   # a VS occupancy / people sensor → Spaces
+        if self.occupancy is not None and self.model.key.startswith("VS") and not self._counter_applies():   # VS occupancy → Spaces
             specs.append(EntitySpec("space", "Space", icon="mdi:seat"))
+        if self._counter_applies():  # a VS people counter → the People counter card
+            specs.append(EntitySpec("people_counter", "People counter", unit="people", icon="mdi:account-group"))
+        if "vs373" in self.model.features:   # VS373 radar fall detection → the Fall / safety card
+            specs.append(EntitySpec("fall_monitor", "Fall detection", icon="mdi:account-alert"))
         if (getattr(self.model, "gangs", 0) or 0) >= 1 and self.model.control:   # a WS558 / switch → the Light card
             specs.append(EntitySpec("switch_panel", "Switch panel", icon="mdi:light-switch"))
         if "ws302" in self.model.features:   # a WS302 sound sensor → the Sound / water-flow card
@@ -961,8 +965,8 @@ class DeviceRuntime:
     # ---------------------------------------------------------------- VS occupancy / space
     def _space(self, v: dict) -> dict | None:
         """One VS occupancy / people sensor as a 'space': busy / free, people count, since-time and utilisation.
-        Scoped to the VS range (other devices with a presence feature – GS601, WS203, AM30x – have their own cards)."""
-        if self.occupancy is None or not self.model.key.startswith("VS"):
+        Scoped to the VS range (pure people counters have their own card; GS601 / WS203 / AM30x have their own too)."""
+        if self.occupancy is None or not self.model.key.startswith("VS") or self._counter_applies():
             return None
         occupied = v.get("occ_occupied")
         if occupied is None and v.get("occ_status") is None:
@@ -1046,6 +1050,58 @@ class DeviceRuntime:
             "margin": margin, "minutes": minutes, "manual_baseline": manual is not None,
             "flowing": flowing, "flow_since": since, "flow_s": round(dur), "alert": alert,
             "weighting": v.get("sound_weighting"), "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- VS people counter
+    def _counter_applies(self) -> bool:
+        """A VS people counter (passage / entrance): VS132/133/135, VS350/351/360, VS121. Not the occupancy VS321."""
+        return "peoplecount" in self.model.features or self.model.key == "VS121"
+
+    def _people_counter(self, v: dict) -> dict | None:
+        if not self._counter_applies():
+            return None
+        inn, out = _nz(v.get("people_in_today")), _nz(v.get("people_out_today"))
+        inside = _nz(v.get("people_count_all"))
+        if inside is None:
+            inside = _nz(v.get("people_net_today"))
+        if inn is None and out is None and inside is None:
+            return None
+        cap = _nz(self.entry.options.get("capacity")) or None
+        resolve = self._entity_id_resolver()
+        trend_key = "people_count_all" if v.get("people_count_all") is not None else "people_in_today"
+        return {
+            "milesight_role": "people_counter", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "inside": None if inside is None else int(inside),
+            "in_today": None if inn is None else int(inn), "out_today": None if out is None else int(out),
+            "net": None if (inn is None or out is None) else int(inn - out),
+            "capacity": None if not cap else int(cap), "over": bool(cap and inside is not None and inside > cap),
+            "trend_key": trend_key, "trend_entity_id": resolve(trend_key),
+            "in_entity_id": resolve("people_in_today"), "out_entity_id": resolve("people_out_today"),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- VS373 fall detection
+    def _fall_monitor(self, v: dict) -> dict | None:
+        if "vs373" not in self.model.features:
+            return None
+        det = v.get("detection_status")
+        alarms = [(t, v.get(f)) for t, f in (("fall", "alarm_fall"), ("motionless", "alarm_motionless"),
+                                             ("dwell", "alarm_dwell"), ("breathing", "alarm_breathing"),
+                                             ("out of bed", "alarm_out_of_bed"))]
+        active = [t for t, on in alarms if on is True]
+        state = ("fall" if "fall" in active or det == "fall" else det or ("alarm" if active else "normal"))
+        labels = {"fall": "Fall detected", "in_bed": "In bed", "out_of_bed": "Out of bed", "vacant": "Vacant",
+                  "normal": "Normal", "unavailable": "No data"}
+        tone = "critical" if (state == "fall" or "motionless" in active or "breathing" in active) \
+            else "warning" if (state == "out_of_bed" or active) else "ok"
+        return {
+            "milesight_role": "fall_monitor", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "state": state, "state_label": labels.get(state, str(state).replace("_", " ")),
+            "tone": tone, "respiration": _nz(v.get("respiratory_rate")), "respiration_status": v.get("respiratory_status"),
+            "dwell_s": _nz(v.get("dwell_time_max")) or _nz(v.get("dwell_time_avg")),
+            "occupied": det not in ("vacant", None), "alarms": active,
+            "last_alarm": v.get("last_alarm"), "last_alarm_at": v.get("last_alarm_at"),
+            "last_seen": self.meta.get("last_seen"),
         }
 
     def _weather_assess(self, v: dict, ts: float) -> dict | None:
@@ -2023,6 +2079,16 @@ class DeviceRuntime:
         if space is not None:
             v["space"] = space["occupied"]
             self.attrs["space"] = space
+        counter = self._people_counter(v)           # VS people counter → the People counter card
+        if counter is not None:
+            v["people_counter"] = counter["inside"]
+            self.attrs["people_counter"] = counter
+            if counter["over"]:
+                v["capacity_alert"] = {"inside": counter["inside"], "capacity": counter["capacity"]}
+        fall = self._fall_monitor(v)                # VS373 radar fall detection → the Fall / safety card
+        if fall is not None:
+            v["fall_monitor"] = fall["state"]
+            self.attrs["fall_monitor"] = fall
         panel = self._switch_panel(v)               # WS558 / switch: channels + state for the Light card
         if panel is not None:
             v["switch_panel"] = sum(1 for c in panel["channels"] if c["on"] is True)

@@ -472,6 +472,9 @@ SAFETY = {  # value key -> (what, severity)
     "smoke_active": ("Smoke detected", "critical"),
     "gas_active": ("Gas detected", "critical"),
     "alarm_fall": ("Fall detected", "critical"),
+    "alarm_motionless": ("Motionless alarm", "critical"),
+    "alarm_dwell": ("Dwell alarm", "warning"),
+    "alarm_breathing": ("Abnormal breathing", "critical"),
     "vape_active": ("Vaping detected", "warning"),
     "tamper_status": ("Tampered", "warning"),
 }
@@ -565,6 +568,11 @@ def _sensor_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> dic
     if s:
         add("wx_storm", "Storm likely", f"{where}: pressure {esc_trend(s.get('trend'))} – "
             f"{s.get('forecast') or 'unsettled'} weather likely.", "facilities")
+    # VS people counter — over capacity
+    cap = v.get("capacity_alert")
+    if cap:
+        add("over_capacity", "Over capacity",
+            f"{where}: {_num(cap.get('inside'))} people inside (capacity {_num(cap.get('capacity'))}).", "building")
     # WS302 sound — water / tap left running (continuous flow above the quiet baseline past the set time)
     sf = v.get("sound_flow")
     if sf and sf.get("alert"):

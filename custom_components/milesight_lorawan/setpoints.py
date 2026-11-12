@@ -35,6 +35,7 @@ DEVICE = {s.option: s for s in (
     Setpoint("sound_baseline", "Sound baseline (0 = auto)", "dB", 0, 120, 1, "mdi:volume-low", box=True, config=True),
     Setpoint("sound_margin", "Flow margin over baseline", "dB", 2, 40, 1, "mdi:volume-plus", config=True),
     Setpoint("sound_minutes", "Flow alert after", "min", 1, 120, 1, "mdi:timer-alert-outline", config=True),
+    Setpoint("capacity", "Capacity (people)", "people", 0, 100000, 1, "mdi:account-group", box=True, config=True),
 )}
 HUB = {s.option: s for s in (
     Setpoint("irr_target", "Irrigation target soil moisture", "%", 5, 80, 1, "mdi:water-percent"),
@@ -91,6 +92,8 @@ def device_values(rt: Any) -> dict[str, float]:
         out["sound_baseline"] = float(opts.get("sound_baseline") or 0)
         out["sound_margin"] = float(opts.get("sound_margin") or 8)
         out["sound_minutes"] = float(opts.get("sound_minutes") or 5)
+    if getattr(rt, "_counter_applies", None) is not None and rt._counter_applies():   # people-counter capacity
+        out["capacity"] = float(dict(rt.entry.options).get("capacity") or 0)
     return out
 
 

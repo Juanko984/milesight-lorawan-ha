@@ -6196,6 +6196,164 @@
     }
   }
 
+  // ================================================================ VS people counter (per entrance / passage)
+  // Self-discovers the "people_counter" role sensors: how many inside now, in / out / net today, capacity, and the
+  // day's occupancy trend (reusing the trendline). Capacity (set per device) draws the bar and an over-capacity flag.
+  class PeopleCounterCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "people_counter") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); if (st.attributes.trend_entity_id) ids.push(st.attributes.trend_entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig(); if (sig !== null && sig === this._lastSig) return; this._lastSig = sig; this._render();
+    }
+    _tile(val, label, cls) { return h("div", { class: "pctile" }, [h("div", { class: "v" + (cls ? " " + cls : "") }, val == null ? "—" : String(val)), h("div", { class: "k" }, label)]); }
+    _block(st) {
+      const a = st.attributes, id = st.entity_id, inside = num(a.inside), cap = num(a.capacity);
+      const pct = cap ? clamp(inside / cap * 100, 0, 100) : null;
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: a.over ? { background: "color-mix(in srgb,var(--ms-bad) 16%,transparent)", color: "var(--ms-bad)" } : {} }, [h("ha-icon", { icon: "mdi:walk" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "People counter")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const hero = h("div", { class: "pchero" }, [
+        h("div", { class: "pcbig" + (a.over ? " over" : "") }, [inside == null ? "—" : String(inside), h("small", {}, " inside")]),
+        cap ? h("div", { class: "pccap" }, [h("div", { class: "t" }, inside + " / " + cap + " · " + Math.round(pct) + "%"),
+          h("div", { class: "b" }, [h("i", { class: a.over ? "over" : pct > 80 ? "warn" : "", style: { width: Math.round(pct) + "%" } })])]) : null,
+      ]);
+      const tiles = h("div", { class: "pcflow" }, [this._tile(a.in_today, "in today", "in"), this._tile(a.out_today, "out today", "out"),
+        this._tile(a.net == null ? null : (a.net >= 0 ? "+" + a.net : a.net), "net")]);
+      let trend = null;
+      if (a.trend_entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[id];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[id] = el; }
+        const inside_trend = a.trend_key === "people_count_all";
+        if (el.__cfgSig !== a.trend_entity_id) {
+          el.setConfig({ entity: a.trend_entity_id, name: inside_trend ? "Inside now" : "People in today", sub: a.model,
+            unit: "people", color: "var(--ms-accent)", max: inside_trend && cap ? cap : undefined });
+          el.__cfgSig = a.trend_entity_id;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      }
+      return h("div", { class: "ablock" }, [head, hero, tiles, trend].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .pchero{display:flex;align-items:center;gap:16px;margin:14px 0 2px}
+        .pcbig{font-size:36px;font-weight:720;color:var(--ms-ink);line-height:1} .pcbig small{font-size:14px;color:var(--ms-ink2);font-weight:600} .pcbig.over{color:var(--ms-bad)}
+        .pccap{margin-left:auto;flex:1;max-width:170px} .pccap .t{font-size:11px;color:var(--ms-ink2);text-align:right}
+        .pccap .b{height:9px;border-radius:5px;background:color-mix(in srgb,var(--ms-ink) 10%,transparent);overflow:hidden;margin-top:4px}
+        .pccap .b i{display:block;height:100%;background:var(--ms-accent);border-radius:5px} .pccap .b i.warn{background:var(--ms-warn)} .pccap .b i.over{background:var(--ms-bad)}
+        .pcflow{display:flex;gap:9px;margin-top:12px} .pctile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:8px 10px;text-align:center}
+        .pctile .v{font-size:17px;font-weight:720;color:var(--ms-ink)} .pctile .v.in{color:var(--ms-good)} .pctile .v.out{color:var(--ms-ink2)}
+        .pctile .k{font-size:10.5px;color:var(--ms-ink2);margin-top:2px}
+        .atrend{margin-top:12px;padding-top:4px;border-top:1px solid var(--ms-line)} .atrend milesight-trendline-card{display:block}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "People counters"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ VS373 radar fall detection
+  // Self-discovers the "fall_monitor" role sensors: presence state (in bed / out of bed / vacant / fall), respiration,
+  // dwell and the last alarm. A fall / motionless / dwell alarm raises a Safety alert.
+  const FALL_ICON = { fall: "mdi:account-alert", in_bed: "mdi:bed", out_of_bed: "mdi:bed-empty", vacant: "mdi:account-off", normal: "mdi:account-check", alarm: "mdi:alert" };
+  class FallCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "fall_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _tile(val, unit, label) { return h("div", { class: "fdtile" }, [h("div", { class: "v" }, val == null ? "—" : [String(val), unit ? h("small", {}, " " + unit) : null]), h("div", { class: "k" }, label)]); }
+    _block(st) {
+      const a = st.attributes, tone = a.tone === "critical" ? "bad" : a.tone === "warning" ? "warn" : "ok";
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: { background: "color-mix(in srgb,var(--ms-" + (tone === "bad" ? "bad" : tone === "warn" ? "warn" : "good") + ") 16%,transparent)", color: "var(--ms-" + (tone === "bad" ? "bad" : tone === "warn" ? "warn" : "good") + ")" } }, [h("ha-icon", { icon: "mdi:radar" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Fall detection")),
+          h("div", { class: "ahs" }, esc((a.model || "VS373") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const hero = h("div", { class: "fdhero" }, [
+        h("div", { class: "fdbadge " + tone }, [h("ha-icon", { icon: FALL_ICON[a.state] || "mdi:radar" })]),
+        h("div", { class: "fdst" }, [h("div", { class: "s " + tone }, esc(a.state_label || "—")),
+          h("div", { class: "m" }, a.occupied ? "occupied" + (a.respiration_status ? " · breathing " + esc(a.respiration_status) : "") : "no-one in the zone")]),
+      ]);
+      const tiles = h("div", { class: "fdtiles" }, [
+        this._tile(a.respiration == null ? null : Math.round(a.respiration), "bpm", "respiration"),
+        this._tile(a.dwell_s == null ? null : Math.round(a.dwell_s / 60), "min", "dwell"),
+        this._tile(a.occupied ? "Occupied" : "Vacant", "", "presence"),
+      ]);
+      const alarmed = (a.alarms || []).length > 0;
+      const banner = alarmed
+        ? h("div", { class: "fdalarm bad" }, [h("span", {}, "● "), (a.alarms.join(", ")) + " alarm" + (a.alarms.length > 1 ? "s" : "") + (a.last_alarm_at ? " · " + ago(a.last_alarm_at * 1000) : "")])
+        : h("div", { class: "fdalarm ok" }, [h("span", {}, "○ "), "No alarms · checked " + ago(a.last_seen ? a.last_seen * 1000 : null)]);
+      return h("div", { class: "ablock" }, [head, hero, tiles, banner]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+        .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .fdhero{display:flex;align-items:center;gap:14px;margin:14px 0 4px}
+        .fdbadge{flex:0 0 auto;width:64px;height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center}
+        .fdbadge ha-icon{--mdc-icon-size:32px}
+        .fdbadge.ok{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .fdbadge.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .fdbadge.bad{background:color-mix(in srgb,var(--ms-bad) 20%,transparent);color:var(--ms-bad)}
+        .fdst{flex:1;min-width:0} .fdst .s{font-size:21px;font-weight:720;color:var(--ms-ink);line-height:1} .fdst .s.bad{color:var(--ms-bad)} .fdst .s.warn{color:var(--ms-warn)}
+        .fdst .m{font-size:12px;color:var(--ms-ink2);margin-top:4px}
+        .fdtiles{display:flex;gap:9px;margin-top:12px} .fdtile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:9px 11px;text-align:center}
+        .fdtile .v{font-size:15px;font-weight:700;color:var(--ms-ink)} .fdtile .v small{font-size:10px;color:var(--ms-ink2)} .fdtile .k{font-size:10px;color:var(--ms-ink2);margin-top:2px}
+        .fdalarm{display:flex;align-items:center;gap:4px;margin-top:12px;padding:9px 11px;border-radius:10px;font-size:12.5px}
+        .fdalarm.bad{background:color-mix(in srgb,var(--ms-bad) 14%,transparent);color:var(--ms-bad);font-weight:600}
+        .fdalarm.ok{border:1px solid var(--ms-line);color:var(--ms-ink2)}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Fall detection"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -7013,7 +7171,9 @@
         GAS_TAG = "milesight-gas-card",
         SOUND_TAG = "milesight-sound-card",
         LIGHT_TAG = "milesight-light-card",
-        SPACES_TAG = "milesight-spaces-card";
+        SPACES_TAG = "milesight-spaces-card",
+        COUNTER_TAG = "milesight-people-counter-card",
+        FALL_TAG = "milesight-fall-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -7074,6 +7234,8 @@
     [SOUND_TAG, SoundCard, "Milesight Sound", "WS302 sound level with a learned baseline and continuous water-flow / 'left running' detection"],
     [LIGHT_TAG, LightControlCard, "Milesight Lights", "WS558 / switch control: per-channel on/off toggles and all-on / all-off"],
     [SPACES_TAG, SpacesCard, "Milesight Spaces", "VS occupancy / people sensors as a list: busy / free, people count and utilisation"],
+    [COUNTER_TAG, PeopleCounterCard, "Milesight People Counter", "VS people counter: inside now, in / out / net today, capacity and the day's occupancy trend"],
+    [FALL_TAG, FallCard, "Milesight Fall Detection", "VS373 radar: presence (in bed / out of bed / fall), respiration, dwell and alarms"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {
