@@ -2,6 +2,12 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.125.1
+- **Fix: the Occupancy card showed nothing and the VS321 Room headline was blank.** The occupancy values
+  (occupied / empty, people, utilisation) were being computed *after* the Room and Occupancy cards read them, so
+  every VS desk / room / bathroom sensor (VS330 / VS340 / VS341 / VS370) was skipped and the VS321 headline had no
+  state. They're now populated first, so the per-device Occupancy cards appear and the Room shows its occupancy.
+
 ## 0.125.0
 - **Per-device VS cards for the room / desk / bathroom sensors (VS321, VS330, VS340, VS341, VS370):**
   - **Room (VS321)** — reuses the AM range's chip-and-trend design: an **occupancy headline** (people count,

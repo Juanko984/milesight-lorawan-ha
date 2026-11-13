@@ -2132,6 +2132,20 @@ class DeviceRuntime:
             pm = next((m for m in gas["metrics"] if m["key"] == gas["primary"]), None)
             v["gas_monitor"] = pm["value"] if pm else None
             self.attrs["gas_monitor"] = gas
+        if self.occupancy is not None:              # occupancy values must be in `v` before the space / workplace cards read them
+            ov = self.occupancy.values(ts)
+            for k, val in ov.items():
+                v[f"occ_{k}"] = val
+            if ov["occupied"]:
+                if ov["vacancy_pending"]:
+                    v["occ_status"] = f"Occupied since {self._hhmm(ov['occupied_since'])} (checking if empty)"
+                else:
+                    n = ov["people_count"]
+                    since = f"Occupied since {self._hhmm(ov['occupied_since'])}"
+                    v["occ_status"] = (f"{since} ({n} {'person' if n == 1 else 'people'})"
+                                       if self.model.counting else since)
+            else:
+                v["occ_status"] = "Empty" if self.meta.get("last_seen") else "Waiting for data"
         space = self._space(v, ts)                  # VS occupancy / people sensor → the Spaces + Occupancy cards
         if space is not None:
             v["space"] = space["occupied"]
@@ -2248,21 +2262,6 @@ class DeviceRuntime:
                 v[f"{feature}_status"] = off_text
             else:
                 v[f"{feature}_status"] = "Waiting for data"
-
-        if self.occupancy is not None:
-            ov = self.occupancy.values(ts)
-            for k, val in ov.items():
-                v[f"occ_{k}"] = val
-            if ov["occupied"]:
-                if ov["vacancy_pending"]:
-                    v["occ_status"] = f"Occupied since {self._hhmm(ov['occupied_since'])} (checking if empty)"
-                else:
-                    n = ov["people_count"]
-                    since = f"Occupied since {self._hhmm(ov['occupied_since'])}"
-                    v["occ_status"] = (f"{since} ({n} {'person' if n == 1 else 'people'})"
-                                       if self.model.counting else since)
-            else:
-                v["occ_status"] = "Empty" if self.meta.get("last_seen") else "Waiting for data"
 
         self._purpose_values(v, ts)
         for option, val in _setpoints.device_values(self).items():
