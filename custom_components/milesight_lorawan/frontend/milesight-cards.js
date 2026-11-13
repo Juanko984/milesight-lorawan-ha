@@ -6354,6 +6354,167 @@
     }
   }
 
+  // human duration: 45 → "45s", 360 → "6m", 6000 → "1h 40m"
+  function _hdur(s) {
+    if (s == null) return "—";
+    if (s < 90) return Math.round(s) + "s";
+    const m = Math.round(s / 60);
+    if (m < 60) return m + "m";
+    const r = m % 60;
+    return Math.floor(m / 60) + "h" + (r ? " " + r + "m" : "");
+  }
+
+  // ================================================================ VS321 room / workplace (AM chip-and-trend reuse)
+  // Self-discovers the "workplace" role sensors (VS321). Numeric chips (temperature / humidity / light / utilisation)
+  // drive the trend, with an occupancy headline (people count, occupied-since / empty-for) and per-seat regions.
+  class WorkplaceCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "workplace") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const m of (st.attributes.metrics || [])) if (m.entity_id) ids.push(m.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig(); if (sig !== null && sig === this._lastSig) return; this._lastSig = sig; this._render();
+    }
+    _selKey(roleId, a) {
+      const metrics = a.metrics || [];
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msWorkMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && metrics.some((m) => m.key === s)) return s;
+      return (metrics.find((m) => m.key === a.primary) || metrics[0] || {}).key;
+    }
+    _pick(roleId, key) { this._sel = this._sel || {}; this._sel[roleId] = key; try { localStorage.setItem("msWorkMetric:" + roleId, key); } catch (e) { /* private */ } this._render(); }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, metrics = a.metrics || [], selKey = this._selKey(roleId, a);
+      const sel = metrics.find((m) => m.key === selKey) || metrics[0], busy = a.occupied === true;
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:office-building-marker" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Room")),
+          h("div", { class: "ahs" }, esc((a.model || "VS321") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const when = busy ? "occupied " + _hdur(a.occupied_s) : a.occupied === false ? "empty " + _hdur(a.empty_s) : "";
+      const ochead = h("div", { class: "wkhead" }, [
+        a.people != null ? h("div", { class: "wkppl" }, [String(a.people), h("small", {}, a.people === 1 ? " person" : " people")]) : null,
+        h("span", { class: "wktag " + (busy ? "busy" : "free") }, [h("span", { class: "d" }), (busy ? "Occupied" : a.occupied === false ? "Free" : "—") + (when ? " · " + when : "")]),
+        a.seats_total ? h("div", { class: "wkseats" }, [...Array(Math.min(12, a.seats_total)).keys()].map((i) =>
+          h("span", { class: "seat" + (i < (a.seats_used || 0) ? " on" : "") })).concat([h("span", { class: "sl" }, (a.seats_used || 0) + " / " + a.seats_total)])) : null,
+      ]);
+      const chips = h("div", { class: "achips" }, metrics.map((m) => h("div", { class: "achip" + (m.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, m.key) }, [
+        h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: m.icon }), m.label]),
+        h("div", { class: "achv" }, _airFmt(m.value, m.unit))])));
+      let trend;
+      if (sel && sel.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        if (el.__cfgSig !== sel.entity_id) { el.setConfig({ entity: sel.entity_id, name: sel.label, sub: a.model, unit: sel.unit, color: sel.color }); el.__cfgSig = sel.entity_id; }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "atrend" }, [el]);
+      } else { trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } }, "No reading to trend."); }
+      return h("div", { class: "ablock" }, [head, ochead, chips, trend]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .wkhead{display:flex;align-items:center;gap:12px;margin:13px 0 2px;flex-wrap:wrap}
+        .wkppl{font-size:28px;font-weight:720;color:var(--ms-ink);line-height:1} .wkppl small{font-size:13px;color:var(--ms-ink2);font-weight:600}
+        .wktag{font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;display:inline-flex;align-items:center;gap:6px}
+        .wktag .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+        .wktag.busy{background:color-mix(in srgb,var(--ms-accent) 18%,transparent);color:var(--ms-accent)}
+        .wktag.free{background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+        .wkseats{margin-left:auto;display:flex;gap:4px;align-items:center}
+        .wkseats .seat{width:14px;height:14px;border-radius:4px;background:color-mix(in srgb,var(--ms-ink) 14%,transparent)} .wkseats .seat.on{background:var(--ms-accent)}
+        .wkseats .sl{font-size:11px;color:var(--ms-ink2);margin-left:6px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Rooms"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ VS occupancy per device (desk / room / bathroom)
+  // Self-discovers the "space" role sensors and shows a card per device: a utilisation ring, live occupied / free
+  // with how long it's been in that state, and sessions / peak / longest today (plus light for VS370).
+  class OccupancyCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "space") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _ring(pct, busy) {
+      const p = clamp(num(pct) || 0, 0, 100), R = 32, C = 2 * Math.PI * R, off = C * (1 - p / 100);
+      const col = busy ? "var(--ms-accent)" : "var(--ms-good)";
+      return svgNS(`<svg width="72" height="72" viewBox="0 0 76 76"><circle cx="38" cy="38" r="${R}" fill="none" stroke="color-mix(in srgb,var(--ms-ink) 10%,transparent)" stroke-width="7"/>
+        <circle cx="38" cy="38" r="${R}" fill="none" stroke="${col}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 38 38)"/>
+        <text x="38" y="43" text-anchor="middle" font-size="16" font-weight="700" fill="var(--ms-ink)">${pct == null ? "–" : Math.round(p) + "%"}</text></svg>`);
+    }
+    _tile(val, unit, label) { return h("div", { class: "odtile" }, [h("div", { class: "v" }, val == null ? "—" : [String(val), unit ? h("small", {}, " " + unit) : null]), h("div", { class: "k" }, label)]); }
+    _icon(model) { return model === "VS330" ? "mdi:human-male-female" : model === "VS370" ? "mdi:radar" : "mdi:seat"; }
+    _block(st) {
+      const a = st.attributes, busy = a.occupied === true, counting = a.counting;
+      const word = a.model === "VS330" ? (busy ? "Occupied" : "Vacant") : (busy ? "Occupied" : a.occupied === false ? "Free" : "—");
+      const when = busy ? "in use for " + _hdur(a.occupied_s) : a.occupied === false ? "free for " + _hdur(a.empty_s) : "waiting for data";
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic " + (busy ? "busy" : "free") }, [h("ha-icon", { icon: this._icon(a.model) })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Space")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const hero = h("div", { class: "odhero" }, [h("div", { class: "odring" }, [this._ring(a.utilisation, busy)]),
+        h("div", { class: "odst" }, [h("div", { class: "s " + (busy ? "busy" : "free") }, counting && a.people ? a.people + (a.people === 1 ? " person" : " people") : word),
+          h("div", { class: "m" }, when + (a.utilisation != null ? " · used " + Math.round(a.utilisation) + "% today" : ""))])]);
+      const tiles = a.model === "VS370"
+        ? h("div", { class: "odtiles" }, [this._tile(a.light == null ? null : Math.round(a.light), "lx", "light"),
+            this._tile(a.used_today_s == null ? null : _hdur(a.used_today_s), "", "in use today"), this._tile(a.sessions, "", "sessions")])
+        : h("div", { class: "odtiles" }, [this._tile(a.sessions, "", counting ? "visits" : "sessions"),
+            this._tile(a.used_today_s == null ? null : _hdur(a.used_today_s), "", "in use today"),
+            this._tile(a.longest_s == null ? null : _hdur(a.longest_s), "", "longest")]);
+      return h("div", { class: "ablock" }, [head, hero, tiles]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .aic.free{background:color-mix(in srgb,var(--ms-good) 15%,transparent);color:var(--ms-good)} .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .odhero{display:flex;align-items:center;gap:14px;margin:14px 0 4px}
+        .odring{flex:0 0 auto}
+        .odst{flex:1;min-width:0} .odst .s{font-size:21px;font-weight:720;color:var(--ms-ink);line-height:1} .odst .s.busy{color:var(--ms-accent)} .odst .s.free{color:var(--ms-good)}
+        .odst .m{font-size:12px;color:var(--ms-ink2);margin-top:4px}
+        .odtiles{display:flex;gap:9px;margin-top:12px} .odtile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:8px 10px;text-align:center}
+        .odtile .v{font-size:15px;font-weight:700;color:var(--ms-ink)} .odtile .v small{font-size:10px;color:var(--ms-ink2)} .odtile .k{font-size:10px;color:var(--ms-ink2);margin-top:2px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Occupancy"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -7173,7 +7334,9 @@
         LIGHT_TAG = "milesight-light-card",
         SPACES_TAG = "milesight-spaces-card",
         COUNTER_TAG = "milesight-people-counter-card",
-        FALL_TAG = "milesight-fall-card";
+        FALL_TAG = "milesight-fall-card",
+        WORKPLACE_TAG = "milesight-workplace-card",
+        OCCUPANCY_TAG = "milesight-occupancy-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -7236,6 +7399,8 @@
     [SPACES_TAG, SpacesCard, "Milesight Spaces", "VS occupancy / people sensors as a list: busy / free, people count and utilisation"],
     [COUNTER_TAG, PeopleCounterCard, "Milesight People Counter", "VS people counter: inside now, in / out / net today, capacity and the day's occupancy trend"],
     [FALL_TAG, FallCard, "Milesight Fall Detection", "VS373 radar: presence (in bed / out of bed / fall), respiration, dwell and alarms"],
+    [WORKPLACE_TAG, WorkplaceCard, "Milesight Room", "VS321 room sensor: occupancy headline, seat regions and temp / humidity / light chips that drive the trend"],
+    [OCCUPANCY_TAG, OccupancyCard, "Milesight Occupancy", "VS desk / room / bathroom occupancy: a utilisation ring with live in-use / free time and sessions today"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {

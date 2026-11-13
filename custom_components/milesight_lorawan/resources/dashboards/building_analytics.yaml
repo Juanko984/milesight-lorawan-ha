@@ -93,6 +93,13 @@ views:
           # VS occupancy / people sensors as a live list: busy / free, people count and today's utilisation.
           - type: custom:milesight-spaces-card
             grid_options: {columns: full}
+          # VS321 room sensor: occupancy headline, seat regions and temp / humidity / light chips that drive a trend.
+          - type: custom:milesight-workplace-card
+            grid_options: {columns: full}
+          # Per-device occupancy (desk / room / bathroom / VS370 radar): a utilisation ring, live in-use / free time
+          # and the day's sessions. Hides itself when there are no VS occupancy sensors.
+          - type: custom:milesight-occupancy-card
+            grid_options: {columns: full}
       - type: grid
         column_span: 3
         cards:

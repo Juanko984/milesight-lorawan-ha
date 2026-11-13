@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.125.0
+- **Per-device VS cards for the room / desk / bathroom sensors (VS321, VS330, VS340, VS341, VS370):**
+  - **Room (VS321)** — reuses the AM range's chip-and-trend design: an **occupancy headline** (people count,
+    occupied-for / empty-for), **per-seat regions**, and **temperature / humidity / light / utilisation** chips —
+    click one to drive the trend line.
+  - **Occupancy (VS330 / VS340 / VS341 / VS370)** — a card per device with a **utilisation ring**, a live
+    **occupied / free** status showing **how long** it's been in that state ("in use for 6m", "free for 18m"),
+    and the day's **sessions / in-use time / longest** (plus **light** for the VS370 radar).
+  - Both use the **calculated metrics** — current occupied time, empty time and today's utilisation — and self-discover
+    their devices, hiding when none are present. On the **Building analytics** dashboard under Spaces.
+
 ## 0.124.0
 - **Two more VS cards, completing the VS range:**
   - **People counter (VS121 / VS132 / VS133 / VS135 / VS350 / VS351 / VS360)** — a card per entrance / passage:

@@ -989,11 +989,25 @@ assert _sa["baseline"] == 40 and _sa["threshold"] == 48 and _sa["flowing"] is Tr
 _sa2 = _ws._sound_assess({"sound_level": 61.0, "sound_level_eq": 60.0}, _t0 + 330)   # continuous > 5 min
 assert _sa2["alert"] is True and _sa2["flow_s"] >= 300
 assert _ws._sound_assess({"sound_level": 41.0, "sound_level_eq": 41.0}, _t0 + 400)["flowing"] is False   # quiet → reset
-# VS occupancy → a space
+# VS occupancy → a space (per-device Occupancy card), with occupied / empty time
+_now = time.time()
 _, _vs = make_with("00000000000evs340", "VS340", {}, title="Desk 4", area="Floor 2")
 assert _vs.occupancy is not None and "space" in {sp.key for sp in _vs.extra_specs()}
-_sp = _vs._space({"occ_occupied": True, "occ_status": "Occupied since 09:40", "occ_utilisation_today_pct": 61})
-assert _sp["occupied"] is True and _sp["utilisation"] == 61
+assert "workplace" not in {sp.key for sp in _vs.extra_specs()}            # a VS340 is not a VS321 room
+_sp = _vs._space({"occ_occupied": True, "occ_status": "Occupied since 09:40", "occ_utilisation_today_pct": 61,
+                  "occ_occupied_duration_s": 360, "occ_sessions_today": 5}, _now)
+assert _sp["occupied"] is True and _sp["utilisation"] == 61 and _sp["occupied_s"] == 360 and _sp["empty_s"] is None
+# once empty, empty-for is tracked from the first empty reading
+assert _vs._space({"occ_occupied": False, "occ_status": "Empty"}, _now + 10)["empty_s"] == 0
+assert _vs._space({"occ_occupied": False, "occ_status": "Empty"}, _now + 70)["empty_s"] == 60
+# VS321 room → the AM-style Workplace card (chips + occupancy headline + seats), not a plain Space
+_, _wp = make_with("00000000000evs321", "VS321", {}, title="Meeting room A", area="Floor 2")
+assert "workplace" in {sp.key for sp in _wp.extra_specs()} and "space" not in {sp.key for sp in _wp.extra_specs()}
+_wpr = _wp._workplace({"temperature": 22.4, "humidity": 45, "illuminance": 310, "occ_utilisation_today_pct": 61,
+                       "occ_occupied": True, "occ_people_count": 2, "occ_occupied_duration_s": 7200,
+                       "region_1": True, "region_2": False, "region_3": True}, _now)
+assert _wpr["primary"] == "temperature" and {m["key"] for m in _wpr["metrics"]} >= {"temperature", "humidity", "illuminance", "utilisation"}
+assert _wpr["people"] == 2 and _wpr["occupied_s"] == 7200 and _wpr["seats_used"] == 2 and _wpr["seats_total"] == 3
 # WS558 → a switch panel with 8 channels
 _, _w5 = make_with("00000000000ews558", "WS558", {}, title="Open-plan lighting", area="Floor 2")
 assert "switch_panel" in {sp.key for sp in _w5.extra_specs()}

@@ -663,8 +663,11 @@ class DeviceRuntime:
             specs.append(EntitySpec("energy_monitor", "Energy", icon="mdi:flash"))
         if self._gas_applies():      # a GS odour / vape detector → a Gas & vape card
             specs.append(EntitySpec("gas_monitor", "Gas & vape", icon="mdi:scent"))
-        if self.occupancy is not None and self.model.key.startswith("VS") and not self._counter_applies():   # VS occupancy → Spaces
+        if self.occupancy is not None and self.model.key.startswith("VS") and not self._counter_applies() \
+                and self.model.key != "VS321":   # VS occupancy (not VS321) → Spaces + per-device Occupancy card
             specs.append(EntitySpec("space", "Space", icon="mdi:seat"))
+        if self.model.key == "VS321":    # VS321 room sensor → the AM-style Workplace card
+            specs.append(EntitySpec("workplace", "Workplace", icon="mdi:office-building-marker"))
         if self._counter_applies():  # a VS people counter → the People counter card
             specs.append(EntitySpec("people_counter", "People counter", unit="people", icon="mdi:account-group"))
         if "vs373" in self.model.features:   # VS373 radar fall detection → the Fall / safety card
@@ -963,20 +966,74 @@ class DeviceRuntime:
         }
 
     # ---------------------------------------------------------------- VS occupancy / space
-    def _space(self, v: dict) -> dict | None:
-        """One VS occupancy / people sensor as a 'space': busy / free, people count, since-time and utilisation.
-        Scoped to the VS range (pure people counters have their own card; GS601 / WS203 / AM30x have their own too)."""
-        if self.occupancy is None or not self.model.key.startswith("VS") or self._counter_applies():
+    def _occ_times(self, v: dict, ts: float) -> tuple:
+        """Current occupied-for / empty-for seconds (empty-for tracked here, since the device only reports state)."""
+        occupied = v.get("occ_occupied")
+        occ_s = _nz(v.get("occ_occupied_duration_s")) if occupied else None
+        if occupied:
+            self.meta.pop("_occ_free_since", None)
+            empty_s = None
+        else:
+            since = self.meta.setdefault("_occ_free_since", round(ts))
+            empty_s = max(0.0, ts - since) if occupied is False else None
+        return occ_s, empty_s
+
+    def _space(self, v: dict, ts: float) -> dict | None:
+        """One VS occupancy / people sensor as a 'space': busy / free, people count, how long it's been occupied /
+        empty, sessions and peak today, utilisation and (VS370) light. Scoped to the VS range; VS321 has its own card."""
+        if self.occupancy is None or not self.model.key.startswith("VS") or self._counter_applies() \
+                or self.model.key == "VS321":
             return None
         occupied = v.get("occ_occupied")
         if occupied is None and v.get("occ_status") is None:
             return None
+        occ_s, empty_s = self._occ_times(v, ts)
         return {
             "milesight_role": "space", "device": self.entry.title, "area": self._area(), "model": self.model.key,
             "occupied": occupied, "status": v.get("occ_status"),
             "people": v.get("occ_people_count") if self.model.counting else None,
             "counting": bool(self.model.counting), "since": v.get("occ_occupied_since"),
-            "utilisation": _nz(v.get("occ_utilisation_today_pct")), "last_seen": self.meta.get("last_seen"),
+            "occupied_s": None if occ_s is None else round(occ_s), "empty_s": None if empty_s is None else round(empty_s),
+            "utilisation": _nz(v.get("occ_utilisation_today_pct")), "sessions": v.get("occ_sessions_today"),
+            "peak": v.get("occ_peak_today"), "used_today_s": _nz(v.get("occ_occupied_today_s")),
+            "longest_s": _nz(v.get("occ_longest_session_today_s")), "light": _nz(v.get("illuminance")),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _workplace(self, v: dict, ts: float) -> dict | None:
+        """VS321 room / workplace sensor – reuses the AM chip-and-trend card: temperature / humidity / light /
+        utilisation chips drive the trend, with an occupancy headline (people count, occupied-since) and regions."""
+        if self.model.key != "VS321":
+            return None
+        resolve = self._entity_id_resolver()
+        occ_s, empty_s = self._occ_times(v, ts)
+        catalog = (("temperature", "Temperature", "°C", "mdi:thermometer", "#ff8a5c"),
+                   ("humidity", "Humidity", "%", "mdi:water-percent", "#4ab0c4"),
+                   ("illuminance", "Light", "lx", "mdi:brightness-6", "#ffca28"))
+        metrics = []
+        for key, label, unit, icon, colour in catalog:
+            val = _nz(v.get(key))
+            if val is None:
+                continue
+            metrics.append({"key": key, "label": label, "unit": unit, "icon": icon, "color": colour,
+                            "value": round(val, 2), "entity_id": resolve(key)})
+        util = _nz(v.get("occ_utilisation_today_pct"))
+        if util is not None:
+            metrics.append({"key": "utilisation", "label": "Utilisation", "unit": "%", "icon": "mdi:chart-box",
+                            "color": "#4aa3ff", "value": round(util), "entity_id": None})
+        regions = [v.get(f"region_{n}") for n in range(1, 11)]
+        seats = [bool(r) for r in regions if r is not None]
+        if not metrics:
+            return None
+        primary = next((m for m in metrics if m["key"] == "temperature"), metrics[0])
+        return {
+            "milesight_role": "workplace", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "metrics": metrics, "primary": primary["key"],
+            "occupied": v.get("occ_occupied"), "people": v.get("occ_people_count"),
+            "since": v.get("occ_occupied_since"), "occupied_s": None if occ_s is None else round(occ_s),
+            "empty_s": None if empty_s is None else round(empty_s),
+            "seats_used": sum(1 for s in seats if s), "seats_total": len(seats) or (v.get("occ_region_count") or 0),
+            "last_seen": self.meta.get("last_seen"),
         }
 
     # ---------------------------------------------------------------- WS558 switch / light panel
@@ -2075,10 +2132,15 @@ class DeviceRuntime:
             pm = next((m for m in gas["metrics"] if m["key"] == gas["primary"]), None)
             v["gas_monitor"] = pm["value"] if pm else None
             self.attrs["gas_monitor"] = gas
-        space = self._space(v)                      # VS occupancy / people sensor → the Spaces card
+        space = self._space(v, ts)                  # VS occupancy / people sensor → the Spaces + Occupancy cards
         if space is not None:
             v["space"] = space["occupied"]
             self.attrs["space"] = space
+        work = self._workplace(v, ts)               # VS321 room sensor → the Workplace card (AM-style)
+        if work is not None:
+            pm = next((m for m in work["metrics"] if m["key"] == work["primary"]), None)
+            v["workplace"] = pm["value"] if pm else None
+            self.attrs["workplace"] = work
         counter = self._people_counter(v)           # VS people counter → the People counter card
         if counter is not None:
             v["people_counter"] = counter["inside"]
