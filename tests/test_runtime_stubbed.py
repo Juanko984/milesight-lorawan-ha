@@ -2702,3 +2702,41 @@ assert [s for s, _ in CHATCALLS] == ["mobile_app_piet"], CHATCALLS
 # a DM persists across restarts
 assert d["id"] in {c["id"] for c in mgrc._persist_channels()}
 print("team chat direct messages ok")
+
+# ---- team chat: edit / delete ----
+_ma = mgrc.post("site", "frist draft", author="Juan", user_id="ujuan")
+CHATEVENTS.clear()
+_ed = mgrc.edit_message("site", _ma["id"], "first draft", user_id="ujuan")
+assert _ed["text"] == "first draft" and _ed.get("edited") and any(isinstance(d, dict) and d.get("edit") for d in CHATEVENTS)
+assert mgrc.edit_message("site", _ma["id"], "hijack", user_id="usomeone") is None    # only the author edits
+assert mgrc.edit_message("site", _ma["id"], "   ", user_id="ujuan") is None           # empty edit is rejected
+CHATEVENTS.clear()
+assert mgrc.delete_message("site", _ma["id"], user_id="ujuan") == {"id": _ma["id"]}    # author deletes own
+assert all(m["id"] != _ma["id"] for m in mgrc.messages.get("site", []))
+assert any(isinstance(d, dict) and d.get("delete") for d in CHATEVENTS)
+_mb = mgrc.post("site", "from piet", author="Piet Botha", user_id="upiet")
+assert mgrc.delete_message("site", _mb["id"], user_id="ujuan") is None                 # not yours, not admin
+assert mgrc.delete_message("site", _mb["id"], user_id="ujuan", is_admin=True) == {"id": _mb["id"]}   # admin can
+print("team chat edit/delete ok")
+
+# ---- team chat: job assignment posts a rich card into the Jobs channel ----
+CHATEVENTS.clear()
+mgrc.on_job_assigned({"id": "j7", "title": "Swap filter", "priority": "warn", "device": "AM307", "area": "Office", "assignee": "Piet Botha"})
+_jm = mgrc.messages["jobs"][-1]
+assert _jm["kind"] == "sys" and _jm["job"]["id"] == "j7" and _jm["job"]["url"] == "/milesight-jobs?job=j7"
+assert _jm["job"]["assignee"] == "Piet Botha" and "Piet Botha" in _jm["text"]
+assert mc.preview_text(_jm) == _jm["text"]
+assert mc.preview_text({"job": {"title": "Swap filter"}}) == "📋 Swap filter"   # text-less fallback
+assert any(isinstance(d, dict) and (d.get("message") or {}).get("job") for d in CHATEVENTS)
+print("team chat job assignment ok")
+
+# ---- team chat: a job assignment also arrives as a private DM to the assignee ----
+_bot = mc.user_token("jobs"); _tok = mgrc._assignee_token("Piet Botha")
+_dmid = mc.dm_id(_bot, _tok)
+assert _dmid in mgrc.channels and mgrc.messages.get(_dmid), _dmid
+assert mgrc.messages[_dmid][-1]["job"]["id"] == "j7"
+assert mgrc.can_access("upiet", "Piet Botha", _dmid)        # the assignee can read it
+assert not mgrc.can_access("ujuan", "Juan", _dmid)          # no one else can
+_sp = mgrc.snapshot("upiet")
+assert any(x["id"] == _dmid and x["title"] == "Jobs" for x in _sp["dms"])   # shows as a DM from "Jobs"
+print("team chat job DM ok")

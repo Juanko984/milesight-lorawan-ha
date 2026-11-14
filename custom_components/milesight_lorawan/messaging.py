@@ -299,15 +299,15 @@ class MessagingManager:
 
     def post(self, channel: str, text: str, *, author: str, user_id: str | None = None, role: str = "",
              kind: str = "msg", push: bool = False, image: str | None = None,
-             loc: dict | None = None, via: str = "") -> dict[str, Any] | None:
+             loc: dict | None = None, via: str = "", job: dict | None = None) -> dict[str, Any] | None:
         text = (text or "").strip()
-        if (not text and not image and not loc) or channel not in self.channels:
+        if (not text and not image and not loc and not job) or channel not in self.channels:
             return None
         if user_id:
             self.users[user_id] = author
         mentions = mc.parse_mentions(text, self.worker_names()) if kind == "msg" else []
         msg = mc.new_message(channel, text, author=author, user_id=user_id, role=role, kind=kind,
-                             mentions=mentions, image=image, loc=loc, existing=self._all_ids(), via=via)
+                             mentions=mentions, image=image, loc=loc, existing=self._all_ids(), via=via, job=job)
         self.messages.setdefault(channel, [])
         self.messages[channel] = mc.trim(self.messages[channel] + [msg])
         if user_id:                                        # the author has implicitly read their own channel
@@ -343,6 +343,36 @@ class MessagingManager:
         async_dispatcher_send(self.hass, SIGNAL_CHAT.format(self.entry.entry_id),
                               {"read": {"channel": channel, "user_id": user_id,
                                         "name": self.users.get(user_id) or "Someone", "ts": ts}})
+
+    def edit_message(self, channel: str, msg_id: str, text: str, *, user_id: str | None) -> dict[str, Any] | None:
+        """Edit the text of your own message in place (re-resolves @mentions, stamps an 'edited' time)."""
+        text = (text or "").strip()
+        m = next((x for x in self.messages.get(channel, []) if x.get("id") == msg_id), None)
+        if m is None or m.get("kind") != "msg" or not text:
+            return None
+        if not (user_id and m.get("user_id") == user_id):     # only the author may edit
+            return None
+        m["text"] = text
+        m["edited"] = mc.now()
+        m["mentions"] = mc.parse_mentions(text, self.worker_names())
+        self._save()
+        async_dispatcher_send(self.hass, SIGNAL_CHAT.format(self.entry.entry_id),
+                              {"edit": {"channel": channel, "message": m}})
+        return m
+
+    def delete_message(self, channel: str, msg_id: str, *, user_id: str | None, is_admin: bool = False) -> dict | None:
+        """Remove a message. The author can delete their own; an admin can delete any."""
+        msgs = self.messages.get(channel) or []
+        m = next((x for x in msgs if x.get("id") == msg_id), None)
+        if m is None:
+            return None
+        if not ((user_id and m.get("user_id") == user_id) or is_admin):
+            return None
+        self.messages[channel] = [x for x in msgs if x.get("id") != msg_id]
+        self._save()
+        async_dispatcher_send(self.hass, SIGNAL_CHAT.format(self.entry.entry_id),
+                              {"delete": {"channel": channel, "id": msg_id}})
+        return {"id": msg_id}
 
     async def save_image(self, data_url: str) -> str | None:
         """Decode a small base64 image from the composer, write it under config/www, return its /local URL."""
@@ -460,3 +490,42 @@ class MessagingManager:
     @callback
     def on_job(self, title: str) -> None:
         self.post("jobs", title, author="Jobs", kind="sys")
+
+    def _assignee_token(self, name: str) -> str | None:
+        """The DM participant token for a job assignee: their HA login if their name matches one, else a worker."""
+        if not name:
+            return None
+        for uid, nm in self.users.items():
+            if nm and nm.lower() == str(name).lower():
+                return mc.user_token(uid)
+        return mc.worker_token(name)
+
+    def _jobs_bot_dm(self, assignee_token: str, assignee_name: str) -> str:
+        """The 1:1 conversation between the 'Jobs' bot and an assignee (so job cards arrive as a private DM)."""
+        bot = mc.user_token("jobs")
+        cid = mc.dm_id(bot, assignee_token)
+        if cid not in self.channels:
+            self.channels[cid] = {"id": cid, "kind": "dm", "title": assignee_name, "icon": "mdi:clipboard-account",
+                                  "meta": {"participants": sorted([bot, assignee_token]),
+                                           "names": {bot: "Jobs", assignee_token: assignee_name or "Teammate"}}}
+            self._save()
+            self._broadcast_channels()
+        return cid
+
+    @callback
+    def on_job_assigned(self, job: dict) -> None:
+        """Post a job as a rich card (title, device/area/priority/due + a link) into the Jobs channel, and also
+        as a private DM from the 'Jobs' bot to the assignee."""
+        jid = job.get("id")
+        card = {"id": jid, "title": job.get("title") or "Job", "priority": job.get("priority"),
+                "device": job.get("device"), "area": job.get("area"), "assignee": job.get("assignee"),
+                "due": job.get("due"), "status": job.get("status") or "todo",
+                "url": f"/milesight-jobs?job={jid}" if jid else "/milesight-jobs"}
+        who = job.get("assignee")
+        text = (f"Assigned to {who}" if who else "New job") + f" · {card['title']}"
+        self.post("jobs", text, author="Jobs", kind="sys", job=dict(card))
+        if who:                                            # a private copy straight to the assignee
+            tok = self._assignee_token(who)
+            if tok:
+                self.post(self._jobs_bot_dm(tok, who), f"You've been assigned a job · {card['title']}",
+                          author="Jobs", kind="sys", job=dict(card))

@@ -2,6 +2,25 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.146.0
+- **Job cards: a private DM to the assignee, plus due date and Start / Done on the card.**
+  - Assigning a job now also sends the job card as a **private DM** from a "Jobs" bot straight to the assignee
+    (in addition to the Jobs channel post and the phone push), so it lands in their own conversation list.
+  - The job card now shows the **due date** and, for an open job, **Start** and **Done** buttons that move the job
+    on the board without leaving chat (it reflects "In progress" / "Done" once actioned). "View job" still opens the
+    full detail.
+
+## 0.145.0
+- **Team chat: unread total, edit / delete, and job cards.**
+  - **Unread count on the home screen** — the header now shows the total number of unread messages (channels +
+    DMs) next to "Team chat", matching the per-conversation badges and the sidebar badge.
+  - **Edit & delete messages** — hover (or tap) your own message for pencil / trash actions; edits show an
+    "edited" marker and re-resolve @mentions, deletes remove the message live. Admins can delete anyone's message.
+    In a DM these stay private to the two participants like everything else.
+  - **Job assignments come through as a message** — assigning a job (or creating one with an assignee) now posts a
+    **job card** into the Jobs channel: title, assignee, device and area, with a **View job** button that opens
+    that job's detail on the Jobs board (`?job=<id>` deep-link). The phone push to the assignee is unchanged.
+
 ## 0.144.0
 - **Team chat: direct (1:1) messages and a conversation-list home screen.**
   - **Conversation list is now the main screen.** Opening Team chat shows a list of conversations — Channels,

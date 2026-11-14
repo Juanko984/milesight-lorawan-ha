@@ -69,7 +69,7 @@ def parse_mentions(text: str, names: Iterable[str]) -> list[str]:
 def new_message(channel: str, text: str, *, author: str, user_id: str | None = None, role: str = "",
                 kind: str = "msg", mentions: list[str] | None = None, image: str | None = None,
                 loc: dict | None = None, existing: Iterable[str] = (), ts: float | None = None,
-                via: str = "") -> dict[str, Any]:
+                via: str = "", job: dict | None = None) -> dict[str, Any]:
     msg = {
         "id": make_id(existing), "channel": channel, "ts": round(ts if ts is not None else now(), 3),
         "author": str(author), "user_id": user_id, "role": str(role or ""), "kind": kind,
@@ -77,6 +77,8 @@ def new_message(channel: str, text: str, *, author: str, user_id: str | None = N
     }
     if via:
         msg["via"] = str(via)
+    if job:
+        msg["job"] = job
     if image:
         msg["image"] = str(image)
     if loc and loc.get("lat") is not None and loc.get("lon") is not None:
@@ -88,6 +90,8 @@ def preview_text(m: dict[str, Any]) -> str:
     """One-line preview of a message for the channel list (handles photo / location with no text)."""
     if m.get("text"):
         return str(m["text"])
+    if m.get("job"):
+        return "📋 " + str((m["job"] or {}).get("title") or "Job")
     if m.get("image"):
         return "📷 Photo"
     if m.get("loc"):

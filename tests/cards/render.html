@@ -420,13 +420,17 @@
            messages: (msg.channel === "site" || !msg.channel) ? [
              { id: "m1", channel: "site", ts: Date.now() / 1000 - 3600, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "Morning — fridges first, then the pumps at borehole 2." },
              { id: "m2", channel: "site", ts: Date.now() / 1000 - 3000, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Vaccine fridge above 8 °C · critical" },
+             { id: "mjob", channel: "site", ts: Date.now() / 1000 - 2400, author: "Jobs", user_id: null, role: "", kind: "sys", text: "Assigned to Piet · Replace vaccine-fridge probe", job: { id: "j42", title: "Replace vaccine-fridge probe", priority: "warn", device: "TS301", area: "Pharmacy", assignee: "Piet", due: Date.now() / 1000 + 2 * 86400, status: "todo", url: "/milesight-jobs?job=j42" } },
              { id: "m3", channel: "site", ts: Date.now() / 1000 - 1800, author: "Anna", user_id: "u-anna", role: "Cleaner", kind: "msg", text: "Toilets restocked. @Piet soap dispenser is low.", image: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTQwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE0MCIgZmlsbD0iIzM2YzA4YSIvPjwvc3ZnPg==" },
              { id: "m3b", channel: "site", ts: Date.now() / 1000 - 1700, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "At the borehole now", loc: { lat: -33.9249, lon: 18.4241 } },
              { id: "m3c", channel: "site", ts: Date.now() / 1000 - 1600, author: "Koos", user_id: "u-koos", role: "Technician", kind: "msg", text: "On my way, 10 min out", via: "phone" },
-             { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store." } ]
+             { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store.", edited: Date.now() / 1000 - 1400 } ]
              : (msg.channel === "dm:u-juan~u-riaan") ? [
                { id: "d1", channel: "dm:u-juan~u-riaan", ts: Date.now() / 1000 - 600, author: "Riaan du Plessis", user_id: "u-riaan", role: "Manager", kind: "msg", text: "Did the reefer come right?" },
                { id: "d2", channel: "dm:u-juan~u-riaan", ts: Date.now() / 1000 - 300, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Yep, probe 2 is back in range." } ] : [] });
+       }
+       if (msg && (msg.type === "milesight_lorawan/chat/edit" || msg.type === "milesight_lorawan/chat/delete")) {
+         return Promise.resolve({ ok: true });
        }
        if (msg && msg.type === "milesight_lorawan/chat/dm") {
          return Promise.resolve({ channel: { id: "dm:u-juan~" + msg.peer, kind: "dm", title: msg.name || "Teammate", icon: "mdi:account", meta: { participants: ["u-juan", msg.peer] } } });
@@ -438,6 +442,7 @@
    areas: { a1: { area_id: "a1", name: "Cold room" }, a2: { area_id: "a2", name: "Yard" }, a3: { area_id: "a3", name: "Office" } },
    callService: () => {},
    callWS: (msg) => {
+     if (msg && msg.type === "milesight_lorawan/jobs/status") { return Promise.resolve({ ok: true }); }
      if (msg && msg.type === "history/history_during_period") {
        const id = msg.entity_ids[0]; const cur = parseFloat(S[id] && S[id].state); const c = isFinite(cur) ? cur : 10;
        const base = c * 0.45, n = 32, start = Date.parse(msg.start_time), end = Date.now(), arr = [];

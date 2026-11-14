@@ -7519,6 +7519,21 @@
         return;
       }
       if (ev.channels_changed) { this._refetch(); return; }   // a channel was created / renamed / archived
+      if (ev.edit) {        // a message was edited
+        const e = ev.edit;
+        if (e.channel === this._active && this._view === "thread") {
+          const i = (this._messages || []).findIndex((x) => x.id === e.message.id);
+          if (i >= 0) { this._messages[i] = e.message; this._render(); }
+        }
+        return;
+      }
+      if (ev.delete) {      // a message was removed
+        const d = ev.delete;
+        if (d.channel === this._active && this._view === "thread") {
+          this._messages = (this._messages || []).filter((x) => x.id !== d.id); this._render();
+        }
+        return;
+      }
       if (ev.read) {        // a read receipt: update this channel's readers live
         if (ev.read.channel === this._active && ev.read.user_id !== this._uid) {
           this._readers = (this._readers || []).filter((r) => r.name !== ev.read.name);
@@ -7566,6 +7581,18 @@
       this._render();
       try { await this._hass.connection.sendMessagePromise(data); } catch (e) { /* surfaced by HA */ }
     }
+    async _editMessage(m) {
+      let text; try { text = window.prompt("Edit message", m.text || ""); } catch (e) { text = null; }
+      if (text == null) return;
+      text = text.trim();
+      if (!text || text === (m.text || "")) return;
+      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/edit", channel: this._active, id: m.id, text }); } catch (e) { /* surfaced by HA */ }
+    }
+    async _deleteMessage(m) {
+      let ok = true; try { ok = window.confirm("Delete this message?"); } catch (e) { ok = true; }
+      if (!ok) return;
+      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/delete", channel: this._active, id: m.id }); } catch (e) { /* surfaced by HA */ }
+    }
     _attach() {
       const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
       inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) this._downscale(f); };
@@ -7593,8 +7620,39 @@
       const parts = String(text).split(/(@[\w'\-]+)/g);
       return parts.map((p) => p.startsWith("@") ? h("span", { class: "mention" }, p) : p);
     }
+    _openJob(url) { try { history.pushState(null, "", url || "/milesight-jobs"); window.dispatchEvent(new Event("location-changed")); } catch (e) { /* */ } }
+    _jobDue(due) {
+      if (due == null || due === "") return null;
+      let d = null;
+      if (typeof due === "number") d = new Date(due * 1000);
+      else { const t = Date.parse(due); if (!isNaN(t)) d = new Date(t); }
+      if (!d) return String(due);
+      try { return "Due " + d.toLocaleDateString([], { month: "short", day: "numeric" }); } catch (e) { return "Due " + d.toDateString(); }
+    }
+    _jobStatus(job, status) {
+      try { this._hass.callWS({ type: "milesight_lorawan/jobs/status", job_id: job.id, status, hub: this._hub }); } catch (e) { /* surfaced by HA */ }
+      job.status = status; this._render();
+    }
+    _jobCard(job) {
+      const tone = { crit: "bad", warn: "warn", info: "accent", ok: "good" }[job.priority] || "accent";
+      const chip = (icon, txt) => txt ? h("span", { class: "jcchip" }, [h("ha-icon", { icon, style: { "--mdc-icon-size": "13px" } }), " " + esc(String(txt))]) : null;
+      const status = job.status || "todo";
+      const foot = [h("button", { class: "jcbtn", onclick: () => this._openJob(job.url) }, [h("ha-icon", { icon: "mdi:open-in-new", style: { "--mdc-icon-size": "15px" } }), " View job"])];
+      if (job.id) {
+        if (status === "todo") foot.push(h("button", { class: "jcbtn2", onclick: () => this._jobStatus(job, "doing") }, "Start"));
+        if (status === "todo" || status === "doing") foot.push(h("button", { class: "jcbtn2 p", onclick: () => this._jobStatus(job, "done") }, "Done"));
+        if (status === "done") foot.push(h("span", { class: "jcstate done" }, [h("ha-icon", { icon: "mdi:check-circle", style: { "--mdc-icon-size": "15px" } }), " Done"]));
+        else if (status === "doing") foot.push(h("span", { class: "jcstate" }, "In progress"));
+      }
+      return h("div", { class: "jobcard " + tone }, [
+        h("div", { class: "jchd" }, [h("ha-icon", { icon: "mdi:clipboard-check-outline" }), h("div", { class: "jctitle" }, esc(job.title || "Job"))]),
+        h("div", { class: "jcmeta" }, [chip("mdi:account", job.assignee), chip("mdi:leak", job.device), chip("mdi:map-marker", job.area), chip("mdi:calendar", this._jobDue(job.due))].filter(Boolean)),
+        h("div", { class: "jcfoot" }, foot),
+      ]);
+    }
     _content(m) {
       const out = [];
+      if (m.job) out.push(this._jobCard(m.job));
       if (m.image) out.push(h("a", { class: "imgw", href: m.image, target: "_blank", rel: "noopener" }, [h("img", { src: m.image, loading: "lazy" })]));
       if (m.loc) {
         const { lat, lon } = m.loc, d = 0.006;
@@ -7608,9 +7666,18 @@
       return out;
     }
     _message(m, prevAuthor) {
-      if (m.kind === "sys") return h("div", { class: "sys" }, this._mentionify(m.text || ""));
+      if (m.kind === "sys") {
+        if (m.job) return h("div", { class: "sysjob" }, [m.text ? h("div", { class: "sysjobt" }, this._mentionify(m.text)) : null, this._jobCard(m.job)].filter(Boolean));
+        return h("div", { class: "sys" }, this._mentionify(m.text || ""));
+      }
       const me = m.user_id && this._uid ? m.user_id === this._uid : (m.author === "You");
       const grouped = prevAuthor === m.author;
+      const canEdit = me && m.kind === "msg";
+      const canDel = canEdit || (this._canManage && m.kind === "msg");
+      const acts = (canEdit || canDel) ? h("span", { class: "msgact" }, [
+        canEdit ? h("button", { class: "ma", title: "Edit", onclick: () => this._editMessage(m) }, [h("ha-icon", { icon: "mdi:pencil-outline" })]) : null,
+        canDel ? h("button", { class: "ma", title: "Delete", onclick: () => this._deleteMessage(m) }, [h("ha-icon", { icon: "mdi:trash-can-outline" })]) : null,
+      ].filter(Boolean)) : null;
       return h("div", { class: "msg" + (me ? " me" : "") }, [
         grouped ? h("div", { class: "av ph" }) : this._avatar(m.author, me),
         h("div", { class: "body" }, [
@@ -7618,7 +7685,11 @@
             m.role ? h("span", { class: "role" }, esc(m.role)) : null,
             m.via === "phone" ? h("span", { class: "via", title: "Replied from phone" }, "📱") : null,
             h("span", {}, this._fmtTime(m.ts))].filter(Boolean)),
-          h("div", { class: "bub" + (m.image && !m.text && !m.loc ? " bare" : "") }, this._content(m)),
+          h("div", { class: "bubrow" }, [
+            h("div", { class: "bub" + (m.image && !m.text && !m.loc ? " bare" : "") }, this._content(m).concat(
+              m.edited ? [h("span", { class: "edited" }, "edited")] : [])),
+            acts,
+          ].filter(Boolean)),
         ]),
       ]);
     }
@@ -7763,10 +7834,13 @@
         ]));
       }
       const onCount = (this._online || []).length;
+      const totalUnread = chans.reduce((s, c) => s + (c.unread || 0), 0) + dms.reduce((s, c) => s + (c.unread || 0), 0);
       this._card(h("div", { class: "chatwrap list" + (this.panel ? " panel" : "") }, [
         h("div", { class: "chd" }, [h("div", { class: "cic" }, [h("ha-icon", { icon: "mdi:chat" })]),
-          h("div", { class: "ctitle" }, [h("div", { class: "t" }, "Team chat"),
-            h("div", { class: "s" }, onCount + (onCount === 1 ? " person online" : " people online"))]),
+          h("div", { class: "ctitle" }, [h("div", { class: "t" }, ["Team chat",
+            totalUnread ? h("span", { class: "hdbadge" }, totalUnread > 99 ? "99+" : String(totalUnread)) : null].filter(Boolean)),
+            h("div", { class: "s" }, totalUnread ? (totalUnread + (totalUnread === 1 ? " unread" : " unread") + " · " + onCount + " online")
+              : (onCount + (onCount === 1 ? " person online" : " people online")))]),
           h("div", { class: "chdsp" }),
           h("button", { class: "mbtn", title: this._notifyMuted() ? "Message alerts off — click to enable" : "Message alerts on — click to mute",
             onclick: () => this._toggleNotify() }, [h("ha-icon", { icon: this._notifyMuted() ? "mdi:bell-off-outline" : "mdi:bell-outline" })]),
@@ -7848,7 +7922,13 @@
     .cvbadge{flex:0 0 auto;background:var(--ms-accent);color:#fff;font-size:10.5px;font-weight:700;border-radius:999px;padding:0 6px;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center}
     .cvgo{color:var(--ms-ink2);flex:0 0 auto} .chatwrap.list .stream{display:none}
     .cic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent)} .cic ha-icon{--mdc-icon-size:18px}
-    .ctitle .t{font-size:15px;font-weight:650;color:var(--ms-ink)} .ctitle .s{font-size:11.5px;color:var(--ms-ink2)}
+    .ctitle .t{font-size:15px;font-weight:650;color:var(--ms-ink);display:flex;align-items:center;gap:7px} .ctitle .s{font-size:11.5px;color:var(--ms-ink2)}
+    .hdbadge{background:var(--ms-accent);color:#fff;font-size:10.5px;font-weight:700;border-radius:999px;padding:0 6px;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center}
+    .bubrow{display:flex;align-items:center;gap:6px} .msg.me .bubrow{flex-direction:row-reverse}
+    .msgact{display:inline-flex;gap:2px;opacity:0;transition:opacity .12s;flex:0 0 auto} .msg:hover .msgact{opacity:1}
+    @media (hover:none){.msgact{opacity:.55}}
+    .msgact .ma{width:24px;height:24px;border-radius:6px;border:0;background:none;color:var(--ms-ink2);cursor:pointer;display:flex;align-items:center;justify-content:center}.msgact .ma:hover{background:color-mix(in srgb,var(--ms-ink) 10%,transparent);color:var(--ms-ink)}.msgact .ma ha-icon{--mdc-icon-size:15px}
+    .edited{font-size:10px;color:var(--ms-ink2);opacity:.8;align-self:flex-end;margin-top:2px}
     .mbtn{width:30px;height:30px;border-radius:8px;background:none;border:1px solid var(--ms-line);color:var(--ms-ink2);cursor:pointer;display:flex;align-items:center;justify-content:center}.mbtn:hover{border-color:var(--ms-accent);color:var(--ms-accent)}.mbtn ha-icon{--mdc-icon-size:17px}
     .people{position:relative}
     .peoplebtn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;background:none;border:1px solid var(--ms-line);color:var(--ms-ink2);cursor:pointer;font:inherit;font-size:12px}.peoplebtn:hover,.peoplebtn.on{border-color:var(--ms-accent);color:var(--ms-ink)}.peoplebtn ha-icon{--mdc-icon-size:17px}.peoplebtn .pc{font-weight:700}
@@ -7887,6 +7967,15 @@
     .locw{display:block;text-decoration:none} .locmap{width:220px;height:120px;border:0;border-radius:9px 9px 0 0;display:block;pointer-events:none}
     .loclbl{display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-ink) 10%,transparent);padding:5px 9px;border-radius:0 0 9px 9px}
     .mention{color:var(--ms-accent);font-weight:600}
+    .sysjob{align-self:center;max-width:94%;display:flex;flex-direction:column;gap:6px} .sysjobt{text-align:center;font-size:11.5px;color:var(--ms-ink2)}
+    .jobcard{border:1px solid var(--ms-line);border-radius:12px;padding:11px 12px;min-width:220px;max-width:300px;box-shadow:inset 3px 0 0 var(--ms-accent);background:color-mix(in srgb,var(--ms-ink) 5%,transparent)}
+    .jobcard.bad{box-shadow:inset 3px 0 0 var(--ms-bad)} .jobcard.warn{box-shadow:inset 3px 0 0 var(--ms-warn)} .jobcard.good{box-shadow:inset 3px 0 0 var(--ms-good)}
+    .jchd{display:flex;align-items:center;gap:8px;color:var(--ms-ink)} .jchd ha-icon{--mdc-icon-size:18px;color:var(--ms-accent);flex:0 0 auto} .jctitle{font-size:13.5px;font-weight:680;line-height:1.2}
+    .jcmeta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px} .jcchip{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:2px 8px}
+    .jcfoot{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+    .jcbtn{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12.5px;font-weight:600;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);border:0;border-radius:8px;padding:7px 12px;cursor:pointer}.jcbtn:hover{background:color-mix(in srgb,var(--ms-accent) 20%,transparent)}
+    .jcbtn2{font:inherit;font-size:12px;font-weight:600;color:var(--ms-ink);background:none;border:1px solid var(--ms-line);border-radius:8px;padding:7px 12px;cursor:pointer}.jcbtn2:hover{border-color:var(--ms-accent);color:var(--ms-accent)}.jcbtn2.p{color:var(--ms-good);border-color:color-mix(in srgb,var(--ms-good) 45%,var(--ms-line))}.jcbtn2.p:hover{background:color-mix(in srgb,var(--ms-good) 14%,transparent)}
+    .jcstate{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ms-ink2)}.jcstate.done{color:var(--ms-good)}
     .receiptrow{display:flex;justify-content:flex-end;min-height:0;padding:0 2px}
     .receipt{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:3px;padding:2px 2px 4px} .receipt ha-icon{color:var(--ms-accent)}
     .comp{border-top:1px solid var(--ms-line);padding:11px 2px 2px;display:flex;flex-direction:column;gap:8px;position:relative}
@@ -7998,10 +8087,17 @@
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     constructor() { super(); this._creating = false; this._toast = null; this._resolving = null; this._viewingId = null; this._history = false; this._q = ""; this._fpri = ""; this._fsrc = ""; this._people = null; }
+    connectedCallback() { if (super.connectedCallback) super.connectedCallback(); this._deepJob = () => this._readJobParam(); window.addEventListener("location-changed", this._deepJob); this._readJobParam(); }
+    disconnectedCallback() { if (this._deepJob) window.removeEventListener("location-changed", this._deepJob); if (super.disconnectedCallback) super.disconnectedCallback(); }
+    _readJobParam() {                                   // open a job's detail when linked to as ?job=<id> (from Team chat)
+      try { const id = new URLSearchParams(location.search).get("job"); if (id && id !== this._viewingId) { this._viewingId = id; if (this._hass) this._render(); } } catch (e) { /* */ }
+    }
     _find() { const S = this._hass.states; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes && S[id].attributes.milesight_role === "jobs") return id; return null; }
     _modalOpen() { return this._creating || this._resolving || this._viewingId || this._history; }
     set hass(hass) {
+      const firstHass = !this._hass;
       this._hass = hass;
+      if (firstHass) this._readJobParam();
       const id = this._find(), s = id ? hass.states[id] : null;
       const sig = s ? s.entity_id + s.last_updated : "none";
       if (this._modalOpen()) { this._lastSig = sig; if (this._viewingId) this._render(); return; }  // keep forms/modals; refresh detail live

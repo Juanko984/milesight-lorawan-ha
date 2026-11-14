@@ -63,8 +63,11 @@ class JobsManager:
             self._push_assignment(job)
             self.refresh()
         chat = getattr(getattr(self.entry, "runtime_data", None), "chat", None)
-        if chat is not None:                           # announce the job in the Team chat's Jobs channel
-            chat.on_job(f"New job: {job.get('title')}" + (f" · {assignee}" if assignee else ""))
+        if chat is not None:                           # announce the job in the Team chat's Jobs channel (rich card)
+            if hasattr(chat, "on_job_assigned"):
+                chat.on_job_assigned(job)
+            else:
+                chat.on_job(f"New job: {job.get('title')}" + (f" · {assignee}" if assignee else ""))
         return job
 
     def set_status(self, jid: str, status: str, resolved_by: str | None = None,
@@ -86,6 +89,9 @@ class JobsManager:
         if changed and who:
             jc.log_event(j, "assigned", time.time(), by=by, note=f"Assigned to {who}")
             self._push_assignment(j)
+            chat = getattr(getattr(self.entry, "runtime_data", None), "chat", None)
+            if chat is not None and hasattr(chat, "on_job_assigned"):   # a reassignment posts the job in Team chat
+                chat.on_job_assigned(j)
         elif changed:
             jc.log_event(j, "unassigned", time.time(), by=by)
         self.refresh()

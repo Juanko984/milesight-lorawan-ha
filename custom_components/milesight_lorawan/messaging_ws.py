@@ -100,6 +100,44 @@ def ws_read(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True})
 
 
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/edit", vol.Required("channel"): str,
+                                  vol.Required("id"): str, vol.Required("text"): str, vol.Optional("hub"): str})
+@callback
+def ws_edit(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with messaging")
+        return
+    name, user_id = _user(connection)
+    if mc.is_dm(msg["channel"]) and not mgr.can_access(user_id, name, msg["channel"]):
+        connection.send_error(msg["id"], "forbidden", "Not your conversation")
+        return
+    m = mgr.edit_message(msg["channel"], msg["id"], msg["text"], user_id=user_id)
+    if m is None:
+        connection.send_error(msg["id"], "invalid", "You can only edit your own messages")
+        return
+    connection.send_result(msg["id"], {"message": m})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/delete", vol.Required("channel"): str,
+                                  vol.Required("id"): str, vol.Optional("hub"): str})
+@callback
+def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with messaging")
+        return
+    name, user_id = _user(connection)
+    if mc.is_dm(msg["channel"]) and not mgr.can_access(user_id, name, msg["channel"]):
+        connection.send_error(msg["id"], "forbidden", "Not your conversation")
+        return
+    out = mgr.delete_message(msg["channel"], msg["id"], user_id=user_id, is_admin=_is_admin(connection))
+    if out is None:
+        connection.send_error(msg["id"], "invalid", "You can't delete that message")
+        return
+    connection.send_result(msg["id"], {"ok": True})
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/dm",
                                   vol.Required("peer"): str, vol.Optional("name"): vol.Any(str, None),
                                   vol.Optional("hub"): str})
@@ -139,7 +177,9 @@ def ws_subscribe(hass: HomeAssistant, connection, msg: dict) -> None:
             ch = (data.get("channel")
                   or (data.get("message") or {}).get("channel")
                   or (data.get("read") or {}).get("channel")
-                  or (data.get("typing") or {}).get("channel"))
+                  or (data.get("typing") or {}).get("channel")
+                  or (data.get("edit") or {}).get("channel")
+                  or (data.get("delete") or {}).get("channel"))
         if ch and mc.is_dm(ch) and not mgr.can_access(sub_uid, sub_name, ch):
             return
         connection.send_message(websocket_api.event_message(msg["id"], data))
@@ -240,6 +280,6 @@ def ws_channel_device(hass: HomeAssistant, connection, msg: dict) -> None:
 
 
 def register(hass: HomeAssistant) -> None:
-    for handler in (ws_list, ws_send, ws_read, ws_subscribe, ws_typing, ws_dm,
+    for handler in (ws_list, ws_send, ws_read, ws_subscribe, ws_typing, ws_dm, ws_edit, ws_delete,
                     ws_channel_create, ws_channel_rename, ws_channel_archive, ws_channel_device):
         websocket_api.async_register_command(hass, handler)
