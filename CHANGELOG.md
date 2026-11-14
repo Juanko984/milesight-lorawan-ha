@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.144.0
+- **Team chat: direct (1:1) messages and a conversation-list home screen.**
+  - **Conversation list is now the main screen.** Opening Team chat shows a list of conversations — Channels,
+    Direct messages, and people to start a chat with — and tapping one opens the thread (back arrow returns to the
+    list). WhatsApp-style, and much nicer on a phone.
+  - **Direct messages.** Start a 1:1 with any Home Assistant user who's used chat, or a Team worker (a worker whose
+    name matches a login resolves to that login). DMs are **private** — their messages, read receipts and typing
+    only ever reach the two participants (enforced on every read, send and live event), and a DM's "push to phones"
+    notifies only the other person, never the whole team.
+  - The sidebar unread badge and the chime / banner / browser notifications all cover DMs too; a chat push
+    deep-links straight to its conversation.
+
 ## 0.143.0
 - **Team chat fixes: push tap, @mention autocomplete, and browser notifications.**
   - **Tapping a chat push no longer errors.** The card now retries while the connection is still coming up

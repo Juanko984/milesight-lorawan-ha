@@ -28,6 +28,24 @@ def now() -> float:
     return time.time()
 
 
+# ---- direct-message identities ------------------------------------------------
+# A DM is between two "participant tokens": a Home Assistant user (u-<id>) or a Team worker (w-<slug>).
+def user_token(uid: str) -> str:
+    return f"u-{uid}"
+
+
+def worker_token(name: str) -> str:
+    return "w-" + (re.sub(r"[^a-z0-9]+", "-", str(name or "").lower()).strip("-") or "x")
+
+
+def dm_id(a: str, b: str) -> str:
+    return "dm:" + "~".join(sorted([a, b]))
+
+
+def is_dm(cid: Any) -> bool:
+    return str(cid or "").startswith("dm:")
+
+
 def make_id(existing: Iterable[str] = (), prefix: str = "m") -> str:
     seen = set(existing)
     base = int(now() * 1000)

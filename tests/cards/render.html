@@ -402,6 +402,13 @@
            online: [{ user_id: "u-juan", name: "Juan Korb", since: 1 }, { user_id: "u-piet", name: "Piet", since: 1 }],
            roster: [{ name: "Piet", online: true, clocked_in: true }, { name: "Anna", online: false, clocked_in: true },
              { name: "Juan Korb", online: true, clocked_in: false, guest: true }],
+           dms: [
+             { id: "dm:u-juan~u-riaan", kind: "dm", icon: "mdi:account", peer: "u-riaan", title: "Riaan du Plessis", unread: 2, last_ts: Date.now() / 1000 - 300, last_text: "Did the reefer come right?" },
+             { id: "dm:u-juan~w-piet", kind: "dm", icon: "mdi:account", peer: "w-piet", title: "Piet", unread: 0, last_ts: Date.now() / 1000 - 4000, last_text: "Piet: 👍" } ],
+           people: [
+             { token: "u-riaan", name: "Riaan du Plessis", kind: "user", online: true, clocked_in: false },
+             { token: "w-anna", name: "Anna", kind: "worker", online: false, clocked_in: true },
+             { token: "w-koos", name: "Koos", kind: "worker", online: false, clocked_in: false } ],
            channels: [
              { id: "site", kind: "topic", title: "Site", icon: "mdi:bullhorn-outline", unread: 0, last_ts: 1, last_text: "Piet: on it" },
              { id: "maintenance", kind: "topic", title: "Maintenance", icon: "mdi:wrench", unread: 2, last_ts: 1, last_text: "…" },
@@ -416,7 +423,13 @@
              { id: "m3", channel: "site", ts: Date.now() / 1000 - 1800, author: "Anna", user_id: "u-anna", role: "Cleaner", kind: "msg", text: "Toilets restocked. @Piet soap dispenser is low.", image: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTQwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE0MCIgZmlsbD0iIzM2YzA4YSIvPjwvc3ZnPg==" },
              { id: "m3b", channel: "site", ts: Date.now() / 1000 - 1700, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "At the borehole now", loc: { lat: -33.9249, lon: 18.4241 } },
              { id: "m3c", channel: "site", ts: Date.now() / 1000 - 1600, author: "Koos", user_id: "u-koos", role: "Technician", kind: "msg", text: "On my way, 10 min out", via: "phone" },
-             { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store." } ] : [] });
+             { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store." } ]
+             : (msg.channel === "dm:u-juan~u-riaan") ? [
+               { id: "d1", channel: "dm:u-juan~u-riaan", ts: Date.now() / 1000 - 600, author: "Riaan du Plessis", user_id: "u-riaan", role: "Manager", kind: "msg", text: "Did the reefer come right?" },
+               { id: "d2", channel: "dm:u-juan~u-riaan", ts: Date.now() / 1000 - 300, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Yep, probe 2 is back in range." } ] : [] });
+       }
+       if (msg && msg.type === "milesight_lorawan/chat/dm") {
+         return Promise.resolve({ channel: { id: "dm:u-juan~" + msg.peer, kind: "dm", title: msg.name || "Teammate", icon: "mdi:account", meta: { participants: ["u-juan", msg.peer] } } });
        }
        return Promise.resolve({ ok: true });
      },

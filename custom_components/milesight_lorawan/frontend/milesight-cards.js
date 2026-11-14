@@ -7404,7 +7404,7 @@
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
     setConfig(cfg) {
-      this._cfg = cfg || {}; this._active = this._cfg.channel || "site"; this._draft = ""; this._push = true;
+      this._cfg = cfg || {}; this._draft = ""; this._push = true; this._view = "list"; this._active = this._cfg.channel || null;
       try { const c = new URLSearchParams(location.search).get("channel"); if (c) this._active = c; } catch (e) { /* */ }
     }
     _avatar(name, me) {
@@ -7419,17 +7419,19 @@
       else if (this._channels === null && !this._retryTimer && !this._unsub) { this._gaveUp = false; this._retry = 0; this._init(); }
     }
     async _init() {
-      this._active = this._active || "site"; this._push = this._push !== false; this._draft = this._draft || "";
+      this._push = this._push !== false; this._draft = this._draft || "";
       if (!this._hass || !this._hass.connection) { this._scheduleRetry(); return; }
+      const want = this._active || null;                 // a deep-linked channel (push / device Discuss) opens straight to it
       try {
-        const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: this._active });
-        this._hub = r.hub; this._channels = r.channels || []; this._workers = r.workers || [];
-        this._messages = r.messages || []; this._readers = r.readers || [];
-        this._roster = r.roster || []; this._online = r.online || []; this._canManage = !!r.can_manage;
+        const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: want || undefined });
+        this._hub = r.hub; this._channels = r.channels || []; this._dms = r.dms || []; this._people = r.people || [];
+        this._workers = r.workers || []; this._roster = r.roster || []; this._online = r.online || []; this._canManage = !!r.can_manage;
         this._uid = r.me || (this._hass.user && this._hass.user.id) || null;
         this._retry = 0; this._gaveUp = false;
+        if (want) { this._active = want; this._messages = r.messages || []; this._readers = r.readers || []; this._view = "thread"; }
+        else { this._view = "list"; }
         this._render();
-        this._markRead();
+        if (this._view === "thread") this._markRead();
         this._flag();
         this._unsub = await this._hass.connection.subscribeMessage((ev) => this._onEvent(ev),
           { type: "milesight_lorawan/chat/subscribe", presence: true });
@@ -7445,7 +7447,7 @@
       this._retryTimer = setTimeout(() => { this._retryTimer = null; if (!this._unsub) this._init(); },
         Math.min(1200 * this._retry, 6000));
     }
-    _flag() { try { window.__msChat = { open: true, channel: this._active }; } catch (e) { /* */ } }
+    _flag() { try { window.__msChat = { open: true, channel: this._view === "thread" ? this._active : null }; } catch (e) { /* */ } }
     _notifyMuted() { try { return localStorage.getItem("ms-chat-notify") === "off"; } catch (e) { return false; } }
     _toggleNotify() {
       try { localStorage.setItem("ms-chat-notify", this._notifyMuted() ? "on" : "off"); } catch (e) { /* */ }
@@ -7526,27 +7528,30 @@
         return;
       }
       if (!ev.message) return;
-      const ch = ev.channel;
-      // make sure the channel is known (a new alert/job thread may appear)
-      if (ev.channel_meta && !(this._channels || []).some((c) => c.id === ch)) this._channels.push({ ...ev.channel_meta, unread: 0, last_ts: ev.message.ts, last_text: ev.message.text });
-      const cc = (this._channels || []).find((c) => c.id === ch);
-      if (cc) { cc.last_ts = ev.message.ts; cc.last_text = (ev.message.kind === "sys" ? "" : ev.message.author + ": ") + ev.message.text; }
-      if (ch === this._active) { this._messages.push(ev.message); this._render(); this._markRead(); }
-      else if (cc) { cc.unread = (cc.unread || 0) + 1; this._renderChips(); }
+      const ch = ev.channel, m = ev.message, dm = this._isDm(ch);
+      const list = dm ? (this._dms = this._dms || []) : (this._channels = this._channels || []);
+      // make sure the conversation is known (a new alert/job thread or a fresh DM may appear)
+      if (!list.some((c) => c.id === ch)) {
+        if (dm) { this._refetch(); }            // a brand-new DM to me: reload to get the peer title
+        else if (ev.channel_meta) list.push({ ...ev.channel_meta, unread: 0, last_ts: m.ts, last_text: m.text });
+      }
+      const cc = list.find((c) => c.id === ch);
+      if (cc) { cc.last_ts = m.ts; cc.last_text = (m.kind === "sys" ? "" : m.author + ": ") + (m.text || (m.image ? "📷 Photo" : m.loc ? "📍 Location" : "")); }
+      if (ch === this._active && this._view === "thread") { this._messages.push(m); this._render(); this._markRead(); }
+      else { if (cc && m.user_id !== this._uid) cc.unread = (cc.unread || 0) + 1; if (this._view === "list") this._render(); }
     }
-    async _open(ch) {
-      if (ch === this._active) return;
-      this._active = ch; this._draft = ""; this._pendingImg = null; this._pendingLoc = null; this._men = null;
+    async _open(ch, hint) {
+      this._active = ch; this._activeHint = hint || null; this._view = "thread"; this._draft = ""; this._pendingImg = null; this._pendingLoc = null; this._men = null;
       this._typers = {};
-      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: ch }); this._messages = r.messages || []; this._channels = r.channels || this._channels; this._readers = r.readers || []; this._roster = r.roster || this._roster; this._online = r.online || this._online; }
+      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: ch }); this._messages = r.messages || []; this._channels = r.channels || this._channels; this._dms = r.dms || this._dms; this._people = r.people || this._people; this._readers = r.readers || []; this._roster = r.roster || this._roster; this._online = r.online || this._online; }
       catch (e) { this._messages = []; this._readers = []; }
-      const cc = (this._channels || []).find((c) => c.id === ch); if (cc) cc.unread = 0;
+      const cc = (this._channels || []).find((c) => c.id === ch) || (this._dms || []).find((d) => d.id === ch); if (cc) cc.unread = 0;
       this._render(); this._markRead(); this._flag();
     }
     async _refetch() {
-      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: this._active });
-        this._channels = r.channels || this._channels; this._roster = r.roster || this._roster;
-        this._online = r.online || this._online; this._canManage = !!r.can_manage; this._render(); } catch (e) { /* */ }
+      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: (this._view === "thread" ? this._active : undefined) });
+        this._channels = r.channels || this._channels; this._dms = r.dms || this._dms; this._people = r.people || this._people;
+        this._roster = r.roster || this._roster; this._online = r.online || this._online; this._canManage = !!r.can_manage; this._render(); } catch (e) { /* */ }
     }
     _markRead() { try { this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/read", channel: this._active }); } catch (e) { /* best effort */ } }
     async _send() {
@@ -7701,6 +7706,21 @@
       await this._refetch();
       if (archived && this._active === "site") this._open("site");
     }
+    _isDm(id) { return String(id || "").startsWith("dm:"); }
+    _activeConv() {
+      const found = (this._channels || []).find((c) => c.id === this._active) || (this._dms || []).find((d) => d.id === this._active);
+      if (found) return found;
+      if (this._activeHint && this._activeHint.id === this._active) return this._activeHint;   // a just-opened DM not yet in the list
+      return {};
+    }
+    async _startDm(person) {
+      try {
+        const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/dm", peer: person.token, name: person.name });
+        const c = r && r.channel;
+        if (c && c.id) this._open(c.id, { id: c.id, kind: "dm", icon: "mdi:account", peer: person.token, title: person.name, unread: 0 });
+      } catch (e) { /* surfaced by HA */ }
+    }
+    _back() { this._view = "list"; this._men = null; this._flag(); this._render(); this._refetch(); }
     _render() {
       if (!this._hass) return;
       this._css = MON_CSS + CHAT_CSS;
@@ -7711,7 +7731,52 @@
         return;
       }
       if (!this._channels) { this._card(h("div", { class: "wrap" }, [h("div", { class: "chatna" }, "Loading…")])); return; }
-      const ac = this._channels.find((c) => c.id === this._active) || {};
+      if (this._view !== "thread" || !this._active) { this._renderList(); return; }
+      this._renderThread();
+    }
+    _convRow(c, isDm) {
+      return h("div", { class: "conv" + (c.unread ? " un" : ""), onclick: () => this._open(c.id) }, [
+        isDm ? this._avatar(c.title, false) : h("div", { class: "cvic" + (c.kind === "alerts" ? " warn" : "") }, [h("ha-icon", { icon: c.archived ? "mdi:archive-outline" : c.icon })]),
+        h("div", { class: "cvbody" }, [
+          h("div", { class: "cvtop" }, [h("div", { class: "cvname" }, esc(c.title)),
+            c.last_ts ? h("div", { class: "cvtime" }, this._fmtTime(c.last_ts)) : null].filter(Boolean)),
+          h("div", { class: "cvlast" }, esc(c.last_text || (isDm ? "No messages yet" : "No messages")))]),
+        c.unread ? h("span", { class: "cvbadge" }, String(c.unread)) : null,
+      ].filter(Boolean));
+    }
+    _renderList() {
+      this._flag();
+      const chans = this._channels || [], dms = this._dms || [], ppl = this._people || [];
+      const dmPeers = {}; for (const d of dms) dmPeers[d.peer] = 1;
+      const startable = ppl.filter((p) => !dmPeers[p.token]);
+      const body = [];
+      body.push(h("div", { class: "cvsec" }, "Channels"));
+      for (const c of chans) body.push(this._convRow(c, false));
+      if (dms.length) { body.push(h("div", { class: "cvsec" }, "Direct messages")); for (const d of dms) body.push(this._convRow(d, true)); }
+      if (startable.length) {
+        body.push(h("div", { class: "cvsec" }, "Start a conversation"));
+        for (const p of startable) body.push(h("div", { class: "conv", onclick: () => this._startDm(p) }, [
+          h("div", { class: "cvav" }, [this._avatar(p.name, false), p.online ? h("span", { class: "cvon" }) : null].filter(Boolean)),
+          h("div", { class: "cvbody" }, [h("div", { class: "cvtop" }, [h("div", { class: "cvname" }, esc(p.name))]),
+            h("div", { class: "cvlast" }, p.clocked_in ? "Clocked in" : p.online ? "Online" : (p.kind === "worker" ? "Worker" : "Tap to message"))]),
+          h("ha-icon", { class: "cvgo", icon: "mdi:message-plus-outline", style: { "--mdc-icon-size": "18px" } }),
+        ]));
+      }
+      const onCount = (this._online || []).length;
+      this._card(h("div", { class: "chatwrap list" + (this.panel ? " panel" : "") }, [
+        h("div", { class: "chd" }, [h("div", { class: "cic" }, [h("ha-icon", { icon: "mdi:chat" })]),
+          h("div", { class: "ctitle" }, [h("div", { class: "t" }, "Team chat"),
+            h("div", { class: "s" }, onCount + (onCount === 1 ? " person online" : " people online"))]),
+          h("div", { class: "chdsp" }),
+          h("button", { class: "mbtn", title: this._notifyMuted() ? "Message alerts off — click to enable" : "Message alerts on — click to mute",
+            onclick: () => this._toggleNotify() }, [h("ha-icon", { icon: this._notifyMuted() ? "mdi:bell-off-outline" : "mdi:bell-outline" })]),
+          this._canManage ? h("button", { class: "mbtn", title: "New channel", onclick: () => this._newChannel() }, [h("ha-icon", { icon: "mdi:plus" })]) : null,
+        ].filter(Boolean)),
+        h("div", { class: "convlist" }, body),
+      ]));
+    }
+    _renderThread() {
+      const ac = this._activeConv(), isDm = this._isDm(this._active);
       const rows = []; let prev = null;
       for (const m of this._messages) { rows.push(this._message(m, prev)); prev = m.kind === "sys" ? null : m.author; }
       const stream = h("div", { class: "stream" }, rows.length ? rows : [h("div", { class: "chatempty" }, "No messages yet — say hello 👋")]);
@@ -7727,7 +7792,7 @@
         h("div", { class: "cinput" }, [
           h("button", { class: "iconbtn", title: "Photo", onclick: () => this._attach() }, [h("ha-icon", { icon: "mdi:camera-outline" })]),
           h("button", { class: "iconbtn", title: "Share location", onclick: () => this._shareLoc() }, [h("ha-icon", { icon: "mdi:map-marker-outline" })]),
-          h("input", { type: "text", value: this._draft || "", placeholder: "Message " + (ac.title ? "#" + ac.title : "…"),
+          h("input", { type: "text", value: this._draft || "", placeholder: "Message " + (ac.title ? (isDm ? ac.title : "#" + ac.title) : "…"),
             oninput: (e) => { this._draft = e.target.value; this._sendTyping(); this._updateMention(e.target); this._renderMentions(); },
             onkeydown: (e) => this._inputKeydown(e) }),
           h("button", { class: "send", onclick: () => this._send() }, [h("ha-icon", { icon: "mdi:send", style: { "--mdc-icon-size": "17px" } })]),
@@ -7743,15 +7808,20 @@
           ? h("button", { class: "mbtn", title: "Unarchive", onclick: () => this._archiveChannel(ac, false) }, [h("ha-icon", { icon: "mdi:archive-arrow-up-outline" })])
           : h("button", { class: "mbtn", title: "Archive channel", onclick: () => this._archiveChannel(ac, true) }, [h("ha-icon", { icon: "mdi:archive-arrow-down-outline" })]),
       ] : [];
+      const sub = isDm ? "Direct message"
+        : ac.kind === "alerts" ? "Alerts thread" : ac.kind === "jobs" ? "Jobs thread" : ac.archived ? "Archived" : "Channel";
+      const titleIcon = isDm ? this._avatar(ac.title || "?", false)
+        : h("div", { class: "cic" }, [h("ha-icon", { icon: ac.icon || "mdi:chat-outline" })]);
       this._card(h("div", { class: "chatwrap" + (this.panel ? " panel" : "") }, [
-        h("div", { class: "chd" }, [h("div", { class: "cic" }, [h("ha-icon", { icon: "mdi:chat-outline" })]),
-          h("div", { class: "ctitle" }, [h("div", { class: "t" }, "Team chat"),
-            h("div", { class: "s" }, ac.kind === "alerts" ? "Alerts thread" : ac.kind === "jobs" ? "Jobs thread" : ac.archived ? "Archived" : "Live")]),
+        h("div", { class: "chd" }, [
+          h("button", { class: "backbtn", title: "Back", onclick: () => this._back() }, [h("ha-icon", { icon: "mdi:arrow-left" })]),
+          titleIcon,
+          h("div", { class: "ctitle" }, [h("div", { class: "t" }, esc(ac.title || "Team chat")), h("div", { class: "s" }, sub)]),
           h("div", { class: "chdsp" }),
           h("button", { class: "mbtn", title: this._notifyMuted() ? "Message alerts off — click to enable" : "Message alerts on — click to mute",
             onclick: () => this._toggleNotify() }, [h("ha-icon", { icon: this._notifyMuted() ? "mdi:bell-off-outline" : "mdi:bell-outline" })]),
-          ...manage, this._peopleEl()]),
-        this._chips(), stream,
+          ...manage, isDm ? null : this._peopleEl()].filter(Boolean)),
+        stream,
         h("div", { class: "typingrow" }, [this._typingLine()].filter(Boolean)),
         h("div", { class: "receiptrow" }, [this._receiptLine()].filter(Boolean)), comp,
       ]));
@@ -7764,6 +7834,19 @@
     .chatwrap.panel{height:calc(100vh - 110px);max-height:none;padding:0 6px}
     .chd{display:flex;align-items:center;gap:10px;padding:2px 2px 11px;border-bottom:1px solid var(--ms-line);position:relative}
     .chdsp{flex:1}
+    .backbtn{width:32px;height:32px;border-radius:8px;background:none;border:0;color:var(--ms-ink2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto}.backbtn:hover{background:color-mix(in srgb,var(--ms-ink) 8%,transparent);color:var(--ms-ink)}.backbtn ha-icon{--mdc-icon-size:21px}
+    .convlist{flex:1;overflow-y:auto;padding:4px 0;display:flex;flex-direction:column}
+    .cvsec{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ms-ink2);padding:12px 6px 5px;font-weight:700}
+    .conv{display:flex;align-items:center;gap:11px;padding:9px 8px;border-radius:11px;cursor:pointer}
+    .conv:hover{background:color-mix(in srgb,var(--ms-ink) 6%,transparent)} .conv.un .cvname{color:var(--ms-ink);font-weight:720}
+    .cvic{width:38px;height:38px;border-radius:10px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}.cvic.warn{background:color-mix(in srgb,var(--ms-warn) 16%,transparent);color:var(--ms-warn)}.cvic ha-icon{--mdc-icon-size:20px}
+    .conv .av{width:38px;height:38px;font-size:13px;flex:0 0 auto}
+    .cvav{position:relative;flex:0 0 auto} .cvav .av{width:38px;height:38px;font-size:13px} .cvon{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--ms-good);border:2px solid var(--ms-card,var(--card-background-color,#1c2229))}
+    .cvbody{flex:1;min-width:0} .cvtop{display:flex;align-items:baseline;gap:8px} .cvname{font-size:14px;font-weight:620;color:var(--ms-ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .cvtime{margin-left:auto;font-size:10.5px;color:var(--ms-ink2);flex:0 0 auto}
+    .cvlast{font-size:12px;color:var(--ms-ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+    .cvbadge{flex:0 0 auto;background:var(--ms-accent);color:#fff;font-size:10.5px;font-weight:700;border-radius:999px;padding:0 6px;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center}
+    .cvgo{color:var(--ms-ink2);flex:0 0 auto} .chatwrap.list .stream{display:none}
     .cic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent)} .cic ha-icon{--mdc-icon-size:18px}
     .ctitle .t{font-size:15px;font-weight:650;color:var(--ms-ink)} .ctitle .s{font-size:11.5px;color:var(--ms-ink2)}
     .mbtn{width:30px;height:30px;border-radius:8px;background:none;border:1px solid var(--ms-line);color:var(--ms-ink2);cursor:pointer;display:flex;align-items:center;justify-content:center}.mbtn:hover{border-color:var(--ms-accent);color:var(--ms-accent)}.mbtn ha-icon{--mdc-icon-size:17px}
@@ -8860,7 +8943,8 @@
     async function refresh(h) {
       if (busy) return; busy = true;
       try { const r = await h.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list" });
-        total = (r.channels || []).reduce((s, c) => s + (c.unread || 0), 0); paint(); }
+        total = (r.channels || []).reduce((s, c) => s + (c.unread || 0), 0)
+              + (r.dms || []).reduce((s, c) => s + (c.unread || 0), 0); paint(); }
       catch (e) { /* no messaging on this instance */ } finally { busy = false; }
     }
     async function connect() {

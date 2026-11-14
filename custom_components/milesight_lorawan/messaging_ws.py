@@ -9,6 +9,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
+from . import messaging_calc as mc
 from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_HUB
 from .messaging import SIGNAL_CHAT
 
@@ -42,8 +43,12 @@ def ws_list(hass: HomeAssistant, connection, msg: dict) -> None:
     if mgr is None:
         connection.send_error(msg["id"], "not_found", "No gateway with messaging")
         return
-    _, user_id = _user(connection)
-    connection.send_result(msg["id"], mgr.snapshot(user_id, msg.get("channel"), is_admin=_is_admin(connection)))
+    name, user_id = _user(connection)
+    ch = msg.get("channel")
+    if ch and mc.is_dm(ch) and not mgr.can_access(user_id, name, ch):
+        connection.send_error(msg["id"], "forbidden", "Not your conversation")
+        return
+    connection.send_result(msg["id"], mgr.snapshot(user_id, ch, is_admin=_is_admin(connection)))
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/send", vol.Required("channel"): str,
@@ -57,6 +62,9 @@ async def ws_send(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway with messaging")
         return
     author, user_id = _user(connection)
+    if mc.is_dm(msg["channel"]) and not mgr.can_access(user_id, author, msg["channel"]):
+        connection.send_error(msg["id"], "forbidden", "Not your conversation")
+        return
     role = ""
     aw = (msg.get("as_worker") or "").strip()
     if aw:
@@ -84,9 +92,32 @@ def ws_read(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway with messaging")
         return
     name, user_id = _user(connection)
+    if mc.is_dm(msg["channel"]) and not mgr.can_access(user_id, name, msg["channel"]):
+        connection.send_error(msg["id"], "forbidden", "Not your conversation")
+        return
     if user_id:
         mgr.mark_read(user_id, msg["channel"], name)
     connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/dm",
+                                  vol.Required("peer"): str, vol.Optional("name"): vol.Any(str, None),
+                                  vol.Optional("hub"): str})
+@callback
+def ws_dm(hass: HomeAssistant, connection, msg: dict) -> None:
+    mgr = _manager(hass, msg.get("hub"))
+    if mgr is None:
+        connection.send_error(msg["id"], "not_found", "No gateway with messaging")
+        return
+    name, user_id = _user(connection)
+    if not user_id:
+        connection.send_error(msg["id"], "invalid", "Sign in to start a direct message")
+        return
+    c = mgr.dm_channel(user_id, name, msg["peer"], (msg.get("name") or "").strip())
+    if c is None:
+        connection.send_error(msg["id"], "invalid", "Could not open that conversation")
+        return
+    connection.send_result(msg["id"], {"channel": c})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/subscribe",
@@ -98,8 +129,19 @@ def ws_subscribe(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway with messaging")
         return
 
+    sub_name, sub_uid = _user(connection)
+
     @callback
     def _forward(data) -> None:
+        # Keep a DM's messages / read receipts / typing to its two participants only.
+        ch = None
+        if isinstance(data, dict):
+            ch = (data.get("channel")
+                  or (data.get("message") or {}).get("channel")
+                  or (data.get("read") or {}).get("channel")
+                  or (data.get("typing") or {}).get("channel"))
+        if ch and mc.is_dm(ch) and not mgr.can_access(sub_uid, sub_name, ch):
+            return
         connection.send_message(websocket_api.event_message(msg["id"], data))
 
     disconnect = async_dispatcher_connect(hass, SIGNAL_CHAT.format(mgr.entry.entry_id), _forward)
@@ -198,6 +240,6 @@ def ws_channel_device(hass: HomeAssistant, connection, msg: dict) -> None:
 
 
 def register(hass: HomeAssistant) -> None:
-    for handler in (ws_list, ws_send, ws_read, ws_subscribe, ws_typing,
+    for handler in (ws_list, ws_send, ws_read, ws_subscribe, ws_typing, ws_dm,
                     ws_channel_create, ws_channel_rename, ws_channel_archive, ws_channel_device):
         websocket_api.async_register_command(hass, handler)

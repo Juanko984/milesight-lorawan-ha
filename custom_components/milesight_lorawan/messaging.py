@@ -96,14 +96,94 @@ class MessagingManager:
                 roster.append({"name": o["name"], "online": True, "clocked_in": False, "guest": True})
         return roster
 
+    # ------------------------------------------------------------------ direct messages (1:1)
+    def can_access(self, user_id: str | None, name: str | None, cid: str) -> bool:
+        """A shared channel is open to everyone; a DM only to its two participants (by HA user id or worker name)."""
+        c = self.channels.get(cid)
+        if c is None:
+            return False
+        if c.get("kind") != "dm":
+            return True
+        parts = (c.get("meta") or {}).get("participants") or []
+        return (user_id and mc.user_token(user_id) in parts) or bool(name and mc.worker_token(name) in parts)
+
+    def dm_channel(self, me_uid: str, me_name: str, peer_token: str, peer_name: str) -> dict[str, Any] | None:
+        """Open (creating if needed) the 1:1 conversation between the signed-in user and a peer (user or worker)."""
+        if not me_uid or not peer_token:
+            return None
+        me = mc.user_token(me_uid)
+        if peer_token == me:
+            return None
+        cid = mc.dm_id(me, peer_token)
+        c = self.channels.get(cid)
+        if c is None:
+            c = {"id": cid, "kind": "dm", "title": peer_name or "Direct message", "icon": "mdi:account",
+                 "meta": {"participants": sorted([me, peer_token]),
+                          "names": {me: me_name or "Me", peer_token: peer_name or "Teammate"}}}
+            self.channels[cid] = c
+        else:                                              # keep display names current
+            names = c.setdefault("meta", {}).setdefault("names", {})
+            names[me] = me_name or names.get(me) or "Me"
+            if peer_name:
+                names[peer_token] = peer_name
+        self._save()
+        self._broadcast_channels()
+        return c
+
+    def _dm_view(self, c: dict[str, Any], user_id: str | None, name: str | None) -> dict[str, Any]:
+        meta = c.get("meta") or {}
+        parts, names = meta.get("participants") or [], meta.get("names") or {}
+        me_tok = mc.user_token(user_id) if user_id else None
+        my_wtok = mc.worker_token(name) if name else None
+        peer = next((p for p in parts if p not in (me_tok, my_wtok)), parts[-1] if parts else None)
+        msgs = self.messages.get(c["id"], [])
+        last = msgs[-1] if msgs else None
+        last_read = (self.read.get(user_id or "", {}) or {}).get(c["id"], 0)
+        return {"id": c["id"], "kind": "dm", "icon": "mdi:account", "peer": peer,
+                "title": names.get(peer) or "Direct message",
+                "last_text": (mc.preview_text(last) if last else None),
+                "last_ts": last.get("ts") if last else None,
+                "unread": mc.unread_count(msgs, last_read, user_id)}
+
+    def people(self, exclude_uid: str | None) -> list[dict[str, Any]]:
+        """Everyone you can start a DM with: known chat users + online users + Team workers (a worker whose name
+        matches a known user resolves to that user's login). Each with online / clocked-in flags."""
+        out: dict[str, dict[str, Any]] = {}
+        for uid, nm in self.users.items():
+            if uid and uid != exclude_uid and nm:
+                out[mc.user_token(uid)] = {"token": mc.user_token(uid), "name": nm, "kind": "user"}
+        for o in self.online_list():
+            if o["user_id"] and o["user_id"] != exclude_uid:
+                out.setdefault(mc.user_token(o["user_id"]), {"token": mc.user_token(o["user_id"]), "name": o["name"], "kind": "user"})
+        for w in self.worker_names():
+            match = next((uid for uid, nm in self.users.items()
+                          if nm and nm.lower() == w.lower() and uid != exclude_uid), None)
+            if match:
+                out.setdefault(mc.user_token(match), {"token": mc.user_token(match), "name": w, "kind": "user"})
+            elif mc.worker_token(w) not in out:
+                out[mc.worker_token(w)] = {"token": mc.worker_token(w), "name": w, "kind": "worker"}
+        online_names = {o["name"].lower() for o in self.online_list()}
+        clocked = self.clocked_in_names()
+        res = [{**p, "online": p["name"].lower() in online_names, "clocked_in": p["name"] in clocked} for p in out.values()]
+        res.sort(key=lambda x: (not x["online"], x["name"].lower()))
+        return res
+
     def snapshot(self, user_id: str | None, channel: str | None = None, *, is_admin: bool = False) -> dict[str, Any]:
-        chans = [mc.channel_summary(c, self.messages.get(c["id"], []),
-                                    (self.read.get(user_id or "", {}) or {}).get(c["id"], 0), user_id)
-                 for c in self.channels.values()
-                 if is_admin or not c.get("archived")]        # archived channels are admin-only
+        name = self.users.get(user_id or "")
+        chans, dms = [], []
+        for c in self.channels.values():
+            if c.get("kind") == "dm":
+                if self.can_access(user_id, name, c["id"]):
+                    dms.append(self._dm_view(c, user_id, name))
+                continue
+            if not is_admin and c.get("archived"):            # archived channels are admin-only
+                continue
+            chans.append(mc.channel_summary(c, self.messages.get(c["id"], []),
+                                            (self.read.get(user_id or "", {}) or {}).get(c["id"], 0), user_id))
         chans.sort(key=mc.channel_sort_key)
-        out: dict[str, Any] = {"hub": self.entry.entry_id, "channels": chans,
-                               "workers": self.worker_names(), "me": user_id,
+        dms.sort(key=lambda d: -(d.get("last_ts") or 0))
+        out: dict[str, Any] = {"hub": self.entry.entry_id, "channels": chans, "dms": dms,
+                               "people": self.people(user_id), "workers": self.worker_names(), "me": user_id,
                                "roster": self._roster(), "online": self.online_list(),
                                "can_manage": bool(is_admin)}
         if channel is not None:
@@ -236,11 +316,19 @@ class MessagingManager:
         async_dispatcher_send(self.hass, SIGNAL_CHAT.format(self.entry.entry_id),
                               {"channel": channel, "message": msg, "channel_meta": self.channels[channel]})
         if kind == "msg":
-            # Broadcast to every phone when asked; always ping the phones of anyone @mentioned.
-            targets: list[str] = list(self._notify_targets()) if push else []
-            for t in self._mention_targets(mentions):
-                if t not in targets:
-                    targets.append(t)
+            targets: list[str] = []
+            if mc.is_dm(channel):
+                if push:                                   # a DM pushes only the other participant, never everyone
+                    meta = (self.channels.get(channel) or {}).get("meta") or {}
+                    me_tok = mc.user_token(user_id) if user_id else None
+                    peer_name = next((nm for tok, nm in (meta.get("names") or {}).items() if tok != me_tok), None)
+                    targets = self._mention_targets([peer_name]) if peer_name else []
+            else:
+                # Broadcast to every phone when asked; always ping the phones of anyone @mentioned.
+                targets = list(self._notify_targets()) if push else []
+                for t in self._mention_targets(mentions):
+                    if t not in targets:
+                        targets.append(t)
             if targets:
                 self.hass.async_create_task(self._push(channel, author, mc.preview_text(msg), targets))
         return msg

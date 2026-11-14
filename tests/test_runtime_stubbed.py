@@ -2674,3 +2674,31 @@ assert "topic:night-shift" in _pc and "dev:devA" in _pc and "site" not in _pc
 mgrc.rename_channel("washroom", "Restrooms")
 assert "washroom" in {x["id"] for x in mgrc._persist_channels()}
 print("team chat presence/channels ok")
+
+# ---- team chat: direct messages (1:1) + privacy ----
+mc = msg_mod.mc
+CHATCALLS.clear()
+# a DM id is a stable sorted pair; create it once
+d = mgrc.dm_channel("ujuan", "Juan", mc.user_token("uriaan"), "Riaan")
+assert d["kind"] == "dm" and d["id"] == mc.dm_id(mc.user_token("ujuan"), mc.user_token("uriaan"))
+assert mgrc.dm_channel("uriaan", "Riaan", mc.user_token("ujuan"), "Juan")["id"] == d["id"]   # same convo from the other side
+# access is limited to the two participants
+assert mgrc.can_access("ujuan", "Juan", d["id"]) and mgrc.can_access("uriaan", "Riaan", d["id"])
+assert not mgrc.can_access("upiet", "Piet Botha", d["id"])
+# each participant sees the OTHER person as the title; an outsider doesn't see the DM at all
+_sj = mgrc.snapshot("ujuan"); assert any(x["id"] == d["id"] and x["title"] == "Riaan" for x in _sj["dms"])
+_sr = mgrc.snapshot("uriaan"); assert any(x["id"] == d["id"] and x["title"] == "Juan" for x in _sr["dms"])
+assert all(x["id"] != d["id"] for x in mgrc.snapshot("upiet")["dms"])
+# DMs never appear in the shared 'channels' list
+assert all(not mc.is_dm(c["id"]) for c in _sj["channels"])
+# the people picker offers workers + known users, never yourself
+_ppl = {p["token"]: p for p in _sj["people"]}
+assert mc.user_token("ujuan") not in _ppl and any(p["kind"] == "worker" for p in _ppl.values())
+# a DM to a worker pushes only that peer's phone — never a team-wide broadcast
+_dw = mgrc.dm_channel("ujuan", "Juan", mc.worker_token("Piet Botha"), "Piet Botha")
+CHATCALLS.clear()
+mgrc.post(_dw["id"], "you around?", author="Juan", user_id="ujuan", push=True); _drain()
+assert [s for s, _ in CHATCALLS] == ["mobile_app_piet"], CHATCALLS
+# a DM persists across restarts
+assert d["id"] in {c["id"] for c in mgrc._persist_channels()}
+print("team chat direct messages ok")
