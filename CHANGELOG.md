@@ -2,6 +2,33 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.141.0
+- **TS probes: door / contact channels now show on the Temperature-probe card.** The TS301 and TS302 channels
+  can each be wired as a temperature probe *or* a door / contact input, and the TS302 can mix them. Previously the
+  card only drew channels that reported a temperature, so a channel wired as a door was dropped — and a TS302 set
+  up as two contacts showed no card at all. Now each channel is read as whatever it reports:
+  - **Two probes**, **two contacts**, or **one of each** on a TS302 all render correctly, and a TS301 wired as a
+    single contact gets a card too.
+  - A door channel shows as an **Open / Closed** tile (amber when open), and the card header reflects the mix
+    (e.g. "TS302 · 1 probe + 1 contact"). The per-channel contact decodes from the payload, so it works even with
+    the (optional, disabled-by-default) contact binary-sensor entities left off.
+
+## 0.140.0
+- **"Check model" alert when a device is set to the wrong model.** Every uplink is now re-checked against the
+  same model sniffer used at onboarding. When a device's configured model isn't even a plausible match for its
+  payload — e.g. an **EM300-DI** (which sends a pulse / water counter) set to **EM300-ZLD** (a leak sensor), so
+  the counter is dropped and a phantom "Leak —" tile appears — a **warning alert** is raised (category *devices*)
+  naming the model the data looks like, so you can correct it in the device's settings. The check is strict (it
+  only fires when the configured model isn't one of the sniffer's candidates) to avoid false positives, and is
+  recomputed only when a payload's shape changes.
+
+## 0.139.0
+- **WS202 Presence & motion card.** The WS202 PIR + light sensor now has its own widget (it previously only
+  surfaced as a motion binary sensor + a daylight state). A self-discovering card shows, per sensor: motion
+  **Active / Clear** with how long it's been active (or "last seen N ago" when clear), a **Daylight / Dark**
+  badge from the sensor's light reading, today's trigger count and total active time, and battery. Added to the
+  **Devices** dashboard under a "Presence & motion" heading; it hides itself when there are no WS202 sensors.
+
 ## 0.138.0
 - **Team chat: presence, a typing indicator, and channel management.**
   - **Presence** — a people button in the chat header shows how many are in chat right now; opening it lists

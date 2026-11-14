@@ -58,6 +58,16 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Presence & motion
+            icon: mdi:motion-sensor
+          # WS202 PIR + light sensors: motion active / clear with how long, a bright / dim day badge, today's
+          # triggers and active time, and battery. Hides itself when there are no WS202 sensors.
+          - type: custom:milesight-presence-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: All devices
             icon: mdi:access-point-network
           # Quick-filter chips (All / Online / Offline / Low battery / Weak signal) and an area dropdown sit above

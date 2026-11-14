@@ -1116,6 +1116,16 @@ assert _p302["probes"][1]["tone"] == "low" and _p302["alarm"] is True
 _, _t601 = make_with("00000000000ets601", "TS601", {}, title="Pallet", area="Transit")
 _p601 = _t601._temp_probe({"temperature": 4.6, "humidity": 61, "tilt_alarm_active": True, "tilt_alarm_status": "tilt_alarm"})
 assert any(e["label"] == "Tilt" and e["active"] for e in _p601["extra"]) and _p601["alarm"] is True
+# TS302 door channels: one probe + one door, and a two-door config (no probe)
+_p_mix = _t302._temp_probe({"temperature_1": 3.4, "magnet_status_2": 1})
+assert [p["key"] for p in _p_mix["probes"]] == ["temperature_1"]
+assert [d["key"] for d in _p_mix["doors"]] == ["magnet_status_2"] and _p_mix["doors"][0]["open"] is True
+_p_doors = _t302._temp_probe({"magnet_status_1": 0, "magnet_status_2": 1})
+assert _p_doors["probes"] == [] and [d["open"] for d in _p_doors["doors"]] == [False, True]  # a 2-door TS302 still gets a card
+# TS301 wired as a single contact (no temperature) still produces the card as one door channel
+_p_1door = _t3._temp_probe({"magnet_status": 1})
+assert _p_1door["probes"] == [] and _p_1door["doors"][0]["key"] == "magnet_status" and _p_1door["doors"][0]["open"] is True
+assert _p_1door["door"] is None          # not double-counted as the legacy device-level door
 # configured cold-chain limits put the number in the badge
 assert runtime.DeviceRuntime._probe_badge(9.8, 2.0, 8.0, None, None) == ("high", "Above 8 °C")
 assert runtime.DeviceRuntime._probe_badge(1.0, 2.0, 8.0, None, None) == ("low", "Below 2 °C")
@@ -1179,6 +1189,41 @@ _s2 = _su._supplies({"remaining": 96}, _t0 + 5 * 86400)                         
 assert _s2["refilled_at"] is not None and _s2["status"] == "ok"
 del entries.items[_su_from:]
 print("ws201 supplies ok")
+
+# WS202 PIR + light sensor → the Presence card (motion active/clear, bright/dim, battery)
+_pr_from = len(entries.items)
+_, _pr = make_with("00000000000ews202", "WS202", {}, title="Warehouse aisle", area="Warehouse")
+assert _pr._presence_applies() and "presence" in {sp.key for sp in _pr.extra_specs()}
+_p_on = _pr._presence({"motion_active": True, "motion_since": 111, "motion_count_today": 37,
+                       "motion_today_s": 2460, "daylight": "bright", "battery": 82}, time.time())
+assert _p_on["milesight_role"] == "presence" and _p_on["active"] is True and _p_on["since"] == 111
+assert _p_on["light"] == "bright" and _p_on["count_today"] == 37 and _p_on["battery"] == 82
+_p_off = _pr._presence({"motion_active": False, "motion_since": 999, "motion_last_on_at": 500,
+                        "daylight": "unknown", "battery": 64}, time.time())
+assert _p_off["active"] is False and _p_off["since"] is None          # 'since' only while active
+assert _p_off["last_motion"] == 500 and _p_off["light"] is None       # 'unknown' daylight → no badge
+# a non-WS202 device never grows the role
+assert _su._presence({"motion_active": True}, time.time()) is None
+del entries.items[_pr_from:]
+print("ws202 presence ok")
+
+# model mismatch: an EM300-DI payload (temp + humidity + pulse/water counter) on a device set to EM300-ZLD
+_mm_from = len(entries.items)
+_raw_di = bytes.fromhex("0175380367fc0004685805e164000a0000086846")
+_, _zld = make_with("00000000000ezld1", "EM300-ZLD", {}, title="Leak sensor 4")
+_zld._check_model(_raw_di)
+assert _zld.meta["model_mismatch"]["suggested"] == "EM300-DI", _zld.meta.get("model_mismatch")
+_zld._check_model(_raw_di)                 # same shape → cached, still flagged
+assert _zld.meta.get("model_mismatch")
+from milesight_lorawan.alerts import device_alerts as _dal
+_al = _dal("Leak sensor 4", "00000000000ezld1", {"model_mismatch": _zld.meta["model_mismatch"]["suggested"]})
+assert any(a["category"] == "devices" and "EM300-DI" in a["message"] for a in _al.values()), _al
+# a correctly-configured EM300-DI sees no mismatch for the same payload
+_, _di = make_with("00000000000edi01", "EM300-DI", {}, title="Water meter 1")
+_di._check_model(_raw_di)
+assert "model_mismatch" not in _di.meta
+del entries.items[_mm_from:]
+print("model mismatch ok")
 
 def em400(distance_mm):
     return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")

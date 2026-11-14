@@ -528,6 +528,12 @@ def device_alerts(name: str, deveui: str, values: dict[str, Any], area: str | No
     if values.get("battery_low") is True:
         out[f"{deveui}:battery"] = {"title": f"Battery low – {name}", "severity": "warning", "category": "devices",
                                     "message": f"{where}: battery at {values.get('battery')} %."}
+    if values.get("model_mismatch"):
+        sugg = values["model_mismatch"]
+        out[f"{deveui}:model"] = {"title": f"Check model – {name}", "severity": "warning", "category": "devices",
+                                  "message": f"{where} is set to a different model than its data suggests — its "
+                                             f"payloads look like {sugg}. Open the device's settings and set the "
+                                             f"model to {sugg} so every reading decodes correctly."}
     if values.get("command_status") == "failed":
         out[f"{deveui}:command"] = {"title": f"Command failed – {name}", "severity": "warning",
                                     "category": "commands", "message": f"{where} did not confirm the last command."}

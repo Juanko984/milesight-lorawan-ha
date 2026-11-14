@@ -343,6 +343,16 @@
    "sensor.ts601": { state: "4.6", attributes: { milesight_role: "temp_probe", device: "Pallet T-14", area: "In transit", model: "TS601", battery: 96, alarm: true, humidity: 61, door: null, sensor_error: "OK",
      extra: [ { label: "Tilt", icon: "mdi:angle-acute", active: true, status: "tilt alarm" } ],
      probes: [ { key: "temperature", label: "", value: 4.6, unit: "°C", entity_id: null, tone: "ok", badge: "In range", low: null, high: null, mutation: null, min_today: 3.8, max_today: 5.9, sensor_status: null, contact: null } ], last_seen: Date.now() / 1000 - 10 } },
+   // TS302 with one probe + one door channel
+   "sensor.ts302_mix": { state: "3.4", attributes: { milesight_role: "temp_probe", device: "Walk-in cooler", area: "Kitchen", model: "TS302", battery: 68, alarm: false, humidity: null, door: null, extra: [], sensor_error: "OK",
+     probes: [ { key: "temperature_1", label: "Probe 1", value: 3.4, unit: "°C", entity_id: null, tone: "ok", badge: "In range", low: 0, high: 8, mutation: null, min_today: 2.9, max_today: 5.1, sensor_status: null, contact: null } ],
+     doors: [ { key: "magnet_status_2", label: "Door 2", open: true, entity_id: null } ], last_seen: Date.now() / 1000 - 12 } },
+   // TS302 configured as two door contacts (no temperature)
+   "sensor.ts302_doors": { state: "unknown", attributes: { milesight_role: "temp_probe", device: "Loading bay doors", area: "Warehouse", model: "TS302", battery: 90, alarm: false, humidity: null, door: null, extra: [], sensor_error: "OK",
+     probes: [], doors: [ { key: "magnet_status_1", label: "Door 1", open: false, entity_id: null }, { key: "magnet_status_2", label: "Door 2", open: true, entity_id: null } ], last_seen: Date.now() / 1000 - 8 } },
+   // TS301 wired as a single contact (no temperature)
+   "sensor.ts301_door": { state: "unknown", attributes: { milesight_role: "temp_probe", device: "Server-room door", area: "Comms", model: "TS301", battery: 77, alarm: false, humidity: null, door: null, extra: [], sensor_error: "OK",
+     probes: [], doors: [ { key: "magnet_status", label: "Door", open: false, entity_id: null } ], last_seen: Date.now() / 1000 - 25 } },
    // WS scene buttons (WS101 single, WS156 six-key) and a DS3604 display
    "sensor.ws101_scene": { state: "Button · Short press", attributes: { milesight_role: "scene_panel", device: "Desk button", area: "Office", model: "WS101", events: ["Short press", "Double press", "Long press"], battery: 90,
      buttons: [ { key: "button", label: "Button", last_type: "short_press", last_label: "Short press", last_at: Date.now() / 1000 - 140, count_today: 6, entity_id: "event.ws101_button" } ], last_press: Date.now() / 1000 - 140, last_seen: Date.now() / 1000 - 30 } },
@@ -365,6 +375,9 @@
    "sensor.ws201_b": { state: "Low", attributes: { milesight_role: "supplies", device: "Soap · Toilets", area: "Toilets", model: "WS201", remaining: 18, status: "low", rate: 9, days_left: 2, refilled_at: Date.now() / 1000 - 6 * 86400, battery: 71, last_seen: Date.now() / 1000 - 40 } },
    "sensor.ws201_c": { state: "Replace", attributes: { milesight_role: "supplies", device: "Paper towels · Kitchen", area: "Kitchen", model: "WS201", remaining: 3, status: "out", rate: null, days_left: null, refilled_at: Date.now() / 1000 - 11 * 86400, battery: 64, last_seen: Date.now() / 1000 - 20 } },
    "sensor.ws201_d": { state: "In stock", attributes: { milesight_role: "supplies", device: "Tissue · Lobby", area: "Lobby", model: "WS201", remaining: 96, status: "ok", rate: null, days_left: null, refilled_at: Date.now() / 1000 - 2400, battery: 95, last_seen: Date.now() / 1000 - 10 } },
+   "sensor.ws202_a": { state: "Motion", attributes: { milesight_role: "presence", device: "Warehouse aisle", area: "Warehouse", model: "WS202", active: true, since: Date.now() / 1000 - 140, last_motion: Date.now() / 1000 - 140, count_today: 37, active_today_s: 2460, light: "bright", battery: 82, last_seen: Date.now() / 1000 - 20 } },
+   "sensor.ws202_b": { state: "Clear", attributes: { milesight_role: "presence", device: "Back corridor", area: "Site B", model: "WS202", active: false, since: null, last_motion: Date.now() / 1000 - 900, count_today: 6, active_today_s: 310, light: "dim", battery: 64, last_seen: Date.now() / 1000 - 300 } },
+   "sensor.ws202_c": { state: "—", attributes: { milesight_role: "presence", device: "Store room", area: "Office", model: "WS202", active: null, since: null, last_motion: null, count_today: 0, active_today_s: 0, light: null, battery: 97, last_seen: Date.now() / 1000 - 60 } },
    "sensor.cmf1": { state: "82", attributes: { kind: "comfort", area: "Reception", temperature: 22, humidity: 45, co2: 620 } },
    "sensor.cmf2": { state: "38", attributes: { kind: "comfort", area: "Server room", temperature: 29, humidity: 20, co2: 1340 } },
    "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
@@ -509,6 +522,7 @@
    ["milesight-display-card", {}],
    ["milesight-tracker-card", {}],
    ["milesight-supplies-card", {}],
+   ["milesight-presence-card", {}],
    ["milesight-chat-card", {}],
    ["milesight-domain-card", { domain: "tanks" }],
    ["milesight-domain-card", { domain: "cold_chain" }],

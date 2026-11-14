@@ -6876,8 +6876,18 @@
     _watch() {
       if (!this._hass) return null;
       const ids = [];
-      for (const st of this._find()) { ids.push(st.entity_id); for (const p of (st.attributes.probes || [])) if (p.entity_id) ids.push(p.entity_id); }
+      for (const st of this._find()) {
+        ids.push(st.entity_id);
+        for (const p of (st.attributes.probes || [])) if (p.entity_id) ids.push(p.entity_id);
+        for (const d of (st.attributes.doors || [])) if (d.entity_id) ids.push(d.entity_id);
+      }
       return ids;
+    }
+    _sig() {
+      let s = super._sig(); if (s === null) return null;
+      // a door state is an attribute of the role entity; attribute-only changes don't move last_changed, so fold it in
+      for (const st of this._find()) for (const d of (st.attributes.doors || [])) s += "|" + st.entity_id + d.key + (d.open ? "1" : "0");
+      return s;
     }
     set hass(hass) {
       this._hass = hass;
@@ -6916,17 +6926,26 @@
       return out;
     }
     _block(st) {
-      const a = st.attributes, probes = a.probes || [];
+      const a = st.attributes, probes = a.probes || [], doors = a.doors || [];
       const err = a.sensor_error && a.sensor_error !== "OK";
+      const sub = [probes.length ? (probes.length + (probes.length === 1 ? " probe" : " probes")) : null,
+        doors.length ? (doors.length + (doors.length === 1 ? " contact" : " contacts")) : null].filter(Boolean).join(" + ");
       const head = h("div", { class: "ahd" }, [
-        h("div", { class: "aic" + (a.alarm ? " bad" : "") }, [h("ha-icon", { icon: "mdi:thermometer" })]),
+        h("div", { class: "aic" + (a.alarm ? " bad" : "") }, [h("ha-icon", { icon: probes.length ? "mdi:thermometer" : "mdi:door" })]),
         h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Probe")),
-          h("div", { class: "ahs" }, esc((a.model || "") + (probes.length > 1 ? " · dual probe" : "") + (a.area ? " · " + a.area : "")))]),
+          h("div", { class: "ahs" }, esc((a.model || "") + (sub ? " · " + sub : "") + (a.area ? " · " + a.area : "")))]),
         a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
         h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
       ]);
       let body = [];
       probes.forEach((p, i) => { body = body.concat(this._probe(st, p, i)); });
+      for (const d of doors) {
+        body.push(h("div", { class: "tpdoorrow " + (d.open ? "open" : "closed") }, [
+          h("ha-icon", { icon: d.open ? "mdi:door-open" : "mdi:door-closed" }),
+          h("div", { class: "tpdmeta" }, [h("div", { class: "tpname" }, esc(d.label || "Door")),
+            h("div", { class: "tpdstate" }, d.open ? "Open" : "Closed")]),
+        ]));
+      }
       const chips = [];
       if (a.humidity != null) chips.push(h("div", { class: "tpchip" }, [h("ha-icon", { icon: "mdi:water-percent" }), " Humidity ", h("b", {}, Math.round(a.humidity) + " %")]));
       if (a.door != null) chips.push(h("div", { class: "tpchip " + (a.door ? "open" : "closed") }, [h("ha-icon", { icon: a.door ? "mdi:door-open" : "mdi:door-closed" }), " Door ", h("b", {}, a.door ? "Open" : "Closed")]));
@@ -6959,6 +6978,10 @@
         .tptrend{margin-top:10px} .tpchips{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
         .tpchip{border:1px solid var(--ms-line);border-radius:10px;padding:6px 10px;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ms-ink2)} .tpchip b{color:var(--ms-ink);font-weight:700} .tpchip ha-icon{--mdc-icon-size:15px}
         .tpchip.open{color:var(--ms-warn)} .tpchip.closed{color:var(--ms-good)} .tpchip.warnchip{color:var(--ms-warn)}
+        .tpdoorrow{display:flex;align-items:center;gap:13px;margin:11px 0 2px} .tpprobe ~ .tpdoorrow,.tpdoorrow ~ .tpdoorrow{border-top:1px solid var(--ms-line);padding-top:11px}
+        .tpdoorrow ha-icon{--mdc-icon-size:30px;flex:0 0 auto} .tpdoorrow.open{color:var(--ms-warn)} .tpdoorrow.closed{color:var(--ms-good)}
+        .tpdmeta{min-width:0} .tpdstate{font-size:22px;font-weight:720;color:var(--ms-ink);line-height:1.1;margin-top:2px}
+        .tpdoorrow.open .tpdstate{color:var(--ms-warn)}
         .tperr{margin-top:9px;font-size:11.5px;color:var(--ms-bad);display:flex;align-items:center;gap:4px}
       `;
       const items = this._find();
@@ -7308,6 +7331,67 @@
       if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
       this.style.display = "";
       this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Supplies"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ Presence (WS202 PIR + light)
+  // Self-discovering: finds every WS202 presence role and shows motion active/clear, a bright/dim day badge,
+  // today's motion count / active time and battery. Hides itself when there are no WS202 sensors.
+  class PresenceCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "presence") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => (((y.attributes.active ? 1 : 0) - (x.attributes.active ? 1 : 0)) || String(x.attributes.device).localeCompare(String(y.attributes.device))));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _dur(s) { if (s == null) return null; s = Math.round(s); if (s < 60) return s + "s"; const m = Math.round(s / 60); return m < 60 ? m + " min" : (Math.floor(m / 60) + "h " + (m % 60) + "m"); }
+    _block(st) {
+      const a = st.attributes, on = a.active === true, unknown = a.active == null;
+      const state = on ? "on" : unknown ? "idle" : "off";
+      const head = h("div", { class: "prhd" }, [
+        h("div", { class: "pric " + state }, [h("ha-icon", { icon: on ? "mdi:motion-sensor" : "mdi:motion-sensor-off" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Sensor")),
+          h("div", { class: "ahs" }, esc((a.model || "WS202") + (a.area ? " · " + a.area : "")))]),
+        a.light ? h("span", { class: "prlight " + a.light }, [h("ha-icon", { icon: a.light === "bright" ? "mdi:white-balance-sunny" : "mdi:weather-night", style: { "--mdc-icon-size": "14px" } }), " " + (a.light === "bright" ? "Daylight" : "Dark")]) : null,
+      ].filter(Boolean));
+      const sub = on ? ("Active" + (a.since ? " for " + this._dur((Date.now() - a.since * 1000) / 1000) : ""))
+        : unknown ? "Waiting for data"
+          : (a.last_motion ? "Last seen " + ago(a.last_motion * 1000) : "No motion yet");
+      const hero = h("div", { class: "prhero " + state }, [
+        h("div", { class: "prbig" }, on ? "Motion" : unknown ? "—" : "Clear"),
+        h("div", { class: "prsub" }, sub)]);
+      const lines = [];
+      const cnt = num(a.count_today);
+      if (cnt != null) lines.push(h("span", {}, [h("b", {}, String(cnt)), cnt === 1 ? " trigger today" : " triggers today"]));
+      const act = this._dur(a.active_today_s);
+      if (act && num(a.active_today_s) > 0) lines.push(h("span", {}, [h("b", {}, act), " active today"]));
+      if (a.battery != null) lines.push(h("span", {}, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "13px" } }), " " + Math.round(a.battery) + "%"]));
+      return h("div", { class: "prblock " + state }, [head, hero, lines.length ? h("div", { class: "prmeta" }, lines) : null].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;margin-top:2px}
+        .prblock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .prblock.on{border-color:color-mix(in srgb,var(--ms-warn) 50%,var(--ms-line))}
+        .prhd{display:flex;align-items:center;gap:10px}
+        .pric{flex:0 0 auto;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-ink) 10%,transparent);color:var(--ms-ink2)}
+        .pric.on{background:color-mix(in srgb,var(--ms-warn) 17%,transparent);color:var(--ms-warn)} .pric ha-icon{--mdc-icon-size:18px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .prlight{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;padding:2px 8px;border-radius:999px;border:1px solid var(--ms-line)}
+        .prlight.bright{color:var(--ms-warn)} .prlight.dim{color:var(--ms-ink2)}
+        .prhero{margin:12px 0 2px} .prbig{font-size:26px;font-weight:740;color:var(--ms-ink2);line-height:1} .prhero.on .prbig{color:var(--ms-warn)}
+        .prsub{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .prmeta{font-size:11.5px;color:var(--ms-ink2);margin-top:11px;border-top:1px solid var(--ms-line);padding-top:9px;display:flex;flex-wrap:wrap;gap:4px 14px} .prmeta b{color:var(--ms-ink);font-weight:700} .prmeta ha-icon{vertical-align:-2px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Presence & motion"),
         h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
     }
   }
@@ -8494,6 +8578,7 @@
         DISPLAY_TAG = "milesight-display-card",
         TRACKER_TAG = "milesight-tracker-card",
         SUPPLIES_TAG = "milesight-supplies-card",
+        PRESENCE_TAG = "milesight-presence-card",
         CHAT_TAG = "milesight-chat-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
@@ -8567,6 +8652,7 @@
     [DISPLAY_TAG, DisplayCard, "Milesight Display", "DS3604 e-ink composer: template 1/2 tabs, editable text + QR blocks, a live preview and Send / Refresh / Beep"],
     [TRACKER_TAG, TrackerCard, "Milesight Asset Tracker", "AT101 GNSS / Wi-Fi tracker: a live OpenStreetMap view, moving / geofence status, distance travelled and tamper / tilt / temperature"],
     [SUPPLIES_TAG, SuppliesCard, "Milesight Supplies", "WS201 dispensers: a roll filled to what's left, % remaining, low / out badge, days-to-empty and last refill"],
+    [PRESENCE_TAG, PresenceCard, "Milesight Presence", "WS202 PIR + light sensors: motion active / clear with how long, a bright / dim day badge, today's triggers and battery"],
     [CHAT_TAG, ChatCard, "Milesight Team Chat", "In-app team messaging: Site + topic channels and Alerts / Jobs threads, live, with optional push to phones"],
   ];
   window.customCards = window.customCards || [];

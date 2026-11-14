@@ -494,6 +494,7 @@ class DeviceRuntime:
         # for Download diagnostics: what the device really sent (keys starting with _ are not entities)
         self.meta["_last_payload"] = up.raw.hex() if up.raw else None
         self.meta["_last_fport"] = up.fport
+        self._check_model(up.raw)
         if up.sf is not None:
             self.meta["spreading_factor"] = up.sf
         if up.frequency is not None:
@@ -730,6 +731,8 @@ class DeviceRuntime:
             specs.append(EntitySpec("asset_tracker", "Asset tracker", kind="text", icon="mdi:map-marker-radius"))
         if self._supplies_applies():     # a WS201 consumables dispenser → the Supplies card
             specs.append(EntitySpec("supplies", "Supplies", kind="text", icon="mdi:paper-roll"))
+        if self._presence_applies():     # a WS202 PIR + light sensor → the Presence card
+            specs.append(EntitySpec("presence", "Presence", kind="text", icon="mdi:motion-sensor"))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
@@ -1326,35 +1329,34 @@ class DeviceRuntime:
         return None, None
 
     def _temp_probe(self, v: dict) -> dict | None:
-        """A TS temperature probe as one role: each probe's temperature with its alarm badge (configured cold-chain
-        limits or the device's own threshold alarm), today's min/max and a trend entity; plus humidity, the
-        door/contact and any cold-chain tilt / light alarms."""
+        """A TS probe as one role. Each channel is read as whatever it's wired to: a temperature probe (with its
+        alarm badge, today's min/max and a trend entity) or a door / contact input (open / closed). Handles the
+        TS302's mix — two probes, two doors, or one of each — plus humidity and cold-chain tilt / light alarms."""
         if not self._temp_probe_applies():
             return None
         resolve = self._entity_id_resolver()
         lo, hi = _nz(self.pcfg.get("temp_low")), _nz(self.pcfg.get("temp_high"))
-        probes = []
-        for suffix, label in (("", ""), ("_1", "Probe 1"), ("_2", "Probe 2")):
-            tkey = f"temperature{suffix}"
-            if tkey not in v:
-                continue
-            val = _nz(v.get(tkey))
-            tone, text = self._probe_badge(val, lo, hi, v.get(f"{tkey}_alarm_active"), v.get(f"{tkey}_alarm_status"))
-            contact = None
-            mkey = f"magnet_status{suffix}"
-            if mkey in v:
-                contact = bool(v.get(mkey))
-            probes.append({
-                "key": tkey, "label": label, "value": None if val is None else round(val, 1), "unit": "°C",
-                "entity_id": resolve(tkey), "tone": tone, "badge": text,
-                "low": lo, "high": hi, "mutation": _nz(v.get(f"{tkey}_mutation")),
-                "min_today": _nz(v.get(f"{tkey}_min_today")), "max_today": _nz(v.get(f"{tkey}_max_today")),
-                "sensor_status": v.get(f"{tkey}_sensor_status"), "contact": contact,
-            })
-        if not probes:
+        probes, doors = [], []
+        for suffix, tlabel, dlabel in (("", "", "Door"), ("_1", "Probe 1", "Door 1"), ("_2", "Probe 2", "Door 2")):
+            tkey, mkey = f"temperature{suffix}", f"magnet_status{suffix}"
+            if tkey in v:
+                val = _nz(v.get(tkey))
+                tone, text = self._probe_badge(val, lo, hi, v.get(f"{tkey}_alarm_active"), v.get(f"{tkey}_alarm_status"))
+                probes.append({
+                    "key": tkey, "label": tlabel, "value": None if val is None else round(val, 1), "unit": "°C",
+                    "entity_id": resolve(tkey), "tone": tone, "badge": text,
+                    "low": lo, "high": hi, "mutation": _nz(v.get(f"{tkey}_mutation")),
+                    "min_today": _nz(v.get(f"{tkey}_min_today")), "max_today": _nz(v.get(f"{tkey}_max_today")),
+                    "sensor_status": v.get(f"{tkey}_sensor_status"),
+                    "contact": bool(v.get(mkey)) if mkey in v else None,
+                })
+            elif mkey in v:                                 # this channel is wired as a door / contact, not a probe
+                doors.append({"key": mkey, "label": dlabel, "open": bool(v.get(mkey)),
+                              "entity_id": resolve(mkey, "binary_sensor")})
+        if not probes and not doors:
             return None
-        door = v.get("door_active")
-        if door is None and "magnet_status" in v:
+        door = v.get("door_active")                         # a purpose-driven door elsewhere, or a legacy no-suffix contact
+        if door is None and "magnet_status" in v and not any(d["key"] == "magnet_status" for d in doors):
             door = bool(v.get("magnet_status"))
         extra = []
         for feat, name, icon in (("tilt", "Tilt", "mdi:angle-acute"), ("light", "Light", "mdi:white-balance-sunny")):
@@ -1365,8 +1367,8 @@ class DeviceRuntime:
         alarm = any(p["tone"] in ("high", "low", "mutation") for p in probes) or any(e["active"] for e in extra)
         return {
             "milesight_role": "temp_probe", "device": self.entry.title, "area": self._area(), "model": self.model.key,
-            "probes": probes, "humidity": _nz(v.get("humidity")), "door": door, "extra": extra, "alarm": alarm,
-            "battery": _nz(v.get("battery")), "sensor_error": v.get("sensor_error"),
+            "probes": probes, "doors": doors, "humidity": _nz(v.get("humidity")), "door": door, "extra": extra,
+            "alarm": alarm, "battery": _nz(v.get("battery")), "sensor_error": v.get("sensor_error"),
             "last_seen": self.meta.get("last_seen"),
         }
 
@@ -1486,6 +1488,48 @@ class DeviceRuntime:
             "remaining": round(rem), "status": status,
             "rate": round(rate, 1) if rate else None, "days_left": round(days_left) if days_left else None,
             "refilled_at": self.meta.get("_sup_refill"), "battery": _nz(v.get("battery")),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _check_model(self, raw: bytes | None) -> None:
+        """Warn when the configured model disagrees with what the payload looks like — e.g. a pulse / water
+        counter arriving on a leak-sensor model. Uses the same sniffer as onboarding; recomputed only when the
+        payload's shape changes, and flags only a clear mismatch (the configured model isn't even a candidate)."""
+        if not raw:
+            return
+        sig = f"{self.model.key}|{len(raw)}|{raw[:3].hex()}"
+        if self.meta.get("_mm_sig") == sig:
+            return
+        self.meta["_mm_sig"] = sig
+        try:
+            from .models import guess_model
+            primary, candidates = guess_model(raw)
+        except Exception:  # noqa: BLE001 - a sniff failure must never break the uplink
+            return
+        if primary and candidates and self.model.key not in candidates:
+            self.meta["model_mismatch"] = {"suggested": primary, "candidates": list(candidates)}
+        else:
+            self.meta.pop("model_mismatch", None)
+
+    def _presence_applies(self) -> bool:
+        return "ws202" in self.model.features
+
+    def _presence(self, v: dict, ts: float) -> dict | None:
+        """A WS202 PIR + light sensor as one role: motion active / clear with how long, a bright / dim day
+        indicator, today's motion count and active time, and battery."""
+        if not self._presence_applies():
+            return None
+        active = v.get("motion_active")
+        light = v.get("daylight")                        # 'bright' / 'dim' / 'unknown'
+        return {
+            "milesight_role": "presence", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "active": active,
+            "since": v.get("motion_since") if active else None,
+            "last_motion": v.get("motion_last_on_at"),
+            "count_today": v.get("motion_count_today"),
+            "active_today_s": v.get("motion_today_s"),
+            "light": light if light in ("bright", "dim") else None,
+            "battery": _nz(v.get("battery")),
             "last_seen": self.meta.get("last_seen"),
         }
 
@@ -2637,9 +2681,9 @@ class DeviceRuntime:
         if em_soil is not None:
             v["soil"] = em_soil["moisture"]
             self.attrs["soil"] = em_soil
-        probe = self._temp_probe(v)                 # TS temperature probe → the Temperature-probe card
+        probe = self._temp_probe(v)                 # TS temperature / contact probe → the Temperature-probe card
         if probe is not None:
-            v["temp_probe"] = probe["probes"][0]["value"]
+            v["temp_probe"] = probe["probes"][0]["value"] if probe["probes"] else None
             self.attrs["temp_probe"] = probe
             breaches = [{"label": p["label"] or "Temperature", "tone": p["tone"], "value": p["value"], "badge": p["badge"]}
                         for p in probe["probes"] if p["tone"] in ("high", "low", "mutation")]
@@ -2671,6 +2715,13 @@ class DeviceRuntime:
                 v["supply_out"] = supply["remaining"]
             elif supply["status"] == "low":
                 v["supply_low"] = supply["remaining"]
+        pres = self._presence(v, ts)                # WS202 PIR + light sensor → the Presence card
+        if pres is not None:
+            v["presence"] = "Motion" if pres["active"] else "Clear"
+            self.attrs["presence"] = pres
+        mm = self.meta.get("model_mismatch")        # configured model disagrees with the payload → a 'devices' alert
+        if mm:
+            v["model_mismatch"] = mm["suggested"]
         ctrl = self._controller(v)                  # UC I/O controller → the Controller card
         if ctrl is not None:
             pm = next((m for m in ctrl["metrics"] if m["key"] == ctrl["primary"]), None)
