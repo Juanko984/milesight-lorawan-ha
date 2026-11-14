@@ -285,11 +285,14 @@ class MessagingManager:
     async def _push(self, channel: str, author: str, text: str, targets: list[str]) -> None:
         """Send an actionable push to each target so a reply typed on the phone comes straight back into the thread."""
         title = f"{author} · {self.channels.get(channel, {}).get('title', 'Team chat')}"
+        deep_link = f"/milesight-chat?channel={channel}"
         data = {
             "chat_channel": channel,                   # echoed back on the notification action, routes the reply
             "chat_hub": self.entry.entry_id,
             "tag": f"mlw-chat-{channel}",              # replies to the same channel collapse into one thread
             "group": f"mlw-chat-{self.entry.entry_id}",
+            "url": deep_link,                          # iOS companion: tap opens the chat on this channel
+            "clickAction": deep_link,                  # Android companion: same
             "actions": [{"action": mc.REPLY_ACTION, "title": "Reply",
                          "behavior": "textInput", "textInputButtonTitle": "Send"}],
             "push": {"category": mc.REPLY_ACTION},     # iOS: dynamic reply category

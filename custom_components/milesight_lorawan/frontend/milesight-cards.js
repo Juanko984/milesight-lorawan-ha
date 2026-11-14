@@ -7416,26 +7416,89 @@
       const first = !this._hass;
       this._hass = hass;
       if (first) { this._init(); }
+      else if (this._channels === null && !this._retryTimer && !this._unsub) { this._gaveUp = false; this._retry = 0; this._init(); }
     }
     async _init() {
       this._active = this._active || "site"; this._push = this._push !== false; this._draft = this._draft || "";
+      if (!this._hass || !this._hass.connection) { this._scheduleRetry(); return; }
       try {
         const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: this._active });
         this._hub = r.hub; this._channels = r.channels || []; this._workers = r.workers || [];
         this._messages = r.messages || []; this._readers = r.readers || [];
         this._roster = r.roster || []; this._online = r.online || []; this._canManage = !!r.can_manage;
         this._uid = r.me || (this._hass.user && this._hass.user.id) || null;
+        this._retry = 0; this._gaveUp = false;
         this._render();
         this._markRead();
         this._flag();
         this._unsub = await this._hass.connection.subscribeMessage((ev) => this._onEvent(ev),
           { type: "milesight_lorawan/chat/subscribe", presence: true });
-      } catch (e) { this._channels = null; this._render(); }
+      } catch (e) {
+        // the connection may still be coming up (e.g. the app was just opened from a push) — keep trying
+        this._channels = null; this._render(); this._scheduleRetry();
+      }
+    }
+    _scheduleRetry() {
+      if (this._retryTimer) return;
+      this._retry = (this._retry || 0) + 1;
+      if (this._retry > 10) { this._gaveUp = true; this._render(); return; }   // ~1 min of trying, then show the hint
+      this._retryTimer = setTimeout(() => { this._retryTimer = null; if (!this._unsub) this._init(); },
+        Math.min(1200 * this._retry, 6000));
     }
     _flag() { try { window.__msChat = { open: true, channel: this._active }; } catch (e) { /* */ } }
     _notifyMuted() { try { return localStorage.getItem("ms-chat-notify") === "off"; } catch (e) { return false; } }
-    _toggleNotify() { try { localStorage.setItem("ms-chat-notify", this._notifyMuted() ? "on" : "off"); } catch (e) { /* */ } this._render(); }
-    disconnectedCallback() { if (this._unsub) { try { this._unsub(); } catch (e) { /* gone */ } this._unsub = null; } try { window.__msChat = { open: false }; } catch (e) { /* */ } if (super.disconnectedCallback) super.disconnectedCallback(); }
+    _toggleNotify() {
+      try { localStorage.setItem("ms-chat-notify", this._notifyMuted() ? "on" : "off"); } catch (e) { /* */ }
+      try { if (!this._notifyMuted() && window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) { /* */ }
+      this._render();
+    }
+    // -- @mention autocomplete ----------------------------------------------
+    _mentionPool() {
+      const names = []; const seen = {};
+      const add = (n) => { const k = String(n || "").trim(); if (k && !seen[k.toLowerCase()]) { seen[k.toLowerCase()] = 1; names.push(k); } };
+      for (const w of (this._workers || [])) add(w);
+      for (const r of (this._roster || [])) add(r.name);
+      return names;
+    }
+    _updateMention(el) {
+      const pos = el && el.selectionStart != null ? el.selectionStart : (this._draft || "").length;
+      const left = (this._draft || "").slice(0, pos);
+      const m = left.match(/(^|\s)@([\p{L}\w'\-]*)$/u);
+      if (!m) { this._men = null; return; }
+      const frag = m[2].toLowerCase();
+      const list = this._mentionPool().filter((n) => {
+        const nl = n.toLowerCase(); return !frag || nl.startsWith(frag) || nl.split(/\s+/).some((w) => w.startsWith(frag));
+      }).slice(0, 6);
+      this._men = list.length ? { frag: m[2], at: pos - m[2].length - 1, list, idx: 0 } : null;
+    }
+    _applyMention(name) {
+      if (!this._men) return;
+      const first = String(name).split(" ")[0];
+      const d = this._draft || "", before = d.slice(0, this._men.at), after = d.slice(this._men.at + 1 + this._men.frag.length);
+      this._draft = before + "@" + first + " " + after;
+      const caret = (before + "@" + first + " ").length;
+      this._men = null; this._render();
+      requestAnimationFrame(() => { const el = this.shadowRoot && this.shadowRoot.querySelector(".cinput input"); if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch (e) { /* */ } } });
+    }
+    _mentionEl() {
+      const m = this._men;
+      if (!m || !m.list.length) return h("div", { class: "mentionbox", style: { display: "none" } });
+      return h("div", { class: "mentionbox" }, m.list.map((n, i) => h("div", {
+        class: "mrow" + (i === m.idx ? " on" : ""), onmousedown: (e) => { e.preventDefault(); this._applyMention(n); } },
+        [this._avatar(n, false), h("span", { class: "mnm" }, esc(n))])));
+    }
+    _renderMentions() { const el = this.shadowRoot && this.shadowRoot.querySelector(".mentionbox"); if (el) el.replaceWith(this._mentionEl()); }
+    _inputKeydown(e) {
+      const m = this._men;
+      if (m && m.list.length) {
+        if (e.key === "ArrowDown") { e.preventDefault(); m.idx = (m.idx + 1) % m.list.length; this._renderMentions(); return; }
+        if (e.key === "ArrowUp") { e.preventDefault(); m.idx = (m.idx - 1 + m.list.length) % m.list.length; this._renderMentions(); return; }
+        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this._applyMention(m.list[m.idx]); return; }
+        if (e.key === "Escape") { e.preventDefault(); this._men = null; this._renderMentions(); return; }
+      }
+      if (e.key === "Enter") { e.preventDefault(); this._send(); }
+    }
+    disconnectedCallback() { if (this._unsub) { try { this._unsub(); } catch (e) { /* gone */ } this._unsub = null; } if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; } try { window.__msChat = { open: false }; } catch (e) { /* */ } if (super.disconnectedCallback) super.disconnectedCallback(); }
     _onEvent(ev) {
       if (!ev) return;
       if (ev.presence) {    // someone opened / left the chat: refresh the roster + online count
@@ -7473,7 +7536,7 @@
     }
     async _open(ch) {
       if (ch === this._active) return;
-      this._active = ch; this._draft = ""; this._pendingImg = null; this._pendingLoc = null;
+      this._active = ch; this._draft = ""; this._pendingImg = null; this._pendingLoc = null; this._men = null;
       this._typers = {};
       try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: ch }); this._messages = r.messages || []; this._channels = r.channels || this._channels; this._readers = r.readers || []; this._roster = r.roster || this._roster; this._online = r.online || this._online; }
       catch (e) { this._messages = []; this._readers = []; }
@@ -7493,7 +7556,7 @@
       if (this._asWorker) data.as_worker = this._asWorker;
       if (this._pendingImg) data.image = this._pendingImg;
       if (this._pendingLoc) data.loc = this._pendingLoc;
-      this._draft = ""; this._pendingImg = null; this._pendingLoc = null;
+      this._draft = ""; this._pendingImg = null; this._pendingLoc = null; this._men = null;
       const inp = this.shadowRoot && this.shadowRoot.querySelector(".cinput input"); if (inp) inp.value = "";
       this._render();
       try { await this._hass.connection.sendMessagePromise(data); } catch (e) { /* surfaced by HA */ }
@@ -7642,7 +7705,9 @@
       if (!this._hass) return;
       this._css = MON_CSS + CHAT_CSS;
       if (this._channels === null) {
-        this._card(h("div", { class: "wrap" }, [h("div", { class: "chatna" }, "Team chat isn't available — set up a gateway with the integration.")]));
+        this._card(h("div", { class: "wrap" }, [h("div", { class: "chatna" }, this._gaveUp
+          ? "Team chat isn't available — set up a gateway with the integration."
+          : "Connecting to Team chat…")]));
         return;
       }
       if (!this._channels) { this._card(h("div", { class: "wrap" }, [h("div", { class: "chatna" }, "Loading…")])); return; }
@@ -7657,12 +7722,14 @@
         this._pendingLoc ? h("div", { class: "ploc" }, [h("ha-icon", { icon: "mdi:map-marker", style: { "--mdc-icon-size": "15px" } }), " Location attached", h("button", { class: "px", onclick: () => { this._pendingLoc = null; this._render(); } }, "✕")]) : null,
       ].filter(Boolean)) : null;
       const comp = h("div", { class: "comp" }, [
+        this._mentionEl(),
         pending,
         h("div", { class: "cinput" }, [
           h("button", { class: "iconbtn", title: "Photo", onclick: () => this._attach() }, [h("ha-icon", { icon: "mdi:camera-outline" })]),
           h("button", { class: "iconbtn", title: "Share location", onclick: () => this._shareLoc() }, [h("ha-icon", { icon: "mdi:map-marker-outline" })]),
           h("input", { type: "text", value: this._draft || "", placeholder: "Message " + (ac.title ? "#" + ac.title : "…"),
-            oninput: (e) => { this._draft = e.target.value; this._sendTyping(); }, onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); this._send(); } } }),
+            oninput: (e) => { this._draft = e.target.value; this._sendTyping(); this._updateMention(e.target); this._renderMentions(); },
+            onkeydown: (e) => this._inputKeydown(e) }),
           h("button", { class: "send", onclick: () => this._send() }, [h("ha-icon", { icon: "mdi:send", style: { "--mdc-icon-size": "17px" } })]),
         ]),
         h("div", { class: "copts" }, [
@@ -7739,7 +7806,10 @@
     .mention{color:var(--ms-accent);font-weight:600}
     .receiptrow{display:flex;justify-content:flex-end;min-height:0;padding:0 2px}
     .receipt{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:3px;padding:2px 2px 4px} .receipt ha-icon{color:var(--ms-accent)}
-    .comp{border-top:1px solid var(--ms-line);padding:11px 2px 2px;display:flex;flex-direction:column;gap:8px}
+    .comp{border-top:1px solid var(--ms-line);padding:11px 2px 2px;display:flex;flex-direction:column;gap:8px;position:relative}
+    .mentionbox{position:absolute;bottom:100%;left:2px;right:2px;margin-bottom:6px;background:var(--ms-card,var(--card-background-color,#1c2429));border:1px solid var(--ms-line);border-radius:12px;box-shadow:0 -8px 26px rgba(0,0,0,.34);overflow:hidden;z-index:30}
+    .mrow{display:flex;align-items:center;gap:9px;padding:8px 11px;cursor:pointer;font-size:13px;color:var(--ms-ink)} .mrow.on,.mrow:hover{background:color-mix(in srgb,var(--ms-accent) 15%,transparent)}
+    .mrow .av{width:24px;height:24px;font-size:10px;flex:0 0 auto} .mrow .mnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .cinput{display:flex;align-items:center;gap:7px}
     .cinput input{flex:1;background:color-mix(in srgb,var(--ms-ink) 6%,transparent);border:1px solid var(--ms-line);border-radius:999px;padding:9px 14px;color:var(--ms-ink);font:inherit;font-size:13px}
     .cinput input:focus{outline:none;border-color:var(--ms-accent)}
@@ -8745,15 +8815,29 @@
       } catch (e) { /* DOM not ready */ }
     }
     function preview(m) { return m.text || (m.image ? "📷 Photo" : m.loc ? "📍 Location" : ""); }
+    function osNotify(channel, title, body) {              // a persistent OS notification (survives a backgrounded tab)
+      try {
+        if (!("Notification" in window) || Notification.permission !== "granted") return;
+        const n = new Notification(title, { body: body, tag: "ms-chat-" + channel, renotify: true });
+        n.onclick = function () { try { window.focus(); } catch (e) { /* */ } openChat(channel); try { n.close(); } catch (e) { /* */ } };
+      } catch (e) { /* */ }
+    }
+    function primeNotify() {                               // ask once, on a real user gesture, unless muted
+      try { if (!muted() && window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) { /* */ }
+      window.removeEventListener("pointerdown", primeNotify, true);
+    }
+    window.addEventListener("pointerdown", primeNotify, true);
     function notify(ev, h) {
       if (!ev || !ev.message || !h || muted()) return;
       const m = ev.message, me = h.user && h.user.id;
       if (m.user_id && me && m.user_id === me) return;        // my own message
-      const act = window.__msChat;                            // silent while the chat is open on this very channel
-      if (act && act.open && act.channel === ev.channel && document.visibilityState === "visible") return;
+      const act = window.__msChat, visible = document.visibilityState === "visible";
+      if (act && act.open && act.channel === ev.channel && visible) return;   // silent while watching this very channel
       const chan = (ev.channel_meta && ev.channel_meta.title) || "Team chat";
       const title = (m.kind === "sys" || !m.author) ? chan : (m.author + " · " + chan);
-      chime(); toast(ev.channel, title, preview(m));
+      const body = preview(m);
+      if (visible) { chime(); toast(ev.channel, title, body); }   // in-page toast + chime when you're looking
+      osNotify(ev.channel, title, body);                          // and a durable OS notification either way
     }
     function link() {
       try {

@@ -2,6 +2,17 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.143.0
+- **Team chat fixes: push tap, @mention autocomplete, and browser notifications.**
+  - **Tapping a chat push no longer errors.** The card now retries while the connection is still coming up
+    (instead of showing "Team chat isn't available" the instant a call fails right after the app opens), showing
+    "Connecting to Team chat…" until it's ready. Chat pushes also deep-link, so tapping one opens that channel.
+  - **@mention autocomplete.** Typing `@` now shows a suggestion list of workers and people in chat; arrow-keys or
+    tap to pick (matches on name / word prefixes), and it inserts the mention for you.
+  - **Browser notifications.** Besides the in-page toast, a new message now raises a native browser notification
+    (requested once, respects the bell mute) so you're alerted even when the Home Assistant tab is in the
+    background — click it to jump to that channel.
+
 ## 0.142.0
 - **Team chat: a chime + banner for new messages.** A new message from someone else now plays a short chime and
   shows a floating toast (sender · channel + preview) on any Home Assistant page — click it to jump straight to

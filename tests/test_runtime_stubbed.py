@@ -2610,6 +2610,7 @@ mgrc.post("site", "fridge down", author="Juan", user_id="ujuan", push=True); _dr
 assert {s for s, _ in CHATCALLS} == {"mobile_app_piet", "mobile_app_anna"}, CHATCALLS
 _d0 = CHATCALLS[0][1]["data"]
 assert _d0["chat_channel"] == "site" and _d0["chat_hub"] == "chat1"
+assert _d0["url"] == "/milesight-chat?channel=site" and _d0["clickAction"] == _d0["url"]   # tap deep-links to the channel
 assert _d0["actions"][0]["action"] == "MLW_CHAT_REPLY" and _d0["actions"][0]["behavior"] == "textInput"
 # an @mention pings just that worker's phone even with the broadcast toggle off
 CHATCALLS.clear()
