@@ -34,6 +34,16 @@ views:
           - type: custom:milesight-weather-card
             grid_options: {columns: 6}
       - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: EM500 sensors
+            icon: mdi:gauge
+          # EM500 single-reading sensors: light / pipe pressure / PT100 temperature as a gauge, and the UDL / SWL
+          # level sensors as a filled shaft, each with a trend. Hides itself when no EM500 sensors are present.
+          - type: custom:milesight-em-reading-card
+            grid_options: {columns: full}
+      - type: grid
         cards:
           - type: heading
             heading: Irrigation and frost
@@ -52,6 +62,20 @@ views:
               {% set m = a.soil_moisture %}{% if m is not none %}{% set n = (m / 10) | round(0, 'floor') | int %}Soil {{ '🟫' * n }}{{ '⬜' * (10 - n) }} **{{ m }} %** <small>(target {{ a.target_moisture }} %)</small>
               {% endif %}<small>Rain next {{ a.rain_window_h }} h: {{ a.rain_mm if a.rain_mm is not none else '–' }} mm{% if a.rain_probability is not none %} ({{ a.rain_probability }} %){% endif %}{% if a.forecast_error %} · ⚠ {{ a.forecast_error }}{% endif %}</small>
               {% endfor %}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Controllers and valves
+            icon: mdi:developer-board
+          # UC I/O controllers: digital inputs, relay-output toggles, PT100 / analog chips that drive a trend,
+          # pulse counters and attached RS485 purposes. Hides itself when there are no UC controllers.
+          - type: custom:milesight-controller-card
+            grid_options: {columns: full}
+          # UC valve controllers (UC511 / UC512 solenoid, UC521 motorised): open / close, open-for timer,
+          # % opening dial and pipe pressure. Hides itself when there are no UC valves.
+          - type: custom:milesight-valve-card
+            grid_options: {columns: full}
       - type: grid
         column_span: 3
         cards:

@@ -1146,7 +1146,16 @@ _DYN = [   # (regex, builder) – applied to decoded keys of controllers with co
                                                                platform="binary_sensor", device_class="problem")),
     (r"pressure(?:_(\d+))?_alarm_status", lambda m: EntitySpec(m[0], f"Pressure {m[1] or ''} alarm status".replace("  ", " "),
                                                                kind="label", icon="mdi:alarm-light-outline")),
+    (r"label_(.+)", lambda m: EntitySpec(m[0], f"{_channel_label_name(m[1])} label", platform="text", kind="text",
+                                         icon="mdi:rename-box", enabled_default=False)),
 ]
+
+
+def _channel_label_name(key: str) -> str:
+    """Friendly name for a UC channel's label-text entity: 'gpio_input_1' -> 'Digital input 1'."""
+    spec = next((build(re.fullmatch(p, key)) for p, build in _DYN
+                 if not p.startswith("label_") and re.fullmatch(p, key)), None)
+    return spec.name if spec is not None else key.replace("_", " ").capitalize()
 
 
 def _cth_alarm_label(key: str) -> str:
@@ -1942,10 +1951,29 @@ TEMPLATE_TAGS: dict[str, frozenset[str]] = {
 }
 
 
+# A device's "Dashboard" setting can pin it to one ready-made dashboard instead of its auto-derived tags.
+# Each choice maps to the tag(s) that install that dashboard (see resources.DASHBOARDS) and label the device.
+DASHBOARD_PINS: dict[str, frozenset[str]] = {
+    "building":   frozenset({"comfort"}),
+    "farm":       frozenset({"irrigation"}),
+    "water":      frozenset({"tank"}),
+    "cold_chain": frozenset({"cold_chain"}),
+    "energy":     frozenset({"energy"}),
+    "retail":     frozenset({"retail"}),
+    "washroom":   frozenset({"washroom"}),
+    "coop":       frozenset({"coop"}),
+}
+DASHBOARD_CHOICES = ("auto", *DASHBOARD_PINS)
+
+
 def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
     """What a device is used for (its model, plus what its options say: a clamp set up as a pump, a tracker on a
-    pivot) – decides which ready-made dashboards a site gets and labels its device."""
+    pivot) – decides which ready-made dashboards a site gets and labels its device. A device whose 'dashboard'
+    option is set to a specific dashboard (not 'auto') is pinned there instead of using its auto-derived tags."""
     options = options or {}
+    pin = options.get("dashboard")
+    if pin in DASHBOARD_PINS:
+        return DASHBOARD_PINS[pin]
     model = MODELS.get(model_key)
     if model is None:
         return frozenset()

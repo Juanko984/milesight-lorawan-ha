@@ -934,7 +934,7 @@ assert _em._env_applies() and "env_monitor" in {sp.key for sp in _em.extra_specs
 _ev = _em._env_monitor({"temperature": 4.6, "humidity": 61, "battery": 88, "door_active": False, "door_since": None})
 assert _ev["milesight_role"] == "env_monitor" and _ev["primary"] == "temperature" and _ev["device"] == "Cold room door"
 _evm = {m["key"]: m for m in _ev["metrics"]}
-assert _evm["temperature"]["value"] == 4.6 and "humidity" in _evm and "battery" in _evm
+assert _evm["temperature"]["value"] == 4.6 and "humidity" in _evm and "battery" not in _evm   # battery is not an env reading
 _evs = {s["key"]: s for s in _ev["states"]}
 assert _evs["door"]["text"] == "Closed" and _evs["door"]["tone"] == "ok"      # door closed → green, status only
 assert _em._env_monitor({"temperature": 4.6, "humidity": 61, "door_active": True, "door_since": 1})["states"][0]["tone"] == "warning"
@@ -943,6 +943,9 @@ _, _th = make_with("00000000000eenv02", "EM300-TH", {}); assert _th._env_applies
 _, _uc = make_with("00000000000eenv03", "UC300", {}); assert not _uc._env_applies()
 _, _am7 = make_with("00000000000eenv04", "AM307", {}); assert not _am7._env_applies()   # uses the air card instead
 _, _ws3 = make_with("00000000000eenv05", "WS301", {}); assert not _ws3._env_applies()   # door only (single property)
+# WS202 (PIR + daylight only, no numeric reading) is NOT an environment monitor – its motion / light are binary sensors
+_, _w2 = make_with("00000000000eenv06", "WS202", {}); assert not _w2._env_applies()
+assert "env_monitor" not in {sp.key for sp in _w2.extra_specs()}
 del entries.items[_env_from:]
 print("env monitor ok")
 
@@ -1033,6 +1036,149 @@ _ok = _fd._fall_monitor({"detection_status": "in_bed", "respiratory_rate": 16.0,
 assert _ok["state"] == "in_bed" and _ok["tone"] == "ok" and _ok["respiration"] == 16.0
 del entries.items[_vs_from:]
 print("vs counter/fall ok")
+
+# UC I/O controller + valve controllers
+_uc_from = len(entries.items)
+_, _uc = make_with("00000000000euc300", "UC300", {"uc_labels": {"gpio_output_1": "Irrigation pump", "pt100_1": "Line temp"}},
+                   title="Pump house", area="Borehole 2")
+assert _uc._controller_applies() and "controller" in {sp.key for sp in _uc.extra_specs()}
+_cr = _uc._controller({"gpio_input_1": 1, "gpio_input_2": 0, "gpio_output_1": 1, "gpio_output_2": 0,
+                       "pt100_1": 41.2, "adc_1": 14.2, "adv_1": 6.4, "gpio_counter_1": 184230})
+assert [i["on"] for i in _cr["inputs"]] == [True, False]
+assert _cr["outputs"][0]["label"] == "Irrigation pump" and _cr["outputs"][1]["label"] == "DO2"   # custom + fallback
+assert {m["key"] for m in _cr["metrics"]} == {"pt100_1", "adc_1", "adv_1"} and _cr["primary"] == "pt100_1"
+assert next(m for m in _cr["metrics"] if m["key"] == "pt100_1")["label"] == "Line temp"            # custom label
+assert _cr["counters"][0]["value"] == 184230
+# the label-text entities are discovered from the label_* keys emitted during publish
+assert models.dynamic_spec("label_gpio_output_1").platform == "text"
+# UC511 solenoid valve: open / closed + pressure
+_, _v5 = make_with("00000000000euc511", "UC511", {}, title="Field valves", area="Block A")
+assert _v5._valve_applies() and "valve_controller" in {sp.key for sp in _v5.extra_specs()}
+_vr = _v5._valve_controller({"valve_1": 1, "valve_1_pulse": 4820, "valve_2": 0, "pressure": 210, "battery": 86})
+assert _vr["motorised"] is False and _vr["valves"][0]["kind"] == "switch" and _vr["valves"][0]["open"] is True
+assert _vr["valves"][0]["pressure"] == 210 and _vr["pressures"][0]["value"] == 210 and _vr["battery"] == 86
+# UC521 motorised: % opening
+_, _v2 = make_with("00000000000euc521", "UC521", {}, title="Main line", area="Pump house")
+_vr2 = _v2._valve_controller({"valve_1_opening": 65, "valve_1_type": "3_way_ball_valve", "valve_1_direction": "right",
+                             "pressure_1": 280, "pressure_2": 260})
+assert _vr2["motorised"] is True and _vr2["valves"][0]["kind"] == "opening" and _vr2["valves"][0]["opening"] == 65
+assert _vr2["valves"][0]["key"] == "valve_1_opening" and len(_vr2["pressures"]) == 2
+del entries.items[_uc_from:]
+print("uc controller/valve ok")
+
+# EM500 range: adaptive reading card (gauge + level) and the native soil probe
+_em_from = len(entries.items)
+_, _lg = make_with("00000000000eem5lg", "EM500-LGT", {}, title="Greenhouse light", area="Tunnel 3")
+assert _lg._em_reading_applies() and "em_reading" in {sp.key for sp in _lg.extra_specs()}
+_lr = _lg._em_reading({"illumination": 18400, "illumination_min_today": 120, "illumination_max_today": 62000, "battery": 91})
+assert _lr["kind"] == "gauge" and _lr["unit"] == "lx" and _lr["value"] == 18400 and 20 < _lr["pct"] < 35   # no range → scaled to today's max
+_, _pp = make_with("00000000000eem5pp", "EM500-PP", {}, title="Main line", area="Pump house")
+_pr = _pp._em_reading({"pressure_kpa": 300, "range_min": 0, "range_max": 600})
+assert _pr["kind"] == "gauge" and _pr["unit"] == "kPa" and _pr["gmax"] == 600 and _pr["pct"] == 50.0    # device range drives the gauge
+# EM500-UDL: distance to surface → water column from the bottom of the range
+_, _ud = make_with("00000000000eem5ud", "EM500-UDL", {}, title="Reservoir", area="Dam")
+_ur = _ud._em_reading({"distance": 710, "range_min": 0, "range_max": 2560})
+assert _ur["kind"] == "level" and _ur["fill_value"] == 1850 and _ur["headroom"] == 710 and 71 < _ur["pct"] < 73
+assert _ud._em_reading({"distance": 710})["pct"] is None                                               # no range → no %
+# EM500-SWL: submersible depth is the water column itself
+_, _sw = make_with("00000000000eem5sw", "EM500-SWL", {}, title="Borehole", area="Borehole 2")
+_sr = _sw._em_reading({"depth": 320, "range_min": 0, "range_max": 780})
+assert _sr["fill_value"] == 320 and 40 < _sr["pct"] < 42
+# EM500-SMTC native soil → the shared Soil card, only the three readings it measures
+_, _sm = make_with("00000000000eem5sm", "EM500-SMTC", {}, title="Field 4 soil", area="North block")
+assert "soil" in {sp.key for sp in _sm.extra_specs()} and "em_reading" not in {sp.key for sp in _sm.extra_specs()}
+_mr = _sm._em_soil({"moisture": 47, "temperature": 21.4, "electricity": 1420})
+assert _mr["milesight_role"] == "soil" and _mr["moisture"] == 47 and _mr["ec"] == 1420 and _mr["ph"] is None
+assert _mr["model"] == "EM500-SMTC" and set(_mr["status"]) == {"moisture", "ec"}
+del entries.items[_em_from:]
+print("em500 reading/soil ok")
+
+# TS temperature probes → the Temperature-probe card (and no longer the Environment card)
+_ts_from = len(entries.items)
+_, _t1 = make_with("00000000000ets101", "TS101", {}, title="Blast freezer", area="Cold store")
+assert _t1._temp_probe_applies() and "temp_probe" in {sp.key for sp in _t1.extra_specs()}
+assert "env_monitor" not in {sp.key for sp in _t1.extra_specs()}            # TS excluded from the Environment card
+_pr = _t1._temp_probe({"temperature": -22.4, "temperature_min_today": -24.1, "temperature_max_today": -19.8, "battery": 84})
+assert len(_pr["probes"]) == 1 and _pr["probes"][0]["value"] == -22.4 and _pr["alarm"] is False
+# device-side threshold alarm (no configured limits) → a generic high badge
+_, _t3 = make_with("00000000000ets301", "TS301", {}, title="Vaccine fridge", area="Pharmacy")
+_p3 = _t3._temp_probe({"temperature": 9.8, "humidity": 52, "door_active": True,
+                       "temperature_alarm_active": True, "temperature_alarm_status": "above_threshold_alarm"})
+assert _p3["probes"][0]["tone"] == "high" and _p3["probes"][0]["badge"] == "Above threshold"
+assert _p3["humidity"] == 52 and _p3["door"] is True and _p3["alarm"] is True
+# TS302 dual probe: probe 2 below threshold
+_, _t302 = make_with("00000000000ets302", "TS302", {}, title="Reefer", area="Bay 3")
+_p302 = _t302._temp_probe({"temperature_1": 2.1, "temperature_2": -0.4,
+                           "temperature_2_alarm_active": True, "temperature_2_alarm_status": "below_threshold_alarm"})
+assert [p["key"] for p in _p302["probes"]] == ["temperature_1", "temperature_2"]
+assert _p302["probes"][1]["tone"] == "low" and _p302["alarm"] is True
+# TS601 cold-chain: tilt alarm surfaces as an extra chip
+_, _t601 = make_with("00000000000ets601", "TS601", {}, title="Pallet", area="Transit")
+_p601 = _t601._temp_probe({"temperature": 4.6, "humidity": 61, "tilt_alarm_active": True, "tilt_alarm_status": "tilt_alarm"})
+assert any(e["label"] == "Tilt" and e["active"] for e in _p601["extra"]) and _p601["alarm"] is True
+# configured cold-chain limits put the number in the badge
+assert runtime.DeviceRuntime._probe_badge(9.8, 2.0, 8.0, None, None) == ("high", "Above 8 °C")
+assert runtime.DeviceRuntime._probe_badge(1.0, 2.0, 8.0, None, None) == ("low", "Below 2 °C")
+assert runtime.DeviceRuntime._probe_badge(5.0, 2.0, 8.0, None, None) == ("ok", "In range")
+del entries.items[_ts_from:]
+print("ts temp probe ok")
+
+# WS scene buttons / panels → the Scene card; DS3604 → the Display composer
+_wd_from = len(entries.items)
+_, _wb = make_with("00000000000ews101", "WS101", {}, title="Desk button", area="Office")
+assert _wb._scene_applies() and "scene_panel" in {sp.key for sp in _wb.extra_specs()}
+_today = time.strftime("%Y%m%d", time.localtime())
+_wb.meta["_btn"] = {"button": {"type": "short_press", "at": time.time() - 60, "count": 3, "day": _today}}
+_sc = _wb._scene_panel({"battery": 90})
+assert len(_sc["buttons"]) == 1 and _sc["buttons"][0]["last_label"] == "Short press" and _sc["buttons"][0]["count_today"] == 3
+assert _sc["summary"] == "Button · Short press" and _sc["events"] == ["Short press", "Double press", "Long press"]
+# firing a button records the last press + today's count
+_wb._fire_button("button", "double_press")
+assert (_wb.meta["_btn"]["button"]["type"], _wb.meta["_btn"]["button"]["count"]) == ("double_press", 4)
+# WS156 six-key panel
+_, _wp = make_with("00000000000ews156", "WS156", {}, title="Lobby panel", area="Lobby")
+assert [b["label"] for b in _wp._scene_panel({})["buttons"]] == [f"Button {n}" for n in range(1, 7)]
+# DS3604 e-ink display → the Display composer (and not the Scene card)
+_, _ds = make_with("00000000000eds3604", "DS3604", {}, title="Room sign", area="Floor 2")
+assert "display" in {sp.key for sp in _ds.extra_specs()} and "scene_panel" not in {sp.key for sp in _ds.extra_specs()}
+_ds.display = {"reported": {"1": {"text_1": "Meeting Room A", "text_2": "Booked"}}, "sent": {"2": {"text_1": "Free"}}}
+_dp = _ds._display({"current_template_id": 2})
+assert _dp["active"] == 2 and _dp["templates"]["1"]["blocks"][0]["text"] == "Meeting Room A"
+assert _dp["templates"]["2"]["blocks"][0]["text"] == "Free" and len(_dp["templates"]["1"]["blocks"]) == 10
+del entries.items[_wd_from:]
+print("ws scene / ds3604 display ok")
+
+# AT101 GNSS / Wi-Fi asset tracker → the Tracker card
+_at_from = len(entries.items)
+_, _at = make_with("00000000000eat101", "AT101", {}, title="Forklift 3", area="Yard")
+assert _at._tracker_applies() and "asset_tracker" in {sp.key for sp in _at.extra_specs()}
+_tr = _at._asset_tracker({"latitude": -33.9249, "longitude": 18.4241, "motion_status": "moving",
+                          "geofence_status": "inside", "tamper": False, "temperature": 28.5, "distance_today_km": 8.4})
+assert _tr["moving"] is True and _tr["motion_label"] == "Moving" and _tr["geofence"] == "inside" and _tr["alarm"] is False
+assert _tr["lat"] == -33.9249 and _tr["distance_today"] == 8.4
+# left geofence + tamper → the card's alarm highlight
+_tr2 = _at._asset_tracker({"motion_status": "stop", "geofence_status": "outside", "tamper": True})
+assert _tr2["motion_label"] == "Stopped" and _tr2["geofence"] == "outside" and _tr2["tamper"] is True and _tr2["alarm"] is True
+# Wi-Fi positioning (no GNSS fix)
+_tr3 = _at._asset_tracker({"motion_status": "stop", "wifi_ap_count": 5})
+assert _tr3["wifi_only"] is True and _tr3["lat"] is None
+del entries.items[_at_from:]
+print("at101 tracker ok")
+
+# WS201 consumables dispenser → the Supplies card (drain rate, days-to-empty, refill detection)
+_su_from = len(entries.items)
+_, _su = make_with("00000000000ews201", "WS201", {}, title="Office tissue", area="Office")
+assert _su._supplies_applies() and "supplies" in {sp.key for sp in _su.extra_specs()}
+_t0 = time.time()
+assert _su._supplies({"remaining": 80, "battery": 88}, _t0)["days_left"] is None      # first reading, no rate yet
+_s1 = _su._supplies({"remaining": 60}, _t0 + 2 * 86400)                                # −20 % over 2 days = 10 %/day
+assert _s1["rate"] == 10.0 and _s1["days_left"] == 6 and _s1["status"] == "ok"
+assert _su._supplies({"remaining": 18}, _t0 + 3 * 86400)["status"] == "low"            # ≤20 %
+assert _su._supplies({"remaining": 4}, _t0 + 4 * 86400)["status"] == "out"             # ≤5 %
+_s2 = _su._supplies({"remaining": 96}, _t0 + 5 * 86400)                                # jump up = refill
+assert _s2["refilled_at"] is not None and _s2["status"] == "ok"
+del entries.items[_su_from:]
+print("ws201 supplies ok")
 
 def em400(distance_mm):
     return bytes.fromhex("0482") + distance_mm.to_bytes(2, "little")
@@ -2389,3 +2535,96 @@ assert hbl.forget_gateway("24e124fffe999999") is False
 hbl.stats.expected["24e124fffe0000bb"] = {"name": "x"}
 assert hbl.forget_gateway("24e124fffe0000bb") is True and "24e124fffe0000bb" not in hbl.stats.expected
 print("gateway discovery ok")
+
+# ---- team chat: 2-way phone reply + @mention targeting ----
+msg_mod = load("messaging")
+CHATCALLS = []
+class _ChatSvc:
+    async def async_call(self, domain, service, data, blocking=False): CHATCALLS.append((service, data))
+    def async_services(self): return {"notify": {"mobile_app_piet": None, "mobile_app_anna": None}}
+_PEND = []
+def _chat_task(c):
+    if asyncio.iscoroutine(c): _PEND.append(c)
+def _drain():
+    while _PEND: asyncio.run(_PEND.pop(0))
+async def _getuser(uid): return types.SimpleNamespace(name="Piet Botha") if uid == "upiet" else None
+chat_hass = types.SimpleNamespace(
+    config=types.SimpleNamespace(path=lambda *p: "/tmp/" + "/".join(p)),
+    services=_ChatSvc(), auth=types.SimpleNamespace(async_get_user=_getuser),
+    async_add_executor_job=lambda fn, *a: _getuser, async_create_task=_chat_task)
+_cteam = types.SimpleNamespace(workers=[{"name": "Piet Botha"}, {"name": "Anna Smit"}],
+                               data={"workers": [{"name": "Piet Botha"}, {"name": "Anna Smit"}]})
+_crt = types.SimpleNamespace(team=_cteam,
+                             alerts=types.SimpleNamespace(cfg=types.SimpleNamespace(
+                                 primary=["notify.mobile_app_piet"], rota=[], backup=["notify.mobile_app_anna"])))
+_centry = types.SimpleNamespace(entry_id="chat1", runtime_data=_crt)
+mgrc = msg_mod.MessagingManager(chat_hass, _centry)
+asyncio.run(mgrc.async_load())
+# a broadcast pushes every phone with an actionable text-reply carrying the channel + hub for routing back
+mgrc.post("site", "fridge down", author="Juan", user_id="ujuan", push=True); _drain()
+assert {s for s, _ in CHATCALLS} == {"mobile_app_piet", "mobile_app_anna"}, CHATCALLS
+_d0 = CHATCALLS[0][1]["data"]
+assert _d0["chat_channel"] == "site" and _d0["chat_hub"] == "chat1"
+assert _d0["actions"][0]["action"] == "MLW_CHAT_REPLY" and _d0["actions"][0]["behavior"] == "textInput"
+# an @mention pings just that worker's phone even with the broadcast toggle off
+CHATCALLS.clear()
+mgrc.post("site", "can you check @Piet?", author="Juan", user_id="ujuan", push=False); _drain()
+assert [s for s, _ in CHATCALLS] == ["mobile_app_piet"], CHATCALLS
+# a reply typed on the phone lands back in its channel as that user, marked as a phone reply
+CHATCALLS.clear(); _before = len(mgrc.messages.get("site", []))
+mgrc.on_mobile_action(types.SimpleNamespace(
+    data={"action": "MLW_CHAT_REPLY", "chat_channel": "site", "chat_hub": "chat1", "reply_text": "on my way"},
+    context=types.SimpleNamespace(user_id="upiet"))); _drain()
+_last = mgrc.messages["site"][-1]
+assert len(mgrc.messages["site"]) == _before + 1
+assert _last["text"] == "on my way" and _last["author"] == "Piet Botha" and _last["via"] == "phone"
+# a reply for another hub, or a non-chat action, is ignored
+_n = len(mgrc.messages["site"])
+mgrc.on_mobile_action(types.SimpleNamespace(
+    data={"action": "MLW_CHAT_REPLY", "chat_channel": "site", "chat_hub": "other", "reply_text": "nope"},
+    context=None)); _drain()
+mgrc.on_mobile_action(types.SimpleNamespace(data={"action": "MSL_ACK_x"}, context=None)); _drain()
+assert len(mgrc.messages["site"]) == _n
+print("team chat 2-way push ok")
+
+# ---- team chat: presence, typing, channel management ----
+from milesight_lorawan.messaging import SIGNAL_CHAT as _SIG_CHAT
+CHATEVENTS = []
+dispatcher_connect(chat_hass, _SIG_CHAT.format("chat1"), lambda d=None: CHATEVENTS.append(d))
+_cteam.data = {"workers": [{"name": "Piet Botha", "on_site": True}, {"name": "Anna Smit", "on_site": False}]}
+# presence: joining dispatches a presence event; roster carries online + clocked-in; a guest (non-worker) shows too
+mgrc.presence_add("ujuan", "Juan"); _drain()
+assert any(isinstance(d, dict) and d.get("presence") for d in CHATEVENTS)
+snap = mgrc.snapshot("ujuan", "site", is_admin=True)
+_rb = {r["name"]: r for r in snap["roster"]}
+assert _rb["Piet Botha"]["clocked_in"] is True and _rb["Piet Botha"]["online"] is False
+assert _rb["Juan"]["online"] is True and _rb["Juan"].get("guest") is True
+assert any(o["user_id"] == "ujuan" for o in snap["online"]) and snap["can_manage"] is True
+# a second open view keeps the user online until the last one closes
+mgrc.presence_add("ujuan", "Juan"); mgrc.presence_drop("ujuan")
+assert any(o["user_id"] == "ujuan" for o in mgrc.online_list())
+mgrc.presence_drop("ujuan"); assert not mgrc.online_list()
+# typing: dispatched for a known channel, ignored for an unknown one
+CHATEVENTS.clear()
+mgrc.typing("ujuan", "Juan", "site")
+assert CHATEVENTS[-1]["typing"]["channel"] == "site" and CHATEVENTS[-1]["typing"]["name"] == "Juan"
+_n = len(CHATEVENTS); mgrc.typing("ujuan", "Juan", "ghost"); assert len(CHATEVENTS) == _n
+# channel management: create (slugged + unique), rename, archive (admin-only visibility), device channel
+c = mgrc.create_channel("Night shift")
+assert c["id"] == "topic:night-shift" and c["kind"] == "topic"
+assert mgrc.create_channel("Night shift")["id"] == "topic:night-shift-2"
+assert mgrc.rename_channel(c["id"], "Nights")["title"] == "Nights"
+mgrc.archive_channel(c["id"], True)
+assert any(ch.get("archived") for ch in mgrc.snapshot("ujuan", is_admin=True)["channels"])
+assert all(ch["id"] != c["id"] for ch in mgrc.snapshot("ujuan", is_admin=False)["channels"])
+assert mgrc.archive_channel("alerts", True) is None and mgrc.archive_channel("jobs", True) is None
+assert mgrc.archive_channel(c["id"], False)["id"] == c["id"]
+dc = mgrc.ensure_device_channel("devA", "Borehole 2 pump")
+assert dc["id"] == "dev:devA" and dc["kind"] == "device" and dc["meta"]["device_id"] == "devA"
+assert mgrc.ensure_device_channel("devA", "Borehole 2 pump")["id"] == "dev:devA"
+# persistence: created / device / renamed channels are saved; a pristine built-in is not
+_pc = {x["id"] for x in mgrc._persist_channels()}
+assert "topic:night-shift" in _pc and "dev:devA" in _pc and "site" not in _pc
+mgrc.rename_channel("washroom", "Restrooms")
+assert "washroom" in {x["id"] for x in mgrc._persist_channels()}
+print("team chat presence/channels ok")

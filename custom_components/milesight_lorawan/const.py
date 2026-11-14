@@ -81,6 +81,7 @@ CONF_OPEN_DAYS = "open_days"
 CONF_CO2_LIMIT = "co2_limit"
 CONF_INSTALL_HEIGHT_MM = "install_height_mm"
 CONF_AREA = "area"
+CONF_DASHBOARD = "dashboard"             # which ready-made dashboard this device is grouped under ("auto" = by its tags)
 CONF_METER_TYPE = "meter_type"
 CONF_METER_UNIT = "meter_unit"
 CONF_METER_PPU = "meter_pulses_per_unit"

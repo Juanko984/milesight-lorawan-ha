@@ -68,6 +68,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await async_setup_panel(hass, str((await async_get_integration(hass, DOMAIN)).version))
         except Exception:  # noqa: BLE001 - the panel is a convenience, never block the gateway
             _LOGGER.warning("Could not set up the commissioning panel", exc_info=True)
+        try:
+            from .messaging import MessagingManager
+            from .messaging_ws import register as register_messaging_ws
+            chat = MessagingManager(hass, entry)
+            await chat.async_load()
+            hub.chat = chat
+            if not domain_data.get("messaging_ws"):      # websocket commands are global: register once
+                register_messaging_ws(hass)
+                domain_data["messaging_ws"] = True
+            entry.async_on_unload(hass.bus.async_listen(f"{DOMAIN}_alert", chat.on_alert))
+            entry.async_on_unload(hass.bus.async_listen("mobile_app_notification_action",
+                                                        chat.on_mobile_action))
+        except Exception:  # noqa: BLE001 - chat is a convenience, never block the gateway
+            _LOGGER.warning("Could not set up team messaging", exc_info=True)
         if not domain_data.get("resources_started"):
             domain_data["resources_started"] = True
             hass.async_create_task(_async_install_resources(hass))

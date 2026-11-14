@@ -1788,6 +1788,15 @@
       return { deviceId, ents };
     }
     _watch() { try { return this._resolve().ents; } catch (e) { return null; } }
+    _discuss(deviceId, name) {
+      if (!this._hass || !deviceId) return;
+      this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/channel/device", device_id: deviceId, name })
+        .then((r) => {
+          const cid = (r && r.channel && r.channel.id) || "";
+          history.pushState(null, "", "/milesight-chat" + (cid ? "?channel=" + encodeURIComponent(cid) : ""));
+          window.dispatchEvent(new Event("location-changed"));
+        }).catch(() => { /* surfaced by HA */ });
+    }
     _classify(ents) {
       const S = this._hass.states;
       const dc = (c) => ents.find((e) => S[e].attributes.device_class === c);
@@ -1988,6 +1997,10 @@
         ]),
         h("div", { class: "spacer" }),
         h("div", { class: "stat" }, [
+          (this._hass.user && this._hass.user.is_admin && deviceId)
+            ? h("button", { class: "act", title: "Discuss this device in Team chat", onclick: () => this._discuss(deviceId, name) },
+                [h("ha-icon", { icon: "mdi:chat-outline", style: { "--mdc-icon-size": "16px" } }), " Discuss"])
+            : null,
           online == null ? null : h("span", { class: "pill" }, [h("span", { class: "dot", style: { background: online ? "var(--ms-good)" : "var(--ms-bad)" } }), online ? "Online" : "Offline"]),
           rssi != null ? signalBarsSvg(rssi) : null,
           bat != null ? batteryRingSvg(bat, 42) : null,
@@ -5208,7 +5221,7 @@
       const a = st.attributes, ph = num(a.ph), moist = num(a.moisture), temp = num(a.temperature), ec = num(a.ec);
       const head = h("div", { class: "shd" }, [
         h("div", { class: "sic" }, [h("ha-icon", { icon: "mdi:sprout" })]),
-        h("div", { class: "shl" }, [esc(a.device || "Soil"), h("small", {}, "THCPH-S" + (a.area ? " · " + esc(a.area) : ""))]),
+        h("div", { class: "shl" }, [esc(a.device || "Soil"), h("small", {}, (a.model || "THCPH-S") + (a.area ? " · " + esc(a.area) : ""))]),
         h("span", { class: "sdot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
       ]);
       const hero = h("div", { class: "shero" }, [
@@ -5219,19 +5232,21 @@
           this._tile(ec == null ? null : Math.round(ec), "µS/cm", "conductivity", this._cls(a, "ec"))]),
       ]);
       const phMk = ph == null ? null : h("div", { class: "phbar" }, [h("div", { class: "phmk", style: { left: clamp((ph - 3) / 6 * 100, 0, 100) + "%" } })]);
-      const phRow = h("div", {}, [h("p", { class: "ssec" }, "Acidity"),
-        h("div", { class: "phrow" }, [h("span", { class: "phv" + this._cls(a, "ph") }, ph == null ? "pH —" : `pH ${ph}`),
+      const phRow = ph == null ? null : h("div", {}, [h("p", { class: "ssec" }, "Acidity"),
+        h("div", { class: "phrow" }, [h("span", { class: "phv" + this._cls(a, "ph") }, `pH ${ph}`),
           phMk, h("span", { class: "phlab" }, a.ph_label || "")])]);
-      const npk = h("div", {}, [h("p", { class: "ssec" }, "Nutrients (N–P–K)"), h("div", { class: "npk" }, [
+      const hasNpk = num(a.nitrogen) != null || num(a.phosphorus) != null || num(a.potassium) != null;
+      const npk = !hasNpk ? null : h("div", {}, [h("p", { class: "ssec" }, "Nutrients (N–P–K)"), h("div", { class: "npk" }, [
         this._nrow("Nitrogen", "N", "nitrogen", num(a.nitrogen), clamp((num(a.nitrogen) || 0) / 200 * 100, 0, 100), "fill-n", a),
         this._nrow("Phosphorus", "P", "phosphorus", num(a.phosphorus), clamp((num(a.phosphorus) || 0) / 100 * 100, 0, 100), "fill-p", a),
         this._nrow("Potassium", "K", "potassium", num(a.potassium), clamp((num(a.potassium) || 0) / 400 * 100, 0, 100), "fill-k", a),
       ])]);
-      const row2 = h("div", { class: "srow2" }, [
+      const hasRow2 = num(a.salinity) != null || num(a.tds) != null;
+      const row2 = !hasRow2 ? null : h("div", { class: "srow2" }, [
         h("div", { class: "stile", style: { flex: "1" } }, [h("div", { class: "v" + this._cls(a, "salinity") }, num(a.salinity) == null ? "—" : [String(Math.round(num(a.salinity))), h("small", {}, " mg/L")]), h("div", { class: "k" }, "salinity")]),
         h("div", { class: "stile", style: { flex: "1" } }, [h("div", { class: "v" + this._cls(a, "tds") }, num(a.tds) == null ? "—" : [String(Math.round(num(a.tds))), h("small", {}, " mg/L")]), h("div", { class: "k" }, "TDS")]),
       ]);
-      return h("div", { class: "sblock" }, [head, hero, phRow, npk, row2]);
+      return h("div", { class: "sblock" }, [head, hero, phRow, npk, row2].filter(Boolean));
     }
     _render() {
       if (!this._hass) return;
@@ -6515,6 +6530,1140 @@
     }
   }
 
+  // ================================================================ UC I/O controller (inputs / outputs / analog)
+  // Self-discovers the "controller" role sensors. Digital inputs show as status lamps; relay outputs are toggles
+  // (switch.turn_on/off); PT100 / analog readings are chips that drive an embedded trend; counters + RS485 below.
+  class ControllerCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "controller") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { const a = st.attributes; ids.push(st.entity_id);
+        for (const m of (a.metrics || [])) if (m.entity_id) ids.push(m.entity_id);
+        for (const o of (a.outputs || [])) if (o.entity_id) ids.push(o.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig(); if (sig !== null && sig === this._lastSig) return; this._lastSig = sig; this._render();
+    }
+    _svc(dom, service, data) { try { this._hass.callService(dom, service, data); } catch (e) { /* surfaced by HA */ } }
+    _selKey(roleId, a) {
+      const metrics = a.metrics || [];
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msUcMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && metrics.some((m) => m.key === s)) return s;
+      return (metrics.find((m) => m.key === a.primary) || metrics.find((m) => m.entity_id) || metrics[0] || {}).key;
+    }
+    _pick(roleId, key) { this._sel = this._sel || {}; this._sel[roleId] = key; try { localStorage.setItem("msUcMetric:" + roleId, key); } catch (e) { /* private */ } this._render(); }
+    _input(c) {
+      return h("div", { class: "io" }, [h("span", { class: "iodot " + (c.on ? "on" : "off") }),
+        h("div", { class: "iotxt" }, [h("div", { class: "ioname" }, esc(c.label)), h("div", { class: "iostate" + (c.on ? " on" : "") }, c.on ? "Closed" : "Open")]),
+        c.label !== c.name ? h("span", { class: "ioch" }, esc(c.name)) : null]);
+    }
+    _output(c) {
+      const sw = c.entity_id ? this._hass.states[c.entity_id] : null;
+      const on = sw ? sw.state === "on" : c.on === true;
+      const can = !!c.entity_id;
+      return h("div", { class: "io out" }, [
+        h("div", { class: "iotxt" }, [h("div", { class: "ioname" }, esc(c.label)), h("div", { class: "iostate" + (on ? " on" : "") }, on ? "On" : "Off")]),
+        h("div", { class: "tog" + (on ? " on" : "") + (can ? "" : " dis"), onclick: () => can && this._svc("switch", on ? "turn_off" : "turn_on", { entity_id: c.entity_id }) }, [h("i")]),
+      ]);
+    }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, metrics = a.metrics || [], selKey = this._selKey(roleId, a);
+      const sel = metrics.find((m) => m.key === selKey) || metrics[0];
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:developer-board" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Controller")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const sections = [];
+      if ((a.inputs || []).length) sections.push(h("div", {}, [h("div", { class: "uclbl" }, "Inputs"), h("div", { class: "iorow" }, a.inputs.map((c) => this._input(c)))]));
+      if ((a.outputs || []).length) sections.push(h("div", {}, [h("div", { class: "uclbl" }, "Outputs"), h("div", { class: "iorow" }, a.outputs.map((c) => this._output(c)))]));
+      if (metrics.length) {
+        sections.push(h("div", {}, [h("div", { class: "uclbl" }, "Analog & PT100"),
+          h("div", { class: "achips" }, metrics.map((m) => h("div", { class: "achip" + (m.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, m.key) }, [
+            h("div", { class: "achl" }, [h("ha-icon", { class: "aci", icon: m.icon }), esc(m.label)]),
+            h("div", { class: "achv" }, _airFmt(m.value, m.unit))])))]));
+        if (sel && sel.entity_id) {
+          this._subs = this._subs || {}; let el = this._subs[roleId];
+          if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+          if (el.__cfgSig !== sel.entity_id) { el.setConfig({ entity: sel.entity_id, name: sel.label, sub: sel.name, unit: sel.unit, color: sel.color }); el.__cfgSig = sel.entity_id; }
+          if (this._hass) el.hass = this._hass;
+          sections.push(h("div", { class: "atrend" }, [el]));
+        }
+      }
+      const extras = (a.counters || []).map((c) => h("span", { class: "ucchip" }, [h("span", { class: "ri", style: { background: "color-mix(in srgb,var(--ms-accent) 18%,transparent)", color: "var(--ms-accent)" } }, [h("ha-icon", { icon: "mdi:counter", style: { "--mdc-icon-size": "14px" } })]), esc(c.label) + " ", h("b", {}, (c.value != null ? c.value.toLocaleString() : "—"))]))
+        .concat((a.rs485 || []).map((r) => h("span", { class: "ucchip" }, [h("span", { class: "ri", style: { background: "color-mix(in srgb," + (r.color || "var(--ms-ink2)") + " 20%,transparent)", color: r.color || "var(--ms-ink2)" } }, [h("ha-icon", { icon: r.icon, style: { "--mdc-icon-size": "14px" } })]), esc(r.label)])));
+      if (extras.length) sections.push(h("div", {}, [h("div", { class: "uclbl" }, "Counters & RS485"), h("div", { class: "ucstrip" }, extras)]));
+      return h("div", { class: "ablock" }, [head].concat(sections));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + UC_CSS;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Controllers"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ UC valve controller (solenoid / motorised)
+  // Self-discovers the "valve_controller" role. Solenoid valves (UC511/512): Open / Closed + Open & Close buttons and
+  // an "open for" timer (output_command service). Motorised UC521: a live % opening dial + slider (number.set_value).
+  class ValveCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "valve_controller") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const vv of (st.attributes.valves || [])) if (vv.entity_id) ids.push(vv.entity_id); }
+      return ids;
+    }
+    _svc(dom, service, data) { try { this._hass.callService(dom, service, data); } catch (e) { /* surfaced by HA */ } }
+    _deviceId(eid) { try { const e = this._hass.entities && this._hass.entities[eid]; return e ? e.device_id : null; } catch (e) { return null; } }
+    _timed(vv, minutes) {        // "open for N minutes" via the milesight output_command service
+      const dev = vv.entity_id ? this._deviceId(vv.entity_id) : null;
+      const out = vv.key.replace(/_opening$/, "");
+      if (dev) this._svc("milesight_lorawan", "output_command", { device_id: dev, output: out, action: "open_for", value: minutes });
+    }
+    _dial(pct, open) {
+      const p = clamp(num(pct) || 0, 0, 100), R = 31, C = 2 * Math.PI * R, off = C * (1 - p / 100);
+      return svgNS(`<svg width="76" height="76" viewBox="0 0 76 76"><circle cx="38" cy="38" r="${R}" fill="none" stroke="color-mix(in srgb,var(--ms-ink) 12%,transparent)" stroke-width="7"/>
+        <circle cx="38" cy="38" r="${R}" fill="none" stroke="${open ? "var(--ms-good)" : "var(--ms-ink2)"}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 38 38)"/>
+        <text x="38" y="35" text-anchor="middle" font-size="16" font-weight="700" fill="var(--ms-ink)">${pct == null ? "–" : Math.round(p) + "%"}</text>
+        <text x="38" y="49" text-anchor="middle" font-size="8.5" fill="var(--ms-ink2)">open</text></svg>`);
+    }
+    _valve(vv) {
+      const open = vv.open === true;
+      const icon = h("div", { class: "vi " + (open ? "open" : "shut") }, [h("ha-icon", { icon: "mdi:pipe-valve" })]);
+      const head = h("div", { class: "vhd" }, [icon, h("div", {}, [h("div", { class: "vn" }, esc(vv.label)), h("div", { class: "vsub" }, esc((vv.vtype ? vv.vtype + " · " : "") + vv.name))])]);
+      let body;
+      if (vv.kind === "opening") {           // motorised UC521: dial + slider
+        const num_el = vv.entity_id ? this._hass.states[vv.entity_id] : null;
+        const live = num_el ? num(num_el.state) : vv.opening;
+        const slider = h("input", { type: "range", min: "0", max: "100", step: "5", value: String(live == null ? 0 : live),
+          onchange: (e) => vv.entity_id && this._svc("number", "set_value", { entity_id: vv.entity_id, value: Number(e.target.value) }) });
+        body = h("div", { class: "vstate" }, [this._dial(live, (live || 0) > 0),
+          h("div", { style: { flex: 1, minWidth: 0 } }, [h("div", { class: "vbig " + (open ? "open" : "shut"), style: { fontSize: "16px" } }, (live == null ? "—" : Math.round(live) + "% open")),
+            vv.direction ? h("div", { class: "vmeta" }, esc(vv.direction)) : null,
+            h("div", { class: "vset" }, [h("span", {}, "Set"), slider])])]);
+      } else {                               // solenoid UC511/512: open / closed + buttons
+        const can = !!vv.entity_id;
+        body = h("div", {}, [
+          h("div", { class: "vstate" }, [h("div", {}, [h("div", { class: "vbig " + (open ? "open" : "shut") }, vv.open == null ? "—" : open ? "Open" : "Closed"),
+            vv.result === "failed" ? h("div", { class: "vmeta bad" }, "last command failed") : (vv.pulse != null ? h("div", { class: "vmeta" }, "flow " + vv.pulse.toLocaleString()) : null)])]),
+          h("div", { class: "vbtns" }, [
+            h("div", { class: "vbtn open" + (open ? " sel" : "") + (can ? "" : " dis"), onclick: () => can && this._svc("switch", "turn_on", { entity_id: vv.entity_id }) }, "Open"),
+            h("div", { class: "vbtn close" + (vv.open === false ? " sel" : "") + (can ? "" : " dis"), onclick: () => can && this._svc("switch", "turn_off", { entity_id: vv.entity_id }) }, "Close")]),
+          h("div", { class: "vtimed" }, [h("span", {}, "Open for")].concat([15, 30, 60].map((mn) => h("button", { onclick: () => this._timed(vv, mn) }, mn + "m")))),
+          vv.pressure != null ? h("div", { class: "vpress" }, [h("span", {}, "Pressure"), h("div", { class: "pbar" }, [h("i", { style: { width: clamp((vv.pressure / 600) * 100, 2, 100) + "%" } })]), h("b", {}, vv.pressure + " kPa")]) : null,
+        ].filter(Boolean));
+      }
+      return h("div", { class: "valve" }, [head, body]);
+    }
+    _block(st) {
+      const a = st.attributes;
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:pipe-valve" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Valves")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "") + (a.motorised ? " · motorised" : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const vgrid = h("div", { class: "vgrid" }, (a.valves || []).map((vv) => this._valve(vv)));
+      const press = (a.motorised && (a.pressures || []).length) ? h("div", { class: "vptiles" }, a.pressures.map((p) =>
+        h("div", { class: "vptile" + (p.alarm ? " bad" : "") }, [h("div", { class: "v" }, [String(p.value), h("small", {}, " " + p.unit)]), h("div", { class: "k" }, esc(p.label))]))) : null;
+      return h("div", { class: "ablock" }, [head, vgrid, press].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + UC_CSS;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Valves"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // shared CSS for the UC controller + valve cards
+  const UC_CSS = `
+    .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;margin-top:2px}
+    .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+    .ahd{display:flex;align-items:center;gap:11px;margin-bottom:2px}
+    .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .aic ha-icon{--mdc-icon-size:19px}
+    .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+    .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+    .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+    .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+    .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+    .uclbl{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--ms-ink2);margin:13px 0 7px;font-weight:600}
+    .iorow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+    .io{border:1px solid var(--ms-line);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px}
+    .iodot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:#424b57}
+    .iodot.on{background:var(--ms-good);box-shadow:0 0 0 3px color-mix(in srgb,var(--ms-good) 22%,transparent)}
+    .iotxt{flex:1;min-width:0} .ioname{font-size:12.5px;font-weight:600;color:var(--ms-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .iostate{font-size:11px;color:var(--ms-ink2);margin-top:1px} .iostate.on{color:var(--ms-good)}
+    .ioch{font-size:9.5px;color:var(--ms-ink2);opacity:.65;flex:0 0 auto}
+    .io.out{justify-content:space-between}
+    .tog{width:40px;height:23px;border-radius:999px;background:#2a333a;position:relative;flex:0 0 auto;cursor:pointer}
+    .tog i{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#8a97a0;transition:.15s}
+    .tog.on{background:color-mix(in srgb,var(--ms-good) 60%,transparent)} .tog.on i{left:19px;background:#eafff0}
+    .tog.dis{opacity:.4;cursor:not-allowed}
+    .atrend{margin-top:12px}
+    .ucstrip{display:flex;flex-wrap:wrap;gap:8px}
+    .ucchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--ms-line);border-radius:999px;padding:5px 12px 5px 7px;font-size:12px;color:var(--ms-ink)}
+    .ucchip .ri{width:21px;height:21px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+    .ucchip b{font-weight:700}
+    .vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:13px;margin-top:4px}
+    .valve{border:1px solid var(--ms-line);border-radius:13px;padding:13px 14px}
+    .vhd{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+    .vi{width:33px;height:33px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:0 0 auto} .vi ha-icon{--mdc-icon-size:18px}
+    .vi.open{background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+    .vi.shut{background:color-mix(in srgb,var(--ms-ink2) 20%,transparent);color:var(--ms-ink2)}
+    .vn{font-size:13.5px;font-weight:650;color:var(--ms-ink)} .vsub{font-size:11px;color:var(--ms-ink2)}
+    .vstate{display:flex;align-items:center;gap:12px;margin-bottom:11px}
+    .vbig{font-size:20px;font-weight:720} .vbig.open{color:var(--ms-good)} .vbig.shut{color:var(--ms-ink2)}
+    .vmeta{font-size:11.5px;color:var(--ms-ink2);margin-top:2px} .vmeta.bad{color:var(--ms-bad)}
+    .vset{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:11px;color:var(--ms-ink2)} .vset input{flex:1;accent-color:var(--ms-good)}
+    .vbtns{display:flex;gap:8px} .vbtn{flex:1;border:1px solid var(--ms-line);border-radius:9px;padding:8px;text-align:center;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ms-ink2)}
+    .vbtn.open{color:var(--ms-good)} .vbtn.sel{background:color-mix(in srgb,var(--ms-good) 16%,transparent);border-color:color-mix(in srgb,var(--ms-good) 40%,var(--ms-line))}
+    .vbtn.dis{opacity:.4;cursor:not-allowed}
+    .vtimed{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:11px;color:var(--ms-ink2)}
+    .vtimed button{border:1px solid var(--ms-line);background:none;color:var(--ms-ink);border-radius:8px;padding:4px 9px;font:inherit;font-size:11.5px;cursor:pointer}
+    .vtimed button:hover{background:color-mix(in srgb,var(--ms-ink) 8%,transparent)}
+    .vpress{display:flex;align-items:center;gap:9px;margin-top:11px;border-top:1px solid var(--ms-line);padding-top:10px;font-size:11px;color:var(--ms-ink2)}
+    .vpress .pbar{flex:1;height:7px;border-radius:999px;background:#2a333a;overflow:hidden} .vpress .pbar i{display:block;height:100%;background:linear-gradient(90deg,var(--ms-good),var(--ms-warn))}
+    .vpress b{font-size:12.5px;color:var(--ms-ink)}
+    .vptiles{display:flex;gap:9px;margin-top:12px} .vptile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:8px 10px;text-align:center}
+    .vptile.bad{border-color:color-mix(in srgb,var(--ms-bad) 50%,var(--ms-line))}
+    .vptile .v{font-size:15px;font-weight:700;color:var(--ms-ink)} .vptile .v small{font-size:10px;color:var(--ms-ink2)} .vptile .k{font-size:10px;color:var(--ms-ink2);margin-top:2px}
+  `;
+
+  // ================================================================ EM500 single-reading sensor (adaptive)
+  // Self-discovers the "em_reading" role. Light / pressure / temperature show a radial gauge; UDL / SWL level
+  // sensors show a filled shaft (% of the device's range). Each has the day's min/max and an embedded trend.
+  class EmReadingCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "em_reading") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); if (st.attributes.entity_id) ids.push(st.attributes.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig(); if (sig !== null && sig === this._lastSig) return; this._lastSig = sig; this._render();
+    }
+    _gauge(pct, color) {
+      const p = clamp(num(pct) || 0, 0, 100);
+      const R = 38, C = 2 * Math.PI * R, arc = C * 0.75, filled = arc * (p / 100);   // 270° arc
+      return { R, C, arc, filled, color };
+    }
+    _block(st) {
+      const a = st.attributes, color = a.color || "var(--ms-accent)";
+      const err = a.sensor_error && a.sensor_error !== "OK";
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic", style: { background: "color-mix(in srgb," + color + " 16%,transparent)", color: color } }, [h("ha-icon", { icon: a.icon || "mdi:gauge" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Sensor")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const mm = h("div", { class: "emmm" }, [
+        a.min_today != null ? h("span", {}, ["min ", h("b", {}, _airFmt(a.min_today, ""))]) : null,
+        a.max_today != null ? h("span", {}, ["max ", h("b", {}, _airFmt(a.max_today, ""))]) : null,
+      ].filter(Boolean));
+      let hero;
+      if (a.kind === "level") {
+        const pct = a.pct, big = a.fill_value != null ? a.fill_value : a.value, bigUnit = a.fill_unit || a.unit;
+        const shaft = h("div", { class: "emshaft" }, [
+          pct != null ? h("div", { class: "fill", style: { height: clamp(pct, 0, 100) + "%", background: "linear-gradient(180deg,color-mix(in srgb," + color + " 55%,transparent)," + color + ")" } }) : null,
+          h("div", { class: "pct" }, pct != null ? Math.round(pct) + "%" : "–")]);
+        const sub = a.pct != null
+          ? (a.model === "EM500-UDL" ? "water depth · " + Math.round(a.pct) + "% of " + a.range_max + " " + a.unit + " range"
+             : "water level · " + Math.round(a.pct) + "% of " + a.range_max + " " + a.unit + " range")
+          : (a.model === "EM500-UDL" ? "distance to surface" : "submersible depth");
+        hero = h("div", { class: "emhero" }, [shaft, h("div", {}, [
+          h("div", { class: "embig" }, [_airFmt(big, ""), h("small", {}, " " + bigUnit)]),
+          h("div", { class: "emlab" }, sub),
+          a.model === "EM500-UDL" && a.headroom != null ? h("div", { class: "emmm" }, [h("span", {}, ["headroom ", h("b", {}, a.headroom + " " + a.unit)])]) : mm])]);
+      } else {
+        const g = this._gauge(a.pct, color);
+        const gauge = svgNS(`<svg width="92" height="92" viewBox="0 0 92 92">
+          <circle cx="46" cy="46" r="${g.R}" fill="none" stroke="color-mix(in srgb,var(--ms-ink) 12%,transparent)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${g.arc.toFixed(1)} ${(g.C - g.arc).toFixed(1)}" transform="rotate(135 46 46)"/>
+          <circle cx="46" cy="46" r="${g.R}" fill="none" stroke="${g.color}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${g.filled.toFixed(1)} ${(g.C - g.filled).toFixed(1)}" transform="rotate(135 46 46)"/>
+          <text x="46" y="44" text-anchor="middle" font-size="19" font-weight="720" fill="var(--ms-ink)">${_airFmt(a.value, "")}</text>
+          <text x="46" y="60" text-anchor="middle" font-size="10" fill="var(--ms-ink2)">${esc(a.unit)}</text></svg>`);
+        hero = h("div", { class: "emhero" }, [gauge, h("div", {}, [h("div", { class: "emlab" }, esc(a.label)), mm])]);
+      }
+      const trend = [];
+      if (a.entity_id) {
+        this._subs = this._subs || {}; let el = this._subs[st.entity_id];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[st.entity_id] = el; }
+        if (el.__cfgSig !== a.entity_id) { el.setConfig({ entity: a.entity_id, name: a.label, sub: a.model, unit: a.unit, color: color }); el.__cfgSig = a.entity_id; }
+        if (this._hass) el.hass = this._hass;
+        trend.push(h("div", { class: "emtrend" }, [el]));
+      }
+      return h("div", { class: "ablock" }, [head, hero].concat(err ? [h("div", { class: "emerr" }, [h("ha-icon", { icon: "mdi:alert", style: { "--mdc-icon-size": "15px" } }), " " + esc(a.sensor_error)])] : [], trend));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center} .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .emhero{display:flex;align-items:center;gap:15px;margin:12px 0 4px}
+        .embig{font-size:28px;font-weight:730;color:var(--ms-ink);line-height:1} .embig small{font-size:13px;color:var(--ms-ink2);font-weight:600}
+        .emlab{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .emmm{font-size:10.5px;color:var(--ms-ink2);margin-top:8px;display:flex;gap:12px} .emmm b{color:var(--ms-ink);font-weight:700}
+        .emshaft{width:52px;height:92px;border:2px solid var(--ms-line);border-radius:7px;position:relative;overflow:hidden;flex:0 0 auto;background:color-mix(in srgb,var(--ms-ink) 4%,transparent)}
+        .emshaft .fill{position:absolute;left:0;right:0;bottom:0} .emshaft .pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--ms-ink)}
+        .emtrend{margin-top:10px} .emerr{margin-top:8px;font-size:11.5px;color:var(--ms-bad);display:flex;align-items:center;gap:4px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id).concat(items.map((s) => s.attributes.entity_id))); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "EM500 readings"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ TS temperature probes
+  // Self-discovers the "temp_probe" role. Each probe's temperature is coloured + badged by its alarm state
+  // (configured cold-chain limits, else the device's threshold alarm); humidity / door / tilt-light show as chips;
+  // the TS302 shows both probes; a probe in alarm highlights the card. Trend draws the limit line when known.
+  class TempProbeCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "temp_probe") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const p of (st.attributes.probes || [])) if (p.entity_id) ids.push(p.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig(); if (sig !== null && sig === this._lastSig) return; this._lastSig = sig; this._render();
+    }
+    _tempCls(p) {
+      if (p.tone === "high") return " hot";
+      if (p.tone === "low" || p.tone === "mutation") return " warn";
+      return p.value != null && p.value <= 8 ? " cold" : "";
+    }
+    _probe(st, p, idx) {
+      const roleId = st.entity_id, mm = h("div", { class: "tpmm" }, [
+        p.min_today != null ? h("span", {}, ["min ", h("b", {}, _airFmt(p.min_today, ""))]) : null,
+        p.max_today != null ? h("span", {}, ["max ", h("b", {}, _airFmt(p.max_today, ""))]) : null,
+      ].filter(Boolean));
+      const badge = p.badge ? h("div", { class: "tppill " + (p.tone === "high" ? "hi" : p.tone === "low" || p.tone === "mutation" ? "lo" : "ok") }, [h("span", { class: "d" }), esc(p.badge)]) : null;
+      const row = h("div", { class: "tpprobe" }, [
+        h("div", { class: "tptemp" + this._tempCls(p) }, p.value == null ? "—" : [_airFmt(p.value, ""), h("small", {}, " °C")]),
+        h("div", { class: "tpmeta" }, [p.label ? h("div", { class: "tpname" }, esc(p.label)) : null, badge, mm].filter(Boolean)),
+      ]);
+      const out = [row];
+      if (p.entity_id) {
+        this._subs = this._subs || {}; const sk = roleId + "|" + p.key; let el = this._subs[sk];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[sk] = el; }
+        const sig = p.entity_id + ":" + p.high + ":" + p.low;
+        if (el.__cfgSig !== sig) {
+          const cfg = { entity: p.entity_id, name: p.label || "Temperature", sub: st.attributes.model, unit: "°C", color: p.tone === "high" ? "#ff7a59" : "#5bb4e6" };
+          if (p.high != null) cfg.max = p.high;
+          if (p.low != null) cfg.min = p.low;
+          el.setConfig(cfg); el.__cfgSig = sig;
+        }
+        if (this._hass) el.hass = this._hass;
+        out.push(h("div", { class: "tptrend" }, [el]));
+      }
+      return out;
+    }
+    _block(st) {
+      const a = st.attributes, probes = a.probes || [];
+      const err = a.sensor_error && a.sensor_error !== "OK";
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" + (a.alarm ? " bad" : "") }, [h("ha-icon", { icon: "mdi:thermometer" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Probe")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (probes.length > 1 ? " · dual probe" : "") + (a.area ? " · " + a.area : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      let body = [];
+      probes.forEach((p, i) => { body = body.concat(this._probe(st, p, i)); });
+      const chips = [];
+      if (a.humidity != null) chips.push(h("div", { class: "tpchip" }, [h("ha-icon", { icon: "mdi:water-percent" }), " Humidity ", h("b", {}, Math.round(a.humidity) + " %")]));
+      if (a.door != null) chips.push(h("div", { class: "tpchip " + (a.door ? "open" : "closed") }, [h("ha-icon", { icon: a.door ? "mdi:door-open" : "mdi:door-closed" }), " Door ", h("b", {}, a.door ? "Open" : "Closed")]));
+      for (const e of (a.extra || [])) chips.push(h("div", { class: "tpchip" + (e.active ? " warnchip" : "") }, [h("ha-icon", { icon: e.icon }), " " + e.label + " ", h("b", {}, e.active ? "Alarm" : "OK")]));
+      if (chips.length) body.push(h("div", { class: "tpchips" }, chips));
+      if (err) body.push(h("div", { class: "tperr" }, [h("ha-icon", { icon: "mdi:alert", style: { "--mdc-icon-size": "15px" } }), " " + esc(a.sensor_error)]));
+      return h("div", { class: "ablock" + (a.alarm ? " alarm" : "") }, [head].concat(body));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:15px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .ablock.alarm{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ms-bad) 28%,transparent)}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,#5bb4e6 16%,transparent);color:#5bb4e6} .aic.bad{background:color-mix(in srgb,var(--ms-bad) 16%,transparent);color:var(--ms-bad)} .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto} .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .tpprobe{display:flex;align-items:center;gap:14px;margin:11px 0 2px} .tpprobe ~ .tpprobe{border-top:1px solid var(--ms-line);padding-top:11px}
+        .tptemp{font-size:31px;font-weight:740;color:var(--ms-ink);line-height:1} .tptemp small{font-size:14px;color:var(--ms-ink2);font-weight:600}
+        .tptemp.hot{color:#ff7a59} .tptemp.cold{color:#5bb4e6} .tptemp.warn{color:var(--ms-warn)}
+        .tpmeta{flex:1;min-width:0} .tpname{font-size:11px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
+        .tppill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px} .tppill .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+        .tppill.ok{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .tppill.hi{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .tppill.lo{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .tpmm{font-size:10.5px;color:var(--ms-ink2);margin-top:7px;display:flex;gap:12px} .tpmm b{color:var(--ms-ink);font-weight:700}
+        .tptrend{margin-top:10px} .tpchips{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+        .tpchip{border:1px solid var(--ms-line);border-radius:10px;padding:6px 10px;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ms-ink2)} .tpchip b{color:var(--ms-ink);font-weight:700} .tpchip ha-icon{--mdc-icon-size:15px}
+        .tpchip.open{color:var(--ms-warn)} .tpchip.closed{color:var(--ms-good)} .tpchip.warnchip{color:var(--ms-warn)}
+        .tperr{margin-top:9px;font-size:11.5px;color:var(--ms-bad);display:flex;align-items:center;gap:4px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(); for (const st of items) for (const p of (st.attributes.probes || [])) live.add(st.entity_id + "|" + p.key); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Temperature probes"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ WS scene buttons / panels
+  // Self-discovers the "scene_panel" role. One tile per button showing its last press (type + when) and today's
+  // count, so WS101 / WS136 / WS156 triggers are visible on a dashboard.
+  class SceneCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "scene_panel") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _btn(b) {
+      const pressed = b.last_at != null;
+      return h("div", { class: "scbtn" + (pressed ? " on" : "") }, [
+        h("div", { class: "scic" }, [h("ha-icon", { icon: pressed ? "mdi:gesture-tap" : "mdi:gesture-tap-button" })]),
+        h("div", { class: "scmeta" }, [
+          h("div", { class: "scname" }, esc(b.label)),
+          h("div", { class: "sclast" }, pressed ? esc(b.last_label) + " · " + ago(b.last_at * 1000) : "—"),
+        ]),
+        b.count_today ? h("span", { class: "sccount" }, b.count_today + "×") : null,
+      ]);
+    }
+    _block(st) {
+      const a = st.attributes, buttons = a.buttons || [];
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:gesture-tap-button" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Scene panel")),
+          h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "") + ((a.events || []).length ? " · " + a.events.join(" / ") : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      return h("div", { class: "ablock" }, [head, h("div", { class: "scgrid" }, buttons.map((b) => this._btn(b)))]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto} .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .scgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:9px;margin-top:12px}
+        .scbtn{border:1px solid var(--ms-line);border-radius:11px;padding:10px 11px;display:flex;align-items:center;gap:9px;position:relative}
+        .scbtn.on{border-color:color-mix(in srgb,var(--ms-accent) 45%,var(--ms-line));background:color-mix(in srgb,var(--ms-accent) 7%,transparent)}
+        .scic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:color-mix(in srgb,var(--ms-ink) 8%,transparent);color:var(--ms-ink2)} .scbtn.on .scic{background:color-mix(in srgb,var(--ms-accent) 18%,transparent);color:var(--ms-accent)} .scic ha-icon{--mdc-icon-size:17px}
+        .scmeta{flex:1;min-width:0} .scname{font-size:12.5px;font-weight:650;color:var(--ms-ink)} .sclast{font-size:11px;color:var(--ms-ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .sccount{position:absolute;top:8px;right:9px;font-size:10px;font-weight:700;color:var(--ms-accent)}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Scene buttons"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ DS3604 e-ink display composer
+  // Self-discovers the "display" role. Tabs for template 1/2, editable text + QR blocks, a live preview, and
+  // Send / Refresh / Beep (via the milesight display_content service). Edits are local until Send.
+  class DisplayCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "display") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _deviceId(eid) { try { const e = this._hass.entities && this._hass.entities[eid]; return e ? e.device_id : null; } catch (e) { return null; } }
+    _draftFor(st) {               // lazy per-device draft of {template: {text_n / qr}}, seeded from reported content
+      this._drafts = this._drafts || {};
+      const id = st.entity_id;
+      if (!this._drafts[id]) {
+        const d = {}; const t = st.attributes.templates || {};
+        for (const k of ["1", "2"]) { d[k] = {}; const tt = t[k] || {}; for (const b of (tt.blocks || [])) d[k][b.key] = b.text || ""; d[k].qrcode = tt.qr || ""; }
+        this._drafts[id] = d;
+      }
+      return this._drafts[id];
+    }
+    _tabFor(st) { this._tabs = this._tabs || {}; return this._tabs[st.entity_id] || String(st.attributes.active || 1); }
+    _readInputs(st) {             // copy the visible fields back into the draft (before switching tab or sending)
+      const root = this.shadowRoot; if (!root) return;
+      const d = this._draftFor(st)[this._tabFor(st)];
+      root.querySelectorAll(`[data-dev="${st.entity_id}"] [data-block]`).forEach((el) => { d[el.getAttribute("data-block")] = el.value; });
+    }
+    _preview(st, tab) {
+      const d = this._draftFor(st)[tab];
+      const lines = [];
+      for (let n = 1; n <= 10; n++) { const tx = (d["text_" + n] || "").trim(); if (tx) lines.push(h("div", { class: "pvline" }, esc(tx))); }
+      const qr = (d.qrcode || "").trim();
+      return h("div", { class: "pv" }, [
+        h("div", { class: "pvscreen" }, (lines.length || qr) ? lines.concat(qr ? [h("div", { class: "pvqr" }, [h("ha-icon", { icon: "mdi:qrcode" })])] : []) : [h("div", { class: "pvempty" }, "Empty")]),
+        h("div", { class: "pvcap" }, "Template " + tab + " preview"),
+      ]);
+    }
+    _send(st, extra) {
+      this._readInputs(st);
+      const dev = this._deviceId(st.entity_id); if (!dev) return;
+      const tab = this._tabFor(st), d = this._draftFor(st)[tab];
+      const data = { device_id: dev, template: Number(tab), force: true };
+      for (let n = 1; n <= 10; n++) data["text_" + n] = d["text_" + n] || "";
+      data.qrcode = d.qrcode || "";
+      Object.assign(data, extra || {});
+      try { this._hass.callService("milesight_lorawan", "display_content", data); } catch (e) { /* surfaced by HA */ }
+    }
+    _cmd(st, extra) {             // refresh / beep without resending text
+      const dev = this._deviceId(st.entity_id); if (!dev) return;
+      try { this._hass.callService("milesight_lorawan", "display_content", Object.assign({ device_id: dev, template: Number(this._tabFor(st)) }, extra)); } catch (e) { /* surfaced */ }
+    }
+    _switchTab(st, tab) { this._readInputs(st); this._tabs = this._tabs || {}; this._tabs[st.entity_id] = tab; this._render(); }
+    _block(st) {
+      const a = st.attributes, tab = this._tabFor(st), d = this._draftFor(st)[tab];
+      const head = h("div", { class: "ahd" }, [
+        h("div", { class: "aic" }, [h("ha-icon", { icon: "mdi:monitor-dashboard" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Display")),
+          h("div", { class: "ahs" }, esc((a.model || "DS3604") + (a.area ? " · " + a.area : "") + (a.active ? " · showing T" + a.active : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const tabs = h("div", { class: "dtabs" }, ["1", "2"].map((t) => h("div", { class: "dtab" + (t === tab ? " on" : "") + (String(a.active) === t ? " live" : ""), onclick: () => t !== tab && this._switchTab(st, t) }, "Template " + t)));
+      const fields = [];
+      for (let n = 1; n <= 6; n++) fields.push(h("label", { class: "dfield" }, [h("span", {}, "Text " + n),
+        h("input", { type: "text", maxlength: "64", "data-block": "text_" + n, value: d["text_" + n] || "", placeholder: "—" })]));
+      fields.push(h("label", { class: "dfield" }, [h("span", {}, [h("ha-icon", { icon: "mdi:qrcode", style: { "--mdc-icon-size": "13px" } }), " QR / link"]),
+        h("input", { type: "text", maxlength: "128", "data-block": "qrcode", value: d.qrcode || "", placeholder: "https://…" })]));
+      const actions = h("div", { class: "dactions" }, [
+        h("button", { class: "primary", onclick: () => this._send(st, { show: true }) }, [h("ha-icon", { icon: "mdi:send", style: { "--mdc-icon-size": "15px" } }), " Send & show"]),
+        h("button", { onclick: () => this._cmd(st, { refresh: true }) }, "Refresh"),
+        h("button", { onclick: () => this._cmd(st, { beep: true }) }, "Beep"),
+      ]);
+      const err = a.error ? h("div", { class: "derr" }, [h("ha-icon", { icon: "mdi:monitor-off", style: { "--mdc-icon-size": "14px" } }), " " + esc(a.error)]) : null;
+      return h("div", { class: "ablock", "data-dev": st.entity_id }, [head, tabs,
+        h("div", { class: "dbody" }, [h("div", { class: "dform" }, fields), this._preview(st, tab)]), actions, err].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:15px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .ahd{display:flex;align-items:center;gap:11px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto} .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .dtabs{display:flex;gap:7px;margin:12px 0 11px}
+        .dtab{font-size:12px;font-weight:600;padding:5px 12px;border:1px solid var(--ms-line);border-radius:8px;color:var(--ms-ink2);cursor:pointer;position:relative}
+        .dtab.on{background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-ink);border-color:color-mix(in srgb,var(--ms-accent) 40%,var(--ms-line))}
+        .dtab.live::after{content:"●";color:var(--ms-good);font-size:8px;position:absolute;top:3px;right:4px}
+        .dbody{display:flex;gap:14px;flex-wrap:wrap}
+        .dform{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:7px}
+        .dfield{display:flex;flex-direction:column;gap:3px} .dfield span{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:3px}
+        .dfield input{background:color-mix(in srgb,var(--ms-ink) 5%,transparent);border:1px solid var(--ms-line);border-radius:8px;padding:7px 9px;color:var(--ms-ink);font:inherit;font-size:12.5px}
+        .dfield input:focus{outline:none;border-color:var(--ms-accent)}
+        .pv{flex:0 0 170px;display:flex;flex-direction:column;gap:5px}
+        .pvscreen{background:#f4f4ee;border:1px solid var(--ms-line);border-radius:8px;min-height:150px;padding:11px 12px;display:flex;flex-direction:column;gap:6px}
+        .pvline{color:#16181c;font-size:13px;font-weight:600;line-height:1.25;word-break:break-word}
+        .pvqr{margin-top:auto;color:#16181c;align-self:flex-start} .pvqr ha-icon{--mdc-icon-size:40px}
+        .pvempty{color:#9aa0a6;font-size:12px;margin:auto}
+        .pvcap{font-size:10px;color:var(--ms-ink2);text-align:center}
+        .dactions{display:flex;gap:8px;margin-top:12px} .dactions button{border:1px solid var(--ms-line);background:none;color:var(--ms-ink);border-radius:9px;padding:8px 12px;font:inherit;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+        .dactions button:hover{background:color-mix(in srgb,var(--ms-ink) 8%,transparent)}
+        .dactions .primary{background:var(--ms-accent);border-color:var(--ms-accent);color:#fff}
+        .derr{margin-top:10px;font-size:11.5px;color:var(--ms-bad);display:flex;align-items:center;gap:4px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._drafts) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._drafts) if (!live.has(k)) delete this._drafts[k]; }
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Displays"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ AT101 GNSS / Wi-Fi asset tracker
+  // Self-discovers the "asset_tracker" role. A live OpenStreetMap embed (keyless) with the asset marked, the
+  // moving / stopped + geofence status, distance travelled, and tamper / tilt / temperature. Wi-Fi fallback with
+  // no GNSS fix. A tamper, geofence breach or temperature alarm highlights the card.
+  class TrackerCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "asset_tracker") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _map(a) {
+      const hasFix = a.lat != null && a.lon != null;
+      if (!hasFix) {
+        return h("div", { class: "tkmap wifi" }, [
+          h("ha-icon", { class: "wifiic", icon: a.wifi_only ? "mdi:wifi" : "mdi:crosshairs-question" }),
+          h("span", { class: "tktag" }, a.wifi_only ? ("Wi-Fi scan · " + (a.wifi_aps || 0) + " APs") : "Waiting for a position fix"),
+        ]);
+      }
+      const lat = a.lat, lon = a.lon, dLon = 0.008, dLat = 0.005;
+      const bbox = [lon - dLon, lat - dLat, lon + dLon, lat + dLat].map((x) => x.toFixed(6)).join("%2C");
+      const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat.toFixed(6)}%2C${lon.toFixed(6)}`;
+      const link = `https://www.openstreetmap.org/?mlat=${lat.toFixed(6)}&mlon=${lon.toFixed(6)}#map=16/${lat.toFixed(5)}/${lon.toFixed(5)}`;
+      return h("div", { class: "tkmap" }, [
+        h("iframe", { class: "osm", src, loading: "lazy", referrerpolicy: "no-referrer", title: "Map" }),
+        h("span", { class: "tktag" }, "GNSS fix · " + ago(a.last_seen ? a.last_seen * 1000 : null)),
+        h("a", { class: "tklink", href: link, target: "_blank", rel: "noopener noreferrer" }, "Open in OSM ↗"),
+      ]);
+    }
+    _tile(val, label) {
+      return h("div", { class: "tktile" }, [h("div", { class: "v" }, val == null ? "—" : [_airFmt(val, ""), h("small", {}, " km")]), h("div", { class: "k" }, label)]);
+    }
+    _block(st) {
+      const a = st.attributes;
+      const head = h("div", { class: "tkhd" }, [
+        h("div", { class: "aic" + (a.alarm ? " bad" : "") }, [h("ha-icon", { icon: "mdi:map-marker-radius" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Tracker")),
+          h("div", { class: "ahs" }, esc((a.model || "AT101") + (a.area ? " · " + a.area : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+      ]);
+      const status = h("div", { class: "tkstatus" }, [
+        h("span", { class: "tkbig " + (a.moving ? "moving" : "stopped") }, [h("ha-icon", { icon: a.moving ? "mdi:arrow-right-bold" : "mdi:stop" }), " " + (a.motion_label || "—")]),
+        a.geofence ? h("span", { class: "tkbadge " + (a.geofence === "outside" ? "out" : "in") }, [h("span", { class: "d" }), a.geofence === "outside" ? "Left geofence" : "Inside geofence"]) : null,
+        h("span", { class: "tkcoord" }, a.lat != null ? a.lat.toFixed(4) + ", " + a.lon.toFixed(4) : (a.wifi_only ? "Wi-Fi position" : "No fix")),
+      ].filter(Boolean));
+      const tiles = h("div", { class: "tktiles" }, [this._tile(a.distance_today, "today"), this._tile(a.distance_week, "this week"), this._tile(a.distance_month, "this month")]);
+      const chips = [];
+      if (a.temperature != null) chips.push(h("div", { class: "tkchip" + (a.temp_alarm ? " bad" : "") }, [h("ha-icon", { icon: "mdi:thermometer" }), " ", h("b", {}, _airFmt(a.temperature, "") + " °C")]));
+      if (a.tamper) chips.push(h("div", { class: "tkchip bad" }, [h("ha-icon", { icon: "mdi:alert" }), " Removed from mount"]));
+      else if (a.tamper === false) chips.push(h("div", { class: "tkchip" }, [h("ha-icon", { icon: "mdi:check-circle-outline" }), " Mounted"]));
+      if (a.tilt) chips.push(h("div", { class: "tkchip warn" }, [h("ha-icon", { icon: "mdi:angle-acute" }), " Tilted"]));
+      const body = h("div", { class: "tkbody" }, [status, tiles, chips.length ? h("div", { class: "tkchips" }, chips) : null].filter(Boolean));
+      return h("div", { class: "tkblock" + (a.alarm ? " alarm" : "") }, [head, this._map(a), body]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;margin-top:2px}
+        .tkblock{border:1px solid var(--ms-line);border-radius:14px;overflow:hidden;background:color-mix(in srgb,var(--ms-ink) 2%,transparent)}
+        .tkblock.alarm{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line))}
+        .tkhd{display:flex;align-items:center;gap:11px;padding:14px 16px 10px}
+        .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .aic.bad{background:color-mix(in srgb,var(--ms-bad) 15%,transparent);color:var(--ms-bad)} .aic ha-icon{--mdc-icon-size:19px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .tkmap{position:relative;height:170px;border-top:1px solid var(--ms-line);border-bottom:1px solid var(--ms-line);background:color-mix(in srgb,var(--ms-ink) 8%,transparent)}
+        .tkmap .osm{width:100%;height:100%;border:0;display:block;filter:saturate(.9)}
+        .tkmap.wifi{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ms-ink2)} .tkmap.wifi .wifiic{--mdc-icon-size:34px;color:var(--ms-accent)}
+        .tktag{position:absolute;left:10px;top:10px;font-size:11px;background:color-mix(in srgb,var(--ms-ink) 82%,transparent);border:1px solid var(--ms-line);border-radius:7px;padding:4px 9px;color:var(--ms-ink2)}
+        .tkmap.wifi .tktag{position:static;background:none;border:0;padding:0}
+        .tklink{position:absolute;right:10px;bottom:10px;font-size:11px;background:color-mix(in srgb,var(--ms-ink) 82%,transparent);border:1px solid var(--ms-line);border-radius:7px;padding:4px 9px;color:var(--ms-accent);text-decoration:none}
+        .tkbody{padding:12px 16px 15px}
+        .tkstatus{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+        .tkbig{font-size:18px;font-weight:720;display:inline-flex;align-items:center;gap:5px} .tkbig ha-icon{--mdc-icon-size:18px} .tkbig.moving{color:var(--ms-accent)} .tkbig.stopped{color:var(--ms-ink)}
+        .tkbadge{font-size:11px;font-weight:700;padding:4px 11px;border-radius:999px;display:inline-flex;align-items:center;gap:6px} .tkbadge .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+        .tkbadge.in{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)} .tkbadge.out{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .tkcoord{font-size:11.5px;color:var(--ms-ink2);margin-left:auto;font-variant-numeric:tabular-nums}
+        .tktiles{display:flex;gap:9px} .tktile{flex:1;border:1px solid var(--ms-line);border-radius:10px;padding:8px 10px;text-align:center} .tktile .v{font-size:15px;font-weight:700;color:var(--ms-ink)} .tktile .v small{font-size:10px;color:var(--ms-ink2)} .tktile .k{font-size:10px;color:var(--ms-ink2);margin-top:2px}
+        .tkchips{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+        .tkchip{border:1px solid var(--ms-line);border-radius:10px;padding:6px 10px;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ms-ink2)} .tkchip b{color:var(--ms-ink);font-weight:700} .tkchip ha-icon{--mdc-icon-size:15px}
+        .tkchip.warn{color:var(--ms-warn);border-color:color-mix(in srgb,var(--ms-warn) 40%,var(--ms-line))}
+        .tkchip.bad{color:var(--ms-bad);border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Asset trackers"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ WS201 consumable supplies
+  // Self-discovers the "supplies" role. One tile per WS201 dispenser: a roll filled to what's left, % remaining,
+  // low / out badge, estimated days-to-empty from the drain rate, and the last-refilled note.
+  class SuppliesCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "supplies") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _roll(rem, status) {
+      const p = clamp(num(rem) || 0, 0, 100), col = status === "out" ? "var(--ms-bad)" : status === "low" ? "var(--ms-warn)" : "var(--ms-good)";
+      const top = 8 + (1 - p / 100) * 64, hgt = (p / 100) * 64;
+      return svgNS(`<svg width="58" height="78" viewBox="0 0 60 78">
+        <rect x="6" y="8" width="48" height="64" rx="6" fill="color-mix(in srgb,var(--ms-ink) 10%,transparent)" stroke="var(--ms-line)"/>
+        <rect x="6" y="${top.toFixed(1)}" width="48" height="${hgt.toFixed(1)}" rx="0" fill="${col}" opacity="0.5"/>
+        <ellipse cx="30" cy="8" rx="24" ry="6" fill="color-mix(in srgb,var(--ms-ink) 16%,transparent)" stroke="var(--ms-line)"/>
+        <circle cx="30" cy="48" r="7" fill="var(--ms-surface,#12161d)" stroke="var(--ms-line)"/></svg>`);
+    }
+    _since(ts) { const d = (Date.now() - ts * 1000) / 86400000; return d < 1 ? ago(ts * 1000) : Math.round(d) + (Math.round(d) === 1 ? " day ago" : " days ago"); }
+    _block(st) {
+      const a = st.attributes, status = a.status || "ok";
+      const head = h("div", { class: "suhd" }, [
+        h("div", { class: "suic " + status }, [h("ha-icon", { icon: "mdi:paper-roll" })]),
+        h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Dispenser")),
+          h("div", { class: "ahs" }, esc((a.model || "WS201") + (a.area ? " · " + a.area : "")))]),
+        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+      ]);
+      const badge = h("div", { class: "subadge " + status }, [h("span", { class: "d" }),
+        status === "out" ? "Replace now" : status === "low" ? "Low" : "In stock"]);
+      const hero = h("div", { class: "suhero" }, [this._roll(a.remaining, status),
+        h("div", {}, [h("div", { class: "subig " + status }, [a.remaining == null ? "—" : String(a.remaining), h("small", {}, " %")]), badge])]);
+      const lines = [];
+      if (a.days_left != null) lines.push(h("span", {}, ["~", h("b", {}, a.days_left + (a.days_left === 1 ? " day" : " days")), " to empty" + (a.rate ? " · −" + a.rate + " %/day" : "")]));
+      else if (status === "out") lines.push(h("span", {}, "Empty within a day"));
+      else lines.push(h("span", {}, "Learning the drain rate…"));
+      if (a.refilled_at) lines.push(h("span", { class: status === "ok" && !a.days_left ? "hi" : "" }, "Refilled " + this._since(a.refilled_at)));
+      const meta = h("div", { class: "sumeta" }, lines);
+      return h("div", { class: "sublock " + status }, [head, hero, meta]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + `
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:2px}
+        .sublock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .sublock.low{border-color:color-mix(in srgb,var(--ms-warn) 50%,var(--ms-line))}
+        .sublock.out{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line))}
+        .suhd{display:flex;align-items:center;gap:10px}
+        .suic{flex:0 0 auto;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-good) 15%,transparent);color:var(--ms-good)} .suic.low{background:color-mix(in srgb,var(--ms-warn) 16%,transparent);color:var(--ms-warn)} .suic.out{background:color-mix(in srgb,var(--ms-bad) 16%,transparent);color:var(--ms-bad)} .suic ha-icon{--mdc-icon-size:18px}
+        .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .suhero{display:flex;align-items:center;gap:15px;margin:11px 0 4px}
+        .subig{font-size:29px;font-weight:740;color:var(--ms-ink);line-height:1} .subig small{font-size:13px;color:var(--ms-ink2);font-weight:600}
+        .subig.low{color:var(--ms-warn)} .subig.out{color:var(--ms-bad)}
+        .subadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;margin-top:6px} .subadge .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+        .subadge.ok{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .subadge.low{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .subadge.out{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .sumeta{font-size:11.5px;color:var(--ms-ink2);margin-top:9px;border-top:1px solid var(--ms-line);padding-top:9px;display:flex;flex-direction:column;gap:3px} .sumeta b{color:var(--ms-ink);font-weight:700} .sumeta .hi{color:var(--ms-ink);font-weight:600}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Supplies"),
+        h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ Team chat (in-app messaging)
+  // Talks to the integration's websocket commands (milesight_lorawan/chat/*): loads channels + history, subscribes
+  // for live messages, and sends. Channels include Site + topics and the system-fed Alerts / Jobs threads.
+  const CHAT_COLORS = ["#8e7cc3", "#4ab0c4", "#ff8a5c", "#36c08a", "#e6a23c", "#4aa3ff", "#db4437", "#7e8bff"];
+  class ChatCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
+    setConfig(cfg) {
+      this._cfg = cfg || {}; this._active = this._cfg.channel || "site"; this._draft = ""; this._push = true;
+      try { const c = new URLSearchParams(location.search).get("channel"); if (c) this._active = c; } catch (e) { /* */ }
+    }
+    _avatar(name, me) {
+      const n = String(name || "?"), init = n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?";
+      let h2 = 0; for (let i = 0; i < n.length; i++) h2 = (h2 * 31 + n.charCodeAt(i)) >>> 0;
+      return h("div", { class: "av", style: { background: me ? "var(--ms-accent)" : CHAT_COLORS[h2 % CHAT_COLORS.length] } }, init);
+    }
+    set hass(hass) {
+      const first = !this._hass;
+      this._hass = hass;
+      if (first) { this._init(); }
+    }
+    async _init() {
+      this._active = this._active || "site"; this._push = this._push !== false; this._draft = this._draft || "";
+      try {
+        const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: this._active });
+        this._hub = r.hub; this._channels = r.channels || []; this._workers = r.workers || [];
+        this._messages = r.messages || []; this._readers = r.readers || [];
+        this._roster = r.roster || []; this._online = r.online || []; this._canManage = !!r.can_manage;
+        this._uid = r.me || (this._hass.user && this._hass.user.id) || null;
+        this._render();
+        this._markRead();
+        this._unsub = await this._hass.connection.subscribeMessage((ev) => this._onEvent(ev),
+          { type: "milesight_lorawan/chat/subscribe", presence: true });
+      } catch (e) { this._channels = null; this._render(); }
+    }
+    disconnectedCallback() { if (this._unsub) { try { this._unsub(); } catch (e) { /* gone */ } this._unsub = null; } if (super.disconnectedCallback) super.disconnectedCallback(); }
+    _onEvent(ev) {
+      if (!ev) return;
+      if (ev.presence) {    // someone opened / left the chat: refresh the roster + online count
+        this._online = ev.presence.online || this._online; this._roster = ev.presence.roster || this._roster;
+        this._renderPeople();
+        return;
+      }
+      if (ev.typing) {      // ephemeral "X is typing…" for the open channel, from someone else
+        if (ev.typing.channel === this._active && ev.typing.user_id !== this._uid) {
+          this._typers = this._typers || {};
+          this._typers[ev.typing.name] = Date.now() + 4000;
+          this._renderTyping();
+          clearTimeout(this._typingTimer);
+          this._typingTimer = setTimeout(() => this._pruneTypers(), 4200);
+        }
+        return;
+      }
+      if (ev.channels_changed) { this._refetch(); return; }   // a channel was created / renamed / archived
+      if (ev.read) {        // a read receipt: update this channel's readers live
+        if (ev.read.channel === this._active && ev.read.user_id !== this._uid) {
+          this._readers = (this._readers || []).filter((r) => r.name !== ev.read.name);
+          this._readers.unshift({ name: ev.read.name, ts: ev.read.ts });
+          this._renderReceipt();
+        }
+        return;
+      }
+      if (!ev.message) return;
+      const ch = ev.channel;
+      // make sure the channel is known (a new alert/job thread may appear)
+      if (ev.channel_meta && !(this._channels || []).some((c) => c.id === ch)) this._channels.push({ ...ev.channel_meta, unread: 0, last_ts: ev.message.ts, last_text: ev.message.text });
+      const cc = (this._channels || []).find((c) => c.id === ch);
+      if (cc) { cc.last_ts = ev.message.ts; cc.last_text = (ev.message.kind === "sys" ? "" : ev.message.author + ": ") + ev.message.text; }
+      if (ch === this._active) { this._messages.push(ev.message); this._render(); this._markRead(); }
+      else if (cc) { cc.unread = (cc.unread || 0) + 1; this._renderChips(); }
+    }
+    async _open(ch) {
+      if (ch === this._active) return;
+      this._active = ch; this._draft = ""; this._pendingImg = null; this._pendingLoc = null;
+      this._typers = {};
+      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: ch }); this._messages = r.messages || []; this._channels = r.channels || this._channels; this._readers = r.readers || []; this._roster = r.roster || this._roster; this._online = r.online || this._online; }
+      catch (e) { this._messages = []; this._readers = []; }
+      const cc = (this._channels || []).find((c) => c.id === ch); if (cc) cc.unread = 0;
+      this._render(); this._markRead();
+    }
+    async _refetch() {
+      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: this._active });
+        this._channels = r.channels || this._channels; this._roster = r.roster || this._roster;
+        this._online = r.online || this._online; this._canManage = !!r.can_manage; this._render(); } catch (e) { /* */ }
+    }
+    _markRead() { try { this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/read", channel: this._active }); } catch (e) { /* best effort */ } }
+    async _send() {
+      const text = (this._draft || "").trim();
+      if (!text && !this._pendingImg && !this._pendingLoc) return;
+      const data = { type: "milesight_lorawan/chat/send", channel: this._active, text, push: !!this._push };
+      if (this._asWorker) data.as_worker = this._asWorker;
+      if (this._pendingImg) data.image = this._pendingImg;
+      if (this._pendingLoc) data.loc = this._pendingLoc;
+      this._draft = ""; this._pendingImg = null; this._pendingLoc = null;
+      const inp = this.shadowRoot && this.shadowRoot.querySelector(".cinput input"); if (inp) inp.value = "";
+      this._render();
+      try { await this._hass.connection.sendMessagePromise(data); } catch (e) { /* surfaced by HA */ }
+    }
+    _attach() {
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) this._downscale(f); };
+      inp.click();
+    }
+    _downscale(file) {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const max = 1280, sc = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas"); cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        this._pendingImg = cv.toDataURL("image/jpeg", 0.7); URL.revokeObjectURL(url); this._render();
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); };
+      img.src = url;
+    }
+    _shareLoc() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        (p) => { this._pendingLoc = { lat: p.coords.latitude, lon: p.coords.longitude }; this._render(); },
+        () => { /* denied */ }, { enableHighAccuracy: true, timeout: 8000 });
+    }
+    _fmtTime(ts) { try { return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } }
+    _mentionify(text) {
+      const parts = String(text).split(/(@[\w'\-]+)/g);
+      return parts.map((p) => p.startsWith("@") ? h("span", { class: "mention" }, p) : p);
+    }
+    _content(m) {
+      const out = [];
+      if (m.image) out.push(h("a", { class: "imgw", href: m.image, target: "_blank", rel: "noopener" }, [h("img", { src: m.image, loading: "lazy" })]));
+      if (m.loc) {
+        const { lat, lon } = m.loc, d = 0.006;
+        const src = `https://www.openstreetmap.org/export/embed.html?bbox=${(lon - d).toFixed(5)}%2C${(lat - d * 0.7).toFixed(5)}%2C${(lon + d).toFixed(5)}%2C${(lat + d * 0.7).toFixed(5)}&layer=mapnik&marker=${lat.toFixed(5)}%2C${lon.toFixed(5)}`;
+        const link = `https://www.openstreetmap.org/?mlat=${lat.toFixed(5)}&mlon=${lon.toFixed(5)}#map=16/${lat.toFixed(4)}/${lon.toFixed(4)}`;
+        out.push(h("a", { class: "locw", href: link, target: "_blank", rel: "noopener" }, [
+          h("iframe", { class: "locmap", src, loading: "lazy", referrerpolicy: "no-referrer", title: "Location" }),
+          h("span", { class: "loclbl" }, [h("ha-icon", { icon: "mdi:map-marker", style: { "--mdc-icon-size": "14px" } }), " " + lat.toFixed(4) + ", " + lon.toFixed(4)])]));
+      }
+      if (m.text) out.push(h("div", { class: "txt" }, this._mentionify(m.text)));
+      return out;
+    }
+    _message(m, prevAuthor) {
+      if (m.kind === "sys") return h("div", { class: "sys" }, this._mentionify(m.text || ""));
+      const me = m.user_id && this._uid ? m.user_id === this._uid : (m.author === "You");
+      const grouped = prevAuthor === m.author;
+      return h("div", { class: "msg" + (me ? " me" : "") }, [
+        grouped ? h("div", { class: "av ph" }) : this._avatar(m.author, me),
+        h("div", { class: "body" }, [
+          grouped ? null : h("div", { class: "meta" }, [h("span", { class: "nm" }, esc(m.author)),
+            m.role ? h("span", { class: "role" }, esc(m.role)) : null,
+            m.via === "phone" ? h("span", { class: "via", title: "Replied from phone" }, "📱") : null,
+            h("span", {}, this._fmtTime(m.ts))].filter(Boolean)),
+          h("div", { class: "bub" + (m.image && !m.text && !m.loc ? " bare" : "") }, this._content(m)),
+        ]),
+      ]);
+    }
+    _receiptLine() {
+      // under the last own message: who has read up to it
+      const mine = [...(this._messages || [])].reverse().find((m) => m.kind === "msg" && (m.user_id === this._uid || m.author === "You"));
+      if (!mine) return null;
+      const readers = (this._readers || []).filter((r) => r.ts >= mine.ts - 0.001);
+      if (!readers.length) return null;
+      const names = readers.map((r) => r.name);
+      const txt = names.length <= 2 ? names.join(" & ") : names.slice(0, 2).join(", ") + " +" + (names.length - 2);
+      return h("div", { class: "receipt" }, [h("ha-icon", { icon: "mdi:check-all", style: { "--mdc-icon-size": "13px" } }), " Read by " + txt]);
+    }
+    _renderReceipt() { const el = this.shadowRoot && this.shadowRoot.querySelector(".receiptrow"); if (el) el.replaceChildren(this._receiptLine() || document.createComment("")); }
+    _chips() {
+      const chips = (this._channels || []).map((c) => h("div", {
+        class: "chan" + (c.id === this._active ? " on" : "") + (c.kind === "alerts" ? " alert" : "") + (c.archived ? " arch" : ""), onclick: () => this._open(c.id),
+      }, [h("ha-icon", { icon: c.archived ? "mdi:archive-outline" : c.icon, style: { "--mdc-icon-size": "14px" } }), " " + c.title,
+        c.unread ? h("span", { class: "badge" }, String(c.unread)) : null].filter(Boolean)));
+      if (this._canManage) chips.push(h("div", { class: "chan new", title: "New channel", onclick: () => this._newChannel() },
+        [h("ha-icon", { icon: "mdi:plus", style: { "--mdc-icon-size": "15px" } }), " New"]));
+      return h("div", { class: "chans" }, chips);
+    }
+    _renderChips() { const el = this.shadowRoot && this.shadowRoot.querySelector(".chans"); if (el) el.replaceWith(this._chips()); }
+    // -- presence (who's in chat now + clocked in) ---------------------------
+    _peopleEl() {
+      const roster = this._roster || [], onCount = roster.filter((p) => p.online).length;
+      const btn = h("button", { class: "peoplebtn" + (this._showPeople ? " on" : ""), title: "Who's here",
+        onclick: () => { this._showPeople = !this._showPeople; this._renderPeople(); } },
+        [h("ha-icon", { icon: "mdi:account-group-outline" }), h("span", { class: "pc" }, String(onCount))]);
+      let panel = null;
+      if (this._showPeople) {
+        const sorted = roster.slice().sort((a, b) => (b.online - a.online) || (b.clocked_in - a.clocked_in) || String(a.name).localeCompare(b.name));
+        panel = h("div", { class: "peoplepanel" }, [
+          h("div", { class: "pphd" }, onCount + (onCount === 1 ? " person" : " people") + " in chat"),
+          sorted.length ? h("div", { class: "pplist" }, sorted.map((p) => h("div", { class: "pprow" }, [
+            h("span", { class: "pdot" + (p.online ? " on" : "") }),
+            h("span", { class: "pnm" }, esc(p.name)),
+            p.clocked_in ? h("span", { class: "pchip in" }, "clocked in") : null,
+            p.guest ? h("span", { class: "pchip guest" }, "guest") : null,
+          ].filter(Boolean)))) : h("div", { class: "ppempty" }, "No one's here yet"),
+        ]);
+      }
+      return h("div", { class: "people" }, [btn, panel].filter(Boolean));
+    }
+    _renderPeople() { const el = this.shadowRoot && this.shadowRoot.querySelector(".people"); if (el) el.replaceWith(this._peopleEl()); }
+    // -- typing indicator ----------------------------------------------------
+    _sendTyping() {
+      const now = Date.now();
+      if (this._lastTyping && now - this._lastTyping < 2500) return;
+      this._lastTyping = now;
+      try { this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/typing", channel: this._active }); } catch (e) { /* */ }
+    }
+    _pruneTypers() {
+      const now = Date.now(), t = this._typers || {};
+      for (const k of Object.keys(t)) if (t[k] <= now) delete t[k];
+      this._renderTyping();
+    }
+    _typingLine() {
+      const names = Object.keys(this._typers || {}).filter((n) => (this._typers[n] > Date.now()));
+      if (!names.length) return null;
+      const who = names.length === 1 ? names[0] + " is typing"
+        : names.length === 2 ? names[0] + " & " + names[1] + " are typing" : "Several people are typing";
+      return h("div", { class: "typing" }, [h("span", { class: "dots" }, [h("i"), h("i"), h("i")]), " " + who + "…"]);
+    }
+    _renderTyping() { const el = this.shadowRoot && this.shadowRoot.querySelector(".typingrow"); if (el) el.replaceChildren(this._typingLine() || document.createComment("")); }
+    // -- channel management (admins only) -----------------------------------
+    _manageable(c) { return c && c.kind !== "alerts" && c.kind !== "jobs"; }
+    async _newChannel() {
+      let title; try { title = window.prompt("New channel name"); } catch (e) { title = null; }
+      if (!title || !title.trim()) return;
+      try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/channel/create", title: title.trim() });
+        await this._refetch(); if (r && r.channel && r.channel.id) this._open(r.channel.id); } catch (e) { /* */ }
+    }
+    async _renameChannel(c) {
+      if (!this._manageable(c)) return;
+      let title; try { title = window.prompt("Rename channel", c.title || ""); } catch (e) { title = null; }
+      if (!title || !title.trim()) return;
+      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/channel/rename", channel: c.id, title: title.trim() }); await this._refetch(); } catch (e) { /* */ }
+    }
+    async _archiveChannel(c, archived) {
+      if (!this._manageable(c)) return;
+      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/channel/archive", channel: c.id, archived }); } catch (e) { /* */ }
+      if (archived && c.id === this._active) this._active = "site";
+      await this._refetch();
+      if (archived && this._active === "site") this._open("site");
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = MON_CSS + CHAT_CSS;
+      if (this._channels === null) {
+        this._card(h("div", { class: "wrap" }, [h("div", { class: "chatna" }, "Team chat isn't available — set up a gateway with the integration.")]));
+        return;
+      }
+      if (!this._channels) { this._card(h("div", { class: "wrap" }, [h("div", { class: "chatna" }, "Loading…")])); return; }
+      const ac = this._channels.find((c) => c.id === this._active) || {};
+      const rows = []; let prev = null;
+      for (const m of this._messages) { rows.push(this._message(m, prev)); prev = m.kind === "sys" ? null : m.author; }
+      const stream = h("div", { class: "stream" }, rows.length ? rows : [h("div", { class: "chatempty" }, "No messages yet — say hello 👋")]);
+      const worker = (this._workers || []).length ? h("select", { class: "asworker", onchange: (e) => { this._asWorker = e.target.value || null; } },
+        [h("option", { value: "" }, "as me")].concat(this._workers.map((w) => h("option", { value: w }, "as " + w)))) : null;
+      const pending = (this._pendingImg || this._pendingLoc) ? h("div", { class: "pending" }, [
+        this._pendingImg ? h("div", { class: "pimg" }, [h("img", { src: this._pendingImg }), h("button", { class: "px", onclick: () => { this._pendingImg = null; this._render(); } }, "✕")]) : null,
+        this._pendingLoc ? h("div", { class: "ploc" }, [h("ha-icon", { icon: "mdi:map-marker", style: { "--mdc-icon-size": "15px" } }), " Location attached", h("button", { class: "px", onclick: () => { this._pendingLoc = null; this._render(); } }, "✕")]) : null,
+      ].filter(Boolean)) : null;
+      const comp = h("div", { class: "comp" }, [
+        pending,
+        h("div", { class: "cinput" }, [
+          h("button", { class: "iconbtn", title: "Photo", onclick: () => this._attach() }, [h("ha-icon", { icon: "mdi:camera-outline" })]),
+          h("button", { class: "iconbtn", title: "Share location", onclick: () => this._shareLoc() }, [h("ha-icon", { icon: "mdi:map-marker-outline" })]),
+          h("input", { type: "text", value: this._draft || "", placeholder: "Message " + (ac.title ? "#" + ac.title : "…"),
+            oninput: (e) => { this._draft = e.target.value; this._sendTyping(); }, onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); this._send(); } } }),
+          h("button", { class: "send", onclick: () => this._send() }, [h("ha-icon", { icon: "mdi:send", style: { "--mdc-icon-size": "17px" } })]),
+        ]),
+        h("div", { class: "copts" }, [
+          h("label", { onclick: () => { this._push = !this._push; this._render(); } }, [h("span", { class: "sw" + (this._push ? " on" : "") }, [h("i")]), " Also push to phones"]),
+          worker,
+        ].filter(Boolean)),
+      ]);
+      const manage = (this._canManage && ac.id && this._manageable(ac)) ? [
+        h("button", { class: "mbtn", title: "Rename channel", onclick: () => this._renameChannel(ac) }, [h("ha-icon", { icon: "mdi:pencil-outline" })]),
+        ac.archived
+          ? h("button", { class: "mbtn", title: "Unarchive", onclick: () => this._archiveChannel(ac, false) }, [h("ha-icon", { icon: "mdi:archive-arrow-up-outline" })])
+          : h("button", { class: "mbtn", title: "Archive channel", onclick: () => this._archiveChannel(ac, true) }, [h("ha-icon", { icon: "mdi:archive-arrow-down-outline" })]),
+      ] : [];
+      this._card(h("div", { class: "chatwrap" + (this.panel ? " panel" : "") }, [
+        h("div", { class: "chd" }, [h("div", { class: "cic" }, [h("ha-icon", { icon: "mdi:chat-outline" })]),
+          h("div", { class: "ctitle" }, [h("div", { class: "t" }, "Team chat"),
+            h("div", { class: "s" }, ac.kind === "alerts" ? "Alerts thread" : ac.kind === "jobs" ? "Jobs thread" : ac.archived ? "Archived" : "Live")]),
+          h("div", { class: "chdsp" }), ...manage, this._peopleEl()]),
+        this._chips(), stream,
+        h("div", { class: "typingrow" }, [this._typingLine()].filter(Boolean)),
+        h("div", { class: "receiptrow" }, [this._receiptLine()].filter(Boolean)), comp,
+      ]));
+      const sc = this.shadowRoot.querySelector(".stream"); if (sc) sc.scrollTop = sc.scrollHeight;
+    }
+  }
+
+  const CHAT_CSS = `
+    .chatwrap{display:flex;flex-direction:column;height:520px;max-height:72vh}
+    .chatwrap.panel{height:calc(100vh - 110px);max-height:none;padding:0 6px}
+    .chd{display:flex;align-items:center;gap:10px;padding:2px 2px 11px;border-bottom:1px solid var(--ms-line);position:relative}
+    .chdsp{flex:1}
+    .cic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent)} .cic ha-icon{--mdc-icon-size:18px}
+    .ctitle .t{font-size:15px;font-weight:650;color:var(--ms-ink)} .ctitle .s{font-size:11.5px;color:var(--ms-ink2)}
+    .mbtn{width:30px;height:30px;border-radius:8px;background:none;border:1px solid var(--ms-line);color:var(--ms-ink2);cursor:pointer;display:flex;align-items:center;justify-content:center}.mbtn:hover{border-color:var(--ms-accent);color:var(--ms-accent)}.mbtn ha-icon{--mdc-icon-size:17px}
+    .people{position:relative}
+    .peoplebtn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;background:none;border:1px solid var(--ms-line);color:var(--ms-ink2);cursor:pointer;font:inherit;font-size:12px}.peoplebtn:hover,.peoplebtn.on{border-color:var(--ms-accent);color:var(--ms-ink)}.peoplebtn ha-icon{--mdc-icon-size:17px}.peoplebtn .pc{font-weight:700}
+    .peoplepanel{position:absolute;right:0;top:36px;z-index:20;width:230px;background:var(--ms-card,var(--card-background-color,#1c2429));border:1px solid var(--ms-line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:10px;max-height:300px;overflow-y:auto}
+    .pphd{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ms-ink2);margin:0 2px 8px}
+    .pplist{display:flex;flex-direction:column;gap:2px}.ppempty{font-size:12px;color:var(--ms-ink2);padding:6px 2px}
+    .pprow{display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:13px;color:var(--ms-ink)}
+    .pdot{width:8px;height:8px;border-radius:50%;background:#59646c;flex:0 0 auto}.pdot.on{background:var(--ms-good);box-shadow:0 0 0 3px color-mix(in srgb,var(--ms-good) 22%,transparent)}
+    .pnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .pchip{font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;padding:2px 7px;border-radius:999px;font-weight:700}
+    .pchip.in{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}.pchip.guest{background:color-mix(in srgb,var(--ms-ink) 12%,transparent);color:var(--ms-ink2)}
+    .typingrow{min-height:0;padding:0 4px}
+    .typing{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ms-ink2);padding:2px 0}
+    .typing .dots{display:inline-flex;gap:3px}.typing .dots i{width:5px;height:5px;border-radius:50%;background:var(--ms-ink2);animation:mstyp 1s infinite ease-in-out}.typing .dots i:nth-child(2){animation-delay:.15s}.typing .dots i:nth-child(3){animation-delay:.3s}
+    @keyframes mstyp{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-2px)}}
+    .chans{display:flex;gap:7px;padding:11px 0;overflow-x:auto;border-bottom:1px solid var(--ms-line)}
+    .chan{flex:0 0 auto;font-size:12.5px;font-weight:600;padding:5px 11px;border:1px solid var(--ms-line);border-radius:999px;color:var(--ms-ink2);cursor:pointer;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+    .chan.on{background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-ink);border-color:color-mix(in srgb,var(--ms-accent) 40%,var(--ms-line))}
+    .chan.alert{color:var(--ms-warn)} .chan.alert.on{color:var(--ms-ink)}
+    .chan.arch{opacity:.6;border-style:dashed} .chan.new{color:var(--ms-accent);border-style:dashed}
+    .chan .badge{background:var(--ms-accent);color:#fff;font-size:10px;font-weight:700;border-radius:999px;padding:0 6px;min-width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center}
+    .stream{flex:1;overflow-y:auto;padding:13px 2px;display:flex;flex-direction:column;gap:10px}
+    .chatempty,.chatna{color:var(--ms-ink2);font-size:12.5px;margin:auto;text-align:center;padding:20px}
+    .day{align-self:center;font-size:10.5px;color:var(--ms-ink2)}
+    .sys{align-self:center;max-width:92%;text-align:center;font-size:11.5px;color:var(--ms-ink2);background:color-mix(in srgb,var(--ms-warn) 10%,transparent);border:1px solid color-mix(in srgb,var(--ms-warn) 22%,var(--ms-line));border-radius:10px;padding:6px 11px}
+    .msg{display:flex;gap:9px;max-width:86%} .msg.me{align-self:flex-end;flex-direction:row-reverse}
+    .av{width:29px;height:29px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff} .av.ph{background:none}
+    .body{min-width:0} .meta{font-size:11px;color:var(--ms-ink2);margin-bottom:3px;display:flex;align-items:center;gap:7px} .msg.me .meta{flex-direction:row-reverse}
+    .meta .nm{color:var(--ms-ink);font-weight:650}
+    .role{font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--ms-ink) 10%,transparent);color:var(--ms-ink2)}
+    .bub{background:color-mix(in srgb,var(--ms-ink) 7%,transparent);border-radius:4px 12px 12px 12px;padding:8px 11px;font-size:13.5px;line-height:1.4;color:var(--ms-ink);word-break:break-word;display:flex;flex-direction:column;gap:7px}
+    .bub.bare{padding:4px;background:none}
+    .msg.me .bub{background:color-mix(in srgb,var(--ms-accent) 22%,transparent);border-radius:12px 4px 12px 12px}
+    .bub .txt{white-space:pre-wrap}
+    .imgw{display:block} .imgw img{max-width:220px;max-height:230px;border-radius:9px;display:block}
+    .locw{display:block;text-decoration:none} .locmap{width:220px;height:120px;border:0;border-radius:9px 9px 0 0;display:block;pointer-events:none}
+    .loclbl{display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-ink) 10%,transparent);padding:5px 9px;border-radius:0 0 9px 9px}
+    .mention{color:var(--ms-accent);font-weight:600}
+    .receiptrow{display:flex;justify-content:flex-end;min-height:0;padding:0 2px}
+    .receipt{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:3px;padding:2px 2px 4px} .receipt ha-icon{color:var(--ms-accent)}
+    .comp{border-top:1px solid var(--ms-line);padding:11px 2px 2px;display:flex;flex-direction:column;gap:8px}
+    .cinput{display:flex;align-items:center;gap:7px}
+    .cinput input{flex:1;background:color-mix(in srgb,var(--ms-ink) 6%,transparent);border:1px solid var(--ms-line);border-radius:999px;padding:9px 14px;color:var(--ms-ink);font:inherit;font-size:13px}
+    .cinput input:focus{outline:none;border-color:var(--ms-accent)}
+    .iconbtn{width:32px;height:32px;border-radius:50%;background:none;border:0;color:var(--ms-ink2);cursor:pointer;flex:0 0 auto;display:flex;align-items:center;justify-content:center} .iconbtn:hover{background:color-mix(in srgb,var(--ms-ink) 8%,transparent);color:var(--ms-ink)} .iconbtn ha-icon{--mdc-icon-size:19px}
+    .send{width:36px;height:36px;border-radius:50%;background:var(--ms-accent);border:0;color:#fff;cursor:pointer;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+    .pending{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:3px}
+    .pimg{position:relative} .pimg img{height:56px;border-radius:8px;display:block} .ploc{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:8px;padding:6px 9px;position:relative}
+    .px{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;background:var(--ms-bad);color:#fff;border:0;font-size:11px;cursor:pointer;line-height:1} .ploc .px{position:static;margin-left:4px}
+    .copts{display:flex;align-items:center;gap:14px;font-size:11px;color:var(--ms-ink2)}
+    .copts label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+    .sw{width:30px;height:17px;border-radius:999px;background:#2a333a;position:relative;flex:0 0 auto}.sw.on{background:color-mix(in srgb,var(--ms-good) 60%,transparent)}
+    .sw i{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#8a97a0;transition:.15s}.sw.on i{left:15px;background:#eafff0}
+    .asworker{margin-left:auto;background:color-mix(in srgb,var(--ms-ink) 6%,transparent);border:1px solid var(--ms-line);border-radius:8px;color:var(--ms-ink2);font:inherit;font-size:11px;padding:3px 7px}
+  `;
+
   // ================================================================ recipe strip (one domain, compact)
   class RecipeStripCard extends Base {
     static getStubConfig() { return { category: "water" }; }
@@ -7336,7 +8485,16 @@
         COUNTER_TAG = "milesight-people-counter-card",
         FALL_TAG = "milesight-fall-card",
         WORKPLACE_TAG = "milesight-workplace-card",
-        OCCUPANCY_TAG = "milesight-occupancy-card";
+        OCCUPANCY_TAG = "milesight-occupancy-card",
+        CONTROLLER_TAG = "milesight-controller-card",
+        VALVE_TAG = "milesight-valve-card",
+        EMREAD_TAG = "milesight-em-reading-card",
+        TEMPPROBE_TAG = "milesight-temp-probe-card",
+        SCENE_TAG = "milesight-scene-card",
+        DISPLAY_TAG = "milesight-display-card",
+        TRACKER_TAG = "milesight-tracker-card",
+        SUPPLIES_TAG = "milesight-supplies-card",
+        CHAT_TAG = "milesight-chat-card";
   const defs = [
     [GW_TAG, GatewayCard, "Milesight Gateway", "Gateway health: online, packets, connection, location, clock"],
     [DEV_TAG, DeviceCard, "Milesight Device", "Device status: battery ring, signal bars, last-seen, headline reading + sparkline"],
@@ -7401,6 +8559,15 @@
     [FALL_TAG, FallCard, "Milesight Fall Detection", "VS373 radar: presence (in bed / out of bed / fall), respiration, dwell and alarms"],
     [WORKPLACE_TAG, WorkplaceCard, "Milesight Room", "VS321 room sensor: occupancy headline, seat regions and temp / humidity / light chips that drive the trend"],
     [OCCUPANCY_TAG, OccupancyCard, "Milesight Occupancy", "VS desk / room / bathroom occupancy: a utilisation ring with live in-use / free time and sessions today"],
+    [CONTROLLER_TAG, ControllerCard, "Milesight Controller", "UC I/O controller: digital inputs, relay-output toggles, PT100 / analog chips that drive a trend, counters and RS485"],
+    [VALVE_TAG, ValveCard, "Milesight Valves", "UC valve controller: solenoid open / close with an open-for timer, motorised % opening dial and pipe pressure"],
+    [EMREAD_TAG, EmReadingCard, "Milesight EM500 Reading", "EM500 single-reading sensor: light / pressure / temperature as a gauge, UDL / SWL level as a filled shaft, each with a trend"],
+    [TEMPPROBE_TAG, TempProbeCard, "Milesight Temperature Probe", "TS probe: temperature with alarm badge + threshold trend, humidity / door chips, dual probe for TS302, cold-chain tilt / light"],
+    [SCENE_TAG, SceneCard, "Milesight Scene Buttons", "WS101 / WS136 / WS156 buttons: each button's last press (type + when) and today's count"],
+    [DISPLAY_TAG, DisplayCard, "Milesight Display", "DS3604 e-ink composer: template 1/2 tabs, editable text + QR blocks, a live preview and Send / Refresh / Beep"],
+    [TRACKER_TAG, TrackerCard, "Milesight Asset Tracker", "AT101 GNSS / Wi-Fi tracker: a live OpenStreetMap view, moving / geofence status, distance travelled and tamper / tilt / temperature"],
+    [SUPPLIES_TAG, SuppliesCard, "Milesight Supplies", "WS201 dispensers: a roll filled to what's left, % remaining, low / out badge, days-to-empty and last refill"],
+    [CHAT_TAG, ChatCard, "Milesight Team Chat", "In-app team messaging: Site + topic channels and Alerts / Jobs threads, live, with optional push to phones"],
   ];
   window.customCards = window.customCards || [];
   for (const [tag, cls, name, desc] of defs) {
@@ -7414,4 +8581,45 @@
   }
   // eslint-disable-next-line no-console
   console.info("%cMilesight LoRaWAN cards loaded", "color:#1e88e5;font-weight:600");
+
+  // --- sidebar unread badge: this module loads on every page, so it can badge the "Team chat" panel item.
+  (function chatSidebarBadge() {
+    if (window.__msChatBadge) return; window.__msChatBadge = true;
+    let total = 0, sub = null, busy = false;
+    const hass = () => { try { return document.querySelector("home-assistant").hass; } catch (e) { return null; } };
+    function link() {
+      try {
+        const ha = document.querySelector("home-assistant");
+        const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector("home-assistant-main");
+        const sb = main && main.shadowRoot && main.shadowRoot.querySelector("ha-sidebar");
+        return sb && sb.shadowRoot && sb.shadowRoot.querySelector('a[href="/milesight-chat"]');
+      } catch (e) { return null; }
+    }
+    function paint() {
+      const a = link(); if (!a) return;
+      let b = a.querySelector(".ms-chat-badge");
+      if (total > 0) {
+        if (!b) { b = document.createElement("span"); b.className = "ms-chat-badge";
+          b.style.cssText = "margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--primary-color,#1e88e5);color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center";
+          a.appendChild(b); }
+        b.textContent = total > 99 ? "99+" : String(total); b.style.display = "";
+      } else if (b) { b.style.display = "none"; }
+    }
+    async function refresh(h) {
+      if (busy) return; busy = true;
+      try { const r = await h.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list" });
+        total = (r.channels || []).reduce((s, c) => s + (c.unread || 0), 0); paint(); }
+      catch (e) { /* no messaging on this instance */ } finally { busy = false; }
+    }
+    async function connect() {
+      const h = hass(); if (!h || !h.connection || sub) { return; }
+      try {
+        await refresh(h);
+        sub = await h.connection.subscribeMessage(() => { const hh = hass(); if (hh) refresh(hh); },
+          { type: "milesight_lorawan/chat/subscribe" });
+      } catch (e) { /* not available; try again later */ }
+    }
+    setInterval(() => { connect(); paint(); }, 5000);
+    setTimeout(connect, 1500);
+  })();
 })();

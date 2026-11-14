@@ -237,6 +237,7 @@
         "title": "Device settings",
         "data": {
           "model": "Model",
+          "dashboard": "Dashboard",
           "offline_auto": "Set the offline time automatically",
           "offline_factor": "Offline after this many missed reports",
           "max_gap_min": "Offline gap (minutes)",
@@ -261,6 +262,7 @@
           "display_max_bytes": "Max bytes per display downlink"
         },
         "data_description": {
+          "dashboard": "Which ready-made dashboard this device is grouped under. Auto uses what the device is (a soil probe → Farm, a CO₂ sensor → Building analytics…). Pick a dashboard to install that one for the device and label it accordingly. Note: the device's widget still appears wherever its card is placed — this controls which dashboards are created and how the device is labelled, not where its reading is drawn.",
           "offline_auto": "Learns how often this device reports and marks it offline after a few missed reports — so a fridge reporting every 10 min alerts in ~30 min, while a daily sensor isn't flagged early. Turn off to use the fixed offline gap below.",
           "offline_factor": "How many reports in a row may be missed before offline (default 3). Only used when the offline time is set automatically.",
           "max_gap_min": "The fixed offline time used when automatic is off. Also the gap beyond which open/occupied time is not counted, so an offline sensor doesn't add phantom time. Set it above the device's reporting interval.",
@@ -567,7 +569,7 @@
       },
       "location": {
         "title": "Device location",
-        "description": "Where the device is mounted – a fixed point shown on the Maintenance dashboard's map, in the handover report and as the device's *Location* entity. Current: **{status}**.\n\nEasiest on site: open **LoRaWAN commissioning** in the Home Assistant app → *Walk test* → pick the device → **Use my phone's location** while standing next to it.",
+        "description": "Where the device is mounted – a fixed point shown on the Maintenance dashboard's map, in the handover report and as the device's *Location* entity. Current: **{status}**.\n\nEasiest on site: open **Commissioning** in the Home Assistant app → *Walk test* → pick the device → **Use my phone's location** while standing next to it.",
         "data": {
           "location": "Location",
           "clear": "Clear the location"
@@ -607,6 +609,19 @@
     }
   },
   "selector": {
+    "dashboard": {
+      "options": {
+        "auto": "Auto (by what the device is)",
+        "building": "Building analytics",
+        "farm": "Farm",
+        "water": "Water & tanks",
+        "cold_chain": "Cold chain",
+        "energy": "Energy & HVAC",
+        "retail": "Retail",
+        "washroom": "Washroom",
+        "coop": "Chicken coop"
+      }
+    },
     "weekday": {
       "options": {
         "mon": "Monday",

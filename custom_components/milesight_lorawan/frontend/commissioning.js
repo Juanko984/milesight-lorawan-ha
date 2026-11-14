@@ -1,4 +1,4 @@
-// Milesight LoRaWAN – commissioning panel (sidebar: "LoRaWAN commissioning", admins only).
+// Milesight LoRaWAN – commissioning panel (sidebar: "Commissioning", admins only).
 // Add a device by scanning its QR code, then walk the site with a live signal test.
 // Plain web component, no build step. Talks to the integration over Home Assistant's websocket.
 
@@ -572,7 +572,7 @@ class MilesightCommissioning extends HTMLElement {
         .muted { color: var(--secondary-text-color); }
         .scroll { overflow-x: auto; }
       </style>
-      <header><ha-menu-button></ha-menu-button><span>LoRaWAN commissioning</span></header>
+      <header><ha-menu-button></ha-menu-button><span>Commissioning</span></header>
       <div class="tabs">
         <button id="t-add" class="${tab === "add" ? "on" : ""}">1 · Add a device</button>
         <button id="t-gw" class="${tab === "gw" ? "on" : ""}">2 · Gateways</button>

@@ -4,6 +4,7 @@
 # sensors (comfort / air quality / people / averages) and each "<area> comfort" / "<area> occupancy" sensor.
 # Areas come from the Home Assistant area of each device (set during onboarding or on the device page).
 # Installed by the integration, a per-area "Live" tab with gauges and history is added after this Overview.
+# Flow: overview band → air → environment → people & occupancy → buttons/displays → trends → per-area tables.
 title: Building analytics
 views:
   - title: Overview
@@ -59,30 +60,13 @@ views:
           - type: heading
             heading: Environment sensors
             icon: mdi:home-thermometer
-          # Temp / humidity / door / leak / motion sensors (EM300-TH/MCS/SLD, TS, WS203 …): numeric chips drive the
+          # Temp / humidity / door / leak / motion sensors (EM300-TH/MCS/SLD, WS203 …): numeric chips drive the
           # trend, door/leak/motion show status. Hides itself when there are no such sensors.
           - type: custom:milesight-environment-card
             grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: CO₂ trends
-            icon: mdi:chart-line
-          # One trendline per CO₂ sensor — flashes when CO₂ climbs over its limit.
-          - type: custom:milesight-trendline-grid-card
-            trend: air
-            columns: 2
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Comfort per area
-            icon: mdi:emoticon-happy-outline
-          - type: custom:milesight-table-card
-            preset: comfort
-            title: false
+          # TS temperature probes (TS101/201/301/302/601/602): temperature + alarm badge, threshold trend, humidity /
+          # door chips. Hides itself when there are no TS probes.
+          - type: custom:milesight-temp-probe-card
             grid_options: {columns: full}
       - type: grid
         column_span: 3
@@ -118,6 +102,39 @@ views:
           # VS373 radar: in bed / out of bed / vacant / fall, respiration and dwell. A fall / motionless alarm is a
           # critical Safety alert. Hides itself when there are no VS373s.
           - type: custom:milesight-fall-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Buttons & displays
+            icon: mdi:gesture-tap-button
+          # WS101 / WS136 / WS156 scene buttons: each button's last press and today's count. Hides when none.
+          - type: custom:milesight-scene-card
+            grid_options: {columns: full}
+          # DS3604 e-ink displays: compose the text / QR blocks of each template, preview, and send. Hides when none.
+          - type: custom:milesight-display-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: CO₂ trends
+            icon: mdi:chart-line
+          # One trendline per CO₂ sensor — flashes when CO₂ climbs over its limit.
+          - type: custom:milesight-trendline-grid-card
+            trend: air
+            columns: 2
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Comfort per area
+            icon: mdi:emoticon-happy-outline
+          - type: custom:milesight-table-card
+            preset: comfort
+            title: false
             grid_options: {columns: full}
       - type: grid
         cards:

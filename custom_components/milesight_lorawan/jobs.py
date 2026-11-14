@@ -62,6 +62,9 @@ class JobsManager:
             jc.log_event(job, "assigned", time.time(), note=f"Assigned to {assignee}")
             self._push_assignment(job)
             self.refresh()
+        chat = getattr(getattr(self.entry, "runtime_data", None), "chat", None)
+        if chat is not None:                           # announce the job in the Team chat's Jobs channel
+            chat.on_job(f"New job: {job.get('title')}" + (f" · {assignee}" if assignee else ""))
         return job
 
     def set_status(self, jid: str, status: str, resolved_by: str | None = None,

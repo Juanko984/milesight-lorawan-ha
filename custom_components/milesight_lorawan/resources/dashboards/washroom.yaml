@@ -39,6 +39,16 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Supplies
+            icon: mdi:paper-roll
+          # WS201 consumables dispensers (tissue / soap / paper towels): a roll filled to what's left, % remaining,
+          # low / out badge, days-to-empty and last refill. Hides itself when there are no WS201s.
+          - type: custom:milesight-supplies-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Odour & vape
             icon: mdi:scent
           # GS301 odour (NH₃ / H₂S) and GS601 vape detectors: numeric chips drive the trend, odour/vape show status.

@@ -15,9 +15,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
         return
-    setup_platform_entities(entry, async_add_entities, "text",
-                            lambda rt, spec: CorrectiveActionText(rt, spec) if spec.key == "corrective_action"
-                            else DisplayText(rt, spec))
+    def _factory(rt, spec):
+        if spec.key == "corrective_action":
+            return CorrectiveActionText(rt, spec)
+        if spec.key.startswith("label_"):
+            return ChannelLabelText(rt, spec)
+        return DisplayText(rt, spec)
+
+    setup_platform_entities(entry, async_add_entities, "text", _factory)
+
+
+class ChannelLabelText(MilesightEntity, TextEntity):
+    """A custom name for a UC controller channel (DI / DO / AI / PT100 / counter / valve). Shown on the Controller /
+    Valve cards in place of the generic channel name; stored in the entry's options."""
+
+    _attr_mode = TextMode.TEXT
+    _attr_native_min = 0
+    _attr_native_max = 40
+
+    @property
+    def native_value(self) -> str | None:
+        return self.raw_value or ""
+
+    async def async_set_value(self, value: str) -> None:
+        await self.runtime.async_set_label(self.spec.key.removeprefix("label_"), value)
 
 
 class CorrectiveActionText(MilesightEntity, TextEntity):

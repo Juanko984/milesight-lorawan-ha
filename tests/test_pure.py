@@ -1113,6 +1113,20 @@ def test_alert_escalation():
     assert oc["e1:over_capacity"]["category"] == "building" and "62 people inside" in oc["e1:over_capacity"]["message"]
     fa = alr.device_alerts("Room 12", "r1", {"alarm_fall": True, "alarm_motionless": True})
     assert fa["r1:alarm_fall"]["severity"] == "critical" and fa["r1:alarm_motionless"]["severity"] == "critical"
+    # TS temperature probe: an over-threshold breach → a critical cold-chain alert; tilt → a warning
+    tp = alr.device_alerts("Vaccine fridge", "t1", {
+        "temp_breaches": [{"label": "Probe 1", "tone": "high", "value": 9.8, "badge": "Above 8 °C"}], "probe_tilt": True})
+    assert tp["t1:temp_probe_1"]["severity"] == "critical" and tp["t1:temp_probe_1"]["category"] == "cold_chain"
+    assert "Above 8 °C" in tp["t1:temp_probe_1"]["message"] and tp["t1:probe_tilt"]["severity"] == "warning"
+    assert alr.device_alerts("ok", "o2", {"temp_breaches": []}) == {}
+    # AT101 tracker: geofence breach (security) and tamper (critical security)
+    tk = alr.device_alerts("Forklift 3", "a1", {"geofence_breach": True, "tracker_tamper": True}, "Yard")
+    assert tk["a1:geofence"]["category"] == "security" and tk["a1:tracker_tamper"]["severity"] == "critical"
+    # WS201 supplies: empty → a facilities alert; low is separate; nothing when in stock
+    su = alr.device_alerts("Office tissue", "s1", {"supply_out": 3}, "Office")
+    assert su["s1:supply_out"]["category"] == "facilities" and "replace now" in su["s1:supply_out"]["message"]
+    assert "s1:supply_low" not in alr.device_alerts("x", "s1", {"supply_out": 3})       # out, not also low
+    assert alr.device_alerts("y", "s2", {"supply_low": 18})["s2:supply_low"]["severity"] == "warning"
 
 
 def test_ns_api_helpers():
@@ -1363,6 +1377,11 @@ def test_pump_pivot_alerts_and_categories():
     assert "energy" in mdl.device_tags("WS302", {"meter_type": "energy"})
     # …but a CT wired as a pump lives on the Farm dashboard, not Energy
     assert "energy" not in mdl.device_tags("CT101", {"pump_enabled": True})
+    # the per-device "Dashboard" override pins a device to one dashboard instead of its auto tags
+    assert mdl.device_tags("AM307", {"dashboard": "auto"}) == mdl.device_tags("AM307")       # auto = unchanged
+    assert mdl.device_tags("AM307", {"dashboard": "energy"}) == frozenset({"energy"})          # pinned → Energy only
+    assert mdl.device_tags("EM500-CO2", {"dashboard": "cold_chain"}) == frozenset({"cold_chain"})
+    assert mdl.device_tags("CT101", {"dashboard": "farm"}) == frozenset({"irrigation"})         # override beats auto energy
     assert mdl.pump_capable("CT103") and not mdl.pump_capable("AM307")
     assert {s.key for s in mdl.pump_specs(True)} >= {"pump_m3_per_kwh", "pump_dry_run"}
     assert "cmd_pivot_stop" in {s.key for s in mdl.pivot_specs()}
@@ -2877,6 +2896,42 @@ def test_team():
     lt = tmc.clock_event("w_1", "in", day + 8 * 3600, status=tmc.ON_SITE, worker_name="John", by="Juan", late_min=10)
     sm2 = tmc.summarize([w], [lt], now=day + 9 * 3600, day_start=day, week_start=day)
     assert sm2["late_today"] == 1 and sm2["on_behalf_today"] == 1 and sm2["workers"][0]["late_today"] == 10
+
+
+def test_messaging_calc():
+    msc = _load("messaging_calc")
+    # a message carries id / channel / author / mentions; @mention matches on the worker's first name
+    m = msc.new_message("site", "Hi @Piet and @anna, fridge fixed", author="Juan", user_id="u1", role="Manager",
+                        mentions=msc.parse_mentions("Hi @Piet and @anna", ["Piet Botha", "Anna Smit", "Koos"]))
+    assert m["channel"] == "site" and m["author"] == "Juan" and set(m) >= {"id", "ts", "text", "mentions"}
+    assert m["mentions"] == ["Piet Botha", "Anna Smit"] and "Koos" not in m["mentions"]
+    # unread: messages after the last-read that the viewer didn't write; system messages always count
+    msgs = [msc.new_message("site", "a", author="A", user_id="u2", ts=10),
+            msc.new_message("site", "b", author="Me", user_id="u1", ts=20),
+            msc.new_message("site", "sys", author="Alerts", user_id=None, kind="sys", ts=30)]
+    assert msc.unread_count(msgs, 0, "u1") == 2 and msc.unread_count(msgs, 25, "u1") == 1   # the system one
+    assert msc.unread_count(msgs, 30, "u1") == 0
+    # trim caps history; channel summary previews the last line + unread
+    assert len(msc.trim(list(range(500)), 300)) == 300
+    cs = msc.channel_summary({"id": "site", "kind": "topic", "title": "Site"}, msgs, 0, "u1")
+    assert cs["unread"] == 2 and cs["last_text"] == "sys" and cs["last_ts"] == 30
+    # fixed channels sort before dynamic alert / job threads
+    chans = [{"id": "alerts", "last_ts": 5}, {"id": "site"}, {"id": "job:1", "kind": "job", "last_ts": 99}]
+    order = [c["id"] for c in sorted(chans, key=msc.channel_sort_key)]
+    assert order[0] == "site" and order[-1] == "job:1"
+    # a message can carry a photo and a location; the preview names them when there's no text
+    pm = msc.new_message("site", "", author="Piet", user_id="u2", image="/local/milesight_chat/x.jpg",
+                         loc={"lat": -33.9249123, "lon": 18.4241567})
+    assert pm["image"].endswith("x.jpg") and pm["loc"]["lat"] == -33.924912 and pm["loc"]["lon"] == 18.424157
+    assert msc.preview_text(pm) == "📷 Photo" and msc.preview_text({"loc": {"lat": 1, "lon": 2}}) == "📍 Location"
+    assert msc.preview_text({"text": "hi"}) == "hi"
+    # read receipts: who read a channel, excluding the viewer, most recent first
+    readers = msc.channel_readers({"u1": 50, "u2": 90, "u3": 0}, {"u1": "Anna", "u2": "Piet", "u3": "Koos"}, "u1")
+    assert [r["name"] for r in readers] == ["Piet"]       # u1 excluded (viewer), u3 has ts 0 (never read)
+    # a phone reply carries a via marker; a normal message leaves it off; the action id is stable
+    assert msc.REPLY_ACTION == "MLW_CHAT_REPLY"
+    rp = msc.new_message("site", "on it", author="Piet", user_id="u2", via="phone")
+    assert rp["via"] == "phone" and "via" not in msc.new_message("site", "hi", author="A")
 
 
 if __name__ == "__main__":

@@ -102,6 +102,7 @@ from .const import (
     CONF_METER_UNIT,
     METER_TYPES,
     CONF_AREA,
+    CONF_DASHBOARD,
     CONF_BATTERY_LOW,
     DEFAULT_BATTERY_LOW,
     CONF_CLOSE_HOUR,
@@ -935,7 +936,7 @@ class MilesightOptionsFlow(OptionsFlow):
         return await self.async_step_general()
 
     async def async_step_location(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Device: where it is mounted (a fixed point on the map). Easiest on the phone: LoRaWAN commissioning →
+        """Device: where it is mounted (a fixed point on the map). Easiest on the phone: Commissioning →
         walk test → 'Use my phone's location'."""
         entry = self.config_entry
         cur = entry.options.get("location") or {}
@@ -1083,8 +1084,12 @@ class MilesightOptionsFlow(OptionsFlow):
         opts = {**entry.data, **entry.options}
         model = opts.get(CONF_MODEL, entry.data[CONF_MODEL])
         features = MODELS[model].features
+        from .models import DASHBOARD_CHOICES
         schema = {
             vol.Required(CONF_MODEL, default=model): _model_selector(),
+            vol.Required(CONF_DASHBOARD, default=opts.get(CONF_DASHBOARD, "auto")): SelectSelector(
+                SelectSelectorConfig(options=list(DASHBOARD_CHOICES), translation_key="dashboard",
+                                     mode=SelectSelectorMode.DROPDOWN)),
             vol.Required(CONF_OFFLINE_AUTO,
                          default=opts.get(CONF_OFFLINE_AUTO, DEFAULT_OFFLINE_AUTO)): BooleanSelector(),
             vol.Required(CONF_OFFLINE_FACTOR,

@@ -597,6 +597,26 @@ def _sensor_alerts(name: str, deveui: str, v: dict[str, Any], where: str) -> dic
         elif k in ("ec", "salinity") and kind == "high":
             what, unit = _SOIL_ALERT[k]
             add(f"soil_{k}", what, f"{where}: {k.upper() if k == 'ec' else 'salinity'} {_num(val)}{unit} – high.", "irrigation")
+    # TS temperature probes — over / under the alarm threshold, or a rapid change
+    for b in v.get("temp_breaches") or []:
+        tone = b.get("tone")
+        title = {"high": "Temperature high", "low": "Temperature low"}.get(tone, "Temperature changing fast")
+        add(f"temp_{str(b.get('label', '')).lower().replace(' ', '_') or 'probe'}", title,
+            f"{where}: {b.get('label')} {_num(b.get('value'))} °C – {b.get('badge')}.", "cold_chain",
+            severity="critical" if tone in ("high", "low") else "warning")
+    if v.get("probe_tilt"):
+        add("probe_tilt", "Probe tilted", f"{where}: the probe has been tilted or knocked.", "cold_chain")
+    # AT101 asset tracker — left its geofence / removed from its mount
+    if v.get("geofence_breach"):
+        add("geofence", "Left geofence", f"{where} has moved outside its geofence.", "security")
+    if v.get("tracker_tamper"):
+        add("tracker_tamper", "Tracker removed", f"{where}: the tracker has been removed from its mount.",
+            "security", severity="critical")
+    # WS201 consumables — low / empty (restock)
+    if v.get("supply_out") is not None:
+        add("supply_out", "Supply empty", f"{where}: {_num(v.get('supply_out'))} % left – replace now.", "facilities")
+    elif v.get("supply_low") is not None:
+        add("supply_low", "Supply low", f"{where}: {_num(v.get('supply_low'))} % left – restock soon.", "facilities")
     return out
 
 

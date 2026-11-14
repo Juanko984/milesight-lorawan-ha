@@ -23,7 +23,9 @@ class MilesightEntity(Entity):
         self._attr_name = spec.name
         if spec.icon:
             self._attr_icon = spec.icon
-        if spec.diagnostic:
+        if spec.key.startswith("label_"):
+            self._attr_entity_category = EntityCategory.CONFIG
+        elif spec.diagnostic:
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_entity_registry_enabled_default = spec.enabled_default
         self._attr_device_info = DeviceInfo(

@@ -25,3 +25,13 @@ views:
           # Roster, clock in / out, timesheets and the recent clock events (including off-site blocked).
           - type: custom:milesight-team-card
             grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Team chat
+            icon: mdi:chat-outline
+          # In-app messaging: Site + topic channels and the system-fed Alerts / Jobs threads, live over the
+          # integration's websocket with history on the gateway, and an optional push to everyone's phones.
+          - type: custom:milesight-chat-card
+            grid_options: {columns: full}

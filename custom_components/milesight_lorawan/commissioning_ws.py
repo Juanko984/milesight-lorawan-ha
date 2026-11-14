@@ -1,4 +1,4 @@
-"""Commissioning panel for installers: sidebar page 'LoRaWAN commissioning' (admins only) with
+"""Commissioning panel for installers: sidebar page 'Commissioning' (admins only) with
 * scan a device's QR code (Companion app scanner, the phone camera, a photo, or typing) → add it to Home Assistant
   and register it on the gateway in one go,
 * a live walk test: every uplink of the device with RSSI / SNR / SF / gateways and a verdict, optional fast
@@ -109,9 +109,19 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
         from homeassistant.components import panel_custom
         await panel_custom.async_register_panel(
             hass, frontend_url_path=PANEL_URL, webcomponent_name="milesight-commissioning",
-            sidebar_title="LoRaWAN commissioning", sidebar_icon="mdi:qrcode-scan",
+            sidebar_title="Commissioning", sidebar_icon="mdi:qrcode-scan",
             module_url=f"{STATIC_URL}/commissioning.js?v={version}", require_admin=True, config={})
         data["commissioning_panel"] = True
+    if not data.get("chat_panel"):
+        from homeassistant.components import panel_custom
+        try:                                             # the chat card doubles as a full-page panel
+            await panel_custom.async_register_panel(
+                hass, frontend_url_path="milesight-chat", webcomponent_name="milesight-chat-card",
+                sidebar_title="Team chat", sidebar_icon="mdi:chat", module_url=f"{STATIC_URL}/milesight-cards.js?v={version}",
+                require_admin=False, config={})
+            data["chat_panel"] = True
+        except Exception:  # noqa: BLE001 - the panel is a convenience
+            _LOGGER.debug("Could not register the chat panel", exc_info=True)
 
 
 @callback

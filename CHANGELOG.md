@@ -2,6 +2,162 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.138.0
+- **Team chat: presence, a typing indicator, and channel management.**
+  - **Presence** — a people button in the chat header shows how many are in chat right now; opening it lists
+    everyone with a live green dot (chat open now) and a **clocked-in** badge (from the Team shift / geofence).
+    Only an open chat view counts as present — the background sidebar badge doesn't mark you online.
+  - **Typing indicator** — "Piet is typing…" appears live under the thread while a teammate types, and clears
+    on its own. Sent at most every couple of seconds, never stored.
+  - **Channels (admins)** — admins can create, rename and archive channels from the chat header (a **＋ New**
+    chip, and rename / archive buttons on the open channel). Archived channels are hidden for everyone else and
+    kept out of the way (dashed, greyed) for admins, who can unarchive them. The Alerts and Jobs streams can't
+    be archived. New / renamed / archived channels now persist across restarts.
+  - **Per-device channel** — every device page gains a **Discuss** button (admins) that opens, creating if
+    needed, a channel scoped to that device and jumps straight to it in Team chat.
+
+## 0.137.0
+- **Team chat: reply from your phone (2-way push), and @mentions ping just that person.**
+  - **Reply from the phone** — a pushed chat message is now an actionable notification with a **Reply** text field.
+    Type a reply on the lock screen and it posts straight back into the thread as you, no need to open Home Assistant.
+    Phone-origin replies are marked with a 📱 in the chat so it's clear they came in from the field.
+  - **Targeted @mentions** — mentioning a teammate (`@Piet`) pings that person's phone directly, even when the
+    channel's "push to phones" toggle is off. A broadcast still reaches everyone; a mention always reaches the named
+    worker (resolved to their notify target via the same roster the alerts and jobs use).
+  - Replies route by hub, so a site only receives replies to its own notifications; non-chat notification actions
+    are ignored. Requires the Home Assistant companion app on the phone.
+
+## 0.136.0
+- **Team chat: read receipts, photo & location sharing, and a sidebar unread badge.**
+  - **Read receipts** — the last message you sent shows "Read by …" once teammates have seen it, updating live.
+  - **Photo sharing** — a camera button attaches a photo (downscaled in the browser, stored under the gateway's
+    `www/milesight_chat/` and shown inline).
+  - **Location sharing** — a pin button shares your current location (browser GPS); it renders as a small
+    OpenStreetMap preview with a tap-through to the full map.
+  - **Sidebar unread badge** — a new **Team chat** page is added to the Home Assistant sidebar, and its item shows a
+    badge with the total unread count across channels (updated live).
+
+## 0.135.0
+- **New: in-app team messaging (Team chat card).** A chat card you drop on a dashboard, backed by the integration's
+  own websocket API — no external service.
+  - **Channels** — a Site broadcast plus Maintenance / Washroom topic channels, and system-fed **Alerts** and
+    **Jobs** threads (a new alert posts into Alerts; a new job posts into Jobs) so a conversation sits next to the
+    thing it's about.
+  - **Live + persistent** — messages arrive in real time over a websocket subscription; history is stored on the
+    gateway (last 300 per channel).
+  - **Identity** — the sender is the logged-in Home Assistant user; a shared tablet can **post as** a Team worker
+    (installer / cleaner) picked from the clock-in roster. Names show with their role; **@mentions** of workers
+    highlight.
+  - **Push to phones** — an optional per-message toggle also sends the message to every mobile-app notifier, so
+    off-screen people get it.
+  - On the **Team** dashboard. (Per-incident alert threads and read receipts are a natural next step.)
+
+## 0.134.0
+- **The newest widgets now raise central alerts, not just card badges:**
+  - **TS temperature probes** — an over / under threshold reading raises a **critical Cold-chain** alert (a
+    rapid-change/mutation alarm is a warning); a **tilt** alarm (TS601/602) is a warning.
+  - **AT101 tracker** — leaving its **geofence** raises a **Security** alert, and being **removed from its mount**
+    (tamper) a critical one. (AT101 tamper is handled here because its tamper field differs from the WS/GS tamper
+    sensors the Safety path already covered.)
+  - **WS201 supplies** — **empty (≤5 %)** or **low (≤20 %)** raises a **Facilities** restock alert.
+  - These flow through the normal Alerts pipeline, so they appear on the Alerts dashboard, send mobile
+    notifications, honour quiet hours / escalation, and can be acknowledged — alongside the existing air, weather,
+    vibration, soil, sound, capacity and fall alerts.
+
+## 0.133.1
+- **Renamed the sidebar panel "LoRaWAN commissioning" → "Commissioning"** (panel title, in-page header, and the
+  references to it in the location help text and the Maintenance signal tip).
+
+## 0.133.0
+- **Supplies card for WS201 dispensers (tissue / soap / paper towels):** each dispenser on its own with a roll
+  graphic filled to what's left, the **% remaining**, a **Low (≤20 %) / Replace (≤5 %)** badge, an estimated
+  **days-to-empty** from the measured drain rate, and a **last-refilled** note (a jump in level is detected as a
+  refill, which also restarts the rate learning). A low or empty dispenser highlights its tile. On the **Washroom**
+  dashboard under *Supplies*; self-hides when there are no WS201s. (WS201s still roll up into the Washroom room
+  cards too — this adds a per-dispenser view.)
+
+## 0.132.1
+- **Fix: a PIR + daylight sensor (WS202) showed "Environment = 92" (its battery %).** Battery was wrongly listed as
+  a numeric environment reading, so on a device with no temperature / humidity / lux it became the Environment
+  card's headline. Battery is no longer treated as an environment metric (it remains its own diagnostic entity),
+  and a motion + daylight-only sensor is no longer given an Environment card — its motion and light are already
+  their own binary sensors. Environment sensors that have a contact but no number now headline a status word
+  (Open / Closed / Clear) instead of a stray value. Existing WS202 "Environment" entities will go unavailable and
+  can be deleted from the device page.
+
+## 0.132.0
+- **Building analytics dashboard reordered** into a cleaner top-to-bottom flow: overview band → air (now + per-device
+  monitors) → environment & temperature probes → people & occupancy (spaces, people counters, fall) → buttons &
+  displays → CO₂ trends → per-area tables. The occupancy widgets now sit together instead of being split by the
+  trends/tables, and the buttons/displays controls moved below the sensing widgets.
+- No content was removed and no device tables were dropped — every widget built this cycle (air, environment,
+  temperature-probe, spaces/workplace/occupancy, people-counter, fall, scene, display, controller, valve,
+  em-reading, soil, tracker, …) is in use on its dashboard, and each remaining table shows something the widgets
+  don't (fleet / device-health lists, per-area roll-ups). The Farm, Cold-chain, Energy, Water, Washroom, Retail and
+  Maintenance dashboards were already in a coherent order and were left as-is.
+
+## 0.131.0
+- **Asset-tracker card for the AT101 (GNSS / Wi-Fi):** a live **OpenStreetMap** view (keyless embed) with the asset
+  marked, the **moving / stopped** status and **geofence** badge (Inside / Left geofence), **distance travelled**
+  (today / week / month), and **temperature / tamper / tilt** chips. When there's no GNSS fix it shows a **Wi-Fi
+  positioning** state with the access-point count instead of the map. A tamper, geofence breach or temperature
+  alarm highlights the card. On the **Devices** dashboard under *Asset trackers*; self-hides when no AT101 is set up.
+
+## 0.130.0
+- **Scene-buttons card (WS101 / WS136 / WS156):** one tile per button showing its **last press** (short / double /
+  long) and **today's press count**, so the triggers are visible on a dashboard instead of being events-only. A
+  pressed button highlights.
+- **DS3604 display composer:** tabs for **template 1 / 2**, editable **text + QR** blocks with a live **e-ink
+  preview**, and **Send & show / Refresh / Beep** (via the `display_content` service). Shows which template the
+  device is currently displaying; edits are local until you send.
+- Both self-discover their devices, hide when none are present, and sit under **Buttons & displays** on the
+  **Building analytics** dashboard.
+
+## 0.129.0
+- **Temperature-probe card for the TS range (TS101 / 201 / 301 / 302 / 601 / 602):** each probe's temperature shown
+  big and **coloured + badged by its alarm state** — "In range", "Above X °C", "Below Y °C" or a rapid-change
+  (mutation) alarm. The badge uses the configured cold-chain limits (with the number) when a cold-chain purpose is
+  set, otherwise the device's own threshold alarm. Today's min/max and a trend that draws the limit line when known.
+  - Humidity and the door/contact show as chips; the **TS302** shows **both probes** stacked; cold-chain
+    **TS601/602** add **tilt / light** alarm chips. A probe in alarm highlights the whole card.
+  - On the **Cold chain** and **Building analytics** dashboards. TS probes are no longer shown on the generic
+    Environment card (they have their own card now), so there's no duplication.
+
+## 0.128.0
+- **Per-device "Dashboard" setting** (Device settings → Dashboard). Leave it on **Auto** to group the device by
+  what it is (a soil probe → Farm, a CO₂ sensor → Building analytics…), or pick a specific dashboard —
+  **Building analytics / Farm / Water & tanks / Cold chain / Energy & HVAC / Retail / Washroom / Chicken coop** —
+  to pin it there. Pinning installs that dashboard for the device and labels it accordingly; the site's dashboards
+  and "used for" labels update a few seconds after you save.
+  - Note: a device's *widget* still renders wherever its card is placed (the cards self-discover their devices), so
+    this controls which dashboards are created and how the device is labelled, not where its reading is drawn.
+  - Also hardened device labelling so Retail / Washroom / Chicken-coop tags get a proper "used for" label.
+
+## 0.127.0
+- **Widgets for the EM500 range:**
+  - **EM500 reading card** — one adaptive card covering **EM500-LGT** (light), **EM500-PP** (pipe pressure),
+    **EM500-PT100** (temperature) as a **radial gauge**, and **EM500-UDL / EM500-SWL** level sensors as a **filled
+    shaft** (% of the device's configured range — or just the raw distance/depth when no range is set). Each shows
+    the day's min/max and an embedded trend.
+  - **EM500-SMTC** native soil probe now gets the existing **Soil card** (moisture / temperature / EC, flagged
+    high/low) — the pH, N·P·K and salinity/TDS sections hide themselves since this probe doesn't measure them.
+  - On the **Farm** dashboard (EM500 sensors section + the Soil card). EM500-CO2 continues to use the Environment
+    card.
+
+## 0.126.0
+- **Two widgets for the UC range:**
+  - **Controller card (UC300 / UC501 / UC502 / UC11xx / UC11-N1)** — digital **inputs** as live status lamps,
+    relay **outputs** as on/off toggles (sent as downlinks), **PT100 & analog** (mA/V) readings as chips that drive
+    the trend line, **pulse counters** and the attached **RS485 purposes** (soil / liquid-level / weather / vibration)
+    along the bottom.
+  - **Valve card (UC511 / UC512 solenoid, UC521 motorised)** — one tile per valve: **Open / Close** with an
+    **open-for** timer for solenoids, a live **% opening dial + slider** for the motorised UC521, plus the run's
+    flow count and pipe **pressure**.
+  - **Custom channel labels** — name each DI / DO / AI / PT100 / counter / valve in the device's **Configuration**
+    section; the cards show your label (DI1 / DO1 / AI1 shown faintly as a fallback).
+  - Both self-discover their devices and hide when none are present. On the **Farm** dashboard under *Controllers
+    and valves*.
+
 ## 0.125.1
 - **Fix: the Occupancy card showed nothing and the VS321 Room headline was blank.** The occupancy values
   (occupied / empty, people, utilisation) were being computed *after* the Room and Occupancy cards read them, so

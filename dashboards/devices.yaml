@@ -48,6 +48,16 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Asset trackers
+            icon: mdi:map-marker-radius
+          # AT101 GNSS / Wi-Fi trackers: a live OpenStreetMap view with the asset marked, moving / geofence status,
+          # distance travelled and tamper / tilt / temperature. Hides itself when there are no AT101 trackers.
+          - type: custom:milesight-tracker-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: All devices
             icon: mdi:access-point-network
           # Quick-filter chips (All / Online / Offline / Low battery / Weak signal) and an area dropdown sit above

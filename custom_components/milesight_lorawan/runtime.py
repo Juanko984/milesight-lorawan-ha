@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -202,7 +203,6 @@ _ENV_NUM = (   # key, label, unit, icon, trend colour
     ("humidity",      "Humidity",       "%",  "mdi:water-percent", "#4ab0c4"),
     ("light_level",   "Light",          "",   "mdi:brightness-6",  "#ffca28"),
     ("illumination",  "Light",          "lx", "mdi:brightness-6",  "#ffca28"),
-    ("battery",       "Battery",        "%",  "mdi:battery",       "#6fae6f"),
 )
 _ENV_BIN = (   # feature, label, icon, on-text, off-text, tone when on
     ("door",   "Door",   "mdi:door",         "Open",   "Closed", "warning"),
@@ -210,7 +210,7 @@ _ENV_BIN = (   # feature, label, icon, on-text, off-text, tone when on
     ("motion", "Motion", "mdi:motion-sensor", "Motion", "Clear",  "warning"),
 )
 # Device families that have their own cards (or aren't environmental) and so never show an Environment card.
-_ENV_SKIP_PREFIX = ("UC", "VS", "GS", "CT", "DS", "WT")
+_ENV_SKIP_PREFIX = ("UC", "VS", "GS", "CT", "DS", "WT", "TS")   # TS probes have their own Temperature-probe card
 
 # GS odour / vape detectors (GS301 NH₃·H₂S, GS601 vape). Numeric chips drive a trend; odour / vape show as states.
 _GAS_NUM = (   # key, label, unit, icon, colour
@@ -222,6 +222,41 @@ _GAS_NUM = (   # key, label, unit, icon, colour
     ("temperature",  "Temperature",  "°C",     "mdi:thermometer",   "#ff8a5c"),
     ("humidity",     "Humidity",     "%",      "mdi:water-percent", "#4ab0c4"),
 )
+
+
+# UC I/O controllers (digital in/out, PT100, analog, counters, RS485) and UC valve controllers.
+_UC_CONTROLLER = ("UC300", "UC501", "UC502", "UC11XX", "UC11-N1")
+_UC_VALVE = ("UC511", "UC512", "UC521")
+# EM500 single-reading sensors → the adaptive reading card. key, label, unit, icon, colour, kind (gauge | level).
+_EM_READING = {
+    "EM500-LGT":   ("illumination", "Light",         "lx",  "mdi:brightness-6",         "#ffca28", "gauge"),
+    "EM500-PP":    ("pressure_kpa", "Pipe pressure", "kPa", "mdi:gauge",                "#4aa3ff", "gauge"),
+    "EM500-PT100": ("temperature",  "Temperature",   "°C",  "mdi:thermometer",          "#ff8a5c", "gauge"),
+    "EM500-UDL":   ("distance",     "Distance",      "mm",  "mdi:arrow-expand-vertical", "#6cb6d6", "level"),
+    "EM500-SWL":   ("depth",        "Water level",   "cm",  "mdi:waves-arrow-up",        "#6cb6d6", "level"),
+}
+# RS485 Modbus templates → a friendly purpose label + icon for the controller card's "attached" strip.
+_UC_RS485 = {
+    "cwt_soil_thcph":   ("Soil probe",      "mdi:sprout",              "#36c08a"),
+    "womaster_ws101ll": ("Liquid level",    "mdi:cup-water",           "#ffca28"),
+    "ecowitt_ws90":     ("Weather station", "mdi:weather-partly-cloudy", "#4aa3ff"),
+    "witmotion_wtvb01": ("Vibration",       "mdi:vibrate",             "#db4437"),
+}
+
+
+# WS scene buttons / panels: friendly labels for each press type and button key.
+_EVENT_LABEL = {"short_press": "Short press", "double_press": "Double press", "long_press": "Long press",
+                "press": "Press", "single_click": "Single click", "double_click": "Double click"}
+
+
+def _button_label(key: str) -> str:
+    m = re.fullmatch(r"button_(\d+)", key)
+    if m:
+        return f"Button {m[1]}"
+    m = re.fullmatch(r"key_f(\d+)", key)
+    if m:
+        return f"F{m[1]}"
+    return "Button"
 
 
 def _odour_text(nh3: Any, h2s: Any) -> str | None:
@@ -676,6 +711,25 @@ class DeviceRuntime:
             specs.append(EntitySpec("switch_panel", "Switch panel", icon="mdi:light-switch"))
         if "ws302" in self.model.features:   # a WS302 sound sensor → the Sound / water-flow card
             specs.append(EntitySpec("sound_monitor", "Sound", unit="dB", icon="mdi:volume-high", precision=1))
+        if self._controller_applies():   # a UC I/O controller → the Controller card (inputs / outputs / analog)
+            specs.append(EntitySpec("controller", "Controller", icon="mdi:developer-board"))
+        if self._valve_applies():        # a UC valve controller → the Valve card
+            specs.append(EntitySpec("valve_controller", "Valves", icon="mdi:pipe-valve"))
+        if self._em_reading_applies():   # an EM500 single-reading sensor → the adaptive EM500 reading card
+            specs.append(EntitySpec("em_reading", "Reading", icon="mdi:gauge"))
+        if self.model.key == "EM500-SMTC":   # native soil probe → the shared Soil card (trimmed to its readings)
+            specs.append(EntitySpec("soil", "Soil", unit="%", icon="mdi:sprout", precision=0))
+        if self._temp_probe_applies():   # a TS temperature probe → the Temperature-probe card
+            specs.append(EntitySpec("temp_probe", "Temperature probe", unit="°C", device_class="temperature",
+                                    icon="mdi:thermometer", precision=1))
+        if self._scene_applies():        # a WS button / scene panel → the Scene-buttons card
+            specs.append(EntitySpec("scene_panel", "Scene panel", kind="text", icon="mdi:gesture-tap-button"))
+        if "ds3604" in self.model.features:   # a DS3604 e-ink display → the Display composer card
+            specs.append(EntitySpec("display", "Display", icon="mdi:monitor-dashboard"))
+        if self._tracker_applies():      # an AT101 GNSS / Wi-Fi tracker → the Asset-tracker card
+            specs.append(EntitySpec("asset_tracker", "Asset tracker", kind="text", icon="mdi:map-marker-radius"))
+        if self._supplies_applies():     # a WS201 consumables dispenser → the Supplies card
+            specs.append(EntitySpec("supplies", "Supplies", kind="text", icon="mdi:paper-roll"))
         if self.fixed_location() is not None:
             specs.append(EntitySpec("fixed_location", "Location", platform="device_tracker", icon="mdi:map-marker"))
         return specs
@@ -806,11 +860,11 @@ class DeviceRuntime:
         except Exception:  # noqa: BLE001
             reg = None
 
-        def resolve(key: str):
+        def resolve(key: str, domain: str = "sensor"):
             if reg is None:
                 return None
             try:
-                return reg.async_get_entity_id("sensor", DOMAIN, f"{self.deveui}_{key}")
+                return reg.async_get_entity_id(domain, DOMAIN, f"{self.deveui}_{key}")
             except Exception:  # noqa: BLE001
                 return None
         return resolve
@@ -843,7 +897,14 @@ class DeviceRuntime:
             return False
         if self.model.occupancy_fn is not None and self.model.counting:    # a people counter, not an env sensor
             return False
-        return len(self._env_props()) >= 2
+        if len(self._env_props()) < 2:
+            return False
+        from .models import entity_specs
+        keys = {s.key for s in entity_specs(self.model.key)}
+        numeric = keys & {"temperature", "temperature_1", "humidity", "humidity_1", "light_level", "illumination"}
+        # needs a real reading (a numeric value, or a door / leak contact) – a pure PIR + daylight sensor (WS202),
+        # whose only signals are motion and bright/dim, isn't an environment monitor (those are its own binary sensors)
+        return bool(numeric) or bool(self._env_props() & {"door", "leak"})
 
     def _env_monitor(self, v: dict) -> dict | None:
         """The device's live properties as one role sensor: numeric metrics (each with its entity id so the card can
@@ -1033,6 +1094,398 @@ class DeviceRuntime:
             "since": v.get("occ_occupied_since"), "occupied_s": None if occ_s is None else round(occ_s),
             "empty_s": None if empty_s is None else round(empty_s),
             "seats_used": sum(1 for s in seats if s), "seats_total": len(seats) or (v.get("occ_region_count") or 0),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- UC controllers (I/O + valves)
+    def _uc_label(self, key: str, fallback: str) -> str:
+        """Custom per-channel label from device settings (entry.options['uc_labels']), else the generic name."""
+        lbl = (self.entry.options.get("uc_labels") or {}).get(key)
+        return lbl.strip() if isinstance(lbl, str) and lbl.strip() else fallback
+
+    def _uc_rs485(self) -> list[dict]:
+        """The RS485 purposes attached to this controller (named templates first, then a count of plain channels)."""
+        out: list[dict] = []
+        applied = self.entry.options.get("channel_templates", []) or []
+        seen = set()
+        for a in applied:
+            tmpl = a.get("template")
+            if tmpl in _UC_RS485 and tmpl not in seen:
+                seen.add(tmpl)
+                label, icon, colour = _UC_RS485[tmpl]
+                out.append({"label": label, "icon": icon, "color": colour, "template": tmpl})
+        extra = len(self.channels) - sum(1 for a in applied if a.get("template") in _UC_RS485)
+        if extra > 0:
+            out.append({"label": f"{extra} Modbus channel{'s' if extra != 1 else ''}", "icon": "mdi:lan",
+                        "color": "#8a93a2", "template": None})
+        return out
+
+    def _controller_applies(self) -> bool:
+        return self.model.key in _UC_CONTROLLER
+
+    def _controller(self, v: dict) -> dict | None:
+        """A UC I/O controller as one role sensor: digital inputs (status), relay outputs (toggles, with their switch
+        entity id), PT100 / analog readings (chips that drive the trend) and pulse counters, plus attached RS485."""
+        if not self._controller_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        inputs, outputs, metrics, counters = [], [], [], []
+        for n in range(1, 9):
+            key = f"gpio_input_{n}"
+            if key in v:
+                inputs.append({"key": key, "label": self._uc_label(key, f"DI{n}"), "name": f"DI{n}",
+                               "on": bool(v.get(key))})
+        for n in range(1, 5):
+            key = f"gpio_output_{n}"
+            if key in v:
+                outputs.append({"key": key, "label": self._uc_label(key, f"DO{n}"), "name": f"DO{n}",
+                                "on": bool(v.get(key)), "entity_id": resolve(key, "switch")})
+        # trendable analog chips: PT100 (°C), ADC current (mA), ADV voltage (V), UC50x analog inputs (mA / V)
+        for n in (1, 2):
+            pk = f"pt100_{n}"
+            if _nz(v.get(pk)) is not None:
+                metrics.append({"key": pk, "label": self._uc_label(pk, f"PT100-{n}"), "name": f"PT100-{n}",
+                                "unit": "°C", "icon": "mdi:thermometer", "color": "#ff8a5c",
+                                "value": round(_nz(v.get(pk)), 2), "entity_id": resolve(pk)})
+        for n in (1, 2):
+            ak = f"adc_{n}"
+            if _nz(v.get(ak)) is not None:
+                metrics.append({"key": ak, "label": self._uc_label(ak, f"AI{n}"), "name": f"AI{n} (mA)",
+                                "unit": "mA", "icon": "mdi:sine-wave", "color": "#4aa3ff",
+                                "value": round(_nz(v.get(ak)), 2), "entity_id": resolve(ak)})
+            vk = f"adv_{n}"
+            if _nz(v.get(vk)) is not None:
+                metrics.append({"key": vk, "label": self._uc_label(vk, f"AV{n}"), "name": f"AV{n} (V)",
+                                "unit": "V", "icon": "mdi:flash", "color": "#ffca28",
+                                "value": round(_nz(v.get(vk)), 2), "entity_id": resolve(vk)})
+            ik = f"analog_input_{n}"
+            if _nz(v.get(ik)) is not None:
+                unit = "V" if v.get(f"{ik}_type") == "voltage" else "mA"
+                metrics.append({"key": ik, "label": self._uc_label(ik, f"AI{n}"), "name": f"AI{n} ({unit})",
+                                "unit": unit, "icon": "mdi:sine-wave", "color": "#4aa3ff",
+                                "value": round(_nz(v.get(ik)), 2), "entity_id": resolve(ik)})
+        for key in ("pulse_count", "gpio_counter_1", "gpio_counter_2", "gpio_counter_3", "gpio_counter_4", "gpio_counter"):
+            if _nz(v.get(key)) is not None:
+                n = key.rsplit("_", 1)[-1]
+                generic = "Pulses" if not n.isdigit() else f"Counter {n}"
+                counters.append({"key": key, "label": self._uc_label(key, generic), "name": generic,
+                                 "value": int(_nz(v.get(key)))})
+        if not (inputs or outputs or metrics or counters):
+            return None
+        primary = next((m for m in metrics if m.get("entity_id")), metrics[0] if metrics else None)
+        return {
+            "milesight_role": "controller", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "inputs": inputs, "outputs": outputs, "metrics": metrics, "counters": counters,
+            "primary": primary["key"] if primary else None, "rs485": self._uc_rs485(),
+            "battery": _nz(v.get("battery")), "last_seen": self.meta.get("last_seen"),
+        }
+
+    def _valve_applies(self) -> bool:
+        return self.model.key in _UC_VALVE
+
+    def _valve_controller(self, v: dict) -> dict | None:
+        """A UC valve controller as one role sensor: per-valve open / closed (solenoid, UC511/512) or % opening
+        (motorised UC521) with the entity to control it, the run's pulse/flow count and pipe pressure(s)."""
+        if not self._valve_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        motorised = self.model.key == "UC521"
+        valves = []
+        for n in (1, 2):
+            if motorised:
+                ok = _nz(v.get(f"valve_{n}_opening"))
+                if ok is None and v.get(f"valve_{n}_type") is None:
+                    continue
+                valves.append({
+                    "key": f"valve_{n}_opening", "label": self._uc_label(f"valve_{n}", f"Valve {n}"), "name": f"Valve {n}",
+                    "kind": "opening", "opening": None if ok is None else round(ok),
+                    "open": (ok or 0) > 0, "direction": v.get(f"valve_{n}_direction"),
+                    "vtype": (v.get(f"valve_{n}_type") or "").replace("_", " ") or None,
+                    "pulse": _nz(v.get(f"valve_{n}_pulse")), "duration": _nz(v.get(f"valve_{n}_opening_duration")),
+                    "entity_id": resolve(f"valve_{n}_opening", "number"),
+                })
+            else:
+                st = v.get(f"valve_{n}")
+                if st is None and v.get(f"valve_{n}_pulse") is None and v.get(f"valve_{n}_result") is None:
+                    continue
+                valves.append({
+                    "key": f"valve_{n}", "label": self._uc_label(f"valve_{n}", f"Valve {n}"), "name": f"Valve {n}",
+                    "kind": "switch", "open": None if st is None else bool(st), "result": v.get(f"valve_{n}_result"),
+                    "pulse": _nz(v.get(f"valve_{n}_pulse")), "pressure": _nz(v.get("pressure")),
+                    "entity_id": resolve(f"valve_{n}", "switch"),
+                })
+        if not valves:
+            return None
+        pressures = []
+        for key, label in (("pressure", "Pressure"), ("pressure_1", "Pipe 1"), ("pressure_2", "Pipe 2")):
+            val = _nz(v.get(key))
+            if val is not None:
+                pressures.append({"key": key, "label": label, "value": round(val), "unit": "kPa",
+                                  "alarm": bool(v.get(f"{key}_alarm_active")),
+                                  "status": v.get(f"{key}_alarm_status")})
+        return {
+            "milesight_role": "valve_controller", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "motorised": motorised, "valves": valves, "pressures": pressures,
+            "battery": _nz(v.get("battery")), "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- EM500 single-reading sensors + native soil
+    def _em_reading_applies(self) -> bool:
+        return self.model.key in _EM_READING
+
+    def _em_reading(self, v: dict) -> dict | None:
+        """An EM500 single-value sensor (light / pipe pressure / PT100 temp / UDL / SWL) as one role: the reading with
+        its trend entity, today's min / max, and either a gauge fraction or a level % of the sensor's range."""
+        cfg = _EM_READING.get(self.model.key)
+        if cfg is None:
+            return None
+        key, label, unit, icon, colour, kind = cfg
+        value = _nz(v.get(key))
+        if value is None:
+            return None
+        lo_t, hi_t = _nz(v.get(f"{key}_min_today")), _nz(v.get(f"{key}_max_today"))
+        rmin, rmax = _nz(v.get("range_min")), _nz(v.get("range_max"))
+        role = {
+            "milesight_role": "em_reading", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "kind": kind, "label": label, "unit": unit, "icon": icon, "color": colour,
+            "value": round(value, 2), "entity_id": self._entity_id_resolver()(key),
+            "min_today": None if lo_t is None else round(lo_t, 2), "max_today": None if hi_t is None else round(hi_t, 2),
+            "battery": _nz(v.get("battery")), "sensor_error": v.get("sensor_error"),
+            "last_seen": self.meta.get("last_seen"),
+        }
+        if kind == "level":
+            span = (rmax - rmin) if (rmax is not None and rmin is not None) else rmax
+            if self.model.key == "EM500-UDL" and rmax is not None:     # distance to surface → water column from the bottom
+                col = max(0.0, rmax - value)
+                role.update(fill_value=round(col), fill_unit=unit, headroom=round(value),
+                            pct=round(col / span * 100, 1) if span else None, range_max=rmax, range_min=rmin)
+            elif self.model.key == "EM500-SWL" and rmax is not None:   # submersible depth is the water column itself
+                role.update(fill_value=round(value), fill_unit=unit,
+                            pct=round(value / span * 100, 1) if span else None, range_max=rmax, range_min=rmin)
+            else:
+                role.update(pct=None, range_max=rmax, range_min=rmin)  # no range configured → show the raw reading
+        else:
+            gmin = rmin if rmin is not None else (lo_t if (lo_t is not None and lo_t < 0) else 0.0)
+            gmax = rmax if rmax is not None else (hi_t * 1.1 if (hi_t and hi_t > 0) else max(value * 1.4, 1.0))
+            if gmax <= gmin:
+                gmax = gmin + 1
+            role.update(gmin=round(gmin, 2), gmax=round(gmax, 2),
+                        pct=round(max(0.0, min(100.0, (value - gmin) / (gmax - gmin) * 100)), 1))
+        return role
+
+    def _em_soil(self, v: dict) -> dict | None:
+        """EM500-SMTC native soil probe (moisture / temperature / EC) on the shared Soil card. Only the three readings
+        it measures are set; the card hides the pH / NPK / salinity sections it doesn't."""
+        if self.model.key != "EM500-SMTC":
+            return None
+        from . import soil_calc as _sc
+        moisture, temperature, ec = _nz(v.get("moisture")), _nz(v.get("temperature")), _nz(v.get("electricity"))
+        if moisture is None and temperature is None and ec is None:
+            return None
+        st = {"moisture": _sc.status("moisture", moisture), "ec": _sc.status("ec", ec)}
+        return {
+            "milesight_role": "soil", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "moisture": moisture, "temperature": temperature, "ec": ec,
+            "ph": None, "nitrogen": None, "phosphorus": None, "potassium": None, "salinity": None, "tds": None,
+            "status": st, "moisture_label": _sc.moisture_label(moisture),
+            "severity": {"high": "warning", "low": "warning", "ok": "ok"}[_sc.worst(list(st.values()))],
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- TS temperature probes
+    def _temp_probe_applies(self) -> bool:
+        return bool(self.model.features & {"ts", "ts60x"})
+
+    @staticmethod
+    def _probe_badge(val, lo, hi, act, status):
+        """(tone, text) for a probe: configured cold-chain limits first (with the number), else the device's own
+        threshold / mutation alarm flags. tone is high | low | mutation | ok | None."""
+        def _f(x):
+            return (f"{x:.1f}".rstrip("0").rstrip(".")) if isinstance(x, float) else str(x)
+        if val is not None and hi is not None and val > hi:
+            return "high", f"Above {_f(hi)} °C"
+        if val is not None and lo is not None and val < lo:
+            return "low", f"Below {_f(lo)} °C"
+        if hi is not None or lo is not None:
+            return "ok", "In range"
+        s = (status or "").lower()
+        if act is True:
+            if "above" in s:
+                return "high", "Above threshold"
+            if "below" in s:
+                return "low", "Below threshold"
+            if "mutation" in s:
+                return "mutation", "Rapid change"
+            if any(w in s for w in ("between", "outside", "exceed", "tolerance")):
+                return "high", s.replace("_", " ").replace(" alarm", "").strip().capitalize()
+            return "high", "Alarm"
+        if act is False:
+            return "ok", "In range"
+        if "mutation" in s:
+            return "mutation", "Rapid change"
+        return None, None
+
+    def _temp_probe(self, v: dict) -> dict | None:
+        """A TS temperature probe as one role: each probe's temperature with its alarm badge (configured cold-chain
+        limits or the device's own threshold alarm), today's min/max and a trend entity; plus humidity, the
+        door/contact and any cold-chain tilt / light alarms."""
+        if not self._temp_probe_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        lo, hi = _nz(self.pcfg.get("temp_low")), _nz(self.pcfg.get("temp_high"))
+        probes = []
+        for suffix, label in (("", ""), ("_1", "Probe 1"), ("_2", "Probe 2")):
+            tkey = f"temperature{suffix}"
+            if tkey not in v:
+                continue
+            val = _nz(v.get(tkey))
+            tone, text = self._probe_badge(val, lo, hi, v.get(f"{tkey}_alarm_active"), v.get(f"{tkey}_alarm_status"))
+            contact = None
+            mkey = f"magnet_status{suffix}"
+            if mkey in v:
+                contact = bool(v.get(mkey))
+            probes.append({
+                "key": tkey, "label": label, "value": None if val is None else round(val, 1), "unit": "°C",
+                "entity_id": resolve(tkey), "tone": tone, "badge": text,
+                "low": lo, "high": hi, "mutation": _nz(v.get(f"{tkey}_mutation")),
+                "min_today": _nz(v.get(f"{tkey}_min_today")), "max_today": _nz(v.get(f"{tkey}_max_today")),
+                "sensor_status": v.get(f"{tkey}_sensor_status"), "contact": contact,
+            })
+        if not probes:
+            return None
+        door = v.get("door_active")
+        if door is None and "magnet_status" in v:
+            door = bool(v.get("magnet_status"))
+        extra = []
+        for feat, name, icon in (("tilt", "Tilt", "mdi:angle-acute"), ("light", "Light", "mdi:white-balance-sunny")):
+            act = v.get(f"{feat}_alarm_active")
+            if act is not None or v.get(f"{feat}_alarm_status"):
+                extra.append({"label": name, "icon": icon, "active": bool(act),
+                              "status": (v.get(f"{feat}_alarm_status") or "").replace("_", " ")})
+        alarm = any(p["tone"] in ("high", "low", "mutation") for p in probes) or any(e["active"] for e in extra)
+        return {
+            "milesight_role": "temp_probe", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "probes": probes, "humidity": _nz(v.get("humidity")), "door": door, "extra": extra, "alarm": alarm,
+            "battery": _nz(v.get("battery")), "sensor_error": v.get("sensor_error"),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- WS scene buttons / panels
+    def _scene_applies(self) -> bool:
+        return bool(self.model.buttons) and "ds3604" not in self.model.features
+
+    def _scene_panel(self, v: dict) -> dict | None:
+        """A WS button / scene panel (WS101 single button, WS136 / WS156 six-key panels) as one role: each button's
+        last press (type + when) and today's press count, so the triggers are visible on a dashboard."""
+        if not self._scene_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        rec = self.meta.get("_btn", {})
+        today = time.strftime("%Y%m%d", time.localtime())
+        buttons = []
+        for key in self.model.buttons:
+            r = rec.get(key) or {}
+            buttons.append({
+                "key": key, "label": _button_label(key),
+                "last_type": r.get("type"), "last_label": _EVENT_LABEL.get(r.get("type"), r.get("type")),
+                "last_at": r.get("at"), "count_today": r.get("count", 0) if r.get("day") == today else 0,
+                "entity_id": resolve(key, "event"),
+            })
+        last = max((b["last_at"] for b in buttons if b["last_at"]), default=None)
+        recent = max((b for b in buttons if b["last_at"]), key=lambda b: b["last_at"], default=None)
+        summary = (f"{recent['label']} · {recent['last_label']}" if recent else "No presses yet")
+        return {
+            "milesight_role": "scene_panel", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "events": [_EVENT_LABEL.get(e, e) for e in self.model.event_types], "buttons": buttons,
+            "last_press": last, "summary": summary, "battery": _nz(v.get("battery")),
+            "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- DS3604 e-ink display
+    def _display(self, v: dict) -> dict | None:
+        """A DS3604 e-ink display as one role for the composer card: the text / QR content of both templates (what the
+        device reports, else what was last sent), which template is shown, and the entity ids to drive it."""
+        if "ds3604" not in self.model.features:
+            return None
+        resolve = self._entity_id_resolver()
+        templates = {}
+        for t in (1, 2):
+            blocks = [{"n": n, "key": f"text_{n}", "text": self.display_text(t, f"text_{n}")} for n in range(1, 11)]
+            templates[str(t)] = {"blocks": blocks, "qr": self.display_text(t, "qrcode")}
+        return {
+            "milesight_role": "display", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "templates": templates, "active": _nz(v.get("current_template_id")) or 1,
+            "error": self.meta.get("display_error"),
+            "template_entity_id": resolve("display_template", "select"),
+            "battery": _nz(v.get("battery")), "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- AT101 asset tracker
+    def _tracker_applies(self) -> bool:
+        return "at101" in self.model.features
+
+    def _asset_tracker(self, v: dict) -> dict | None:
+        """An AT101 GNSS / Wi-Fi tracker as one role: last position, moving / stopped, geofence, distance travelled
+        (today / week / month), temperature and tamper / tilt — for the map-based tracker card."""
+        if not self._tracker_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        lat, lon = _nz(v.get("latitude")), _nz(v.get("longitude"))
+        motion = v.get("motion_status")
+        geof = v.get("geofence_status")
+        tamper, tilt = v.get("tamper"), v.get("tilted")
+        temp_alarm = bool(v.get("temperature_alarm_active"))
+        wifi_aps = v.get("wifi_ap_count")
+        wifi_only = lat is None and bool(wifi_aps)
+        alarm = bool(tamper) or geof == "outside" or temp_alarm
+        return {
+            "milesight_role": "asset_tracker", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "lat": lat, "lon": lon,
+            "moving": motion in ("start", "moving"),
+            "motion_label": "Moving" if motion in ("start", "moving") else "Stopped" if motion == "stop" else "—",
+            "geofence": geof if geof in ("inside", "outside") else None,
+            "tamper": None if tamper is None else bool(tamper),
+            "tilt": None if tilt is None else bool(tilt),
+            "temperature": _nz(v.get("temperature")), "temp_alarm": temp_alarm,
+            "wifi_aps": wifi_aps, "wifi_only": wifi_only,
+            "distance_today": _nz(v.get("distance_today_km")), "distance_week": _nz(v.get("distance_week_km")),
+            "distance_month": _nz(v.get("distance_month_km")),
+            "location_entity_id": resolve("location", "device_tracker"),
+            "alarm": alarm, "battery": _nz(v.get("battery")), "last_seen": self.meta.get("last_seen"),
+        }
+
+    # ---------------------------------------------------------------- WS201 consumable supplies
+    def _supplies_applies(self) -> bool:
+        return "ws201" in self.model.features
+
+    def _supplies(self, v: dict, ts: float) -> dict | None:
+        """A WS201 consumables dispenser (tissue / soap / paper towels) as one role: % remaining, low / out status,
+        a days-to-empty estimate from the drain rate, and when it was last refilled."""
+        if not self._supplies_applies():
+            return None
+        rem = _nz(v.get("remaining"))
+        if rem is None:
+            return None
+        hist = self.meta.setdefault("_sup", [])
+        if hist and rem - hist[-1][1] >= 15:        # a jump up = a refill: note it and start the rate afresh
+            self.meta["_sup_refill"] = round(ts)
+            hist.clear()
+        hist.append([round(ts), round(rem, 1)])
+        while len(hist) > 1 and hist[0][0] < ts - 14 * 86400:
+            hist.pop(0)
+        rate = days_left = None
+        if len(hist) >= 2:
+            dt, drop = hist[-1][0] - hist[0][0], hist[0][1] - hist[-1][1]
+            if dt >= 3600 and drop > 0:
+                rate = drop / (dt / 86400)          # % per day
+                if rate > 0.1:
+                    days_left = rem / rate
+        status = "out" if rem <= 5 else "low" if rem <= 20 else "ok"
+        return {
+            "milesight_role": "supplies", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "remaining": round(rem), "status": status,
+            "rate": round(rate, 1) if rate else None, "days_left": round(days_left) if days_left else None,
+            "refilled_at": self.meta.get("_sup_refill"), "battery": _nz(v.get("battery")),
             "last_seen": self.meta.get("last_seen"),
         }
 
@@ -1804,6 +2257,12 @@ class DeviceRuntime:
             return
 
     def _fire_button(self, key: str, event_type: str) -> None:
+        ts = time.time()
+        rec = self.meta.setdefault("_btn", {})
+        day = time.strftime("%Y%m%d", time.localtime(ts))
+        prev = rec.get(key) or {}
+        rec[key] = {"type": event_type, "at": ts,
+                    "count": (prev.get("count", 0) + 1) if prev.get("day") == day else 1, "day": day}
         if self._pkey in ("panic", "service"):
             self.meta[f"{self._pkey}_at"] = time.time()
             self.hass.bus.async_fire(f"{DOMAIN}_{self._pkey}", {"deveui": self.deveui, "device": self.entry.title,
@@ -1972,6 +2431,17 @@ class DeviceRuntime:
                        echo=name.endswith("_interval"))
         self._publish(time.time())
 
+    async def async_set_label(self, key: str, value: str) -> None:
+        """Store a custom name for a UC channel in the entry's options (the entry reloads and the cards pick it up)."""
+        labels = dict(self.entry.options.get("uc_labels") or {})
+        value = (value or "").strip()
+        if value:
+            labels[key] = value
+        else:
+            labels.pop(key, None)
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "uc_labels": labels})
+
     async def async_output(self, key: str, action: str, value: float | None = None) -> None:
         """action: on | off | set (value) | on_for / off_for / open_for (value = duration) | open_until_pulses."""
         out = output_for_key(self.model.key, key)
@@ -2120,7 +2590,11 @@ class DeviceRuntime:
         env = self._env_monitor(v)                  # multi-property environmental sensor: properties + door/leak/motion
         if env is not None:
             pm = next((m for m in env["metrics"] if m["key"] == env["primary"]), None)
-            v["env_monitor"] = pm["value"] if pm else None
+            if pm is not None:
+                v["env_monitor"] = pm["value"]
+            else:                                   # no numeric reading (e.g. door + motion): headline the status
+                active = next((s for s in env["states"] if s.get("active")), None)
+                v["env_monitor"] = active["text"] if active else "Clear"
             self.attrs["env_monitor"] = env
         energy = self._energy_monitor(v)            # CT clamp: phase currents + total / power / imbalance
         if energy is not None:
@@ -2155,6 +2629,62 @@ class DeviceRuntime:
             pm = next((m for m in work["metrics"] if m["key"] == work["primary"]), None)
             v["workplace"] = pm["value"] if pm else None
             self.attrs["workplace"] = work
+        em = self._em_reading(v)                    # EM500 single-reading sensor → the adaptive reading card
+        if em is not None:
+            v["em_reading"] = em["value"]
+            self.attrs["em_reading"] = em
+        em_soil = self._em_soil(v)                  # EM500-SMTC native soil probe → the shared Soil card
+        if em_soil is not None:
+            v["soil"] = em_soil["moisture"]
+            self.attrs["soil"] = em_soil
+        probe = self._temp_probe(v)                 # TS temperature probe → the Temperature-probe card
+        if probe is not None:
+            v["temp_probe"] = probe["probes"][0]["value"]
+            self.attrs["temp_probe"] = probe
+            breaches = [{"label": p["label"] or "Temperature", "tone": p["tone"], "value": p["value"], "badge": p["badge"]}
+                        for p in probe["probes"] if p["tone"] in ("high", "low", "mutation")]
+            if breaches:
+                v["temp_breaches"] = breaches
+            if any(e.get("active") and e.get("label") == "Tilt" for e in probe.get("extra", [])):
+                v["probe_tilt"] = True
+        scene = self._scene_panel(v)                # WS button / scene panel → the Scene-buttons card
+        if scene is not None:
+            v["scene_panel"] = scene["summary"]
+            self.attrs["scene_panel"] = scene
+        disp = self._display(v)                     # DS3604 e-ink display → the Display composer card
+        if disp is not None:
+            v["display"] = disp["active"]
+            self.attrs["display"] = disp
+        track = self._asset_tracker(v)              # AT101 GNSS / Wi-Fi tracker → the Asset-tracker card
+        if track is not None:
+            v["asset_tracker"] = track["motion_label"]
+            self.attrs["asset_tracker"] = track
+            if track["geofence"] == "outside":
+                v["geofence_breach"] = True
+            if track["tamper"]:                     # AT101 tamper is its own key (not the bool tamper_status WS/GS use)
+                v["tracker_tamper"] = True
+        supply = self._supplies(v, ts)              # WS201 consumables dispenser → the Supplies card
+        if supply is not None:
+            v["supplies"] = {"ok": "In stock", "low": "Low", "out": "Replace"}[supply["status"]]
+            self.attrs["supplies"] = supply
+            if supply["status"] == "out":
+                v["supply_out"] = supply["remaining"]
+            elif supply["status"] == "low":
+                v["supply_low"] = supply["remaining"]
+        ctrl = self._controller(v)                  # UC I/O controller → the Controller card
+        if ctrl is not None:
+            pm = next((m for m in ctrl["metrics"] if m["key"] == ctrl["primary"]), None)
+            v["controller"] = pm["value"] if pm else (len(ctrl["outputs"]) or None)
+            self.attrs["controller"] = ctrl
+            for ch in ctrl["inputs"] + ctrl["outputs"] + ctrl["metrics"] + ctrl["counters"]:
+                v[f"label_{ch['key']}"] = self._uc_label(ch["key"], "")
+        valves = self._valve_controller(v)          # UC valve controller → the Valve card
+        if valves is not None:
+            v["valve_controller"] = sum(1 for vv in valves["valves"] if vv.get("open"))
+            self.attrs["valve_controller"] = valves
+            for vv in valves["valves"]:
+                v[f"label_{vv['key'].removesuffix('_opening')}"] = self._uc_label(
+                    vv["key"].removesuffix("_opening"), "")
         counter = self._people_counter(v)           # VS people counter → the People counter card
         if counter is not None:
             v["people_counter"] = counter["inside"]

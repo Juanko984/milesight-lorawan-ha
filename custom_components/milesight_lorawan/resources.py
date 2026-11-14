@@ -43,6 +43,18 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
 }
 
 
+# Dashboard-only tags that aren't in the Purpose GROUPS registry but can still label a device (so a device
+# pinned to Retail / Washroom / Coop / a silo gets a matching "used for" label).
+_EXTRA_TAG_LABELS: dict[str, tuple[str, str]] = {
+    "retail":   ("Milesight · Retail", "mdi:storefront-outline"),
+    "washroom": ("Milesight · Washroom", "mdi:human-male-female"),
+    "coop":     ("Milesight · Chicken coop", "mdi:egg"),
+    "silo":     ("Milesight · Tank / silo", "mdi:storage-tank"),
+    "safety":   ("Milesight · Safety", "mdi:shield-alert"),
+    "fence":    ("Milesight · Security", "mdi:shield-home"),
+}
+
+
 def site_tags(hass: HomeAssistant) -> set[str]:
     """Tags of every Milesight device set up in Home Assistant (from its model)."""
     from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
@@ -340,10 +352,14 @@ async def async_label_devices(hass: HomeAssistant) -> None:
         add = set()
         for t in new:
             if t not in ids:
-                name, icon = TAGS[t]
+                meta = TAGS.get(t) or _EXTRA_TAG_LABELS.get(t)
+                if meta is None:            # a dashboard-only tag with no label registered: skip labelling it
+                    continue
+                name, icon = meta
                 label = lreg.async_get_label_by_name(name) or lreg.async_create(name, icon=icon)
                 ids[t] = label.label_id
-            add.add(ids[t])
+            if t in ids:
+                add.add(ids[t])
         dreg.async_update_device(device.id, labels=set(device.labels) | add)
         labelled[device.id] = sorted(set(labelled.get(device.id, [])) | set(new))
         changed = True
