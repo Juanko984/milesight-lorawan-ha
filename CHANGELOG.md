@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.142.0
+- **Team chat: a chime + banner for new messages.** A new message from someone else now plays a short chime and
+  shows a floating toast (sender · channel + preview) on any Home Assistant page — click it to jump straight to
+  that channel. Because the card script already loads globally, you get pinged even when you're on a different
+  dashboard.
+  - **Quiet when you're already there** — no sound or banner while you're actively viewing that channel in the
+    chat; you still get pinged for other channels you'd otherwise miss.
+  - **Per-viewer toggle** — a bell button in the chat header mutes / un-mutes the chime + banner (remembered in
+    the browser). Your own messages never ping you.
+  - The chime is synthesised in the browser (no audio file), and unlocks after your first click/keypress on the
+    page, per browser autoplay rules.
+
 ## 0.141.0
 - **TS probes: door / contact channels now show on the Temperature-probe card.** The TS301 and TS302 channels
   can each be wired as a temperature probe *or* a door / contact input, and the TS302 can mix them. Previously the

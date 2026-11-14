@@ -7427,11 +7427,15 @@
         this._uid = r.me || (this._hass.user && this._hass.user.id) || null;
         this._render();
         this._markRead();
+        this._flag();
         this._unsub = await this._hass.connection.subscribeMessage((ev) => this._onEvent(ev),
           { type: "milesight_lorawan/chat/subscribe", presence: true });
       } catch (e) { this._channels = null; this._render(); }
     }
-    disconnectedCallback() { if (this._unsub) { try { this._unsub(); } catch (e) { /* gone */ } this._unsub = null; } if (super.disconnectedCallback) super.disconnectedCallback(); }
+    _flag() { try { window.__msChat = { open: true, channel: this._active }; } catch (e) { /* */ } }
+    _notifyMuted() { try { return localStorage.getItem("ms-chat-notify") === "off"; } catch (e) { return false; } }
+    _toggleNotify() { try { localStorage.setItem("ms-chat-notify", this._notifyMuted() ? "on" : "off"); } catch (e) { /* */ } this._render(); }
+    disconnectedCallback() { if (this._unsub) { try { this._unsub(); } catch (e) { /* gone */ } this._unsub = null; } try { window.__msChat = { open: false }; } catch (e) { /* */ } if (super.disconnectedCallback) super.disconnectedCallback(); }
     _onEvent(ev) {
       if (!ev) return;
       if (ev.presence) {    // someone opened / left the chat: refresh the roster + online count
@@ -7474,7 +7478,7 @@
       try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: ch }); this._messages = r.messages || []; this._channels = r.channels || this._channels; this._readers = r.readers || []; this._roster = r.roster || this._roster; this._online = r.online || this._online; }
       catch (e) { this._messages = []; this._readers = []; }
       const cc = (this._channels || []).find((c) => c.id === ch); if (cc) cc.unread = 0;
-      this._render(); this._markRead();
+      this._render(); this._markRead(); this._flag();
     }
     async _refetch() {
       try { const r = await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/list", channel: this._active });
@@ -7676,7 +7680,10 @@
         h("div", { class: "chd" }, [h("div", { class: "cic" }, [h("ha-icon", { icon: "mdi:chat-outline" })]),
           h("div", { class: "ctitle" }, [h("div", { class: "t" }, "Team chat"),
             h("div", { class: "s" }, ac.kind === "alerts" ? "Alerts thread" : ac.kind === "jobs" ? "Jobs thread" : ac.archived ? "Archived" : "Live")]),
-          h("div", { class: "chdsp" }), ...manage, this._peopleEl()]),
+          h("div", { class: "chdsp" }),
+          h("button", { class: "mbtn", title: this._notifyMuted() ? "Message alerts off — click to enable" : "Message alerts on — click to mute",
+            onclick: () => this._toggleNotify() }, [h("ha-icon", { icon: this._notifyMuted() ? "mdi:bell-off-outline" : "mdi:bell-outline" })]),
+          ...manage, this._peopleEl()]),
         this._chips(), stream,
         h("div", { class: "typingrow" }, [this._typingLine()].filter(Boolean)),
         h("div", { class: "receiptrow" }, [this._receiptLine()].filter(Boolean)), comp,
@@ -8673,6 +8680,81 @@
     if (window.__msChatBadge) return; window.__msChatBadge = true;
     let total = 0, sub = null, busy = false;
     const hass = () => { try { return document.querySelector("home-assistant").hass; } catch (e) { return null; } };
+
+    // ---- new-message alerts: a chime + a floating toast, unless the chat is open on that channel ----
+    let _ac = null;
+    const muted = () => { try { return localStorage.getItem("ms-chat-notify") === "off"; } catch (e) { return false; } };
+    function ensureAC() { if (!_ac) { const C = window.AudioContext || window.webkitAudioContext; if (C) _ac = new C(); } return _ac; }
+    function prime() { try { const a = ensureAC(); if (a && a.state === "suspended") a.resume(); } catch (e) { /* */ } }
+    window.addEventListener("pointerdown", prime, true);
+    window.addEventListener("keydown", prime, true);
+    function chime() {
+      try {
+        const a = ensureAC(); if (!a) return;
+        if (a.state === "suspended") a.resume();
+        const t0 = a.currentTime;
+        [[880, 0], [1245, 0.11]].forEach(([f, dt]) => {       // a soft two-note rise (A5 → D#6)
+          const o = a.createOscillator(), g = a.createGain();
+          o.type = "sine"; o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, t0 + dt);
+          g.gain.exponentialRampToValueAtTime(0.16, t0 + dt + 0.015);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.3);
+          o.connect(g).connect(a.destination); o.start(t0 + dt); o.stop(t0 + dt + 0.32);
+        });
+      } catch (e) { /* audio blocked until a user gesture */ }
+    }
+    function toastStyle() {
+      if (document.getElementById("ms-toast-style")) return;
+      const s = document.createElement("style"); s.id = "ms-toast-style";
+      s.textContent = `
+        #ms-toast-host{position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;flex-direction:column;gap:10px;max-width:360px;pointer-events:none}
+        .ms-toast{pointer-events:auto;display:flex;gap:11px;align-items:flex-start;background:var(--card-background-color,#1c2229);color:var(--primary-text-color,#e8eef2);border:1px solid var(--divider-color,rgba(255,255,255,.12));border-radius:13px;padding:12px 13px;box-shadow:0 12px 34px rgba(0,0,0,.4);cursor:pointer;font-family:var(--paper-font-body1_-_font-family,Roboto,system-ui,sans-serif);animation:mstin .18s ease-out;max-width:360px}
+        .ms-toast:hover{border-color:var(--primary-color,#1e88e5)}
+        @keyframes mstin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+        .ms-toast .ic{flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--primary-color,#1e88e5) 20%,transparent);color:var(--primary-color,#1e88e5)}
+        .ms-toast .ic ha-icon{--mdc-icon-size:18px}
+        .ms-toast .bd{min-width:0;flex:1}
+        .ms-toast .tt{font-size:13px;font-weight:650;line-height:1.2;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .ms-toast .bodytxt{font-size:12.5px;color:var(--secondary-text-color,#9aa6b0);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .ms-toast .cl{flex:0 0 auto;color:var(--secondary-text-color,#9aa6b0);font-size:16px;line-height:1;padding:0 2px;background:none;border:0;cursor:pointer}`;
+      (document.head || document.documentElement).appendChild(s);
+    }
+    function openChat(channel) {
+      try { history.pushState(null, "", "/milesight-chat" + (channel ? "?channel=" + encodeURIComponent(channel) : ""));
+        window.dispatchEvent(new Event("location-changed")); } catch (e) { /* */ }
+    }
+    function toast(channel, title, body) {
+      try {
+        toastStyle();
+        let host = document.getElementById("ms-toast-host");
+        if (!host) { host = document.createElement("div"); host.id = "ms-toast-host"; document.body.appendChild(host); }
+        const el = document.createElement("div"); el.className = "ms-toast";
+        const ic = document.createElement("div"); ic.className = "ic"; ic.innerHTML = '<ha-icon icon="mdi:chat-outline"></ha-icon>';
+        const bd = document.createElement("div"); bd.className = "bd";
+        const tt = document.createElement("div"); tt.className = "tt"; tt.textContent = title;
+        const bx = document.createElement("div"); bx.className = "bodytxt"; bx.textContent = body;
+        bd.appendChild(tt); bd.appendChild(bx);
+        const cl = document.createElement("button"); cl.className = "cl"; cl.textContent = "✕";
+        const close = () => { try { el.remove(); } catch (e) { /* */ } };
+        cl.onclick = (e) => { e.stopPropagation(); close(); };
+        el.onclick = () => { openChat(channel); close(); };
+        el.appendChild(ic); el.appendChild(bd); el.appendChild(cl);
+        host.appendChild(el);
+        while (host.children.length > 4) host.removeChild(host.firstChild);
+        setTimeout(close, 7000);
+      } catch (e) { /* DOM not ready */ }
+    }
+    function preview(m) { return m.text || (m.image ? "📷 Photo" : m.loc ? "📍 Location" : ""); }
+    function notify(ev, h) {
+      if (!ev || !ev.message || !h || muted()) return;
+      const m = ev.message, me = h.user && h.user.id;
+      if (m.user_id && me && m.user_id === me) return;        // my own message
+      const act = window.__msChat;                            // silent while the chat is open on this very channel
+      if (act && act.open && act.channel === ev.channel && document.visibilityState === "visible") return;
+      const chan = (ev.channel_meta && ev.channel_meta.title) || "Team chat";
+      const title = (m.kind === "sys" || !m.author) ? chan : (m.author + " · " + chan);
+      chime(); toast(ev.channel, title, preview(m));
+    }
     function link() {
       try {
         const ha = document.querySelector("home-assistant");
@@ -8701,7 +8783,7 @@
       const h = hass(); if (!h || !h.connection || sub) { return; }
       try {
         await refresh(h);
-        sub = await h.connection.subscribeMessage(() => { const hh = hass(); if (hh) refresh(hh); },
+        sub = await h.connection.subscribeMessage((ev) => { const hh = hass(); if (hh) { refresh(hh); notify(ev, hh); } },
           { type: "milesight_lorawan/chat/subscribe" });
       } catch (e) { /* not available; try again later */ }
     }
