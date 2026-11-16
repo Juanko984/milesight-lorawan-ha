@@ -95,6 +95,14 @@ def _flag(v: Any) -> bool | None:
     return None if v is None else bool(v)
 
 
+def _contact_of(d: dict) -> Any:
+    """The door/contact value, from the canonical key or a TS302's per-channel contact (magnet_status_1/_2)."""
+    for k in ("magnet_status", "magnet_status_1", "magnet_status_2"):
+        if k in d:
+            return d[k]
+    return None
+
+
 CT_CURRENT_KEYS = ("current", "current_1", "current_2", "current_3")
 
 
@@ -118,7 +126,7 @@ def _load_running(d: dict, lim: dict) -> bool | None:
 
 # feature -> (extract(decoded, limits) -> bool | None, status text on, status text off)
 BINARY_FEATURES: dict[str, tuple[Callable[[dict, dict], bool | None], str, str]] = {
-    "door": (lambda d, _: _flag(d.get("magnet_status")), "Open since {t}", "Closed"),
+    "door": (lambda d, _: _flag(_contact_of(d)), "Open since {t}", "Closed"),
     "leak": (lambda d, _: _flag(d.get("leak", d.get("input_05"))), "Leak since {t}", "Dry"),
     "input": (lambda d, _: _flag(d.get("input_05")), "High since {t}", "Low"),
     "co2high": (lambda d, lim: (d["co2"] >= lim["co2"]) if isinstance(d.get("co2"), (int, float)) else None,
@@ -515,6 +523,13 @@ class DeviceRuntime:
         for k, v in self.model.defaults:
             self.raw.setdefault(k, v)
         self.raw.update({k: v for k, v in decoded.items() if k not in _NOT_RAW})
+        if "ts_dual" in self.model.features:             # a TS302 probe port is temperature OR contact — drop the stale other
+            for sfx in ("_1", "_2"):
+                if f"magnet_status{sfx}" in decoded:
+                    for stale in (f"temperature{sfx}", f"temperature{sfx}_mutation", f"temperature{sfx}_sensor_status"):
+                        self.raw.pop(stale, None)
+                elif f"temperature{sfx}" in decoded:
+                    self.raw.pop(f"magnet_status{sfx}", None)
         for key, event_type in decoded.get("button_events", []):
             self._fire_button(key, event_type)
         if "vs373" in self.model.features:
@@ -1833,7 +1848,7 @@ class DeviceRuntime:
                 if present is not None:
                     self.meta["_present"] = present
         if self.purpose is not None and self.pcfg.get("after_hours") and self._pfam & {"contact", "motion"}:
-            active = (_flag(decoded.get("magnet_status")) if "contact" in self._pfam else self._present(decoded))
+            active = (_flag(_contact_of(decoded)) if "contact" in self._pfam else self._present(decoded))
             if work:
                 self.meta.pop("after_hours_at", None)
             elif active and not self.meta.get("after_hours_at"):

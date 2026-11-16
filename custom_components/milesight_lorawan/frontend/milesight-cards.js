@@ -6938,7 +6938,11 @@
         h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
       ]);
       let body = [];
-      probes.forEach((p, i) => { body = body.concat(this._probe(st, p, i)); });
+      if (probes.length > 1) {                           // two probes side by side read better than stacked
+        body.push(h("div", { class: "tpcols" }, probes.map((p, i) => h("div", { class: "tpcol" }, this._probe(st, p, i)))));
+      } else {
+        probes.forEach((p, i) => { body = body.concat(this._probe(st, p, i)); });
+      }
       for (const d of doors) {
         body.push(h("div", { class: "tpdoorrow " + (d.open ? "open" : "closed") }, [
           h("ha-icon", { icon: d.open ? "mdi:door-open" : "mdi:door-closed" }),
@@ -6952,13 +6956,16 @@
       for (const e of (a.extra || [])) chips.push(h("div", { class: "tpchip" + (e.active ? " warnchip" : "") }, [h("ha-icon", { icon: e.icon }), " " + e.label + " ", h("b", {}, e.active ? "Alarm" : "OK")]));
       if (chips.length) body.push(h("div", { class: "tpchips" }, chips));
       if (err) body.push(h("div", { class: "tperr" }, [h("ha-icon", { icon: "mdi:alert", style: { "--mdc-icon-size": "15px" } }), " " + esc(a.sensor_error)]));
-      return h("div", { class: "ablock" + (a.alarm ? " alarm" : "") }, [head].concat(body));
+      return h("div", { class: "ablock" + (a.alarm ? " alarm" : "") + (probes.length > 1 ? " wide" : "") }, [head].concat(body));
     }
     _render() {
       if (!this._hass) return;
       this._css = MON_CSS + `
         .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:15px;margin-top:2px}
         .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .ablock.wide{grid-column:span 2} @media (max-width:720px){.ablock.wide{grid-column:span 1}}
+        .tpcols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:4px} @media (max-width:560px){.tpcols{grid-template-columns:1fr}}
+        .tpcol{min-width:0} .tpcol .tpprobe{margin-top:0}
         .ablock.alarm{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ms-bad) 28%,transparent)}
         .ahd{display:flex;align-items:center;gap:11px}
         .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,#5bb4e6 16%,transparent);color:#5bb4e6} .aic.bad{background:color-mix(in srgb,var(--ms-bad) 16%,transparent);color:var(--ms-bad)} .aic ha-icon{--mdc-icon-size:19px}

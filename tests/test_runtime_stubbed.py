@@ -2740,3 +2740,19 @@ assert not mgrc.can_access("ujuan", "Juan", _dmid)          # no one else can
 _sp = mgrc.snapshot("upiet")
 assert any(x["id"] == _dmid and x["title"] == "Jobs" for x in _sp["dms"])   # shows as a DM from "Jobs"
 print("team chat job DM ok")
+
+# ---- TS302: a channel reconfigured from temperature to door clears the stale probe and shows the door ----
+_e_ts, _rt_ts = make_with("00000000000ets302d", "TS302", {}, title="ColdRoom 1")
+_rt_ts.handle_uplink(decoders.Uplink(deveui="00000000000ets302d", raw=bytes.fromhex("0175410367ec000467e6ff"), fport=85, fcnt=1))
+_p = _rt_ts._temp_probe(_rt_ts.values)
+assert [x["key"] for x in _p["probes"]] == ["temperature_1", "temperature_2"] and not _p["doors"], _p
+# channel 2 is now wired as a door → the stale temperature_2 is dropped, the door shows open
+_rt_ts.handle_uplink(decoders.Uplink(deveui="00000000000ets302d", raw=bytes.fromhex("0175410367ec00040001"), fport=85, fcnt=2))
+assert "temperature_2" not in _rt_ts.raw
+_p2 = _rt_ts._temp_probe(_rt_ts.values)
+assert [x["key"] for x in _p2["probes"]] == ["temperature_1"], _p2
+assert [d["key"] for d in _p2["doors"]] == ["magnet_status_2"] and _p2["doors"][0]["open"] is True
+# the door/contact reader falls back to a TS302's per-channel contact
+assert runtime._contact_of({"magnet_status_2": 1}) == 1 and runtime._contact_of({}) is None
+assert runtime.BINARY_FEATURES["door"][0]({"magnet_status_2": 1}, {}) is True
+print("ts302 door + stale-probe fix ok")

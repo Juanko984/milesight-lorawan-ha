@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.147.0
+- **TS302 door fixes + a tidier dual-probe layout.**
+  - **Door status now works on a TS302** whose contact is on the second channel. The door / contact tracking
+    (Door status, Door left-open, events, etc.) now reads the device's per-channel contact (`magnet_status_2`),
+    not just the first channel — so a TS302 wired as "one probe + one door" reports the door instead of sitting on
+    "Waiting for data".
+  - **Reconfigured channels no longer show a stale reading.** When a TS302 probe port is switched from temperature
+    to a door (or back), the old value is cleared, so the card correctly shows "1 probe + 1 contact" instead of a
+    frozen second temperature.
+  - **Two temperature probes render side by side** on the Temperature-probe card instead of stacked under each
+    other (the card widens to fit, and collapses back to a single column on narrow screens).
+
 ## 0.146.0
 - **Job cards: a private DM to the assignee, plus due date and Start / Done on the card.**
   - Assigning a job now also sends the job card as a **private DM** from a "Jobs" bot straight to the assignee
