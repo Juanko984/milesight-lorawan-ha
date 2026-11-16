@@ -2756,3 +2756,19 @@ assert [d["key"] for d in _p2["doors"]] == ["magnet_status_2"] and _p2["doors"][
 assert runtime._contact_of({"magnet_status_2": 1}) == 1 and runtime._contact_of({}) is None
 assert runtime.BINARY_FEATURES["door"][0]({"magnet_status_2": 1}, {}) is True
 print("ts302 door + stale-probe fix ok")
+
+# ---- TS301 (single channel) + TS60x: the same temp/contact cleanup applies ----
+_e_t301, _rt_t301 = make_with("00000000000ets301d", "TS301", {}, title="Cold room door")
+_rt_t301.handle_uplink(decoders.Uplink(deveui="00000000000ets301d", raw=bytes.fromhex("01756403670a01"), fport=85, fcnt=1))
+assert [x["key"] for x in _rt_t301._temp_probe(_rt_t301.values)["probes"]] == ["temperature"]
+# the channel is rewired as a contact only → the stale temperature is dropped, the door shows open
+_rt_t301.handle_uplink(decoders.Uplink(deveui="00000000000ets301d", raw=bytes.fromhex("017564030001"), fport=85, fcnt=2))
+assert "temperature" not in _rt_t301.raw
+_pt2 = _rt_t301._temp_probe(_rt_t301.values)
+assert _pt2["probes"] == [] and [d["key"] for d in _pt2["doors"]] == ["magnet_status"] and _pt2["doors"][0]["open"] is True
+# a TS60x whose probe disconnects stops showing the last temperature
+_e_t60, _rt_t60 = make_with("00000000000ets601d", "TS601", {}, title="Pallet probe")
+_rt_t60.raw["temperature"] = 4.6                         # a prior good reading
+_rt_t60.handle_uplink(decoders.Uplink(deveui="00000000000ets601d", raw=bytes.fromhex("0c00"), fport=85, fcnt=3))  # probe disconnected
+assert "temperature" not in _rt_t60.raw
+print("ts301 + ts60x cleanup ok")

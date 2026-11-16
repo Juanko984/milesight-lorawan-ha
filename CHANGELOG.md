@@ -2,6 +2,15 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.148.0
+- **Door + stale-reading fixes extended across the whole TS range.** The channel-aware door/contact reader and
+  the "clear the stale reading when a port is rewired" logic now apply to **TS101 / TS201 / TS301 / TS302**, not
+  just the TS302: a single-channel TS301 switched between a temperature probe and a door now drops the old value
+  and shows the new one, and the door status reads the device's actual contact channel. For the **TS60x range**
+  (TS601 / TS602, which have no contact input) a disconnected probe now stops showing its last temperature /
+  humidity instead of freezing on the old value. The cleanup only fires when a payload reports one of
+  temperature/contact (not both), so mixed diagnostic frames are left untouched.
+
 ## 0.147.0
 - **TS302 door fixes + a tidier dual-probe layout.**
   - **Door status now works on a TS302** whose contact is on the second channel. The door / contact tracking

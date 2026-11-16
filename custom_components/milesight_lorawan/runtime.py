@@ -523,13 +523,17 @@ class DeviceRuntime:
         for k, v in self.model.defaults:
             self.raw.setdefault(k, v)
         self.raw.update({k: v for k, v in decoded.items() if k not in _NOT_RAW})
-        if "ts_dual" in self.model.features:             # a TS302 probe port is temperature OR contact — drop the stale other
-            for sfx in ("_1", "_2"):
-                if f"magnet_status{sfx}" in decoded:
+        if "ts" in self.model.features:                  # a TS probe port is temperature OR contact per channel —
+            for sfx in ("", "_1", "_2"):                 # when a payload reports just one of them, drop the stale other
+                has_t, has_m = f"temperature{sfx}" in decoded, f"magnet_status{sfx}" in decoded
+                if has_m and not has_t:
                     for stale in (f"temperature{sfx}", f"temperature{sfx}_mutation", f"temperature{sfx}_sensor_status"):
                         self.raw.pop(stale, None)
-                elif f"temperature{sfx}" in decoded:
+                elif has_t and not has_m:
                     self.raw.pop(f"magnet_status{sfx}", None)
+        elif "ts60x" in self.model.features and decoded.get("probe_connected") is False:
+            for stale in ("temperature", "temperature_mutation", "humidity", "humidity_mutation"):
+                self.raw.pop(stale, None)              # a disconnected TS60x probe: don't keep showing the last reading
         for key, event_type in decoded.get("button_events", []):
             self._fire_button(key, event_type)
         if "vs373" in self.model.features:
