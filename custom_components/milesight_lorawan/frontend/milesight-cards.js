@@ -7706,18 +7706,29 @@
       const a = m.alert;
       const tone = a.resolved ? "ok" : ({ critical: "crit", warning: "warn", ok: "ok", info: "info" }[a.severity] || "warn");
       const sev = a.resolved ? "Resolved" : ({ critical: "Critical", warning: "Warning", info: "Info", ok: "OK" }[a.severity] || "Alert");
-      const exp = this._isExp(m);
+      const hasDetail = !!(a.message || a.url);              // older alerts carry only a title → a clean flat card
+      const exp = hasDetail && this._isExp(m);
       const detail = [];
       if (exp && a.message) detail.push(h("div", { class: "evtext" }, esc(a.message)));
       const acts = [];
       if (a.url) acts.push(h("button", { class: "evbtn p", onclick: (e) => { e.stopPropagation(); this._openJob(a.url); } }, [h("ha-icon", { icon: "mdi:open-in-new", style: { "--mdc-icon-size": "15px" } }), " View"]));
-      return h("div", { class: "evcard " + tone, onclick: () => this._toggleExp(m) }, [
+      return h("div", { class: "evcard " + tone + (hasDetail ? "" : " flat"), onclick: hasDetail ? () => this._toggleExp(m) : null }, [
         h("div", { class: "evhd" }, [h("ha-icon", { class: "evcic", icon: a.resolved ? "mdi:check-circle" : "mdi:alert" }),
           h("div", { class: "evttl" }, esc(a.title || "Alert")), h("span", { class: "evsev " + tone }, sev)]),
         a.category ? h("div", { class: "evchips" }, [this._evChip(null, String(a.category).replace(/_/g, " "))]) : null,
         ...detail,
-        this._evFoot(m, acts),
+        hasDetail ? this._evFoot(m, acts) : null,
       ].filter(Boolean));
+    }
+    _legacyAlert(m) {
+      // Alerts posted before the card upgrade are plain "Title · new" / "✅ Resolved: … · resolved" sys lines
+      // with no alert payload. Parse them so the whole history reads as proper messages, not pills.
+      if (m.author !== "Alerts" || m.alert || m.job) return null;
+      const mt = String(m.text || "").trim().match(/^(.*?)\s*·\s*(new|resolved|update|ongoing|reminder)\s*$/i);
+      if (!mt) return null;
+      const kind = mt[2].toLowerCase(), title = mt[1].trim();
+      const resolved = kind === "resolved" || /^✅/.test(title);
+      return { title, message: null, severity: resolved ? "ok" : "warning", category: null, url: null, kind, resolved, legacy: true };
     }
     _jobCard(m) {
       const job = m.job, status = job.status || "todo";
@@ -7755,6 +7766,8 @@
     _message(m, prevAuthor) {
       if (m.kind === "sys") {
         if (m.alert || m.job) return this._eventMessage(m);
+        const la = this._legacyAlert(m);
+        if (la) return this._eventMessage(Object.assign({}, m, { alert: la }));
         return h("div", { class: "sys" }, this._mentionify(m.text || ""));
       }
       const me = m.user_id && this._uid ? m.user_id === this._uid : (m.author === "You");
@@ -8061,6 +8074,7 @@
     .evbody{min-width:0;flex:1} .evmeta{font-size:11px;color:var(--ms-ink2);margin-bottom:4px;display:flex;align-items:center;gap:7px} .evmeta .nm{color:var(--ms-ink);font-weight:650}
     .evcard{border:1px solid var(--ms-line);border-radius:12px;background:color-mix(in srgb,var(--ms-ink) 4%,transparent);padding:11px 13px;cursor:pointer;transition:border-color .12s}
     .evcard:hover{border-color:color-mix(in srgb,var(--ms-ink) 26%,var(--ms-line))}
+    .evcard.flat{cursor:default} .evcard.flat:hover{border-color:var(--ms-line)}
     .evcard.crit{box-shadow:inset 3px 0 0 var(--ms-bad)} .evcard.warn{box-shadow:inset 3px 0 0 var(--ms-warn)} .evcard.ok{box-shadow:inset 3px 0 0 var(--ms-good)} .evcard.info{box-shadow:inset 3px 0 0 var(--ms-accent)}
     .evhd{display:flex;align-items:center;gap:8px} .evcic{flex:0 0 auto;--mdc-icon-size:17px;color:var(--ms-ink2)}
     .evcard.crit .evcic{color:var(--ms-bad)} .evcard.warn .evcic{color:var(--ms-warn)} .evcard.ok .evcic{color:var(--ms-good)} .evcard.info .evcic{color:var(--ms-accent)}

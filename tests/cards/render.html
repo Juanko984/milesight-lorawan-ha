@@ -430,6 +430,13 @@
              { id: "m3b", channel: "site", ts: Date.now() / 1000 - 1700, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "At the borehole now", loc: { lat: -33.9249, lon: 18.4241 } },
              { id: "m3c", channel: "site", ts: Date.now() / 1000 - 1600, author: "Koos", user_id: "u-koos", role: "Technician", kind: "msg", text: "On my way, 10 min out", via: "phone" },
              { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store.", edited: Date.now() / 1000 - 1400 } ]
+             : (msg.channel === "alerts") ? [
+               // legacy alerts stored before the card upgrade: plain "Title · kind" sys text, no alert payload
+               { id: "la1", channel: "alerts", ts: Date.now() / 1000 - 5000, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Temperature high — TS101 · new" },
+               { id: "la2", channel: "alerts", ts: Date.now() / 1000 - 4600, author: "Alerts", user_id: null, role: "", kind: "sys", text: "✅ Resolved: Offline — CTH01 · resolved" },
+               { id: "la3", channel: "alerts", ts: Date.now() / 1000 - 4200, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Door left open — WS301 · new" },
+               // a new-format alert (full payload) posted after the upgrade — expands for detail
+               { id: "la4", channel: "alerts", ts: Date.now() / 1000 - 300, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Temperature high — TS302", alert: { title: "Temperature high — TS302", message: "9.4 °C — above the 8 °C limit. Reefer trailer, Bay 3.", severity: "critical", category: "cold_chain", url: "/milesight-devices/devices", resolved: false } } ]
              : (msg.channel === "dm:u-juan~u-riaan") ? [
                { id: "d1", channel: "dm:u-juan~u-riaan", ts: Date.now() / 1000 - 600, author: "Riaan du Plessis", user_id: "u-riaan", role: "Manager", kind: "msg", text: "Did the reefer come right?" },
                { id: "d2", channel: "dm:u-juan~u-riaan", ts: Date.now() / 1000 - 300, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Yep, probe 2 is back in range." } ] : [] });

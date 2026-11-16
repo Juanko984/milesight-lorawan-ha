@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.149.1
+- **Existing alerts upgrade to cards too.** Alerts posted *before* the card upgrade were stored as plain
+  "Title · new" / "✅ Resolved: … · resolved" lines with no detail, so an already-populated Alerts channel kept
+  showing the old centred pills after updating. The card renderer now recognises those legacy lines and shows them
+  as proper messages (avatar, "Alerts", time, title and a Warning / Resolved badge) — a clean flat card, since the
+  old lines carry no extra detail to expand. New alerts fired after the update still get the full card with
+  category, message and a View button. No need to clear the channel.
+
 ## 0.149.0
 - **Team chat: alerts & jobs now read as proper messages.** In the Alerts and Jobs channels (and anywhere a
   system event appears), an alert or a job is no longer a tiny centred pill. It renders like any other message —
