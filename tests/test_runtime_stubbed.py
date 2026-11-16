@@ -2772,3 +2772,21 @@ _rt_t60.raw["temperature"] = 4.6                         # a prior good reading
 _rt_t60.handle_uplink(decoders.Uplink(deveui="00000000000ets601d", raw=bytes.fromhex("0c00"), fport=85, fcnt=3))  # probe disconnected
 assert "temperature" not in _rt_t60.raw
 print("ts301 + ts60x cleanup ok")
+
+# ---- VS132: cumulative in/out totals drive the day counter (periodic fields stay 0) ----
+_e_vs, _rt_vs = make_with("00000000000evs132d", "VS132", {}, title="Front door")
+# the user's real frame: totals 7 in / 5 out, periodic 0 / 0  (A9IHAAAABNIFAAAABcwAAAAA)
+_f1 = bytes.fromhex("03d20700000004d20500000005cc00000000")
+_rt_vs.handle_uplink(decoders.Uplink(deveui="00000000000evs132d", raw=_f1, fport=85, fcnt=1))
+_v1 = _rt_vs.values
+assert _v1.get("people_total_in") == 7 and _v1.get("people_total_out") == 5, _v1   # lifetime totals surfaced
+assert _v1.get("people_in_today") == 0 and _v1.get("people_out_today") == 0        # first frame: baseline only
+_pc1 = _rt_vs._people_counter(_v1)
+assert _pc1 is not None and _pc1["total_in"] == 7 and _pc1["total_out"] == 5, _pc1  # card shows the device totals
+# next frame: totals grew to 10 in / 6 out, periodic still 0 → the day counter picks up the deltas (+3 / +1)
+_f2 = bytes.fromhex("03d20a00000004d20600000005cc00000000")
+_rt_vs.handle_uplink(decoders.Uplink(deveui="00000000000evs132d", raw=_f2, fport=85, fcnt=2))
+_v2 = _rt_vs.values
+assert _v2.get("people_in_today") == 3 and _v2.get("people_out_today") == 1, _v2
+assert _v2.get("people_total_in") == 10 and _v2.get("people_total_out") == 6
+print("vs132 cumulative counter ok")

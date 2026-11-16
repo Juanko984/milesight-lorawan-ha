@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team chat — unified Alert & Job cards</title>
+<style>
+  :root{
+    --ms-bg:#0f1317; --ms-card:#171c22; --ms-line:#2a323b; --ms-ink:#e9eef2; --ms-ink2:#8c99a4;
+    --ms-accent:#5bb4e6; --ms-good:#4bbf73; --ms-warn:#e6a23c; --ms-bad:#ef5f5f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ms-bg);color:var(--ms-ink);font-family:Roboto,system-ui,-apple-system,Segoe UI,sans-serif;padding:22px;display:flex;flex-wrap:wrap;gap:26px;justify-content:center}
+  .col{width:430px;max-width:94vw}
+  h2{font-size:13px;color:var(--ms-ink2);font-weight:600;margin:0 0 12px;letter-spacing:.02em}
+  .thread{display:flex;flex-direction:column;gap:14px}
+  /* a system event rendered as a proper left-aligned message */
+  .evmsg{display:flex;gap:10px;max-width:92%}
+  .evav{width:30px;height:30px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:#fff;margin-top:2px}
+  .evav svg{width:17px;height:17px}
+  .evav.alert{background:var(--ms-warn)} .evav.alert.crit{background:var(--ms-bad)} .evav.ok{background:var(--ms-good)} .evav.job{background:var(--ms-accent)}
+  .evbody{min-width:0;flex:1}
+  .evmeta{font-size:11px;color:var(--ms-ink2);margin-bottom:4px;display:flex;align-items:center;gap:7px}
+  .evmeta .nm{color:var(--ms-ink);font-weight:650}
+  /* the shared card shell */
+  .card{border:1px solid var(--ms-line);border-radius:12px;background:color-mix(in srgb,var(--ms-ink) 4%,transparent);padding:11px 13px;cursor:pointer;transition:border-color .12s}
+  .card:hover{border-color:color-mix(in srgb,var(--ms-ink) 26%,var(--ms-line))}
+  .card.crit{box-shadow:inset 3px 0 0 var(--ms-bad)} .card.warn{box-shadow:inset 3px 0 0 var(--ms-warn)}
+  .card.ok{box-shadow:inset 3px 0 0 var(--ms-good)} .card.info{box-shadow:inset 3px 0 0 var(--ms-accent)}
+  .chd{display:flex;align-items:center;gap:8px}
+  .chd .cic{flex:0 0 auto;color:var(--ms-ink2)} .chd .cic svg{width:17px;height:17px;display:block}
+  .card.crit .chd .cic{color:var(--ms-bad)} .card.warn .chd .cic{color:var(--ms-warn)} .card.ok .chd .cic{color:var(--ms-good)} .card.info .chd .cic{color:var(--ms-accent)}
+  .ctitle{font-size:13.5px;font-weight:680;line-height:1.2;flex:1;min-width:0}
+  .sev{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:999px;flex:0 0 auto}
+  .sev.crit{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+  .sev.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+  .sev.ok{background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:2px 9px}
+  .chip svg{width:12px;height:12px}
+  .expand{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ms-ink2);margin-top:9px}
+  .expand svg{width:14px;height:14px}
+  /* expanded detail (shown on the one that's open) */
+  .detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--ms-line);font-size:12px;color:var(--ms-ink2);line-height:1.5}
+  .detail b{color:var(--ms-ink);font-weight:600}
+  .acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+  .btn{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:7px 11px;cursor:pointer;border:1px solid var(--ms-line);background:none;color:var(--ms-ink)}
+  .btn:hover{border-color:var(--ms-accent);color:var(--ms-accent)}
+  .btn.p{color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);border-color:transparent}
+  .btn.g{color:var(--ms-good);border-color:color-mix(in srgb,var(--ms-good) 45%,var(--ms-line))}
+  .btn svg{width:14px;height:14px}
+  .state{font-size:11.5px;color:var(--ms-ink2);align-self:center}
+  .note{width:100%;text-align:center;color:var(--ms-ink2);font-size:12px;margin-top:2px;line-height:1.6;max-width:880px;margin-left:auto;margin-right:auto}
+  .note b{color:var(--ms-ink)}
+  .sysline{align-self:center;font-size:10.5px;color:var(--ms-ink2);opacity:.75;margin:2px 0}
+</style>
+</head>
+<body>
+
+<!-- ALERTS -->
+<div class="col">
+  <h2>▲ Alerts channel</h2>
+  <div class="thread">
+
+    <!-- critical, expanded to show "more info" -->
+    <div class="evmsg">
+      <div class="evav alert crit"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg></div>
+      <div class="evbody">
+        <div class="evmeta"><span class="nm">Alerts</span><span>14:32</span></div>
+        <div class="card crit">
+          <div class="chd"><span class="cic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg></span>
+            <div class="ctitle">Temperature high — TS101</div><span class="sev crit">Critical</span></div>
+          <div class="chips">
+            <span class="chip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0z"/></svg>TS101</span>
+            <span class="chip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/></svg>Cold store</span>
+          </div>
+          <div class="detail">
+            <b>23.3 °C</b> — above the <b>5 °C</b> limit. Cold-chain cold storage.<br>Raised 14:32 · still active for 8 min.
+            <div class="acts">
+              <button class="btn p"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>Open device</button>
+              <button class="btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Create job</button>
+              <button class="btn">Acknowledge</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- warning, collapsed -->
+    <div class="evmsg">
+      <div class="evav alert"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></div>
+      <div class="evbody">
+        <div class="evmeta"><span class="nm">Alerts</span><span>13:05</span></div>
+        <div class="card warn">
+          <div class="chd"><span class="cic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></span>
+            <div class="ctitle">Offline — EM500-PP</div><span class="sev warn">Warning</span></div>
+          <div class="chips"><span class="chip">EM500-PP</span><span class="chip">Borehole 2</span></div>
+          <div class="expand"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>Tap for detail</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- resolved, collapsed, muted -->
+    <div class="evmsg">
+      <div class="evav ok"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2l-3.5-3.5-1.4 1.4L9 19 20 8l-1.4-1.4z"/></svg></div>
+      <div class="evbody">
+        <div class="evmeta"><span class="nm">Alerts</span><span>12:40</span></div>
+        <div class="card ok">
+          <div class="chd"><span class="cic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2l-3.5-3.5-1.4 1.4L9 19 20 8l-1.4-1.4z"/></svg></span>
+            <div class="ctitle">Offline — CTH01</div><span class="sev ok">Resolved</span></div>
+          <div class="chips"><span class="chip">CTH01</span><span class="chip">Reporting again</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- JOBS -->
+<div class="col">
+  <h2>☑ Jobs channel</h2>
+  <div class="thread">
+
+    <div class="evmsg">
+      <div class="evav job"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18A3 3 0 0 0 12 1a3 3 0 0 0-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-2 14l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z"/></svg></div>
+      <div class="evbody">
+        <div class="evmeta"><span class="nm">Jobs</span><span>14:33</span></div>
+        <div class="card info">
+          <div class="chd"><span class="cic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18A3 3 0 0 0 12 1a3 3 0 0 0-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg></span>
+            <div class="ctitle">Offline — CTH01</div><span class="sev warn">To do</span></div>
+          <div class="chips">
+            <span class="chip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg>Juan Korb</span>
+            <span class="chip">CTH01</span><span class="chip">Due Nov 18</span>
+          </div>
+          <div class="detail" style="border-top:none;padding-top:4px">
+            <div class="acts">
+              <button class="btn p"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>View job</button>
+              <button class="btn">Start</button>
+              <button class="btn g">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="evmsg">
+      <div class="evav job"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18A3 3 0 0 0 12 1a3 3 0 0 0-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-2 14l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z"/></svg></div>
+      <div class="evbody">
+        <div class="evmeta"><span class="nm">Jobs</span><span>14:18</span></div>
+        <div class="card info">
+          <div class="chd"><span class="cic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18A3 3 0 0 0 12 1a3 3 0 0 0-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg></span>
+            <div class="ctitle">Replace probe — TS302</div><span class="sev ok">In progress</span></div>
+          <div class="chips"><span class="chip">Anna Smit</span><span class="chip">TS302</span><span class="chip">ColdRoom 1</span></div>
+          <div class="expand"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>Tap for detail &amp; actions</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="note">
+  Every system message in <b>Alerts</b> and <b>Jobs</b> now renders as a <b>proper chat message</b> — a sender
+  avatar + name + time, and one consistent card. The card shows a title, a severity / status badge, and device /
+  area / person chips, with a coloured left bar (red critical, amber warning, green resolved, blue info). <b>Tap a
+  card to expand</b> the detail inline — the reading vs. threshold, when it was raised, and actions (Open device,
+  Create job, Acknowledge for alerts; View job, Start, Done for jobs). The same card shell is used in every channel,
+  so Site/DM messages, alerts and jobs all look and feel the same. (The top alert and first job are shown expanded.)
+</div>
+
+</body>
+</html>

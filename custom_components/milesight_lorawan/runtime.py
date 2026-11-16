@@ -547,6 +547,7 @@ class DeviceRuntime:
             src = self.raw if feature in LATCHED_FEATURES else decoded
             tracker.update(ts, BINARY_FEATURES[feature][0](src, self.limits))
         if self.counters is not None:
+            self._apply_counter_totals(decoded)
             self.counters.update(ts, decoded)
         if self.tank is not None:
             self._tank_reading(ts, decoded)
@@ -1630,6 +1631,34 @@ class DeviceRuntime:
         """A VS people counter (passage / entrance): VS132/133/135, VS350/351/360, VS121. Not the occupancy VS321."""
         return "peoplecount" in self.model.features or self.model.key == "VS121"
 
+    def _apply_counter_totals(self, decoded: dict) -> None:
+        """Derive the per-interval in / out count from the running lifetime total.
+
+        Several VS people counters (the VS132 in particular) report a cumulative
+        ``people_total_in`` / ``people_total_out`` and leave the per-report
+        ``people_in`` / ``people_out`` at 0, so summing the per-report fields gives
+        nothing for the day even though people have crossed. We take the delta of the
+        running total since the previous frame (a baseline kept in meta) and feed that
+        to the day counter instead, which is also robust to missed / dropped frames.
+        The first frame only establishes the baseline. The decoded per-report value is
+        kept when it is larger, so a firmware that fills both still counts without
+        double counting."""
+        for tot, per in (("people_total_in", "people_in"), ("people_total_out", "people_out")):
+            cur = decoded.get(tot)
+            if not isinstance(cur, (int, float)) or isinstance(cur, bool) or cur < 0:
+                continue
+            mk = "_ctr_" + tot
+            base = self.meta.get(mk)
+            self.meta[mk] = cur
+            if base is None:
+                continue                                  # first reading: baseline only
+            delta = cur - base
+            if delta < 0:                                 # counter reset / rollover / reboot
+                delta = int(cur)
+            cur_per = decoded.get(per)
+            per_val = int(cur_per) if isinstance(cur_per, (int, float)) and not isinstance(cur_per, bool) and cur_per >= 0 else 0
+            decoded[per] = max(int(delta), per_val)
+
     def _people_counter(self, v: dict) -> dict | None:
         if not self._counter_applies():
             return None
@@ -1637,7 +1666,8 @@ class DeviceRuntime:
         inside = _nz(v.get("people_count_all"))
         if inside is None:
             inside = _nz(v.get("people_net_today"))
-        if inn is None and out is None and inside is None:
+        tot_in, tot_out = _nz(v.get("people_total_in")), _nz(v.get("people_total_out"))
+        if inn is None and out is None and inside is None and tot_in is None and tot_out is None:
             return None
         cap = _nz(self.entry.options.get("capacity")) or None
         resolve = self._entity_id_resolver()
@@ -1650,6 +1680,7 @@ class DeviceRuntime:
             "capacity": None if not cap else int(cap), "over": bool(cap and inside is not None and inside > cap),
             "trend_key": trend_key, "trend_entity_id": resolve(trend_key),
             "in_entity_id": resolve("people_in_today"), "out_entity_id": resolve("people_out_today"),
+            "total_in": None if tot_in is None else int(tot_in), "total_out": None if tot_out is None else int(tot_out),
             "last_seen": self.meta.get("last_seen"),
         }
 

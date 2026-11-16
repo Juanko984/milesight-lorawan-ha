@@ -215,7 +215,8 @@ class AlertManager:
             if m["kind"] not in ("clear", "summary"):
                 self.hass.bus.async_fire(f"{DOMAIN}_alert", {"alert_id": m["id"], "key": m["key"], "kind": m["kind"],
                                                              "title": m["title"], "message": m["message"],
-                                                             "targets": m["targets"], "hub": self.entry.title})
+                                                             "severity": m.get("severity"), "category": m.get("category"),
+                                                             "url": m.get("url"), "targets": m["targets"], "hub": self.entry.title})
 
     # ------------------------------------------------------------- weekly summary
     def _names(self) -> dict[str, str]:

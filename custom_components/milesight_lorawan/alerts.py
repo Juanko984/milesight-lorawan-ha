@@ -374,7 +374,8 @@ class AlertEngine:
                 if cfg.enabled and cfg.notify_resolved and cur.get("notified"):
                     out.append({"targets": list(cur["notified"]), "kind": "resolved", "id": cur["id"], "key": k,
                                 "title": f"✅ Resolved: {cur['title']}", "message": cur["message"],
-                                "critical": False, "action": None, "url": cur.get("url")})
+                                "critical": False, "action": None, "url": cur.get("url"),
+                                "severity": "ok", "category": cur.get("category")})
             if cur.get("resolved_sent") and ts - cur["resolved_at"] > max(cfg.dedupe_min * 60, 3600):
                 del self.alerts[k]
         cutoff = ts - HISTORY_DAYS * 86400
@@ -393,6 +394,7 @@ class AlertEngine:
         return {"targets": list(targets), "kind": kind, "id": cur["id"], "key": key,
                 "title": f"{prefix}{cur['title']}", "message": cur["message"],
                 "critical": cur["severity"] == "critical", "url": cur.get("url"), "snooze": _duration(cfg.snooze_min),
+                "severity": cur["severity"], "category": cur.get("category"),
                 "action": cfg.action_title if cur.get("action") and cfg.action_title else None}
 
     # ------------------------------------------------------------- weekly summary

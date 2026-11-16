@@ -2,6 +2,23 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.149.0
+- **Team chat: alerts & jobs now read as proper messages.** In the Alerts and Jobs channels (and anywhere a
+  system event appears), an alert or a job is no longer a tiny centred pill. It renders like any other message —
+  a tinted avatar, the sender ("Alerts" / "Jobs"), a timestamp — with a card you can tap to expand for the full
+  detail (severity, category, the message, and a **View** / **View job** button). Critical open alerts and open
+  jobs start expanded; everything else is collapsed to "Tap for detail". Every channel now looks and feels the
+  same.
+- **Dual-probe TS302 shown as one widget with a two-line trend.** A two-probe TS302 (e.g. a reefer with two
+  sensors) now shows both probes as compact value tiles **and a single combined chart drawing both lines**
+  (Probe 1 blue, Probe 2 orange) instead of two separate side-by-side cards.
+- **VS132 (and VS13x) in / out counts now show on the dashboard.** The VS132 reports a running *lifetime* total
+  (`people_total_in` / `people_total_out`) and often leaves the per-report in/out at 0, so "today" summed to
+  nothing even when people had crossed. The day counter now derives each interval's count from the **delta of the
+  running total** (robust to dropped frames and to 0-valued periodic fields), and the People counter card shows
+  the device's **lifetime total** ("Device total 7 in · 5 out") so the numbers are always visible. Applies to any
+  VS people counter that reports cumulative totals.
+
 ## 0.148.0
 - **Door + stale-reading fixes extended across the whole TS range.** The channel-aware door/contact reader and
   the "clear the stale reading when a port is rewired" logic now apply to **TS101 / TS201 / TS301 / TS302**, not

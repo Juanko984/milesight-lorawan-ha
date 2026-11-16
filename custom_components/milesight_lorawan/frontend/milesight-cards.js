@@ -6250,6 +6250,11 @@
       ]);
       const tiles = h("div", { class: "pcflow" }, [this._tile(a.in_today, "in today", "in"), this._tile(a.out_today, "out today", "out"),
         this._tile(a.net == null ? null : (a.net >= 0 ? "+" + a.net : a.net), "net")]);
+      const totRow = (a.total_in != null || a.total_out != null)
+        ? h("div", { class: "pctot" }, [h("ha-icon", { icon: "mdi:sigma", style: { "--mdc-icon-size": "14px" } }),
+            " Device total ", h("b", { class: "in" }, (a.total_in == null ? "—" : String(a.total_in)) + " in"),
+            " · ", h("b", { class: "out" }, (a.total_out == null ? "—" : String(a.total_out)) + " out")])
+        : null;
       let trend = null;
       if (a.trend_entity_id) {
         this._subs = this._subs || {};
@@ -6264,12 +6269,14 @@
         if (this._hass) el.hass = this._hass;
         trend = h("div", { class: "atrend" }, [el]);
       }
-      return h("div", { class: "ablock" }, [head, hero, tiles, trend].filter(Boolean));
+      return h("div", { class: "ablock" }, [head, hero, tiles, totRow, trend].filter(Boolean));
     }
     _render() {
       if (!this._hass) return;
       this._css = `
         .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .pctot{margin-top:9px;display:flex;align-items:center;gap:4px;font-size:12.5px;color:var(--ms-dim);flex-wrap:wrap}
+        .pctot b{font-weight:650;color:var(--ms-text)} .pctot b.in{color:var(--ms-accent)} .pctot b.out{color:#e6893b}
         .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
         .ahd{display:flex;align-items:center;gap:11px}
         .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
@@ -6861,6 +6868,7 @@
     }
   }
 
+  const DUAL_COLS = ["#5bb4e6", "#ff8a5c"];               // Probe 1 / Probe 2 line + tile colours
   // ================================================================ TS temperature probes
   // Self-discovers the "temp_probe" role. Each probe's temperature is coloured + badged by its alarm state
   // (configured cold-chain limits, else the device's threshold alarm); humidity / door / tilt-light show as chips;
@@ -6898,6 +6906,17 @@
       if (p.tone === "high") return " hot";
       if (p.tone === "low" || p.tone === "mutation") return " warn";
       return p.value != null && p.value <= 8 ? " cold" : "";
+    }
+    _probeTile(p, idx) {
+      const badge = p.badge ? h("div", { class: "tppill " + (p.tone === "high" ? "hi" : p.tone === "low" || p.tone === "mutation" ? "lo" : "ok") }, [h("span", { class: "d" }), esc(p.badge)]) : null;
+      return h("div", { class: "ptile" }, [
+        h("div", { class: "ptop" }, [h("span", { class: "pdotlg", style: { background: DUAL_COLS[idx % DUAL_COLS.length] } }),
+          h("span", { class: "tpname" }, esc(p.label || ("Probe " + (idx + 1))))]),
+        h("div", { class: "tptemp" + this._tempCls(p) }, p.value == null ? "—" : [_airFmt(p.value, ""), h("small", {}, " °C")]),
+        badge,
+        h("div", { class: "tpmm" }, [p.min_today != null ? h("span", {}, ["min ", h("b", {}, _airFmt(p.min_today, ""))]) : null,
+          p.max_today != null ? h("span", {}, ["max ", h("b", {}, _airFmt(p.max_today, ""))]) : null].filter(Boolean)),
+      ].filter(Boolean));
     }
     _probe(st, p, idx) {
       const roleId = st.entity_id, mm = h("div", { class: "tpmm" }, [
@@ -6938,8 +6957,21 @@
         h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
       ]);
       let body = [];
-      if (probes.length > 1) {                           // two probes side by side read better than stacked
-        body.push(h("div", { class: "tpcols" }, probes.map((p, i) => h("div", { class: "tpcol" }, this._probe(st, p, i)))));
+      if (probes.length > 1) {                           // two probes: compact value tiles + ONE combined two-line chart
+        body.push(h("div", { class: "tptiles" }, probes.map((p, i) => this._probeTile(p, i))));
+        const ids = probes.map((p) => p.entity_id).filter(Boolean);
+        if (ids.length >= 2) {
+          this._subs = this._subs || {}; const sk = st.entity_id + "|multi"; let el = this._subs[sk];
+          if (!el) { el = h("milesight-multitrend-card"); this._subs[sk] = el; }
+          const sig = ids.join(",") + ":" + probes.map((p) => p.low + "/" + p.high).join(",");
+          if (el.__cfgSig !== sig) {
+            el.setConfig({ entities: ids, labels: probes.map((p, i) => p.label || ("Probe " + (i + 1))),
+              colors: DUAL_COLS, window: "today", unit: "°C" });
+            el.__cfgSig = sig;
+          }
+          if (this._hass) el.hass = this._hass;
+          body.push(h("div", { class: "tptrend" }, [el]));
+        }
       } else {
         probes.forEach((p, i) => { body = body.concat(this._probe(st, p, i)); });
       }
@@ -6956,7 +6988,7 @@
       for (const e of (a.extra || [])) chips.push(h("div", { class: "tpchip" + (e.active ? " warnchip" : "") }, [h("ha-icon", { icon: e.icon }), " " + e.label + " ", h("b", {}, e.active ? "Alarm" : "OK")]));
       if (chips.length) body.push(h("div", { class: "tpchips" }, chips));
       if (err) body.push(h("div", { class: "tperr" }, [h("ha-icon", { icon: "mdi:alert", style: { "--mdc-icon-size": "15px" } }), " " + esc(a.sensor_error)]));
-      return h("div", { class: "ablock" + (a.alarm ? " alarm" : "") + (probes.length > 1 ? " wide" : "") }, [head].concat(body));
+      return h("div", { class: "ablock" + (a.alarm ? " alarm" : "") }, [head].concat(body));
     }
     _render() {
       if (!this._hass) return;
@@ -6965,6 +6997,10 @@
         .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
         .ablock.wide{grid-column:span 2} @media (max-width:720px){.ablock.wide{grid-column:span 1}}
         .tpcols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:4px} @media (max-width:560px){.tpcols{grid-template-columns:1fr}}
+        .tptiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0 4px} @media (max-width:420px){.tptiles{grid-template-columns:1fr}}
+        .ptile{border:1px solid var(--ms-line);border-radius:12px;padding:10px 12px}
+        .ptop{display:flex;align-items:center;gap:7px;margin-bottom:5px} .pdotlg{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+        .ptile .tptemp{font-size:26px} .ptile .tpname{margin:0}
         .tpcol{min-width:0} .tpcol .tpprobe{margin-top:0}
         .ablock.alarm{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ms-bad) 28%,transparent)}
         .ahd{display:flex;align-items:center;gap:11px}
@@ -7640,26 +7676,70 @@
       try { this._hass.callWS({ type: "milesight_lorawan/jobs/status", job_id: job.id, status, hub: this._hub }); } catch (e) { /* surfaced by HA */ }
       job.status = status; this._render();
     }
-    _jobCard(job) {
-      const tone = { crit: "bad", warn: "warn", info: "accent", ok: "good" }[job.priority] || "accent";
-      const chip = (icon, txt) => txt ? h("span", { class: "jcchip" }, [h("ha-icon", { icon, style: { "--mdc-icon-size": "13px" } }), " " + esc(String(txt))]) : null;
-      const status = job.status || "todo";
-      const foot = [h("button", { class: "jcbtn", onclick: () => this._openJob(job.url) }, [h("ha-icon", { icon: "mdi:open-in-new", style: { "--mdc-icon-size": "15px" } }), " View job"])];
-      if (job.id) {
-        if (status === "todo") foot.push(h("button", { class: "jcbtn2", onclick: () => this._jobStatus(job, "doing") }, "Start"));
-        if (status === "todo" || status === "doing") foot.push(h("button", { class: "jcbtn2 p", onclick: () => this._jobStatus(job, "done") }, "Done"));
-        if (status === "done") foot.push(h("span", { class: "jcstate done" }, [h("ha-icon", { icon: "mdi:check-circle", style: { "--mdc-icon-size": "15px" } }), " Done"]));
-        else if (status === "doing") foot.push(h("span", { class: "jcstate" }, "In progress"));
-      }
-      return h("div", { class: "jobcard " + tone }, [
-        h("div", { class: "jchd" }, [h("ha-icon", { icon: "mdi:clipboard-check-outline" }), h("div", { class: "jctitle" }, esc(job.title || "Job"))]),
-        h("div", { class: "jcmeta" }, [chip("mdi:account", job.assignee), chip("mdi:leak", job.device), chip("mdi:map-marker", job.area), chip("mdi:calendar", this._jobDue(job.due))].filter(Boolean)),
-        h("div", { class: "jcfoot" }, foot),
+    // -- unified system event (alert / job) rendered as a proper message with an expandable card --
+    _isExp(m) {
+      if (this._exp && m.id in this._exp) return this._exp[m.id];
+      if (m.alert) return m.alert.severity === "critical" && !m.alert.resolved;   // critical alerts open by default
+      if (m.job) return (m.job.status || "todo") !== "done";                      // open jobs show their actions
+      return false;
+    }
+    _toggleExp(m) { this._exp = this._exp || {}; this._exp[m.id] = !this._isExp(m); this._render(); }
+    _evChip(icon, txt) { return txt ? h("span", { class: "evchip" }, [icon ? h("ha-icon", { icon, style: { "--mdc-icon-size": "12px" } }) : null, " " + esc(String(txt))].filter(Boolean)) : null; }
+    _eventMessage(m) {
+      const a = m.alert, j = m.job;
+      const tone = a ? (a.resolved ? "ok" : ({ critical: "crit", warning: "warn", ok: "ok", info: "info" }[a.severity] || "warn"))
+        : ({ crit: "crit", warn: "warn", info: "info", ok: "ok" }[(j && j.priority)] || "info");
+      const avIcon = a ? (a.resolved ? "mdi:check" : "mdi:alert") : "mdi:clipboard-check";
+      return h("div", { class: "evmsg" }, [
+        h("div", { class: "evav " + tone }, [h("ha-icon", { icon: avIcon })]),
+        h("div", { class: "evbody" }, [
+          h("div", { class: "evmeta" }, [h("span", { class: "nm" }, a ? "Alerts" : "Jobs"), h("span", {}, this._fmtTime(m.ts))]),
+          a ? this._alertCard(m) : this._jobCard(m),
+        ]),
       ]);
+    }
+    _evFoot(m, acts) {
+      if (this._isExp(m)) return h("div", { class: "evacts" }, acts.filter(Boolean));
+      return h("div", { class: "evexp" }, [h("ha-icon", { icon: "mdi:chevron-down", style: { "--mdc-icon-size": "15px" } }), " Tap for detail"]);
+    }
+    _alertCard(m) {
+      const a = m.alert;
+      const tone = a.resolved ? "ok" : ({ critical: "crit", warning: "warn", ok: "ok", info: "info" }[a.severity] || "warn");
+      const sev = a.resolved ? "Resolved" : ({ critical: "Critical", warning: "Warning", info: "Info", ok: "OK" }[a.severity] || "Alert");
+      const exp = this._isExp(m);
+      const detail = [];
+      if (exp && a.message) detail.push(h("div", { class: "evtext" }, esc(a.message)));
+      const acts = [];
+      if (a.url) acts.push(h("button", { class: "evbtn p", onclick: (e) => { e.stopPropagation(); this._openJob(a.url); } }, [h("ha-icon", { icon: "mdi:open-in-new", style: { "--mdc-icon-size": "15px" } }), " View"]));
+      return h("div", { class: "evcard " + tone, onclick: () => this._toggleExp(m) }, [
+        h("div", { class: "evhd" }, [h("ha-icon", { class: "evcic", icon: a.resolved ? "mdi:check-circle" : "mdi:alert" }),
+          h("div", { class: "evttl" }, esc(a.title || "Alert")), h("span", { class: "evsev " + tone }, sev)]),
+        a.category ? h("div", { class: "evchips" }, [this._evChip(null, String(a.category).replace(/_/g, " "))]) : null,
+        ...detail,
+        this._evFoot(m, acts),
+      ].filter(Boolean));
+    }
+    _jobCard(m) {
+      const job = m.job, status = job.status || "todo";
+      const tone = { crit: "crit", warn: "warn", info: "info", ok: "ok" }[job.priority] || "info";
+      const stLabel = { todo: "To do", doing: "In progress", done: "Done" }[status] || "";
+      const stTone = status === "done" ? "ok" : status === "doing" ? "ok" : "warn";
+      const chips = [this._evChip("mdi:account", job.assignee), this._evChip("mdi:leak", job.device),
+        this._evChip("mdi:map-marker", job.area), this._evChip("mdi:calendar", this._jobDue(job.due))].filter(Boolean);
+      const acts = [h("button", { class: "evbtn p", onclick: (e) => { e.stopPropagation(); this._openJob(job.url); } }, [h("ha-icon", { icon: "mdi:open-in-new", style: { "--mdc-icon-size": "15px" } }), " View job"])];
+      if (job.id) {
+        if (status === "todo") acts.push(h("button", { class: "evbtn", onclick: (e) => { e.stopPropagation(); this._jobStatus(job, "doing"); } }, "Start"));
+        if (status === "todo" || status === "doing") acts.push(h("button", { class: "evbtn g", onclick: (e) => { e.stopPropagation(); this._jobStatus(job, "done"); } }, "Done"));
+      }
+      return h("div", { class: "evcard " + tone, onclick: () => this._toggleExp(m) }, [
+        h("div", { class: "evhd" }, [h("ha-icon", { class: "evcic", icon: "mdi:clipboard-check-outline" }),
+          h("div", { class: "evttl" }, esc(job.title || "Job")), stLabel ? h("span", { class: "evsev " + stTone }, stLabel) : null].filter(Boolean)),
+        chips.length ? h("div", { class: "evchips" }, chips) : null,
+        this._evFoot(m, acts),
+      ].filter(Boolean));
     }
     _content(m) {
       const out = [];
-      if (m.job) out.push(this._jobCard(m.job));
       if (m.image) out.push(h("a", { class: "imgw", href: m.image, target: "_blank", rel: "noopener" }, [h("img", { src: m.image, loading: "lazy" })]));
       if (m.loc) {
         const { lat, lon } = m.loc, d = 0.006;
@@ -7674,7 +7754,7 @@
     }
     _message(m, prevAuthor) {
       if (m.kind === "sys") {
-        if (m.job) return h("div", { class: "sysjob" }, [m.text ? h("div", { class: "sysjobt" }, this._mentionify(m.text)) : null, this._jobCard(m.job)].filter(Boolean));
+        if (m.alert || m.job) return this._eventMessage(m);
         return h("div", { class: "sys" }, this._mentionify(m.text || ""));
       }
       const me = m.user_id && this._uid ? m.user_id === this._uid : (m.author === "You");
@@ -7974,15 +8054,26 @@
     .locw{display:block;text-decoration:none} .locmap{width:220px;height:120px;border:0;border-radius:9px 9px 0 0;display:block;pointer-events:none}
     .loclbl{display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-ink) 10%,transparent);padding:5px 9px;border-radius:0 0 9px 9px}
     .mention{color:var(--ms-accent);font-weight:600}
-    .sysjob{align-self:center;max-width:94%;display:flex;flex-direction:column;gap:6px} .sysjobt{text-align:center;font-size:11.5px;color:var(--ms-ink2)}
-    .jobcard{border:1px solid var(--ms-line);border-radius:12px;padding:11px 12px;min-width:220px;max-width:300px;box-shadow:inset 3px 0 0 var(--ms-accent);background:color-mix(in srgb,var(--ms-ink) 5%,transparent)}
-    .jobcard.bad{box-shadow:inset 3px 0 0 var(--ms-bad)} .jobcard.warn{box-shadow:inset 3px 0 0 var(--ms-warn)} .jobcard.good{box-shadow:inset 3px 0 0 var(--ms-good)}
-    .jchd{display:flex;align-items:center;gap:8px;color:var(--ms-ink)} .jchd ha-icon{--mdc-icon-size:18px;color:var(--ms-accent);flex:0 0 auto} .jctitle{font-size:13.5px;font-weight:680;line-height:1.2}
-    .jcmeta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px} .jcchip{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:2px 8px}
-    .jcfoot{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
-    .jcbtn{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12.5px;font-weight:600;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);border:0;border-radius:8px;padding:7px 12px;cursor:pointer}.jcbtn:hover{background:color-mix(in srgb,var(--ms-accent) 20%,transparent)}
-    .jcbtn2{font:inherit;font-size:12px;font-weight:600;color:var(--ms-ink);background:none;border:1px solid var(--ms-line);border-radius:8px;padding:7px 12px;cursor:pointer}.jcbtn2:hover{border-color:var(--ms-accent);color:var(--ms-accent)}.jcbtn2.p{color:var(--ms-good);border-color:color-mix(in srgb,var(--ms-good) 45%,var(--ms-line))}.jcbtn2.p:hover{background:color-mix(in srgb,var(--ms-good) 14%,transparent)}
-    .jcstate{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ms-ink2)}.jcstate.done{color:var(--ms-good)}
+    /* unified system-event message (alerts + jobs) */
+    .evmsg{display:flex;gap:10px;max-width:90%}
+    .evav{width:30px;height:30px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:#fff;margin-top:2px} .evav ha-icon{--mdc-icon-size:17px}
+    .evav.crit{background:var(--ms-bad)} .evav.warn{background:var(--ms-warn)} .evav.ok{background:var(--ms-good)} .evav.info{background:var(--ms-accent)}
+    .evbody{min-width:0;flex:1} .evmeta{font-size:11px;color:var(--ms-ink2);margin-bottom:4px;display:flex;align-items:center;gap:7px} .evmeta .nm{color:var(--ms-ink);font-weight:650}
+    .evcard{border:1px solid var(--ms-line);border-radius:12px;background:color-mix(in srgb,var(--ms-ink) 4%,transparent);padding:11px 13px;cursor:pointer;transition:border-color .12s}
+    .evcard:hover{border-color:color-mix(in srgb,var(--ms-ink) 26%,var(--ms-line))}
+    .evcard.crit{box-shadow:inset 3px 0 0 var(--ms-bad)} .evcard.warn{box-shadow:inset 3px 0 0 var(--ms-warn)} .evcard.ok{box-shadow:inset 3px 0 0 var(--ms-good)} .evcard.info{box-shadow:inset 3px 0 0 var(--ms-accent)}
+    .evhd{display:flex;align-items:center;gap:8px} .evcic{flex:0 0 auto;--mdc-icon-size:17px;color:var(--ms-ink2)}
+    .evcard.crit .evcic{color:var(--ms-bad)} .evcard.warn .evcic{color:var(--ms-warn)} .evcard.ok .evcic{color:var(--ms-good)} .evcard.info .evcic{color:var(--ms-accent)}
+    .evttl{font-size:13.5px;font-weight:680;line-height:1.2;flex:1;min-width:0;color:var(--ms-ink)}
+    .evsev{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:999px;flex:0 0 auto}
+    .evsev.crit{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)} .evsev.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)} .evsev.ok{background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)} .evsev.info{background:color-mix(in srgb,var(--ms-accent) 18%,transparent);color:var(--ms-accent)}
+    .evchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px} .evchip{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:2px 9px;text-transform:capitalize} .evchip ha-icon{--mdc-icon-size:12px}
+    .evtext{font-size:12px;color:var(--ms-ink2);line-height:1.5;margin-top:9px;white-space:pre-wrap}
+    .evexp{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--ms-ink2);margin-top:9px;opacity:.85} .evexp ha-icon{--mdc-icon-size:15px}
+    .evacts{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+    .evbtn{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:7px 11px;cursor:pointer;border:1px solid var(--ms-line);background:none;color:var(--ms-ink)} .evbtn:hover{border-color:var(--ms-accent);color:var(--ms-accent)} .evbtn ha-icon{--mdc-icon-size:15px}
+    .evbtn.p{color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);border-color:transparent} .evbtn.p:hover{background:color-mix(in srgb,var(--ms-accent) 20%,transparent);color:var(--ms-accent)}
+    .evbtn.g{color:var(--ms-good);border-color:color-mix(in srgb,var(--ms-good) 45%,var(--ms-line))} .evbtn.g:hover{background:color-mix(in srgb,var(--ms-good) 14%,transparent);color:var(--ms-good)}
     .receiptrow{display:flex;justify-content:flex-end;min-height:0;padding:0 2px}
     .receipt{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:3px;padding:2px 2px 4px} .receipt ha-icon{color:var(--ms-accent)}
     .comp{border-top:1px solid var(--ms-line);padding:11px 2px 2px;display:flex;flex-direction:column;gap:8px;position:relative}

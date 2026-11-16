@@ -298,6 +298,8 @@
    "sensor.vs133_count": { state: "24", attributes: { milesight_role: "people_counter", device: "Main entrance", area: "Lobby", model: "VS133", inside: 24, in_today: 312, out_today: 288, net: 24, capacity: 50, over: false, trend_key: "people_count_all", trend_entity_id: "sensor.vs133_inside", last_seen: Date.now() / 1000 - 30 } },
    "sensor.vs350_in": { state: "142", last_changed: new Date().toISOString(), attributes: { friendly_name: "In today", unit_of_measurement: "people" } },
    "sensor.vs350_count": { state: "162", attributes: { milesight_role: "people_counter", device: "Passage A", area: "Corridor", model: "VS350", inside: 162, in_today: 162, out_today: 140, net: 22, capacity: 100, over: false, trend_key: "people_in_today", trend_entity_id: "sensor.vs350_in", last_seen: Date.now() / 1000 - 60 } },
+   // VS132 single-line ToF counter: periodic 0 this interval, device lifetime totals 7 in / 5 out
+   "sensor.vs132_count": { state: "2", attributes: { milesight_role: "people_counter", device: "Front door", area: "Reception", model: "VS132", inside: 2, in_today: 0, out_today: 0, net: 0, total_in: 7, total_out: 5, capacity: null, over: false, trend_key: "people_in_today", trend_entity_id: null, last_seen: Date.now() / 1000 - 45 } },
    // VS373 fall detection — one fall alarm, one healthy in-bed
    "sensor.vs373_a": { state: "fall", attributes: { milesight_role: "fall_monitor", device: "Room 12", area: "Care wing", model: "VS373", state: "fall", state_label: "Fall detected", tone: "critical", respiration: null, dwell_s: 120, occupied: true, alarms: ["fall"], last_alarm: "fall", last_alarm_at: Date.now() / 1000 - 90, last_seen: Date.now() / 1000 - 10 } },
    "sensor.vs373_b": { state: "in_bed", attributes: { milesight_role: "fall_monitor", device: "Room 8", area: "Care wing", model: "VS373", state: "in_bed", state_label: "In bed", tone: "ok", respiration: 16, respiration_status: "normal", dwell_s: 32400, occupied: true, alarms: [], last_seen: Date.now() / 1000 - 25 } },
@@ -338,8 +340,10 @@
    "sensor.ts301": { state: "9.8", attributes: { milesight_role: "temp_probe", device: "Vaccine fridge", area: "Pharmacy", model: "TS301", battery: 61, alarm: true, humidity: 52, door: true, extra: [], sensor_error: "OK",
      probes: [ { key: "temperature", label: "", value: 9.8, unit: "°C", entity_id: null, tone: "high", badge: "Above 8 °C", low: 2, high: 8, mutation: null, min_today: 3.9, max_today: 9.8, sensor_status: null, contact: null } ], last_seen: Date.now() / 1000 - 20 } },
    "sensor.ts302": { state: "2.1", attributes: { milesight_role: "temp_probe", device: "Reefer trailer", area: "Bay 3", model: "TS302", battery: 73, alarm: true, humidity: null, door: false, extra: [], sensor_error: "OK",
-     probes: [ { key: "temperature_1", label: "Probe 1", value: 2.1, unit: "°C", entity_id: null, tone: "ok", badge: "In range", low: 0, high: 8, mutation: null, min_today: 1.6, max_today: 4.0, sensor_status: null, contact: null },
-               { key: "temperature_2", label: "Probe 2", value: -0.4, unit: "°C", entity_id: null, tone: "low", badge: "Below 0 °C", low: 0, high: 8, mutation: null, min_today: -0.4, max_today: 3.2, sensor_status: null, contact: null } ], last_seen: Date.now() / 1000 - 15 } },
+     probes: [ { key: "temperature_1", label: "Probe 1", value: 2.1, unit: "°C", entity_id: "sensor.ts302_probe_1", tone: "ok", badge: "In range", low: 0, high: 8, mutation: null, min_today: 1.6, max_today: 4.0, sensor_status: null, contact: null },
+               { key: "temperature_2", label: "Probe 2", value: -0.4, unit: "°C", entity_id: "sensor.ts302_probe_2", tone: "low", badge: "Below 0 °C", low: 0, high: 8, mutation: null, min_today: -0.4, max_today: 3.2, sensor_status: null, contact: null } ], last_seen: Date.now() / 1000 - 15 } },
+   "sensor.ts302_probe_1": { state: "2.1", attributes: { unit_of_measurement: "°C" } },
+   "sensor.ts302_probe_2": { state: "-0.4", attributes: { unit_of_measurement: "°C" } },
    "sensor.ts601": { state: "4.6", attributes: { milesight_role: "temp_probe", device: "Pallet T-14", area: "In transit", model: "TS601", battery: 96, alarm: true, humidity: 61, door: null, sensor_error: "OK",
      extra: [ { label: "Tilt", icon: "mdi:angle-acute", active: true, status: "tilt alarm" } ],
      probes: [ { key: "temperature", label: "", value: 4.6, unit: "°C", entity_id: null, tone: "ok", badge: "In range", low: null, high: null, mutation: null, min_today: 3.8, max_today: 5.9, sensor_status: null, contact: null } ], last_seen: Date.now() / 1000 - 10 } },
@@ -419,7 +423,8 @@
              { id: "jobs", kind: "jobs", title: "Jobs", icon: "mdi:clipboard-check-outline", unread: 0 } ],
            messages: (msg.channel === "site" || !msg.channel) ? [
              { id: "m1", channel: "site", ts: Date.now() / 1000 - 3600, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "Morning — fridges first, then the pumps at borehole 2." },
-             { id: "m2", channel: "site", ts: Date.now() / 1000 - 3000, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Vaccine fridge above 8 °C · critical" },
+             { id: "m2", channel: "site", ts: Date.now() / 1000 - 3000, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Temperature high — TS101", alert: { title: "Temperature high — TS101", message: "23.3 °C — above the 5 °C limit. Cold-chain cold storage.", severity: "critical", category: "cold_chain", url: "/milesight-devices/devices", resolved: false } },
+             { id: "m2b", channel: "site", ts: Date.now() / 1000 - 2800, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Resolved: Offline — CTH01", alert: { title: "✅ Resolved: Offline — CTH01", message: "The device reported again.", severity: "ok", category: "devices", url: "/milesight-devices/devices", resolved: true } },
              { id: "mjob", channel: "site", ts: Date.now() / 1000 - 2400, author: "Jobs", user_id: null, role: "", kind: "sys", text: "Assigned to Piet · Replace vaccine-fridge probe", job: { id: "j42", title: "Replace vaccine-fridge probe", priority: "warn", device: "TS301", area: "Pharmacy", assignee: "Piet", due: Date.now() / 1000 + 2 * 86400, status: "todo", url: "/milesight-jobs?job=j42" } },
              { id: "m3", channel: "site", ts: Date.now() / 1000 - 1800, author: "Anna", user_id: "u-anna", role: "Cleaner", kind: "msg", text: "Toilets restocked. @Piet soap dispenser is low.", image: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTQwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE0MCIgZmlsbD0iIzM2YzA4YSIvPjwvc3ZnPg==" },
              { id: "m3b", channel: "site", ts: Date.now() / 1000 - 1700, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "At the borehole now", loc: { lat: -33.9249, lon: 18.4241 } },
@@ -444,10 +449,14 @@
    callWS: (msg) => {
      if (msg && msg.type === "milesight_lorawan/jobs/status") { return Promise.resolve({ ok: true }); }
      if (msg && msg.type === "history/history_during_period") {
-       const id = msg.entity_ids[0]; const cur = parseFloat(S[id] && S[id].state); const c = isFinite(cur) ? cur : 10;
-       const base = c * 0.45, n = 32, start = Date.parse(msg.start_time), end = Date.now(), arr = [];
-       for (let i = 0; i < n; i++) { const f = i / (n - 1); arr.push({ lu: (start + (end - start) * f) / 1000, s: (base + (c - base) * f * f).toFixed(2) }); }
-       return Promise.resolve({ [id]: arr });
+       const out = {};
+       (msg.entity_ids || []).forEach((id, k) => {
+         const cur = parseFloat(S[id] && S[id].state); const c = isFinite(cur) ? cur : 10;
+         const base = c * 0.45, n = 32, start = Date.parse(msg.start_time), end = Date.now(), arr = [];
+         for (let i = 0; i < n; i++) { const f = i / (n - 1); const wob = Math.sin(f * 6 + k * 2) * 0.6; arr.push({ lu: (start + (end - start) * f) / 1000, s: (base + (c - base) * f * f + wob).toFixed(2) }); }
+         out[id] = arr;
+       });
+       return Promise.resolve(out);
      }
      if (msg && msg.type === "milesight_lorawan/jobs/people") {
        return Promise.resolve({ people: [

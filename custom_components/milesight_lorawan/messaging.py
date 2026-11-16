@@ -299,15 +299,17 @@ class MessagingManager:
 
     def post(self, channel: str, text: str, *, author: str, user_id: str | None = None, role: str = "",
              kind: str = "msg", push: bool = False, image: str | None = None,
-             loc: dict | None = None, via: str = "", job: dict | None = None) -> dict[str, Any] | None:
+             loc: dict | None = None, via: str = "", job: dict | None = None,
+             alert: dict | None = None) -> dict[str, Any] | None:
         text = (text or "").strip()
-        if (not text and not image and not loc and not job) or channel not in self.channels:
+        if (not text and not image and not loc and not job and not alert) or channel not in self.channels:
             return None
         if user_id:
             self.users[user_id] = author
         mentions = mc.parse_mentions(text, self.worker_names()) if kind == "msg" else []
         msg = mc.new_message(channel, text, author=author, user_id=user_id, role=role, kind=kind,
-                             mentions=mentions, image=image, loc=loc, existing=self._all_ids(), via=via, job=job)
+                             mentions=mentions, image=image, loc=loc, existing=self._all_ids(), via=via,
+                             job=job, alert=alert)
         self.messages.setdefault(channel, [])
         self.messages[channel] = mc.trim(self.messages[channel] + [msg])
         if user_id:                                        # the author has implicitly read their own channel
@@ -480,12 +482,17 @@ class MessagingManager:
     def on_alert(self, event) -> None:
         d = event.data or {}
         aid = d.get("alert_id")
-        if not aid or aid in self._posted_alerts:
+        kind = d.get("kind") or "new"
+        key = f"{aid}:{kind}"                               # a 'new' and its later 'resolved' both post, duplicates don't
+        if not aid or key in self._posted_alerts:
             return
-        self._posted_alerts.add(aid)
+        self._posted_alerts.add(key)
         title = d.get("title") or d.get("key") or "Alert"
-        sev = d.get("severity") or d.get("kind") or ""
-        self.post("alerts", f"{title}{(' · ' + sev) if sev else ''}", author="Alerts", kind="sys")
+        sev = d.get("severity") or ("ok" if kind == "resolved" else "warning")
+        card = {"title": title, "message": d.get("message"), "severity": sev,
+                "category": d.get("category"), "url": d.get("url"), "kind": kind,
+                "resolved": kind == "resolved"}
+        self.post("alerts", title, author="Alerts", kind="sys", alert=card)
 
     @callback
     def on_job(self, title: str) -> None:
