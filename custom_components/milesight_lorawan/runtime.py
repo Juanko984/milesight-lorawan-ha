@@ -968,6 +968,7 @@ class DeviceRuntime:
         return {
             "milesight_role": "env_monitor", "device": self.entry.title,
             "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "purpose": self._pkey, "purpose_label": self.purpose.label if self.purpose else None,
             "metrics": metrics, "states": states, "primary": primary["key"] if primary else None,
             "last_seen": self.meta.get("last_seen"),
         }
@@ -1270,7 +1271,7 @@ class DeviceRuntime:
         rmin, rmax = _nz(v.get("range_min")), _nz(v.get("range_max"))
         role = {
             "milesight_role": "em_reading", "device": self.entry.title, "area": self._area(), "model": self.model.key,
-            "kind": kind, "label": label, "unit": unit, "icon": icon, "color": colour,
+            "purpose": self._pkey, "kind": kind, "label": label, "unit": unit, "icon": icon, "color": colour,
             "value": round(value, 2), "entity_id": self._entity_id_resolver()(key),
             "min_today": None if lo_t is None else round(lo_t, 2), "max_today": None if hi_t is None else round(hi_t, 2),
             "battery": _nz(v.get("battery")), "sensor_error": v.get("sensor_error"),
@@ -1575,10 +1576,16 @@ class DeviceRuntime:
                 except Exception:  # noqa: BLE001
                     eid = None
             channels.append({"channel": n, "key": key, "entity_id": eid, "on": v.get(key)})
+        metered = "meter" in self.model.features
         return {
             "milesight_role": "switch_panel", "device": self.entry.title, "area": self._area(),
             "model": self.model.key, "gangs": gangs, "channels": channels,
-            "power": _nz(v.get("power")), "last_seen": self.meta.get("last_seen"),
+            "power": _nz(v.get("power")), "metered": metered,
+            "voltage": _nz(v.get("voltage")) if metered else None,
+            "current": _nz(v.get("current")) if metered else None,
+            "power_factor": _nz(v.get("power_factor")) if metered else None,
+            "energy": _nz(v.get("energy")) if metered else None,
+            "last_seen": self.meta.get("last_seen"),
         }
 
     # ---------------------------------------------------------------- WS302 sound level / water-flow
@@ -2823,7 +2830,8 @@ class DeviceRuntime:
             v.update(self.tank.values(self.tank_cfg, ts, litres))
             is_silo = self.tank_cfg.is_silo            # grain/feed → Farm; water/fuel/other → Water
             self.attrs["tank_volume"] = {"milesight_role": "tank", "device": self.entry.title,
-                                         "area": self.entry.data.get("area"), "capacity_l": v["tank_capacity"],
+                                         "area": self.entry.data.get("area"), "purpose": self._pkey,
+                                         "capacity_l": v["tank_capacity"],
                                          "shape": self.tank_cfg.shape, "fill": v["tank_fill"],
                                          "contents": self.tank_cfg.contents, "is_silo": is_silo,
                                          "usage_per_day": v["tank_usage_per_day"], "days_left": v["tank_days_left"],
@@ -2893,6 +2901,10 @@ class DeviceRuntime:
                 v[f"{feature}_status"] = off_text
             else:
                 v[f"{feature}_status"] = "Waiting for data"
+            # expose purpose / area on the binary entity so dashboards can discover it (e.g. the coop door)
+            self.attrs[feature] = {**(self.attrs.get(feature) or {}), "purpose": self._pkey,
+                                   "purpose_label": self.purpose.label if self.purpose else None,
+                                   "area": self._area(), "device": self.entry.title}
 
         self._purpose_values(v, ts)
         for option, val in _setpoints.device_values(self).items():

@@ -2051,6 +2051,8 @@ def families(model_key: str) -> frozenset[str]:
         out.add("pulse")
     if f & {"occupancy", "pir", "motion", "peoplecount"}:
         out.add("motion")
+    if "illumination" in f or "illuminance" in f:
+        out.add("light")
     if model.buttons and model_key.startswith("WS1"):
         out.add("button")
     if "at101" in f:

@@ -2790,3 +2790,20 @@ _v2 = _rt_vs.values
 assert _v2.get("people_in_today") == 3 and _v2.get("people_out_today") == 1, _v2
 assert _v2.get("people_total_in") == 10 and _v2.get("people_total_out") == 6
 print("vs132 cumulative counter ok")
+
+# ---- WS558: the switch panel surfaces the power metering (voltage / current / PF / energy), not just power ----
+_e_ws, _rt_ws = make_with("00000000000ews558d", "WS558", {}, title="Open-plan lighting")
+# metering frame: switch state (ch1/2 on) + voltage 245.6 V, power 420 W, PF 96 %, energy 0.502 kWh, current 1.82 A
+_wsf = bytes.fromhex("0831000303749809" "0480a4010000" "058160" "0683f6010000" "07c91c07")
+_rt_ws.handle_uplink(decoders.Uplink(deveui="00000000000ews558d", raw=_wsf, fport=85, fcnt=1))
+_pan = _rt_ws._switch_panel(_rt_ws.values)
+assert _pan is not None and _pan["metered"] is True, _pan
+assert _pan["power"] == 420 and _pan["voltage"] == 245.6 and _pan["power_factor"] == 96, _pan
+assert _pan["current"] == 1.82 and _pan["energy"] == 0.502, _pan
+assert len(_pan["channels"]) == 8
+# a non-metered wall switch exposes no metering strip
+_e_w2, _rt_w2 = make_with("00000000000ews503d", "WS503", {}, title="Hall switch")
+_rt_w2.handle_uplink(decoders.Uplink(deveui="00000000000ews503d", raw=bytes.fromhex("073e00ff2905"), fport=85, fcnt=1))
+_pan2 = _rt_w2._switch_panel(_rt_w2.values)
+assert _pan2 is not None and _pan2["metered"] is False and _pan2["voltage"] is None, _pan2
+print("ws558 metering panel ok")

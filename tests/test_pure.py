@@ -1412,9 +1412,11 @@ def test_purposes_catalogue():
     assert prp.resolve("Fridge / cold room") == "fridge" and prp.resolve("fridge") == "fridge"
     assert prp.resolve("gate") == "gate" and prp.resolve("AC") == "ac" and prp.resolve("nonsense") is None
     # poultry coop purposes: in the dropdown, use existing groups, and a coop purpose tags the site "coop"
-    assert set(prp.COOP_PURPOSES) == {"coop_drinker", "coop_feeder", "coop_door", "coop_climate"}
+    assert set(prp.COOP_PURPOSES) == {"coop_drinker", "coop_feeder", "coop_door", "coop_climate", "coop_light"}
     assert prp.get("coop_drinker").group == "tank" and prp.get("coop_feeder").group == "tank"
     assert prp.get("coop_door").group == "security" and prp.get("coop_climate").group == "comfort"
+    assert prp.get("coop_light").group == "comfort" and "light" in mdl.families("EM500-LGT")
+    assert "coop" in mdl.device_tags("EM500-LGT", {"purpose": "coop_light"})
     assert prp.get("coop_door").defaults.get("left_open_min") == 15 and prp.get("coop_climate").defaults.get("temp_low") == 2
     assert "coop" in mdl.device_tags("EM400-MUD", {"purpose": "coop_drinker"})
     assert "coop" in mdl.device_tags("AM307", {"purpose": "coop_climate"})

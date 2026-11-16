@@ -2,6 +2,25 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.149.3
+- **Chicken-coop page now fills in from Purpose, not just a Home Assistant area.** Previously the coop cards
+  found devices only by an HA area called "Chicken coop", so setting a device's *Purpose* (Coop pop-hole / door,
+  Coop climate …) installed the page but left it empty. Now the Feed & water, Climate, and Door & light sections
+  also discover devices by their coop **purpose** — a device matches if it is in the coop area **or** carries a
+  coop purpose. Added a **"Coop light sensor"** purpose so an EM500-LGT (or any lux sensor) can be fitted properly
+  instead of the scene-button purpose. Note: an occupancy device like the VS321 reports its climate per HA area,
+  so for that one specifically the coop climate still needs the device placed in the "Chicken coop" area; a
+  dedicated climate sensor (EM300-TH, AM-series) shows from its purpose alone.
+- Entities now expose their `purpose` so dashboards can discover them by what they're fitted to (env monitors,
+  tanks, contacts and EM readings).
+
+## 0.149.2
+- **WS558 (and metered wall switches) now show their power metering on the Lights & switches card.** A metered
+  switch controller reports voltage, current, active power, power factor and total energy, but the Lights card
+  only showed the channel toggles and a "… W" in the header. It now has a metering strip — **Power · Voltage ·
+  Current · Power factor · Energy** — above the toggles. Non-metered wall switches (WS501/502/503 v1–v3, CN
+  variants) are unchanged and show no strip.
+
 ## 0.149.1
 - **Existing alerts upgrade to cards too.** Alerts posted *before* the card upgrade were stored as plain
   "Title · new" / "✅ Resolved: … · resolved" lines with no detail, so an already-populated Alerts channel kept

@@ -129,6 +129,23 @@
     if (!want) return true;
     return String(have == null ? "" : have).trim().toLowerCase() === String(want).trim().toLowerCase();
   }
+  // purpose match: `want` is a comma/space-separated list of purpose keys (e.g. "coop_climate" or
+  // "coop_drinker,coop_feeder"). A device's `purpose` attribute is its key. Empty want = no purpose constraint.
+  function purposeList(want) {
+    return String(want == null ? "" : want).split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  }
+  function purposeEq(have, want) {
+    const list = purposeList(want);
+    if (!list.length) return true;
+    return list.indexOf(String(have == null ? "" : have).trim().toLowerCase()) !== -1;
+  }
+  // a card can scope by area and/or purpose. A device belongs when it is in the given area OR has one of the given
+  // purposes (union) — so the coop page can list devices set up either way. With neither set, everything matches.
+  function scopeMatch(cfg, a) {
+    const hasA = !!cfg.area, hasP = !!cfg.purpose;
+    if (!hasA && !hasP) return true;
+    return (hasA && areaEq(a.area, cfg.area)) || (hasP && purposeEq(a.purpose, cfg.purpose));
+  }
   // normalise a preset's `empty` (string or object) into emptyState options
   function emptyOpts(empty, fallbackIcon) {
     if (!empty) return { icon: fallbackIcon, title: "Nothing here yet" };
@@ -818,12 +835,12 @@
       return this._discover().map((x) => x.id);           // auto mode: re-render when any tank changes
     }
     _discover() {
-      const role = this._cfg.role || "tank", area = this._cfg.area;
+      const role = this._cfg.role || "tank";
       const out = [];
       for (const id in this._hass.states) {
         if (!id.startsWith("sensor.")) continue;
         const a = this._hass.states[id].attributes;
-        if (a.milesight_role === role && areaEq(a.area, area)) out.push({ id, st: this._hass.states[id] });
+        if (a.milesight_role === role && scopeMatch(this._cfg, a)) out.push({ id, st: this._hass.states[id] });
       }
       return out.sort((p, q) => String(p.st.attributes.device || p.id).localeCompare(String(q.st.attributes.device || q.id)));
     }
@@ -1362,7 +1379,7 @@
       }
       if (p.transform) rows = p.transform(rows);
       if (p.filter) rows = rows.filter(p.filter);
-      if (this._cfg.area) rows = rows.filter((r) => areaEq(r.area, this._cfg.area));
+      if (this._cfg.area || this._cfg.purpose) rows = rows.filter((r) => scopeMatch(this._cfg, r));
       return rows;
     }
     _openRow(r) {
@@ -5499,7 +5516,7 @@
       const S = this._hass.states, out = [];
       for (const id in S) {
         const st = S[id], a = st.attributes;
-        if (a && a.milesight_role === "env_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+        if (a && a.milesight_role === "env_monitor" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); }
       }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
@@ -6112,6 +6129,11 @@
         h("div", { class: "tog" + (on ? " on" : ""), onclick: () => c.entity_id && this._svc(on ? "turn_off" : "turn_on", { entity_id: c.entity_id }) }, [h("i")]),
       ]);
     }
+    _mtile(val, unit, label) {
+      return h("div", { class: "lmtile" }, [
+        h("div", { class: "v" }, val == null ? "—" : [String(val), h("small", {}, " " + unit)]),
+        h("div", { class: "k" }, label)]);
+    }
     _block(st) {
       const a = st.attributes, chans = a.channels || [], ids = chans.map((c) => c.entity_id).filter(Boolean);
       const head = h("div", { class: "ahd" }, [
@@ -6120,12 +6142,20 @@
           h("div", { class: "ahs" }, esc((a.model || "") + (a.area ? " · " + a.area : "") + (a.power != null ? " · " + Math.round(a.power) + " W" : "")))]),
         h("span", { class: "adot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
       ]);
+      const metered = a.metered || a.voltage != null || a.current != null || a.energy != null || a.power_factor != null;
+      const meter = metered ? h("div", { class: "lmeter" }, [
+        this._mtile(a.power == null ? null : Math.round(a.power), "W", "Power"),
+        this._mtile(a.voltage == null ? null : (a.voltage >= 100 ? Math.round(a.voltage) : a.voltage.toFixed(1)), "V", "Voltage"),
+        this._mtile(a.current == null ? null : a.current.toFixed(a.current >= 10 ? 1 : 2), "A", "Current"),
+        this._mtile(a.power_factor == null ? null : Math.round(a.power_factor), "%", "Power factor"),
+        this._mtile(a.energy == null ? null : (a.energy >= 100 ? Math.round(a.energy) : a.energy.toFixed(2)), "kWh", "Energy"),
+      ]) : null;
       const grid = h("div", { class: "lgrid" }, chans.map((c) => this._channel(c)));
       const all = ids.length ? h("div", { class: "lall" }, [
         h("button", { onclick: () => this._svc("turn_on", { entity_id: ids }) }, "All on"),
         h("button", { onclick: () => this._svc("turn_off", { entity_id: ids }) }, "All off"),
       ]) : null;
-      return h("div", { class: "ablock" }, [head, grid, all].filter(Boolean));
+      return h("div", { class: "ablock" }, [head, meter, grid, all].filter(Boolean));
     }
     _render() {
       if (!this._hass) return;
@@ -6139,6 +6169,12 @@
         .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
         .adot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
         .adot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .lmeter{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:13px 0 2px}
+        @media (max-width:420px){.lmeter{grid-template-columns:repeat(3,1fr)}}
+        .lmtile{border:1px solid var(--ms-line);border-radius:10px;padding:8px 9px;text-align:center}
+        .lmtile .v{font-size:15px;font-weight:650;color:var(--ms-ink);line-height:1.1;white-space:nowrap}
+        .lmtile .v small{font-size:10.5px;font-weight:600;color:var(--ms-ink2)}
+        .lmtile .k{font-size:10px;color:var(--ms-ink2);margin-top:3px;text-transform:uppercase;letter-spacing:.03em}
         .lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:13px 0 2px}
         .lgang{display:flex;align-items:center;gap:10px;border:1px solid var(--ms-line);border-radius:11px;padding:9px 11px}
         .lgang .nm{flex:1;min-width:0;font-size:12.5px;color:var(--ms-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

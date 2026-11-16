@@ -226,6 +226,10 @@
    "sensor.ws203_temperature": { state: "19.8", last_changed: new Date().toISOString(), attributes: { friendly_name: "Store room Temperature", unit_of_measurement: "°C" } },
    "sensor.ws203_humidity": { state: "52", last_changed: new Date().toISOString(), attributes: { friendly_name: "Store room Humidity", unit_of_measurement: "%" } },
    "sensor.ws203_battery": { state: "72", last_changed: new Date().toISOString(), attributes: { friendly_name: "Store room Battery", unit_of_measurement: "%" } },
+   // coop env sensor: found by PURPOSE (coop_climate), not by HA area
+   "sensor.coop_env": { state: "18.4", attributes: { milesight_role: "env_monitor", device: "Coop climate", area: null, purpose: "coop_climate", model: "EM300-TH", primary: "temperature", last_seen: Date.now() / 1000 - 40,
+     metrics: [ { key: "temperature", label: "Temp", value: 18.4, unit: "°C", icon: "mdi:thermometer", color: "#ff8a5c", entity_id: "sensor.coop_env_t", primary: true },
+                { key: "humidity", label: "Humidity", value: 63, unit: "%", icon: "mdi:water-percent", color: "#4aa3ff", entity_id: "sensor.coop_env_h" } ], states: [] } },
    "sensor.ws203_env": { state: "19.8", attributes: { milesight_role: "env_monitor", device: "Store room", area: "Store room", model: "WS203", primary: "temperature", last_seen: Date.now() / 1000 - 120,
      metrics: [
        { key: "temperature", label: "Temperature", unit: "°C", icon: "mdi:thermometer", color: "#ff8a5c", value: 19.8, entity_id: "sensor.ws203_temperature" },
@@ -280,7 +284,7 @@
    "switch.ws558_3": { state: "off", attributes: { friendly_name: "Row C" } }, "switch.ws558_4": { state: "on", attributes: { friendly_name: "Meeting rm" } },
    "switch.ws558_5": { state: "off", attributes: { friendly_name: "Kitchen" } }, "switch.ws558_6": { state: "on", attributes: { friendly_name: "Corridor" } },
    "switch.ws558_7": { state: "off", attributes: { friendly_name: "Store" } }, "switch.ws558_8": { state: "on", attributes: { friendly_name: "Sign" } },
-   "sensor.ws558_panel": { state: "5", attributes: { milesight_role: "switch_panel", device: "Open-plan lighting", area: "Floor 2", model: "WS558", gangs: 8, power: 420, last_seen: Date.now() / 1000 - 30,
+   "sensor.ws558_panel": { state: "5", attributes: { milesight_role: "switch_panel", device: "Open-plan lighting", area: "Floor 2", model: "WS558", gangs: 8, power: 420, metered: true, voltage: 231.4, current: 1.82, power_factor: 96, energy: 0.502, last_seen: Date.now() / 1000 - 30,
      channels: [1,2,3,4,5,6,7,8].map((n) => ({ channel: n, key: "switch_" + n, entity_id: "switch.ws558_" + n, on: ["on","on","off","on","off","on","off","on"][n-1] === "on" })) } },
    // VS321 room / workplace (chips drive a trend, like the AM range)
    "sensor.vs321_temp": { state: "22.4", last_changed: new Date().toISOString(), attributes: { friendly_name: "Temperature", unit_of_measurement: "°C" } },
@@ -579,6 +583,7 @@
  // area-scoped (coop page) — filters to one HA area
  mount("milesight-table-card", { preset: "tanks", area: "Chicken coop", title: false }, "table: tanks @ Chicken coop");
  mount("milesight-level-card", { area: "Chicken coop" }, "level @ Chicken coop");
+ mount("milesight-environment-card", { purpose: "coop_climate" }, "environment @ purpose coop_climate");
 
  // also exercise empty states: a hass with no milesight sensors
  const emptyHass = { config: {}, panels: {}, states: {}, entities: {}, devices: {}, callService: () => {} };
