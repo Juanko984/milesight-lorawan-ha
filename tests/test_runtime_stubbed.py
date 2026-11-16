@@ -464,8 +464,14 @@ assert rt.values["command_status"] == "confirmed" and rt.commands.echoes is True
 assert [e for e in fired if e[0] == "milesight_lorawan_command"][-1][1]["status"] == "confirmed"
 assert rt.values["online"] is True and rt.values["battery_low"] is False
 
-# Auto offline timeout from the reporting cadence
+# Default offline time is a flat 24 h (auto off by default) — keeps offline alerts quiet for devices/sensors
+rt_def, _ = make_device("00000000000f03de", "EM300-TH")
+assert rt_def._offline_auto is False
+assert rt_def._offline_threshold_s()[0] == 86400.0         # 24 h fixed, not 3 x cadence
+
+# Auto offline timeout from the reporting cadence (opt-in per device)
 rt_iv, _ = make_device("00000000000f0301", "EM300-TH")
+rt_iv._offline_auto = True                                 # this block tests the auto path
 # no cadence known yet -> Milesight factory default (10 min, EM300 report interval is in seconds)
 assert rt_iv._report_interval_s() == (600.0, "default")
 off, iv, src = rt_iv._offline_threshold_s()
@@ -2185,9 +2191,11 @@ jobs_mod = sys.modules["milesight_lorawan.jobs"]
 _jstates: list = []
 _jhub = types.SimpleNamespace(entry_id="jhub", title="Green Acres",
     runtime_data=types.SimpleNamespace(alerts=types.SimpleNamespace(cfg=_alert_cfg)))
+_jperson = types.SimpleNamespace(name="Thabo Admin",
+    attributes={"friendly_name": "Thabo Admin", "user_id": "uthabo"})
 _jhass = types.SimpleNamespace(
     config=types.SimpleNamespace(time_zone="Africa/Johannesburg", latitude=-33.9, longitude=18.4),
-    states=types.SimpleNamespace(async_all=lambda: list(_jstates)),
+    states=types.SimpleNamespace(async_all=lambda d=None: ([_jperson] if d == "person" else list(_jstates))),
     services=_RecSvc(), bus=types.SimpleNamespace(async_fire=lambda e, d: None),
     config_entries=types.SimpleNamespace(async_entries=lambda dm: []),
     async_create_task=lambda c: (asyncio.run(c) if asyncio.iscoroutine(c) else None))
@@ -2299,9 +2307,10 @@ kinds = [h["kind"] for h in mj["history"]]
 assert kinds == ["created", "assigned", "started", "done"], kinds
 assert mj["history"][-1]["note"] == "Done and tested"
 
-# people(): assignable list comes from the alert notify targets (no team wired here)
+# people(): assignable list = alert notify targets + every Home Assistant user (person entities), not only workers
 _ppl = jm.people()
 assert any(p["notify"] == "notify.ops" for p in _ppl), _ppl
+assert any(p["name"] == "Thabo Admin" and p["source"] == "user" for p in _ppl), _ppl   # HA user surfaced
 print("jobs ok")
 
 # ---------------- team: workers, geofenced clock-in (on-site vs off-site blocked), timesheets ----------------
@@ -2593,8 +2602,11 @@ def _chat_task(c):
 def _drain():
     while _PEND: asyncio.run(_PEND.pop(0))
 async def _getuser(uid): return types.SimpleNamespace(name="Piet Botha") if uid == "upiet" else None
+_cperson = types.SimpleNamespace(name="Nomsa Dlamini",
+    attributes={"friendly_name": "Nomsa Dlamini", "user_id": "unomsa"})
 chat_hass = types.SimpleNamespace(
     config=types.SimpleNamespace(path=lambda *p: "/tmp/" + "/".join(p)),
+    states=types.SimpleNamespace(async_all=lambda d=None: [_cperson] if d == "person" else []),
     services=_ChatSvc(), auth=types.SimpleNamespace(async_get_user=_getuser),
     async_add_executor_job=lambda fn, *a: _getuser, async_create_task=_chat_task)
 _cteam = types.SimpleNamespace(workers=[{"name": "Piet Botha"}, {"name": "Anna Smit"}],
@@ -2719,6 +2731,19 @@ assert mgrc.delete_message("site", _mb["id"], user_id="ujuan") is None          
 assert mgrc.delete_message("site", _mb["id"], user_id="ujuan", is_admin=True) == {"id": _mb["id"]}   # admin can
 print("team chat edit/delete ok")
 
+# ---- team chat: posting "as" a worker keeps your identity, marks the message, and left-aligns in the UI ----
+mgrc.post("site", "as myself", author="Juan", user_id="ujuan")
+assert mgrc.users.get("ujuan") == "Juan"
+_aw = mgrc.post("site", "on behalf", author="Riaan du Plessis", user_id="ujuan", as_worker="Riaan du Plessis")
+assert _aw["as_worker"] == "Riaan du Plessis" and _aw["user_id"] == "ujuan"
+assert mgrc.users.get("ujuan") == "Juan"                        # the worker name did NOT overwrite the real name
+assert mgrc.edit_message("site", _aw["id"], "fixed", user_id="ujuan")["text"] == "fixed"   # still editable by me
+_snap = mgrc.snapshot("ujuan")
+assert _snap.get("me") == "ujuan" and _snap.get("me_name") == "Juan"
+# the DM people picker surfaces every HA user (person entity), not only Team workers
+assert any(p["name"] == "Nomsa Dlamini" and p["kind"] == "user" for p in mgrc.people("ujuan"))
+print("team chat post-as-worker ok")
+
 # ---- team chat: job assignment posts a rich card into the Jobs channel ----
 CHATEVENTS.clear()
 mgrc.on_job_assigned({"id": "j7", "title": "Swap filter", "priority": "warn", "device": "AM307", "area": "Office", "assignee": "Piet Botha"})
@@ -2772,6 +2797,20 @@ _rt_t60.raw["temperature"] = 4.6                         # a prior good reading
 _rt_t60.handle_uplink(decoders.Uplink(deveui="00000000000ets601d", raw=bytes.fromhex("0c00"), fport=85, fcnt=3))  # probe disconnected
 assert "temperature" not in _rt_t60.raw
 print("ts301 + ts60x cleanup ok")
+
+# ---- TS302 / EM300-MCS as a drinking trough: float switch (magnet) = empty/full, probe = water temp ----
+_e_tr, _rt_tr = make_with("0000000000etrough", "TS302", {"purpose": "water_trough"}, title="Coop trough")
+# channel 3 = temperature probe (water), channel 4 = magnet contact (float switch)
+_rt_tr.handle_uplink(decoders.Uplink(deveui="0000000000etrough", raw=bytes.fromhex("0175410367ec00040001"), fport=85, fcnt=1))
+_tr = _rt_tr.attrs.get("door_active")
+assert _tr and _tr["milesight_role"] == "water_trough", _tr
+assert _tr["water_temp"] is not None and _tr["empty"] in (True, False), _tr   # probe → water temp; magnet → empty/full
+# EM300-MCS trough: no probe, so ambient temp + humidity instead of a water temp
+_e_m, _rt_m = make_with("0000000000etroughm", "EM300-MCS", {"purpose": "water_trough"}, title="Paddock trough")
+_rt_m.handle_uplink(decoders.Uplink(deveui="0000000000etroughm", raw=bytes.fromhex("0175410367ec000468600500ff"), fport=85, fcnt=1))
+_trm = _rt_m.attrs.get("door_active")
+assert _trm and _trm["water_temp"] is None and _trm["ambient_temp"] is not None, _trm
+print("trough sensors ok")
 
 # ---- VS132: cumulative in/out totals drive the day counter (periodic fields stay 0) ----
 _e_vs, _rt_vs = make_with("00000000000evs132d", "VS132", {}, title="Front door")

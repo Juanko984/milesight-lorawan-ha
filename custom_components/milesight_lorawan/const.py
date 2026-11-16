@@ -125,8 +125,8 @@ CONF_TARIFF_DIESEL = "tariff_diesel_l"       # diesel / fuel, currency per litre
 CONF_TARIFF_FEED = "tariff_feed_t"           # feed, currency per tonne
 DEFAULT_CURRENCY = "R"
 
-DEFAULT_MAX_GAP_MIN = 120
-DEFAULT_OFFLINE_AUTO = True               # auto-set the offline time from the reporting interval
+DEFAULT_MAX_GAP_MIN = 1440               # default offline time: 24 h (quiet by default — devices/sensors only)
+DEFAULT_OFFLINE_AUTO = False              # use the fixed 24 h time by default; opt in to per-cadence auto per device
 DEFAULT_OFFLINE_FACTOR = 3               # miss ~3 reports in a row -> offline
 OFFLINE_FLOOR_S = 600                    # never flag offline in under 10 min (ride out a brief outage)
 OFFLINE_CEIL_S = 86400                   # ... and always within 24 h

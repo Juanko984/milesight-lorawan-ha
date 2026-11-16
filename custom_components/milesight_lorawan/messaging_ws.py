@@ -76,7 +76,7 @@ async def ws_send(hass: HomeAssistant, connection, msg: dict) -> None:
         author, role = aw, worker.get("role", "")
     image_url = await mgr.save_image(msg["image"]) if msg.get("image") else None
     out = mgr.post(msg["channel"], msg.get("text", ""), author=author, user_id=user_id, role=role,
-                   push=bool(msg.get("push")), image=image_url, loc=msg.get("loc"))
+                   push=bool(msg.get("push")), image=image_url, loc=msg.get("loc"), as_worker=(aw or None))
     if out is None:
         connection.send_error(msg["id"], "invalid", "Empty message or unknown channel")
         return
@@ -101,7 +101,7 @@ def ws_read(hass: HomeAssistant, connection, msg: dict) -> None:
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/edit", vol.Required("channel"): str,
-                                  vol.Required("id"): str, vol.Required("text"): str, vol.Optional("hub"): str})
+                                  vol.Required("message_id"): str, vol.Required("text"): str, vol.Optional("hub"): str})
 @callback
 def ws_edit(hass: HomeAssistant, connection, msg: dict) -> None:
     mgr = _manager(hass, msg.get("hub"))
@@ -112,7 +112,7 @@ def ws_edit(hass: HomeAssistant, connection, msg: dict) -> None:
     if mc.is_dm(msg["channel"]) and not mgr.can_access(user_id, name, msg["channel"]):
         connection.send_error(msg["id"], "forbidden", "Not your conversation")
         return
-    m = mgr.edit_message(msg["channel"], msg["id"], msg["text"], user_id=user_id)
+    m = mgr.edit_message(msg["channel"], msg["message_id"], msg["text"], user_id=user_id)
     if m is None:
         connection.send_error(msg["id"], "invalid", "You can only edit your own messages")
         return
@@ -120,7 +120,7 @@ def ws_edit(hass: HomeAssistant, connection, msg: dict) -> None:
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/chat/delete", vol.Required("channel"): str,
-                                  vol.Required("id"): str, vol.Optional("hub"): str})
+                                  vol.Required("message_id"): str, vol.Optional("hub"): str})
 @callback
 def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
     mgr = _manager(hass, msg.get("hub"))
@@ -131,7 +131,7 @@ def ws_delete(hass: HomeAssistant, connection, msg: dict) -> None:
     if mc.is_dm(msg["channel"]) and not mgr.can_access(user_id, name, msg["channel"]):
         connection.send_error(msg["id"], "forbidden", "Not your conversation")
         return
-    out = mgr.delete_message(msg["channel"], msg["id"], user_id=user_id, is_admin=_is_admin(connection))
+    out = mgr.delete_message(msg["channel"], msg["message_id"], user_id=user_id, is_admin=_is_admin(connection))
     if out is None:
         connection.send_error(msg["id"], "invalid", "You can't delete that message")
         return

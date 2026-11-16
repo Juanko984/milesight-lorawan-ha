@@ -317,6 +317,19 @@ def _assignable_people(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str
             out[key]["notify"] = out[key].get("notify") or notify
         else:
             out[wname.lower()] = {"name": wname, "notify": notify, "source": "worker"}
+
+    # 3) Home Assistant users (person entities) — so anyone with a login can be assigned, not only Team workers
+    for st in hass.states.async_all("person"):
+        pname = str(st.attributes.get("friendly_name") or st.name or "").strip()
+        if not pname:
+            continue
+        notify = _match(pname)
+        key = (notify and _notify_name(notify).lower()) or pname.lower()
+        if key in out:
+            out[key].setdefault("notify", notify)
+            out[key]["notify"] = out[key].get("notify") or notify
+        else:
+            out[pname.lower()] = {"name": pname, "notify": notify, "source": "user"}
     return sorted(out.values(), key=lambda p: p["name"].lower())
 
 

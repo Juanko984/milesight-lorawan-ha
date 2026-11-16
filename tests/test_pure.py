@@ -2934,6 +2934,10 @@ def test_messaging_calc():
     assert msc.REPLY_ACTION == "MLW_CHAT_REPLY"
     rp = msc.new_message("site", "on it", author="Piet", user_id="u2", via="phone")
     assert rp["via"] == "phone" and "via" not in msc.new_message("site", "hi", author="A")
+    # a message posted on behalf of a worker carries the as_worker marker (so the UI shows it as that worker, left)
+    aw = msc.new_message("site", "hi", author="Riaan", user_id="u1", as_worker="Riaan")
+    assert aw["as_worker"] == "Riaan" and aw["user_id"] == "u1"
+    assert "as_worker" not in msc.new_message("site", "hi", author="Juan", user_id="u1")
 
 
 if __name__ == "__main__":

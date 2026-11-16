@@ -564,7 +564,7 @@ class DeviceRuntime:
                 for ev in self.pump.update(self.pump_cfg, ts, amps, self._day(ts), self._pump_energy(self.raw),
                                            self._pump_water()):
                     self.hass.bus.async_fire(f"{DOMAIN}_pump", {"deveui": self.deveui, "device": self.entry.title,
-                                                               "area": self.entry.data.get("area"), **ev})
+                                                               "area": self._area(), **ev})
         if self.minmax is not None:
             self.minmax.update(ts, {k: decoded[k] for k in self.model.minmax_fields if k in decoded})
         if self.occupancy is not None and self.model.occupancy_fn is not None:
@@ -805,7 +805,7 @@ class DeviceRuntime:
         st = {k: _sc.status(k, readings[k]) for k in keys if k != "temperature"}
         return {
             "milesight_role": "soil", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "THCPH-S",
+            "area": self._area(), "model": "THCPH-S",
             **readings, "status": st, "moisture_label": _sc.moisture_label(readings["moisture"]),
             "ph_label": _sc.ph_label(readings["ph"]),
             "severity": {"high": "warning", "low": "warning", "ok": "ok"}[_sc.worst(list(st.values()))],
@@ -836,7 +836,7 @@ class DeviceRuntime:
                 trend = "rising" if rate > 2 else "falling" if rate < -2 else "steady"
         return {
             "milesight_role": "liquid_level", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WS101LL",
+            "area": self._area(), "model": "WS101LL",
             "level_mm": None if lvl is None else round(lvl), "range_mm": None if rng is None else round(rng),
             "pct": pct, "rate_mm_h": rate, "trend": trend or "steady", "last_seen": self.meta.get("last_seen"),
         }
@@ -869,7 +869,7 @@ class DeviceRuntime:
         primary = next((m for m in metrics if m["key"] == "co2"), metrics[0])
         return {
             "milesight_role": "air_monitor", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "area": self._area(), "model": self.model.key,
             "metrics": metrics, "primary": primary["key"], "air_quality": _co2_text(v.get("co2")),
             "last_seen": self.meta.get("last_seen"),
         }
@@ -967,7 +967,7 @@ class DeviceRuntime:
         primary = next((m for m in metrics if m["key"].startswith("temperature")), metrics[0] if metrics else None)
         return {
             "milesight_role": "env_monitor", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "area": self._area(), "model": self.model.key,
             "purpose": self._pkey, "purpose_label": self.purpose.label if self.purpose else None,
             "metrics": metrics, "states": states, "primary": primary["key"] if primary else None,
             "last_seen": self.meta.get("last_seen"),
@@ -1007,13 +1007,27 @@ class DeviceRuntime:
         primary = next((m for m in metrics if m["value"] is not None), metrics[0])
         return {
             "milesight_role": "energy_monitor", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": self.model.key,
+            "area": self._area(), "model": self.model.key,
             "three_phase": three, "metrics": metrics, "summary": summary,
             "primary": primary["key"], "last_seen": self.meta.get("last_seen"),
         }
 
     def _area(self):
-        return self.entry.data.get("area") or self.entry.options.get("area")
+        # the integration's own area field, else the device's Home Assistant area (so simply assigning the
+        # device to an HA area makes the area-scoped dashboard cards find it — no separate field to set)
+        return self.entry.data.get("area") or self.entry.options.get("area") or self._ha_area()
+
+    def _ha_area(self):
+        try:
+            from homeassistant.helpers import device_registry as dr, area_registry as ar
+            device = dr.async_get(self.hass).async_get_device(identifiers={(DOMAIN, self.deveui)})
+            aid = device.area_id if device is not None else None
+            if not aid:
+                return None
+            area = ar.async_get(self.hass).async_get_area(aid)
+            return area.name if area is not None else None
+        except Exception:  # noqa: BLE001 - registries unavailable (tests) or device not created yet
+            return None
 
     # ---------------------------------------------------------------- GS gas / vape
     def _gas_applies(self) -> bool:
@@ -1749,7 +1763,7 @@ class DeviceRuntime:
         feels = _heat_index(temp, hum) if temp is not None and hum is not None else temp
         return {
             "milesight_role": "weather", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WS90",
+            "area": self._area(), "model": "WS90",
             "temperature": temp, "humidity": hum, "feels_like": None if feels is None else round(feels, 1),
             "condition": _wc.condition(rain, uvi, val.get("light")),
             "wind_speed": _nz(val.get("wind_speed")), "gust": gust, "wind_unit": "km/h",
@@ -1772,7 +1786,7 @@ class DeviceRuntime:
         axes = ("x", "y", "z")
         res.update({
             "milesight_role": "vibration", "device": self.entry.title,
-            "area": self.entry.data.get("area") or self.entry.options.get("area"), "model": "WTVB01-485",
+            "area": self._area(), "model": "WTVB01-485",
             "velocity": {a: val.get("v" + a) for a in axes},
             "displacement": {a: val.get("d" + a) for a in axes},
             "frequency": {a: val.get("hz" + a) for a in axes},
@@ -1857,7 +1871,7 @@ class DeviceRuntime:
     def _purpose_reading(self, ts: float, decoded: dict[str, Any]) -> None:
         """Per-uplink purpose analytics (load trackers, temperature watch, trends, visits, after hours)."""
         day, start, work = self._day(ts), self._day_start(ts), self._work_hours(ts)
-        base = {"deveui": self.deveui, "device": self.entry.title, "area": self.entry.data.get("area")}
+        base = {"deveui": self.deveui, "device": self.entry.title, "area": self._area()}
         for prefix, (tr, cfg, key, ch) in self.loads.items():
             for ev in tr.update(ts, self._load_running_for(decoded, ch), day, start, work):
                 if ev["type"] == "after_hours":
@@ -1908,13 +1922,23 @@ class DeviceRuntime:
         if self._pkey == "water_trough" and "door" in self.binary:   # float switch: contact open = trough empty
             empty = v.get("door_active")
             v["is_trough"] = True
+            # `since` is the current state's start (full → last fill time; empty → how long it's been empty).
+            # Temperatures depend on the sensor used: a TS301/TS302 probe sits in the water (water temp), a
+            # TS302's second probe reads ambient; an EM300-MCS reads ambient air + humidity.
+            if "ts" in self.model.features:
+                water_t = _nz(v.get("temperature_1")) if "temperature_1" in v else _nz(v.get("temperature"))
+                ambient_t, humidity = _nz(v.get("temperature_2")), None
+            else:
+                water_t, ambient_t, humidity = None, _nz(v.get("temperature")), _nz(v.get("humidity"))
             self.attrs["door_active"] = {"milesight_role": "water_trough", "device": self.entry.title,
-                                         "area": self.entry.data.get("area"), "empty": empty,
-                                         "since": v.get("door_since"), "empty_confirmed": bool(v.get("door_left_open"))}
+                                         "area": self._area(), "empty": empty,
+                                         "since": v.get("door_since"), "empty_confirmed": bool(v.get("door_left_open")),
+                                         "water_temp": water_t, "ambient_temp": ambient_t, "humidity": humidity,
+                                         "battery": _nz(v.get("battery"))}
         if self._pkey == "electric_fence" and "door" in self.binary:  # energizer monitor: contact open = fence fault
             v["is_fence"] = True
             self.attrs["door_active"] = {"milesight_role": "electric_fence", "device": self.entry.title,
-                                         "area": self.entry.data.get("area"), "fault": v.get("door_active"),
+                                         "area": self._area(), "fault": v.get("door_active"),
                                          "since": v.get("door_since"), "fault_confirmed": bool(v.get("door_left_open"))}
         for prefix, (tr, cfg, key, ch) in self.loads.items():
             v.update(tr.values(ts, cfg, prefix))
@@ -1922,7 +1946,7 @@ class DeviceRuntime:
             v[f"{prefix}label"] = ((pl.noun or pl.label) if pl else "Load") + (f" {ch}" if ch is not None else "")
             v[f"{prefix}group"] = pl.group if pl else None
             self.attrs[f"{prefix}run_today_h"] = {
-                "milesight_role": "load", "device": self.entry.title, "area": self.entry.data.get("area"),
+                "milesight_role": "load", "device": self.entry.title, "area": self._area(),
                 "purpose": key, "purpose_label": pl.label if pl else None, "channel": ch,
                 "group": pl.group if pl else None, "running": v.get(f"{prefix}running"),
                 "duty_today": v.get(f"{prefix}duty_today"), "duty_24h": v.get(f"{prefix}duty_24h"),
@@ -1933,7 +1957,7 @@ class DeviceRuntime:
             v.update(self.tempw.values(ts, self.pcfg))
             self.attrs["temp_out_today"] = {
                 "milesight_role": "cold_chain" if p and p.group == "cold_chain" else "temperature_watch",
-                "device": self.entry.title, "area": self.entry.data.get("area"), "purpose": p.key if p else None,
+                "device": self.entry.title, "area": self._area(), "purpose": p.key if p else None,
                 "purpose_label": label, "temperature": self._temp_value(v), "low": self.pcfg.get("temp_low"),
                 "high": self.pcfg.get("temp_high"), "delay_min": self.pcfg.get("temp_delay_min"),
                 "alarm": v.get("temp_alarm"), "excursions_today": v.get("temp_excursions_today"),
@@ -1960,7 +1984,7 @@ class DeviceRuntime:
         if self._pkey == "mains":
             v["mains_outage"] = self.meta.get("_zero_n", 0) >= 2
             self.attrs["mains_outage"] = {"milesight_role": "mains", "device": self.entry.title,
-                                          "area": self.entry.data.get("area")}
+                                          "area": self._area()}
             if "ct3" in self.model.features:
                 ph = [v.get(f"current_{n}") for n in (1, 2, 3)]
                 if all(isinstance(x, (int, float)) for x in ph):
@@ -1990,7 +2014,7 @@ class DeviceRuntime:
             v["water_rising"] = bool(rate is not None and rate >= float(self.pcfg.get("rise_cm_h") or 10))
             v["water_danger"] = bool(lvl is not None and danger > 0 and lvl >= danger)
             self.attrs["water_level"] = {"milesight_role": "flood", "device": self.entry.title,
-                                         "area": self.entry.data.get("area"), "level_cm": lvl,
+                                         "area": self._area(), "level_cm": lvl,
                                          "rate_cm_h": v["water_rise_rate"], "rising": v["water_rising"],
                                          "danger": v["water_danger"], "danger_cm": danger or None,
                                          "empty_distance_mm": float(self.pcfg.get("empty_distance_mm") or 0) or None}
@@ -2116,7 +2140,7 @@ class DeviceRuntime:
     def _pivot_events(self, events: list[dict[str, Any]]) -> None:
         for ev in events:
             self.hass.bus.async_fire(f"{DOMAIN}_pivot", {"deveui": self.deveui, "device": self.entry.title,
-                                                        "area": self.entry.data.get("area"), **ev})
+                                                        "area": self._area(), **ev})
 
     def pivot_stopped(self) -> None:
         """'Pivot stopped' button: the round was ended on purpose (clears the stall alarm)."""
@@ -2137,7 +2161,7 @@ class DeviceRuntime:
             return
         for ev in self.tank.update(self.tank_cfg, ts, litres):
             self.hass.bus.async_fire(f"{DOMAIN}_tank", {"deveui": self.deveui, "device": self.entry.title,
-                                                         "area": self.entry.data.get("area"), **ev})
+                                                         "area": self._area(), **ev})
 
     def tank_refilled(self) -> None:
         """'Tank refilled' button: start the usage trend afresh and clear a sudden-drop alarm."""
@@ -2367,7 +2391,7 @@ class DeviceRuntime:
         if self._pkey in ("panic", "service"):
             self.meta[f"{self._pkey}_at"] = time.time()
             self.hass.bus.async_fire(f"{DOMAIN}_{self._pkey}", {"deveui": self.deveui, "device": self.entry.title,
-                                                               "area": self.entry.data.get("area"),
+                                                               "area": self._area(),
                                                                "button": key, "event_type": event_type})
         async_dispatcher_send(self.hass, SIGNAL_EVENT.format(self.deveui), key, event_type)
         self.hass.bus.async_fire(f"{DOMAIN}_button", {
@@ -2830,7 +2854,7 @@ class DeviceRuntime:
             v.update(self.tank.values(self.tank_cfg, ts, litres))
             is_silo = self.tank_cfg.is_silo            # grain/feed → Farm; water/fuel/other → Water
             self.attrs["tank_volume"] = {"milesight_role": "tank", "device": self.entry.title,
-                                         "area": self.entry.data.get("area"), "purpose": self._pkey,
+                                         "area": self._area(), "purpose": self._pkey,
                                          "capacity_l": v["tank_capacity"],
                                          "shape": self.tank_cfg.shape, "fill": v["tank_fill"],
                                          "contents": self.tank_cfg.contents, "is_silo": is_silo,
@@ -2854,7 +2878,7 @@ class DeviceRuntime:
         if self.pump is not None:
             v.update(self.pump.values(self.pump_cfg, ts, self._pump_energy(v), self._pump_water()))
             self.attrs["pump_run_hours"] = {"milesight_role": "pump", "device": self.entry.title,
-                                            "area": self.entry.data.get("area"), "running": v["pump_running"],
+                                            "area": self._area(), "running": v["pump_running"],
                                             "starts_last_hour": v["pump_starts_last_hour"],
                                             "dry_run": v["pump_dry_run"], "overload": v["pump_overload"],
                                             "short_cycling": v["pump_short_cycling"],
@@ -2868,7 +2892,7 @@ class DeviceRuntime:
         if self.pivot is not None:
             v.update(self.pivot.values(self.pivot_cfg, ts))
             self.attrs["pivot_progress"] = {"milesight_role": "pivot", "device": self.entry.title,
-                                            "area": self.entry.data.get("area"), "angle": v["pivot_angle"],
+                                            "area": self._area(), "angle": v["pivot_angle"],
                                             "status": v["pivot_status"], "speed": v["pivot_speed"],
                                             "finish_in_h": v["pivot_finish_in"], "direction": v["pivot_direction"],
                                             "sector": self.pivot_cfg.sector,

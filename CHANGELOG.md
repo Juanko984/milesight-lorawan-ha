@@ -2,6 +2,51 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.151.1
+- **Chicken-coop page now finds devices by the Home Assistant area you set, and any “coop” area name.** Two
+  fixes to the long-standing "coop page is empty" problem: (1) a device's area now falls back to its **Home
+  Assistant area** when the integration's own area field is unset — so simply assigning a device to an area
+  (Settings → Devices) makes the area-scoped dashboard cards find it, no separate field to fill in; (2) the coop
+  page now matches **any area whose name contains “coop”** (e.g. "Coop", "Chicken coop", "The Coop"), not just the
+  exact name "Chicken coop". The Feed & water, Climate and Door & light sections, plus the live-controls list, all
+  use this. (Cards can now also scope to a comma-separated list of areas, or a `*text` wildcard.)
+- The coop **Live controls** no longer shows a bare "Area not found"; it lists the controllable devices (lights,
+  relays, pop-hole motor, fans) in any coop area with their live state.
+
+## 0.151.0
+- **Air quality shown as trendlines instead of gauges.** The "Air quality now" row (Building analytics) and
+  "Shopper comfort and air" row (Retail) now render each metric — CO₂, PM2.5, PM10, TVOC, Humidity — as a
+  sparkline card at the same size: live value, today's min/max, a dotted threshold line, and a tap-through to the
+  full trend. The gauges are retired.
+- **Richer drinking-trough widget, now also from TS301 / TS302.** The trough card shows **Full / Empty** from the
+  float switch plus the sensor's temperatures and humidity, and the last-fill / time-empty line. It works with an
+  **EM300-MCS** (ambient temp + humidity) and with a **TS301 / TS302** used as a trough sensor — magnet only
+  (empty/full), or magnet + a temperature probe sitting in the water (**water temp**), with a TS302's second probe
+  shown as **ambient temp**. Set the device's purpose to "Water trough (float switch)".
+
+## 0.150.1
+- **Team chat: editing and deleting messages now works.** The message id was being sent in a field that collided
+  with Home Assistant's own websocket request id, so every edit / delete was silently dropped. Fixed — the pencil
+  and trash actions now apply live for everyone in the channel.
+- **Team chat: message alignment fixed.** Your own messages sit on the right; everyone else's on the left. A
+  message you post **on behalf of a worker** (the "as …" selector) now shows as that worker on the left, instead
+  of every message you send — as yourself or as a worker — stacking on the right. Posting as a worker also no
+  longer overwrites your own display name.
+- **Assignee & people pickers now list every Home Assistant user, not only Team workers.** The job "Assign to"
+  dropdown and the chat direct-message picker now include everyone with a Home Assistant login (person entities),
+  merged with Team workers and alert notify targets. A user with no mobile app shows as "no phone" (assignable,
+  no push).
+
+## 0.150.0
+- **Quieter offline alerts: the default "time to trigger" is now 24 hours for every device and sensor.**
+  Previously each device auto-derived its offline time from its own reporting cadence (≈3 missed reports), so a
+  chatty sensor could raise an "Offline" alert after only ~30 minutes of silence — a lot of noise. Now a device
+  (or sensor) must be silent for a full **24 hours** before it's flagged offline. This applies to all devices and
+  sensors; **gateways are unchanged** (they keep their own, shorter offline time — 15 min by default). You can
+  still tune any single device under its **Configure → offline settings**: lower the fixed time, or switch the
+  per-cadence "automatic" option back on. Existing devices that never had these settings touched pick up the new
+  24 h default automatically.
+
 ## 0.149.3
 - **Chicken-coop page now fills in from Purpose, not just a Home Assistant area.** Previously the coop cards
   found devices only by an HA area called "Chicken coop", so setting a device's *Purpose* (Coop pop-hole / door,

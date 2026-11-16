@@ -263,9 +263,9 @@
         },
         "data_description": {
           "dashboard": "Which ready-made dashboard this device is grouped under. Auto uses what the device is (a soil probe → Farm, a CO₂ sensor → Building analytics…). Pick a dashboard to install that one for the device and label it accordingly. Note: the device's widget still appears wherever its card is placed — this controls which dashboards are created and how the device is labelled, not where its reading is drawn.",
-          "offline_auto": "Learns how often this device reports and marks it offline after a few missed reports — so a fridge reporting every 10 min alerts in ~30 min, while a daily sensor isn't flagged early. Turn off to use the fixed offline gap below.",
-          "offline_factor": "How many reports in a row may be missed before offline (default 3). Only used when the offline time is set automatically.",
-          "max_gap_min": "The fixed offline time used when automatic is off. Also the gap beyond which open/occupied time is not counted, so an offline sensor doesn't add phantom time. Set it above the device's reporting interval.",
+          "offline_auto": "Off by default — the device is marked offline after the fixed time below (24 h), which keeps offline alerts quiet. Turn it on to instead learn how often this device reports and flag it after a few missed reports (a fridge reporting every 10 min would then alert in ~30 min).",
+          "offline_factor": "How many reports in a row may be missed before offline (default 3). Only used when the automatic offline time is turned on.",
+          "max_gap_min": "The fixed offline time (default 24 h, so a device must be silent for a full day before it alerts). Used unless the automatic option above is turned on. Also the gap beyond which open/occupied time is not counted, so an offline sensor doesn't add phantom time.",
           "open_hour": "Used for utilisation %.",
           "close_hour": "Use 24 for midnight.",
           "model": "Change this if the wrong model was picked. Entities from the old model can then be deleted from the device page.",

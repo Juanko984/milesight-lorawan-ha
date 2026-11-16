@@ -48,6 +48,7 @@
    "sensor.btemp": { state: "22.4", attributes: { milesight_role: "building_avg_temperature", unit_of_measurement: "°C" } },
    "sensor.bpm": { state: "9", attributes: { milesight_role: "building_avg_pm2_5", unit_of_measurement: "μg/m³" } },
    "sensor.btvoc": { state: "260", attributes: { milesight_role: "building_avg_tvoc", unit_of_measurement: "μg/m³" } },
+   "sensor.bpm10": { state: "15", attributes: { milesight_role: "building_avg_pm10", unit_of_measurement: "μg/m³" } },
    "sensor.bhum": { state: "45", attributes: { milesight_role: "building_avg_humidity", unit_of_measurement: "%" } },
    "sensor.retail": { state: "1213", attributes: { milesight_role: "retail", visitors_today: 1213, visitors_yesterday: 1150, in_store_now: 37, out_today: 1176,
      peak_today: 118, peak_today_at: "13:00", avg_dwell: "14m", avg_dwell_s: 840, dwell_source: "estimated", compare_pct: 5, staff_coverage: "6h 12m", staff_coverage_s: 22320,
@@ -57,8 +58,8 @@
      zones: [{ name: "Promo end-cap", area: "Store", avg_dwell_s: 190, avg_dwell: "3m", people_now: 4 }, { name: "Chilled aisle", area: "Store", avg_dwell_s: 144, avg_dwell: "2m", people_now: 2 }],
      staff_zones: [{ name: "Checkout", area: "Store", coverage_s: 22320, coverage: "6h 12m", people_now: 1 }] } },
    "binary_sensor.mains": { state: "off", attributes: { milesight_role: "mains", device: "Main board", area: "Main shed", currents: [18, 16, 19], phase_imbalance: 9, phase_imbalance_high: false, current_total: 53, power_w: 12400 } },
-   "binary_sensor.trough1": { state: "on", attributes: { milesight_role: "water_trough", device: "Paddock trough", area: "North paddock", empty: true, since: Date.now() / 1000 - 5400, empty_confirmed: true } },
-   "binary_sensor.trough2": { state: "off", attributes: { milesight_role: "water_trough", device: "Barn trough", area: "Barn", empty: false, since: null } },
+   "binary_sensor.trough1": { state: "on", attributes: { milesight_role: "water_trough", device: "Paddock trough", area: "North paddock", empty: true, since: Date.now() / 1000 - 1500, empty_confirmed: true, water_temp: null, ambient_temp: 21.2, humidity: 58 } },
+   "binary_sensor.trough2": { state: "off", attributes: { milesight_role: "water_trough", device: "Coop trough (TS302)", area: "Chicken coop", empty: false, since: Date.now() / 1000 - 7800, water_temp: 16.8, ambient_temp: 22.4, humidity: null } },
    "sensor.flood1": { state: "62", attributes: { milesight_role: "flood", device: "Bridge culvert", area: "River Rd", level_cm: 62, rate_cm_h: 14, rising: true, danger: true, danger_cm: 50, empty_distance_mm: 3000 } },
    "sensor.flood2": { state: "18", attributes: { milesight_role: "flood", device: "Storm drain 3", area: "Depot", level_cm: 18, rate_cm_h: 0, rising: false, danger: false, danger_cm: 60, empty_distance_mm: 2000 } },
    "binary_sensor.fence1": { state: "on", attributes: { milesight_role: "electric_fence", device: "North boundary", area: "North paddock", fault: true, since: Date.now() / 1000 - 1200 } },
@@ -433,7 +434,8 @@
              { id: "m3", channel: "site", ts: Date.now() / 1000 - 1800, author: "Anna", user_id: "u-anna", role: "Cleaner", kind: "msg", text: "Toilets restocked. @Piet soap dispenser is low.", image: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTQwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE0MCIgZmlsbD0iIzM2YzA4YSIvPjwvc3ZnPg==" },
              { id: "m3b", channel: "site", ts: Date.now() / 1000 - 1700, author: "Piet", user_id: "u-piet", role: "Technician", kind: "msg", text: "At the borehole now", loc: { lat: -33.9249, lon: 18.4241 } },
              { id: "m3c", channel: "site", ts: Date.now() / 1000 - 1600, author: "Koos", user_id: "u-koos", role: "Technician", kind: "msg", text: "On my way, 10 min out", via: "phone" },
-             { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store.", edited: Date.now() / 1000 - 1400 } ]
+             { id: "m4", channel: "site", ts: Date.now() / 1000 - 1500, author: "Juan Korb", user_id: "u-juan", role: "Manager", kind: "msg", text: "Thanks 👍 grab refills from the store.", edited: Date.now() / 1000 - 1400 },
+             { id: "m5", channel: "site", ts: Date.now() / 1000 - 1300, author: "Koos Louw", user_id: "u-juan", role: "Technician", kind: "msg", text: "Posted on behalf of Koos (as_worker → left)", as_worker: "Koos Louw" } ]
              : (msg.channel === "alerts") ? [
                // legacy alerts stored before the card upgrade: plain "Title · kind" sys text, no alert payload
                { id: "la1", channel: "alerts", ts: Date.now() / 1000 - 5000, author: "Alerts", user_id: null, role: "", kind: "sys", text: "Temperature high — TS101 · new" },

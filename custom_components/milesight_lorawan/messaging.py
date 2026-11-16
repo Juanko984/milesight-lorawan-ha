@@ -152,6 +152,15 @@ class MessagingManager:
         for uid, nm in self.users.items():
             if uid and uid != exclude_uid and nm:
                 out[mc.user_token(uid)] = {"token": mc.user_token(uid), "name": nm, "kind": "user"}
+        # every Home Assistant user (person entities), not only those who've chatted or are Team workers
+        try:
+            for st in self.hass.states.async_all("person"):
+                pu = st.attributes.get("user_id")
+                pname = st.attributes.get("friendly_name") or st.name
+                if pu and pu != exclude_uid and pname:
+                    out.setdefault(mc.user_token(pu), {"token": mc.user_token(pu), "name": str(pname), "kind": "user"})
+        except Exception:  # noqa: BLE001
+            pass
         for o in self.online_list():
             if o["user_id"] and o["user_id"] != exclude_uid:
                 out.setdefault(mc.user_token(o["user_id"]), {"token": mc.user_token(o["user_id"]), "name": o["name"], "kind": "user"})
@@ -184,7 +193,7 @@ class MessagingManager:
         dms.sort(key=lambda d: -(d.get("last_ts") or 0))
         out: dict[str, Any] = {"hub": self.entry.entry_id, "channels": chans, "dms": dms,
                                "people": self.people(user_id), "workers": self.worker_names(), "me": user_id,
-                               "roster": self._roster(), "online": self.online_list(),
+                               "me_name": name, "roster": self._roster(), "online": self.online_list(),
                                "can_manage": bool(is_admin)}
         if channel is not None:
             out["channel"] = channel
@@ -300,16 +309,16 @@ class MessagingManager:
     def post(self, channel: str, text: str, *, author: str, user_id: str | None = None, role: str = "",
              kind: str = "msg", push: bool = False, image: str | None = None,
              loc: dict | None = None, via: str = "", job: dict | None = None,
-             alert: dict | None = None) -> dict[str, Any] | None:
+             alert: dict | None = None, as_worker: str | None = None) -> dict[str, Any] | None:
         text = (text or "").strip()
         if (not text and not image and not loc and not job and not alert) or channel not in self.channels:
             return None
-        if user_id:
+        if user_id and not as_worker:                      # don't clobber the user's real name with a worker's
             self.users[user_id] = author
         mentions = mc.parse_mentions(text, self.worker_names()) if kind == "msg" else []
         msg = mc.new_message(channel, text, author=author, user_id=user_id, role=role, kind=kind,
                              mentions=mentions, image=image, loc=loc, existing=self._all_ids(), via=via,
-                             job=job, alert=alert)
+                             job=job, alert=alert, as_worker=as_worker)
         self.messages.setdefault(channel, [])
         self.messages[channel] = mc.trim(self.messages[channel] + [msg])
         if user_id:                                        # the author has implicitly read their own channel

@@ -124,10 +124,13 @@
       o.action ? h("button", { class: "ea", onclick: o.action.onClick }, o.action.label) : null,
     ]);
   }
-  // case-insensitive HA-area match, so a card can scope to one area (e.g. a chicken coop)
+  // case-insensitive HA-area match. `want` may be one area, a comma-separated list (match any), or a
+  // "*coop" wildcard that matches any area whose name contains that text (e.g. "Coop", "Chicken coop").
   function areaEq(have, want) {
     if (!want) return true;
-    return String(have == null ? "" : have).trim().toLowerCase() === String(want).trim().toLowerCase();
+    const h = String(have == null ? "" : have).trim().toLowerCase();
+    return String(want).split(",").map((w) => w.trim().toLowerCase()).filter(Boolean).some((w) =>
+      w.startsWith("*") ? h.includes(w.slice(1)) : h === w);
   }
   // purpose match: `want` is a comma/space-separated list of purpose keys (e.g. "coop_climate" or
   // "coop_drinker,coop_feeder"). A device's `purpose` attribute is its key. Empty want = no purpose constraint.
@@ -537,7 +540,8 @@
       const mk = (cls, t, v, extra) => h("span", { class: "tlmk " + cls + (extra || ""),
         style: { left: (1 + fx(t) * 98).toFixed(2) + "%", top: ((1 - fy(v)) * 100).toFixed(2) + "%" } });
       const overlay = [
-        ...thLines.map((t) => h("span", { class: "tlth", style: { top: (t.yf * 100).toFixed(2) + "%", color: t.col } }, esc(t.lbl + t.off))),
+        // `compact` keeps the dotted threshold line but drops its text label (for narrow multi-column rows)
+        ...(cfg.compact ? [] : thLines.map((t) => h("span", { class: "tlth", style: { top: (t.yf * 100).toFixed(2) + "%", color: t.col } }, esc(t.lbl + t.off)))),
         mk("min", pts[minI][0], vmin), mk("max", pts[maxI][0], vmax),
         mk("cur", pts[lastI][0], ys[lastI], breach ? " ping" : ""),
       ];
@@ -3347,36 +3351,58 @@
   // Site-wide average CO₂ / PM2.5 / TVOC / humidity as gauges. Self-discovers the building_avg_* sensors by role and
   // shows a gauge for each one that exists (so AM307 with no PM simply shows fewer). Full width.
   const AIR_SPECS = [
-    { role: "building_avg_co2", name: "CO₂", min: 400, max: 2000, segments: [{ from: 400, color: "good" }, { from: 800, color: "warn" }, { from: 1200, color: "bad" }] },
-    { role: "building_avg_pm2_5", name: "PM2.5", min: 0, max: 75, segments: [{ from: 0, color: "good" }, { from: 12, color: "warn" }, { from: 35, color: "bad" }] },
-    { role: "building_avg_pm10", name: "PM10", min: 0, max: 150, segments: [{ from: 0, color: "good" }, { from: 54, color: "warn" }, { from: 100, color: "bad" }] },
-    { role: "building_avg_tvoc", name: "TVOC", min: 0, max: 1500, segments: [{ from: 0, color: "good" }, { from: 300, color: "warn" }, { from: 500, color: "bad" }] },
-    { role: "building_avg_humidity", name: "Humidity", min: 0, max: 100, segments: [{ from: 0, color: "warn" }, { from: 30, color: "good" }, { from: 65, color: "warn" }] },
+    { role: "building_avg_co2", name: "CO₂", min: 400, max: 2000, hi: 1200, color: "#4aa3ff",
+      segments: [{ from: 400, color: "good" }, { from: 800, color: "warn" }, { from: 1200, color: "bad" }] },
+    { role: "building_avg_pm2_5", name: "PM2.5", min: 0, max: 75, hi: 35, color: "#6ec6c9",
+      segments: [{ from: 0, color: "good" }, { from: 12, color: "warn" }, { from: 35, color: "bad" }] },
+    { role: "building_avg_pm10", name: "PM10", min: 0, max: 150, hi: 100, color: "#8fb0d6",
+      segments: [{ from: 0, color: "good" }, { from: 54, color: "warn" }, { from: 100, color: "bad" }] },
+    { role: "building_avg_tvoc", name: "TVOC", min: 0, max: 1500, hi: 500, color: "#b58fd6",
+      segments: [{ from: 0, color: "good" }, { from: 300, color: "warn" }, { from: 500, color: "bad" }] },
+    { role: "building_avg_humidity", name: "Humidity", min: 0, max: 100, lo: 30, hi: 65, color: "#4aa3ff",
+      segments: [{ from: 0, color: "warn" }, { from: 30, color: "good" }, { from: 65, color: "warn" }] },
   ];
+  // Air quality as a row of trendlines (one per averaged metric), replacing the gauges. Each is the existing
+  // trendline card (live value + today's sparkline + min/max + a dotted threshold line), kept the same size.
   class AirCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
-    _sub(tag, cfg) { const el = h(tag); el.setConfig({ ...cfg, bare: true }); el.hass = this._hass; return el; }
     _role(role) { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === role) return id; return null; }
-    _watch() { return null; }
+    _found() {
+      const out = [];
+      for (const sp of AIR_SPECS) { const id = this._role(sp.role); if (id && num(this._st(id).state) != null) out.push({ sp, id }); }
+      return out;
+    }
+    _watch() { if (!this._hass) return null; return this._found().map((f) => f.id); }
     _render() {
       if (!this._hass) return;
-      const found = [];
-      for (const sp of AIR_SPECS) { const id = this._role(sp.role); if (id && num(this._st(id).state) != null) found.push({ sp, id }); }
+      const found = this._found();
       // humidity alone is not really "air quality" — only show the block when there is a pollutant
       const pollutants = found.filter((f) => f.sp.role !== "building_avg_humidity");
       this._css = `
         .air{display:grid;grid-template-columns:repeat(${Math.max(1, found.length)},1fr);gap:14px}
         @media (max-width:760px){.air{grid-template-columns:repeat(2,1fr)}}
-        .air > div{border:1px solid var(--ms-line);border-radius:14px}
+        .air > div{border:1px solid var(--ms-line);border-radius:14px;padding:4px 6px}
+        .air milesight-trendline-card{display:block}
       `;
       if (!pollutants.length) {
         return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:air-filter",
           title: "No air-quality sensors yet", hint: "Add AM300-series sensors measuring CO₂, PM2.5 or TVOC and set their area." })]));
       }
-      this._card(h("div", { class: "air" }, found.map((f) =>
-        h("div", {}, [this._sub("milesight-gauge-card", { entity: f.id, name: f.sp.name, min: f.sp.min, max: f.sp.max,
-          shape: "arc", switchable: false, segments: f.sp.segments })]))));
+      this._subs = this._subs || {};
+      const cells = found.map((f) => {
+        const sk = f.sp.role; let el = this._subs[sk];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[sk] = el; }
+        const sig = f.id + ":" + f.sp.hi + ":" + (f.sp.lo || "");
+        if (el.__cfgSig !== sig) {
+          const cfg = { entity: f.id, name: f.sp.name, sub: "", color: f.sp.color, window: "today", max: f.sp.hi, bare: true, compact: true };
+          if (f.sp.lo != null) cfg.min = f.sp.lo;
+          el.setConfig(cfg); el.__cfgSig = sig;
+        }
+        el.hass = this._hass;
+        return h("div", {}, [el]);
+      });
+      this._card(h("div", { class: "air" }, cells));
     }
   }
 
@@ -3686,18 +3712,27 @@
       let troughs = byRoleBin(S, "water_trough");
       if (this._cfg.area) troughs = troughs.filter((x) => areaEq(x.attributes.area, this._cfg.area));
       this._css = `
-        .tg{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
-        .t{display:flex;align-items:center;gap:12px;border:1px solid var(--ms-line);border-radius:13px;padding:12px 14px}
-        .t.empty{border-color:color-mix(in srgb,var(--ms-bad) 50%,var(--ms-line))}
-        .t .ic{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-good) 16%,transparent)}
+        .tg{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+        .t{position:relative;overflow:hidden;border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px;cursor:pointer}
+        .t.empty{border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))}
+        .t::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ms-good)}
+        .t.empty::before{background:var(--ms-bad)}
+        .t:hover{border-color:var(--ms-accent)}
+        .t .hd{display:flex;align-items:center;gap:12px}
+        .t .ic{flex:0 0 auto;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-good) 16%,transparent)}
         .t.empty .ic{background:color-mix(in srgb,var(--ms-bad) 16%,transparent)}
-        .t .ic ha-icon{--mdc-icon-size:21px;color:var(--ms-good)} .t.empty .ic ha-icon{color:var(--ms-bad)}
-        .t .nm{font-size:14px;font-weight:600;color:var(--ms-ink)}
-        .t .ar{font-size:12px;color:var(--ms-ink2)}
+        .t .ic ha-icon{--mdc-icon-size:23px;color:var(--ms-good)} .t.empty .ic ha-icon{color:var(--ms-bad)}
+        .t .nm{font-size:15px;font-weight:650;color:var(--ms-ink)}
+        .t .ar{font-size:12px;color:var(--ms-ink2);margin-top:1px}
         .t .st{margin-left:auto;text-align:right}
-        .t .pill{font-size:12px;font-weight:650;padding:2px 10px;border-radius:999px;background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
+        .t .pill{font-size:12.5px;font-weight:700;padding:3px 12px;border-radius:999px;background:color-mix(in srgb,var(--ms-good) 18%,transparent);color:var(--ms-good)}
         .t.empty .pill{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
-        .t .sub{font-size:11px;color:var(--ms-ink2);margin-top:3px}
+        .t .since{font-size:11px;color:var(--ms-ink2);margin-top:5px}
+        .t .chips{display:flex;gap:9px;margin-top:14px}
+        .t .chip{flex:1;border:1px solid var(--ms-line);border-radius:11px;padding:9px 11px;text-align:center}
+        .t .chip .k{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ms-ink2)}
+        .t .chip .v{font-size:18px;font-weight:650;color:var(--ms-ink);margin-top:3px}
+        .t .chip .v small{font-size:11px;color:var(--ms-ink2);font-weight:500}
       `;
       if (!troughs.length) {
         return this._card(h("div", { class: "wrap" }, [emptyState({ icon: "mdi:water-well-outline",
@@ -3705,15 +3740,24 @@
       }
       const empty = (x) => x.attributes.empty === true || ["on", "true", "open"].includes(String(x.state).toLowerCase());
       troughs.sort((a, b) => (empty(b) ? 1 : 0) - (empty(a) ? 1 : 0));
+      const chip = (k, v, unit) => v == null ? null : h("div", { class: "chip" },
+        [h("div", { class: "k" }, k), h("div", { class: "v" }, [String(v), h("small", {}, " " + unit)])]);
       const cell = (x) => {
         const e = empty(x), a = x.attributes, since = num(a.since);
+        const sinceTxt = since ? (e ? "Empty for " + ago(since * 1000).replace(" ago", "") : "Last filled " + ago(since * 1000)) : null;
+        const chips = [chip("Water temp", a.water_temp == null ? null : a.water_temp, "°C"),
+                       chip("Ambient temp", a.ambient_temp == null ? null : a.ambient_temp, "°C"),
+                       chip("Humidity", a.humidity == null ? null : Math.round(a.humidity), "%")].filter(Boolean);
         return h("div", { class: "t" + (e ? " empty" : ""), onclick: () => fireMoreInfo(this, Object.keys(S).find((id) => S[id] === x)) }, [
-          h("div", { class: "ic" }, [h("ha-icon", { icon: e ? "mdi:water-well" : "mdi:water-check" })]),
-          h("div", {}, [h("div", { class: "nm" }, esc(a.device || "Trough")),
-            a.area ? h("div", { class: "ar" }, esc(a.area)) : null]),
-          h("div", { class: "st" }, [h("span", { class: "pill" }, e ? "Empty" : "OK"),
-            e && since ? h("div", { class: "sub" }, "for " + ago(since * 1000).replace(" ago", "")) : null]),
-        ]);
+          h("div", { class: "hd" }, [
+            h("div", { class: "ic" }, [h("ha-icon", { icon: e ? "mdi:water-well" : "mdi:water-check" })]),
+            h("div", {}, [h("div", { class: "nm" }, esc(a.device || "Trough")),
+              a.area ? h("div", { class: "ar" }, esc(a.area)) : null]),
+            h("div", { class: "st" }, [h("span", { class: "pill" }, e ? "Empty" : "Full"),
+              sinceTxt ? h("div", { class: "since" }, sinceTxt) : null]),
+          ]),
+          chips.length ? h("div", { class: "chips" }, chips) : null,
+        ].filter(Boolean));
       };
       this._card(h("div", { class: "tg" }, troughs.map(cell)));
     }
@@ -7506,6 +7550,7 @@
         this._hub = r.hub; this._channels = r.channels || []; this._dms = r.dms || []; this._people = r.people || [];
         this._workers = r.workers || []; this._roster = r.roster || []; this._online = r.online || []; this._canManage = !!r.can_manage;
         this._uid = r.me || (this._hass.user && this._hass.user.id) || null;
+        this._myName = r.me_name || (this._hass.user && this._hass.user.name) || null;
         this._retry = 0; this._gaveUp = false;
         if (want) { this._active = want; this._messages = r.messages || []; this._readers = r.readers || []; this._view = "thread"; }
         else { this._view = "list"; }
@@ -7665,12 +7710,12 @@
       if (text == null) return;
       text = text.trim();
       if (!text || text === (m.text || "")) return;
-      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/edit", channel: this._active, id: m.id, text }); } catch (e) { /* surfaced by HA */ }
+      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/edit", channel: this._active, message_id: m.id, text }); } catch (e) { /* surfaced by HA */ }
     }
     async _deleteMessage(m) {
       let ok = true; try { ok = window.confirm("Delete this message?"); } catch (e) { ok = true; }
       if (!ok) return;
-      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/delete", channel: this._active, id: m.id }); } catch (e) { /* surfaced by HA */ }
+      try { await this._hass.connection.sendMessagePromise({ type: "milesight_lorawan/chat/delete", channel: this._active, message_id: m.id }); } catch (e) { /* surfaced by HA */ }
     }
     _attach() {
       const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
@@ -7806,9 +7851,12 @@
         if (la) return this._eventMessage(Object.assign({}, m, { alert: la }));
         return h("div", { class: "sys" }, this._mentionify(m.text || ""));
       }
-      const me = m.user_id && this._uid ? m.user_id === this._uid : (m.author === "You");
+      // "mine" = my account sent it (drives edit / delete). "me" = I sent it AS MYSELF (drives right-alignment):
+      // a message posted on behalf of a worker (as_worker) is shown on the left, as that worker, not as me.
+      const mine = m.user_id && this._uid ? m.user_id === this._uid : (m.author === "You");
+      const me = mine && !m.as_worker;
       const grouped = prevAuthor === m.author;
-      const canEdit = me && m.kind === "msg";
+      const canEdit = mine && m.kind === "msg";
       const canDel = canEdit || (this._canManage && m.kind === "msg");
       const acts = (canEdit || canDel) ? h("span", { class: "msgact" }, [
         canEdit ? h("button", { class: "ma", title: "Edit", onclick: () => this._editMessage(m) }, [h("ha-icon", { icon: "mdi:pencil-outline" })]) : null,

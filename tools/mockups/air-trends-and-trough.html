@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Air trends + Drinking trough — mockup</title>
+<style>
+  :root{
+    --bg:#111314; --card:#1b1e1f; --card2:#15191a; --line:rgba(255,255,255,.10);
+    --ink:#e7eaec; --ink2:#9aa1a5;
+    --good:#4caf50; --warn:#e9a100; --bad:#e5484d; --accent:#4aa3ff;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:28px 34px 60px}
+  h2.sec{font-size:17px;font-weight:600;margin:34px 0 14px;display:flex;align-items:center;gap:9px;color:var(--ink)}
+  h2.sec .i{opacity:.7}
+  .note{color:var(--ink2);font-size:13px;margin:0 0 18px}
+  .panel{border:1px solid var(--line);border-radius:16px;padding:18px;background:transparent}
+
+  /* ---- air trend row (replaces the gauges, same 4-across footprint) ---- */
+  .airrow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:860px){.airrow{grid-template-columns:repeat(2,1fr)}}
+  .trend{border:1px solid var(--line);border-radius:14px;padding:15px 16px;background:var(--card2)}
+  .trend .top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .trend .nm{font-size:13px;font-weight:600;color:var(--ink2)}
+  .trend .badge{font-size:11px;font-weight:650;padding:2px 9px;border-radius:999px}
+  .b-good{background:color-mix(in srgb,var(--good) 20%,transparent);color:var(--good)}
+  .b-warn{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+  .b-bad{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
+  .trend .val{font-size:30px;font-weight:700;line-height:1.05;margin:8px 0 2px}
+  .trend .val small{font-size:14px;color:var(--ink2);font-weight:500;margin-left:4px}
+  .trend .spark{margin-top:8px}
+  .trend .foot{display:flex;justify-content:space-between;font-size:11px;color:var(--ink2);margin-top:7px}
+  .trend .foot b{color:var(--ink);font-weight:600}
+
+  /* ---- drinking trough widget ---- */
+  .troughs{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+  .tr{border:1px solid var(--line);border-radius:14px;padding:15px 16px;background:var(--card2);position:relative;overflow:hidden}
+  .tr.empty{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+  .tr::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--good)}
+  .tr.empty::before{background:var(--bad)}
+  .tr .hd{display:flex;align-items:center;gap:12px}
+  .tr .ic{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--good) 16%,transparent);font-size:22px}
+  .tr.empty .ic{background:color-mix(in srgb,var(--bad) 16%,transparent)}
+  .tr .nm{font-size:15px;font-weight:650}
+  .tr .ar{font-size:12px;color:var(--ink2);margin-top:1px}
+  .tr .status{margin-left:auto;text-align:right}
+  .tr .pill{font-size:12.5px;font-weight:700;padding:3px 12px;border-radius:999px;
+    background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+  .tr.empty .pill{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+  .tr .since{font-size:11px;color:var(--ink2);margin-top:5px}
+  .tr .chips{display:flex;gap:9px;margin-top:14px}
+  .tr .chip{flex:1;border:1px solid var(--line);border-radius:11px;padding:9px 11px;text-align:center}
+  .tr .chip .k{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2)}
+  .tr .chip .v{font-size:18px;font-weight:650;margin-top:3px}
+  .tr .chip .v small{font-size:11px;color:var(--ink2);font-weight:500}
+</style>
+</head>
+<body>
+
+<h2 class="sec"><span class="i">📈</span> Air quality now — as trendlines (was gauges)</h2>
+<p class="note">Same 4-across row and size. Each gauge becomes a sparkline with the live value, a coloured status badge, the day's min/max, and a dotted threshold line. Click a card to open the full trend. (Applies to Building analytics → “Air quality now” and Retail → “Shopper comfort and air”.)</p>
+<div class="panel">
+  <div class="airrow">
+    <!-- CO2 -->
+    <div class="trend">
+      <div class="top"><span class="nm">CO₂</span><span class="badge b-good">Good</span></div>
+      <div class="val">484<small>ppm</small></div>
+      <svg class="spark" width="100%" height="56" viewBox="0 0 220 56" preserveAspectRatio="none">
+        <line x1="0" y1="20" x2="220" y2="20" stroke="var(--bad)" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>
+        <path d="M0,44 L28,42 L56,43 L84,40 L112,38 L140,41 L168,39 L196,37 L220,38" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linejoin="round"/>
+        <circle cx="220" cy="38" r="3.5" fill="var(--good)"/>
+      </svg>
+      <div class="foot"><span>min <b>441</b></span><span>max <b>612</b></span></div>
+    </div>
+    <!-- PM2.5 -->
+    <div class="trend">
+      <div class="top"><span class="nm">PM2.5</span><span class="badge b-warn">Fair</span></div>
+      <div class="val">15<small>µg/m³</small></div>
+      <svg class="spark" width="100%" height="56" viewBox="0 0 220 56" preserveAspectRatio="none">
+        <line x1="0" y1="14" x2="220" y2="14" stroke="var(--bad)" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>
+        <path d="M0,40 L28,38 L56,34 L84,36 L112,30 L140,32 L168,28 L196,31 L220,30" fill="none" stroke="var(--warn)" stroke-width="2.5" stroke-linejoin="round"/>
+        <circle cx="220" cy="30" r="3.5" fill="var(--warn)"/>
+      </svg>
+      <div class="foot"><span>min <b>9</b></span><span>max <b>22</b></span></div>
+    </div>
+    <!-- PM10 -->
+    <div class="trend">
+      <div class="top"><span class="nm">PM10</span><span class="badge b-good">Good</span></div>
+      <div class="val">15<small>µg/m³</small></div>
+      <svg class="spark" width="100%" height="56" viewBox="0 0 220 56" preserveAspectRatio="none">
+        <line x1="0" y1="12" x2="220" y2="12" stroke="var(--bad)" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>
+        <path d="M0,44 L28,45 L56,42 L84,43 L112,41 L140,42 L168,40 L196,41 L220,40" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linejoin="round"/>
+        <circle cx="220" cy="40" r="3.5" fill="var(--good)"/>
+      </svg>
+      <div class="foot"><span>min <b>11</b></span><span>max <b>28</b></span></div>
+    </div>
+    <!-- Humidity -->
+    <div class="trend">
+      <div class="top"><span class="nm">Humidity</span><span class="badge b-good">Comfortable</span></div>
+      <div class="val">51<small>%</small></div>
+      <svg class="spark" width="100%" height="56" viewBox="0 0 220 56" preserveAspectRatio="none">
+        <line x1="0" y1="10" x2="220" y2="10" stroke="var(--warn)" stroke-width="1" stroke-dasharray="3 3" opacity=".45"/>
+        <line x1="0" y1="46" x2="220" y2="46" stroke="var(--warn)" stroke-width="1" stroke-dasharray="3 3" opacity=".45"/>
+        <path d="M0,30 L28,31 L56,29 L84,28 L112,30 L140,27 L168,29 L196,28 L220,28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+        <circle cx="220" cy="28" r="3.5" fill="var(--accent)"/>
+      </svg>
+      <div class="foot"><span>min <b>44</b></span><span>max <b>58</b></span></div>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec"><span class="i">💧</span> Drinking troughs — richer widget (EM300-MCS)</h2>
+<p class="note">Float switch on the contact → <b>Full / Empty</b>. The same EM300-MCS also reports water/ambient <b>temperature</b> and <b>humidity</b>. Shows the last fill time when full, or how long it has been empty.</p>
+<div class="panel">
+  <div class="troughs">
+    <!-- full -->
+    <div class="tr">
+      <div class="hd">
+        <div class="ic">💧</div>
+        <div><div class="nm">Coop trough A</div><div class="ar">Chicken coop</div></div>
+        <div class="status"><span class="pill">Full</span><div class="since">Last filled 2h 10m ago</div></div>
+      </div>
+      <div class="chips">
+        <div class="chip"><div class="k">Water temp</div><div class="v">18.4<small> °C</small></div></div>
+        <div class="chip"><div class="k">Humidity</div><div class="v">63<small> %</small></div></div>
+      </div>
+    </div>
+    <!-- empty -->
+    <div class="tr empty">
+      <div class="hd">
+        <div class="ic">🪫</div>
+        <div><div class="nm">Coop trough B</div><div class="ar">Run 2</div></div>
+        <div class="status"><span class="pill">Empty</span><div class="since">Empty for 25 min</div></div>
+      </div>
+      <div class="chips">
+        <div class="chip"><div class="k">Water temp</div><div class="v">21.2<small> °C</small></div></div>
+        <div class="chip"><div class="k">Humidity</div><div class="v">58<small> %</small></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
