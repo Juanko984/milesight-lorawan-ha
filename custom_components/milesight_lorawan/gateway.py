@@ -465,9 +465,46 @@ class ComplianceReportsSensor(SensorEntity):
                 "email": o.get(CONF_COMPLIANCE_NOTIFY) or None}
 
 
+class ReportsSensor(SensorEntity):
+    """The reporting hub: the report-type catalogue and the recent report library (type, period, status, link)
+    as attributes, for the Reports dashboard."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_name = "Reports"
+    _attr_icon = "mdi:file-chart-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass, self.entry = hass, entry
+        self._attr_unique_id = f"{entry.entry_id}_reports"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"hub_{entry.entry_id}")})
+
+    async def async_added_to_hass(self) -> None:
+        from .reports_ha import SIGNAL_REPORTS
+        from .compliance_ha import SIGNAL_COMPLIANCE
+        for sig in (SIGNAL_REPORTS, SIGNAL_COMPLIANCE):
+            self.async_on_remove(async_dispatcher_connect(
+                self.hass, sig.format(self.entry.entry_id), self.async_write_ha_state))
+
+    def _mgr(self):
+        return getattr(_hub(self.entry), "reports", None)
+
+    @property
+    def native_value(self):
+        mgr = self._mgr()
+        return len(mgr.recent(80)) if mgr else 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        mgr = self._mgr()
+        return {"milesight_role": "reports", "types": mgr.types() if mgr else [],
+                "reports": mgr.recent(60) if mgr else []}
+
+
 def hub_extra_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:
     hub = _hub(entry)
-    out: list = [OpenAlertsSensor(hass, entry), AlertSummarySensor(hass, entry), ComplianceReportsSensor(hass, entry)]
+    out: list = [OpenAlertsSensor(hass, entry), AlertSummarySensor(hass, entry), ComplianceReportsSensor(hass, entry),
+                 ReportsSensor(hass, entry)]
     if hub is not None and hub.ns is not None:
         out.append(GatewayDevicesSensor(hass, entry))
     if hub is not None and getattr(hub, "lns", None) is not None:

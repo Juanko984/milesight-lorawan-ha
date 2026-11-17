@@ -1400,7 +1400,7 @@ bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
 assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-jobs", "milesight-team", "milesight-devices", "milesight-maintenance", "milesight-water", "milesight-analytics"}
+assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-jobs", "milesight-team", "milesight-devices", "milesight-maintenance", "milesight-reports", "milesight-water", "milesight-analytics"}
 assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -2811,6 +2811,20 @@ _rt_m.handle_uplink(decoders.Uplink(deveui="0000000000etroughm", raw=bytes.fromh
 _trm = _rt_m.attrs.get("door_active")
 assert _trm and _trm["water_temp"] is None and _trm["ambient_temp"] is not None, _trm
 print("trough sensors ok")
+
+# ---- Spaces now lists any occupancy / PIR device, not just the VS range ----
+_e_w202, _rt_w202 = make_with("0000000000ews202x", "WS202", {}, title="Back corridor")
+assert _rt_w202._space_applies()                          # a plain PIR / motion sensor
+_rt_w202.handle_uplink(decoders.Uplink(deveui="0000000000ews202x", raw=bytes.fromhex("030001"), fport=85, fcnt=1))
+_sp = _rt_w202.attrs.get("space")
+assert _sp and _sp["milesight_role"] == "space" and _sp["occupied"] is True and _sp["motion_only"] is True, _sp
+assert _sp["utilisation"] is None                         # motion-only → no usage stats
+_e_w203, _rt_w203 = make_with("0000000000ews203x", "WS203", {}, title="Store room")
+assert _rt_w203._space_applies()                          # a non-VS occupancy sensor
+_rt_w203.handle_uplink(decoders.Uplink(deveui="0000000000ews203x", raw=bytes.fromhex("050001"), fport=85, fcnt=1))
+_sp2 = _rt_w203.attrs.get("space")
+assert _sp2 and _sp2["occupied"] is True and _sp2["motion_only"] is False, _sp2
+print("spaces occupancy + motion ok")
 
 # ---- VS132: cumulative in/out totals drive the day counter (periodic fields stay 0) ----
 _e_vs, _rt_vs = make_with("00000000000evs132d", "VS132", {}, title="Front door")

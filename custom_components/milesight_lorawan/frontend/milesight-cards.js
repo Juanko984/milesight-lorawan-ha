@@ -4084,6 +4084,102 @@
     }
   }
 
+  // ================================================================ Reports hub
+  // Self-discovers the "reports" role sensor: a catalogue of report types to generate, and the library of
+  // reports already produced (with download links). Generating calls the generate_report service.
+  class ReportsCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { const r = this._src(); return r ? [r.entity_id] : null; }
+    _src() { const S = this._hass.states; for (const id in S) if (S[id].attributes.milesight_role === "reports") { if (!S[id].entity_id) S[id].entity_id = id; return S[id]; } return null; }
+    async _gen() {
+      const t = this._typeOf(this._sel); if (!t || t.status === "soon") return;
+      this._busy = true; this._msg = null; this._render();
+      try {
+        const r = await this._hass.callService("milesight_lorawan", "generate_report",
+          { report: this._sel, period: this._period || "week", format: this._fmt || "pdf" }, undefined, false, true);
+        const resp = r && r.response;
+        this._msg = { ok: true, text: (resp && resp.message) || "Report generated." };
+      } catch (e) { this._msg = { ok: false, text: (e && e.message) || "Could not generate the report." }; }
+      this._busy = false; this._render();
+    }
+    _typeOf(id) { const a = (this._src() || {}).attributes || {}; return (a.types || []).find((t) => t.id === id) || null; }
+    _render() {
+      if (!this._hass) return;
+      const src = this._src(), a = src ? src.attributes : {};
+      const types = a.types || [], reports = a.reports || [];
+      if (!this._sel && types.length) this._sel = (types.find((t) => t.status !== "soon") || types[0]).id;
+      const sel = this._typeOf(this._sel);
+      if (sel && !(sel.formats || []).includes(this._fmt)) this._fmt = (sel.formats || ["pdf"])[0];
+      this._css = `
+        .rhsub{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-ink2);margin:4px 0 10px}
+        .rtypes{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+        .rtype{text-align:left;font:inherit;cursor:pointer;border:1px solid var(--ms-line);border-radius:12px;padding:12px 13px;background:none;color:var(--ms-ink);position:relative}
+        .rtype:hover{border-color:var(--ms-accent)} .rtype.sel{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 8%,transparent)}
+        .rtype.soon{cursor:default;opacity:.7} .rtype.soon:hover{border-color:var(--ms-line)}
+        .rtype .th{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:650}
+        .rtype .th ha-icon{--mdc-icon-size:18px;color:var(--ms-accent)}
+        .rtype .td{font-size:11.5px;color:var(--ms-ink2);margin-top:5px;line-height:1.35}
+        .rtype .soonbadge{position:absolute;top:10px;right:11px;font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--ms-ink2);background:color-mix(in srgb,var(--ms-ink) 8%,transparent);border-radius:999px;padding:2px 7px}
+        .rgen{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px;padding:12px 13px;border:1px solid var(--ms-line);border-radius:12px}
+        .rgen .lbl{font-size:12px;color:var(--ms-ink2)}
+        .rseg{display:inline-flex;border:1px solid var(--ms-line);border-radius:9px;overflow:hidden}
+        .rseg button{font:inherit;font-size:12.5px;border:none;background:none;color:var(--ms-ink2);padding:6px 11px;cursor:pointer}
+        .rseg button.on{background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-accent);font-weight:650}
+        .rgo{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:13px;font-weight:650;color:#fff;cursor:pointer;background:var(--ms-accent);border:none;border-radius:10px;padding:9px 16px}
+        .rgo[disabled]{opacity:.5;cursor:default} .rgo ha-icon{--mdc-icon-size:17px}
+        .rmsg{font-size:12.5px;margin-top:10px;padding:9px 12px;border-radius:9px}
+        .rmsg.ok{background:color-mix(in srgb,var(--ms-good) 13%,transparent);color:var(--ms-good)}
+        .rmsg.err{background:color-mix(in srgb,var(--ms-bad) 13%,transparent);color:var(--ms-bad)}
+        .rlib{margin-top:6px}
+        .lrow{display:flex;align-items:center;gap:11px;font-size:12.5px;padding:9px 0;border-bottom:1px solid var(--ms-line)} .lrow:last-child{border-bottom:none}
+        .lrow .ldot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--ms-good)}
+        .lrow .ldot.warn{background:var(--ms-warn)} .lrow .ldot.bad{background:var(--ms-bad)}
+        .lrow .lic{--mdc-icon-size:17px;color:var(--ms-ink2);flex:0 0 auto}
+        .lrow .lnm{flex:1;min-width:0} .lrow .lnm b{color:var(--ms-ink);font-weight:600} .lrow .lnm .m{color:var(--ms-ink2);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .lrow .lwhen{color:var(--ms-ink2);white-space:nowrap;font-size:11.5px}
+        .lrow .ldl{color:var(--ms-accent);text-decoration:none;font-weight:600;text-transform:uppercase;font-size:11px;flex:0 0 auto}
+        .rempty{color:var(--ms-ink2);font-size:12.5px;padding:14px 0}
+      `;
+      const typeCards = types.map((t) => h("button", {
+        class: "rtype" + (t.id === this._sel ? " sel" : "") + (t.status === "soon" ? " soon" : ""),
+        onclick: t.status === "soon" ? null : () => { this._sel = t.id; this._msg = null; this._render(); } }, [
+        t.status === "soon" ? h("span", { class: "soonbadge" }, "SOON") : null,
+        h("div", { class: "th" }, [h("ha-icon", { icon: t.icon }), esc(t.title)]),
+        h("div", { class: "td" }, esc(t.desc)),
+      ].filter(Boolean)));
+      const seg = (val, opts, set) => h("div", { class: "rseg" }, opts.map((o) =>
+        h("button", { class: val === o.v ? "on" : "", onclick: () => { set(o.v); this._render(); } }, o.t)));
+      const genPanel = sel && sel.status !== "soon" ? h("div", { class: "rgen" }, [
+        h("span", { class: "lbl" }, "Period"),
+        seg(this._period || "week", [{ v: "week", t: "Last week" }, { v: "month", t: "Last month" }], (v) => this._period = v),
+        (sel.formats || []).length > 1 ? h("span", { class: "lbl" }, "Format") : null,
+        (sel.formats || []).length > 1 ? seg(this._fmt || "pdf", (sel.formats || []).map((f) => ({ v: f, t: f.toUpperCase() })), (v) => this._fmt = v) : null,
+        h("button", { class: "rgo", disabled: this._busy ? true : null, onclick: () => this._gen() },
+          [h("ha-icon", { icon: this._busy ? "mdi:timer-sand" : "mdi:file-download-outline" }), this._busy ? "Generating…" : "Generate"]),
+      ].filter(Boolean)) : null;
+      const libRows = reports.length ? reports.slice(0, 20).map((r) => {
+        const cls = r.status === "ok" ? "" : r.status === "error" ? "bad" : "warn";
+        return h("div", { class: "lrow" }, [
+          h("span", { class: "ldot " + cls }),
+          h("ha-icon", { class: "lic", icon: r.icon || "mdi:file-document-outline" }),
+          h("div", { class: "lnm" }, [h("b", {}, esc(r.title)),
+            h("div", { class: "m" }, esc(r.period || "") + (r.summary ? " · " + r.summary : ""))]),
+          h("span", { class: "lwhen" }, r.created ? ago(Date.parse(r.created)) : ""),
+          r.url ? h("a", { class: "ldl", href: r.url, target: "_blank", rel: "noopener" }, (r.format || "pdf")) : null,
+        ].filter(Boolean));
+      }) : [h("div", { class: "rempty" }, "No reports yet — generate one above.")];
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "rhsub" }, "Generate a report"),
+        h("div", { class: "rtypes" }, typeCards),
+        genPanel,
+        this._msg ? h("div", { class: "rmsg " + (this._msg.ok ? "ok" : "err") }, esc(this._msg.text)) : null,
+        h("p", { class: "rhsub", style: { marginTop: "18px" } }, "Report library"),
+        h("div", { class: "rlib" }, libRows),
+      ].filter(Boolean)));
+    }
+  }
+
   // ---------------------------------------------------------------- visual config editors (ha-form)
   const ENTITY_SEL = { entity: { domain: ["sensor", "binary_sensor"] } };
   class CardEditor extends HTMLElement {
@@ -6250,7 +6346,7 @@
     _watch() { if (!this._hass) return null; return this._find().map((s) => s.entity_id); }
     _row(st) {
       const a = st.attributes, busy = a.occupied === true;
-      const icon = a.counting ? "mdi:account-group" : "mdi:seat";
+      const icon = a.counting ? "mdi:account-group" : a.motion_only ? "mdi:motion-sensor" : "mdi:seat";
       const sub = esc((a.model || "") + (a.status ? " · " + a.status.replace(/^Occupied/, "occupied").replace(/^Empty/, "free") : ""));
       const tag = a.counting && num(a.people) != null && busy ? (a.people + (a.people === 1 ? " person" : " people"))
         : busy ? "Occupied" : a.occupied === false ? "Free" : "—";
@@ -9000,6 +9096,7 @@
         TROUGH_TAG = "milesight-trough-card", FLOOD_TAG = "milesight-flood-card", FENCE_TAG = "milesight-fence-card",
         WASHBAND_TAG = "milesight-washroom-band", WASHROOM_TAG = "milesight-washroom-card",
         COMPLIANCE_TAG = "milesight-compliance-card",
+        REPORTS_TAG = "milesight-reports-card",
         COSTS_TAG = "milesight-running-costs-card", COSTSTRIP_TAG = "milesight-cost-strip-card",
         RECIPES_TAG = "milesight-recipes-card", RECIPESTRIP_TAG = "milesight-recipe-strip-card",
         ATTENTION_TAG = "milesight-attention-card", SYSTEMS_TAG = "milesight-systems-card",
@@ -9070,6 +9167,7 @@
     [WASHBAND_TAG, WashroomBand, "Milesight Washroom Band", "Washroom tiles: need cleaning, low supplies, odour, alerts, occupied"],
     [WASHROOM_TAG, WashroomCard, "Milesight Washrooms", "One card per restroom: cleanliness, supplies, traffic, air, events"],
     [COMPLIANCE_TAG, ComplianceCard, "Milesight Compliance", "Time in range, PDF reports, corrective actions and recent reports"],
+    [REPORTS_TAG, ReportsCard, "Milesight Reports", "Reporting hub: generate cold-chain, device-health and more reports; browse the report library"],
     [COSTS_TAG, RunningCostsCard, "Milesight Running Costs", "Spend today/month/projected with a live ticker and a cost leaderboard, from your tariffs"],
     [COSTSTRIP_TAG, CostStripCard, "Milesight Cost Strip", "A small water / diesel / feed cost-today strip for a page other than Energy"],
     [RECIPES_TAG, RecipesCard, "Milesight Rules", "Plain-language automations: browse, toggle, tune and add rules"],
@@ -9091,7 +9189,7 @@
     [GAS_TAG, GasCard, "Milesight Gas & Vape", "GS301 odour / GS601 vape: numeric chips drive the trend, odour / vape show status"],
     [SOUND_TAG, SoundCard, "Milesight Sound", "WS302 sound level with a learned baseline and continuous water-flow / 'left running' detection"],
     [LIGHT_TAG, LightControlCard, "Milesight Lights", "WS558 / switch control: per-channel on/off toggles and all-on / all-off"],
-    [SPACES_TAG, SpacesCard, "Milesight Spaces", "VS occupancy / people sensors as a list: busy / free, people count and utilisation"],
+    [SPACES_TAG, SpacesCard, "Milesight Spaces", "Occupancy / PIR-motion sensors as a list: busy / free, people count and utilisation"],
     [COUNTER_TAG, PeopleCounterCard, "Milesight People Counter", "VS people counter: inside now, in / out / net today, capacity and the day's occupancy trend"],
     [FALL_TAG, FallCard, "Milesight Fall Detection", "VS373 radar: presence (in bed / out of bed / fall), respiration, dwell and alarms"],
     [WORKPLACE_TAG, WorkplaceCard, "Milesight Room", "VS321 room sensor: occupancy headline, seat regions and temp / humidity / light chips that drive the trend"],

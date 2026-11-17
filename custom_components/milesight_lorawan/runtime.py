@@ -719,8 +719,7 @@ class DeviceRuntime:
             specs.append(EntitySpec("energy_monitor", "Energy", icon="mdi:flash"))
         if self._gas_applies():      # a GS odour / vape detector → a Gas & vape card
             specs.append(EntitySpec("gas_monitor", "Gas & vape", icon="mdi:scent"))
-        if self.occupancy is not None and self.model.key.startswith("VS") and not self._counter_applies() \
-                and self.model.key != "VS321":   # VS occupancy (not VS321) → Spaces + per-device Occupancy card
+        if self._space_applies():        # any occupancy / PIR-motion sensor → Spaces + per-device Occupancy card
             specs.append(EntitySpec("space", "Space", icon="mdi:seat"))
         if self.model.key == "VS321":    # VS321 room sensor → the AM-style Workplace card
             specs.append(EntitySpec("workplace", "Workplace", icon="mdi:office-building-marker"))
@@ -1077,26 +1076,44 @@ class DeviceRuntime:
             empty_s = max(0.0, ts - since) if occupied is False else None
         return occ_s, empty_s
 
+    def _space_applies(self) -> bool:
+        """Anything that senses whether a space is in use: a presence / occupancy sensor (VS34x/37x, WS203,
+        WT401, AM-L, VS330, GS601 …) or a plain PIR / motion sensor (WS202, AM PIR). Not a people counter
+        (its own card) and not the VS321 workplace sensor."""
+        if self._counter_applies() or self.model.key == "VS321":
+            return False
+        return self.occupancy is not None or bool(self.model.features & {"motion", "pir"})
+
     def _space(self, v: dict, ts: float) -> dict | None:
-        """One VS occupancy / people sensor as a 'space': busy / free, people count, how long it's been occupied /
-        empty, sessions and peak today, utilisation and (VS370) light. Scoped to the VS range; VS321 has its own card."""
-        if self.occupancy is None or not self.model.key.startswith("VS") or self._counter_applies() \
-                or self.model.key == "VS321":
+        """One occupancy / PIR sensor as a 'space': busy / free, and (presence sensors) people count, how long
+        it's been occupied / empty, sessions and peak today, utilisation and light. A plain PIR / motion sensor
+        shows busy / free (motion) with the last-motion time, without the usage stats."""
+        if not self._space_applies():
             return None
-        occupied = v.get("occ_occupied")
-        if occupied is None and v.get("occ_status") is None:
-            return None
-        occ_s, empty_s = self._occ_times(v, ts)
+        occupied, status, since = v.get("occ_occupied"), v.get("occ_status"), v.get("occ_occupied_since")
+        has_tracker = self.occupancy is not None and (occupied is not None or status is not None)
+        if not has_tracker:                                 # a PIR / motion sensor → occupied = motion detected
+            # read the motion tracker directly: its per-feature values are added to `v` later than this call
+            mt = self.binary.get("motion")
+            mv = mt.values(ts) if mt is not None else None
+            act = mv.get("active") if mv else None
+            if act is None:
+                return None
+            occupied, since = bool(act), mv.get("since")
+            status = ("Motion since " + self._hhmm(since)) if (act and since) else ("Clear" if act is False else None)
+        occ_s, empty_s = self._occ_times(v, ts) if has_tracker else (None, None)
+        counting = bool(has_tracker and self.model.counting)
         return {
             "milesight_role": "space", "device": self.entry.title, "area": self._area(), "model": self.model.key,
-            "occupied": occupied, "status": v.get("occ_status"),
-            "people": v.get("occ_people_count") if self.model.counting else None,
-            "counting": bool(self.model.counting), "since": v.get("occ_occupied_since"),
+            "occupied": occupied, "status": status, "motion_only": not has_tracker,
+            "people": v.get("occ_people_count") if counting else None, "counting": counting, "since": since,
             "occupied_s": None if occ_s is None else round(occ_s), "empty_s": None if empty_s is None else round(empty_s),
-            "utilisation": _nz(v.get("occ_utilisation_today_pct")), "sessions": v.get("occ_sessions_today"),
-            "peak": v.get("occ_peak_today"), "used_today_s": _nz(v.get("occ_occupied_today_s")),
-            "longest_s": _nz(v.get("occ_longest_session_today_s")), "light": _nz(v.get("illuminance")),
-            "last_seen": self.meta.get("last_seen"),
+            "utilisation": _nz(v.get("occ_utilisation_today_pct")) if has_tracker else None,
+            "sessions": v.get("occ_sessions_today") if has_tracker else None,
+            "peak": v.get("occ_peak_today") if has_tracker else None,
+            "used_today_s": _nz(v.get("occ_occupied_today_s")) if has_tracker else None,
+            "longest_s": _nz(v.get("occ_longest_session_today_s")) if has_tracker else None,
+            "light": _nz(v.get("illuminance")), "last_seen": self.meta.get("last_seen"),
         }
 
     def _workplace(self, v: dict, ts: float) -> dict | None:

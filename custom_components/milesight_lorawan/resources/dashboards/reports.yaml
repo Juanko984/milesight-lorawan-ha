@@ -1,0 +1,29 @@
+# Milesight LoRaWAN – Reports
+# Installed on every site. One place to generate point-in-time, archival reports (PDF / CSV) and browse the
+# library of what has already been produced. The card reads the "reports" role sensor on the gateway and runs
+# the milesight_lorawan.generate_report service — no entity ids to set. Files are written under
+# www/milesight/reports/<year>/ and served at /local/… . Cold-chain reports made from the Cold chain page
+# appear in the same library. Scheduled / e-mailed reports are configured per type (cold-chain today).
+title: Reports
+views:
+  - title: Reports
+    path: reports
+    icon: mdi:file-chart-outline
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Reports
+            subtitle: Generate and archive point-in-time reports — cold-chain, device health and more
+            icon: mdi:file-chart-outline
+      - type: grid
+        column_span: 3
+        cards:
+          # The reporting hub: pick a report type, choose the period and format, Generate — then download from
+          # the report library below. Types marked “soon” are on the way.
+          - type: custom:milesight-reports-card
+            grid_options: {columns: full}

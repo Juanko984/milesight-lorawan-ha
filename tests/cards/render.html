@@ -81,6 +81,17 @@
    "sensor.pivot1": { state: "running", attributes: { milesight_role: "pivot", device: "Pivot 1", status: "running", angle: 198, speed: 12, finish_in_h: 3.2 } },
    "sensor.load1": { state: "4", attributes: { milesight_role: "load", group: "cold_chain", device: "Compressor", area: "Cold room", running: true, duty_today: 44, duty_24h: 40, starts_today: 12 } },
    "sensor.compliance": { state: "2026-10-18T09:00:00+00:00", attributes: { milesight_role: "compliance_reports", schedule: "every Monday", email: ["a@x", "b@x"], reports: [{ unit: "Fridge 1", period: "last week", status: "compliant", excursions: 0, coverage: 99, url: "/local/x.pdf" }, { unit: "Freezer", period: "last week", status: "attention", excursions: 2, coverage: 97, url: "/local/y.pdf" }] } },
+   "sensor.reports": { state: "4", attributes: { milesight_role: "reports",
+     types: [
+       { id: "cold_chain", title: "Cold-chain compliance", icon: "mdi:snowflake-thermometer", desc: "Temperature record, time-in-range, excursions and corrective actions per fridge / cold room.", formats: ["pdf"], scopes: ["site"], status: "ready" },
+       { id: "device_health", title: "Device health & uptime", icon: "mdi:access-point-network", desc: "Online time, offline events, battery and link quality across the fleet — an SLA / support record.", formats: ["pdf","csv"], scopes: ["site"], status: "ready" },
+       { id: "energy", title: "Energy & cost", icon: "mdi:lightning-bolt", desc: "Consumption, duty cycle and tariff cost per load and per period — for finance.", formats: ["pdf","csv"], scopes: ["site"], status: "soon" },
+       { id: "team", title: "Team attendance & timesheets", icon: "mdi:account-clock", desc: "Hours worked, attendance and overtime per worker — payroll-ready.", formats: ["pdf","csv"], scopes: ["site"], status: "soon" },
+       { id: "occupancy", title: "Occupancy & area use", icon: "mdi:floor-plan", desc: "Occupied time, utilisation and sessions per space / area over the period.", formats: ["pdf","csv"], scopes: ["site"], status: "soon" } ],
+     reports: [
+       { id: "r1", type: "device_health", title: "Device health & uptime", icon: "mdi:access-point-network", period: "Week 46, 09 Nov – 15 Nov 2026", created: new Date(Date.now() - 3600e3).toISOString(), status: "warn", format: "pdf", url: "/local/dh.pdf", summary: "36/43 online, 7 offline, 2 low battery" },
+       { id: "r2", type: "cold_chain", title: "Cold-chain compliance", icon: "mdi:snowflake-thermometer", period: "last week", created: new Date(Date.now() - 2*864e5).toISOString(), status: "ok", format: "pdf", url: "/local/x.pdf", summary: "Fridge 1: compliant" },
+       { id: "r3", type: "cold_chain", title: "Cold-chain compliance", icon: "mdi:snowflake-thermometer", period: "last week", created: new Date(Date.now() - 2*864e5).toISOString(), status: "warn", format: "pdf", url: "/local/y.pdf", summary: "Freezer: attention, 2 excursion(s)" } ] } },
    "text.ca": { state: "door seal replaced", attributes: { milesight_role: "corrective_action", device: "Fridge 1" } },
    "sensor.costs": { state: "184.62", attributes: { milesight_role: "costs", site: "Green Acres", currency: "R", today: 184.62, month: 4210, projected: 4230, yesterday: 164, last_month: 4420, rate_per_h: 11.4,
      day_of_month: 31, days_in_month: 31, priced_resources: ["electricity", "water", "diesel", "feed"],
@@ -298,6 +309,9 @@
    "sensor.sp2": { state: "off", attributes: { milesight_role: "space", device: "Desk 4", area: "Floor 2", model: "VS340", occupied: false, counting: false, status: "Empty", utilisation: 22, occupied_s: null, empty_s: 1080, sessions: 5, used_today_s: 9000, longest_s: 3600, last_seen: Date.now() / 1000 - 40 } },
    "sensor.sp3": { state: "on", attributes: { milesight_role: "space", device: "Bathroom 1", area: "Floor 2", model: "VS330", occupied: true, counting: false, status: "Occupied since 10:05", utilisation: 44, occupied_s: 360, empty_s: null, sessions: 12, used_today_s: 5400, longest_s: 900, last_seen: Date.now() / 1000 - 10 } },
    "sensor.sp4": { state: "on", attributes: { milesight_role: "space", device: "Reception", area: "Floor 1", model: "VS370", occupied: true, counting: false, status: "Occupied", utilisation: 70, occupied_s: 480, empty_s: null, sessions: 28, used_today_s: 18000, light: 640, last_seen: Date.now() / 1000 - 15 } },
+   // non-VS occupancy (WS203 env+occupancy) and a plain PIR / motion sensor (WS202) now also listed
+   "sensor.sp5": { state: "on", attributes: { milesight_role: "space", device: "Store room", area: "Floor 1", model: "WS203", occupied: true, counting: false, status: "Occupied since 09:40", utilisation: 33, occupied_s: 900, empty_s: null, sessions: 7, used_today_s: 7200, last_seen: Date.now() / 1000 - 25 } },
+   "sensor.sp6": { state: "off", attributes: { milesight_role: "space", device: "Back corridor", area: "Floor 1", model: "WS202", occupied: false, counting: false, motion_only: true, status: "Clear", utilisation: null, occupied_s: null, empty_s: 300, last_seen: Date.now() / 1000 - 30 } },
    // VS people counters
    "sensor.vs133_inside": { state: "24", last_changed: new Date().toISOString(), attributes: { friendly_name: "Inside", unit_of_measurement: "people" } },
    "sensor.vs133_count": { state: "24", attributes: { milesight_role: "people_counter", device: "Main entrance", area: "Lobby", model: "VS133", inside: 24, in_today: 312, out_today: 288, net: 24, capacity: 50, over: false, trend_key: "people_count_all", trend_entity_id: "sensor.vs133_inside", last_seen: Date.now() / 1000 - 30 } },
@@ -525,6 +539,7 @@
    ["milesight-washroom-band", {}],
    ["milesight-washroom-card", {}],
    ["milesight-compliance-card", {}],
+   ["milesight-reports-card", {}],
    ["milesight-mains-card", {}],
    ["milesight-load-summary-card", {}],
    ["milesight-running-costs-card", {}],

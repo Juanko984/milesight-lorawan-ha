@@ -30,6 +30,7 @@ SERVICE_BATTERY = "battery_replaced"
 SERVICE_PROFILE = "apply_settings_profile"
 SERVICE_HANDOVER = "handover_report"
 SERVICE_COMPLIANCE = "compliance_report"
+SERVICE_GENERATE_REPORT = "generate_report"
 SERVICE_CONFIGURE_GW = "configure_gateway"
 SERVICE_FORGET_GW = "forget_gateway"
 DISPLAY_BLOCKS = [f"text_{n}" for n in range(1, 11)] + ["qrcode"]
@@ -292,6 +293,21 @@ def async_register_services(hass: HomeAssistant) -> None:
                 "reports": [{k: r[k] for k in ("unit", "status", "url", "excursions", "out_min", "coverage")}
                             for r in out["reports"]]}
 
+    async def _generate_report(call: ServiceCall) -> dict:
+        from .maintenance_ha import first_hub_entry
+        hub = first_hub_entry(hass)
+        if hub is None:
+            raise ServiceValidationError("No Milesight gateway set up")
+        period = call.data["period"]
+        start, end = call.data.get("start"), call.data.get("end")
+        if period == "custom" and (start is None or end is None or end <= start):
+            raise ServiceValidationError("A custom period needs a start and an end after it")
+        out = await hub.runtime_data.reports.async_generate(
+            call.data["report"], period=period, start=start, end=end, fmt=call.data["format"])
+        if not out.get("ok"):
+            raise ServiceValidationError(out.get("message") or "Could not generate the report")
+        return {k: out[k] for k in ("ok", "message", "record", "count") if k in out}
+
     async def _configure_gateway(call: ServiceCall) -> dict:
         from .gateway_api import GatewayError, run_gateway_config
         try:
@@ -320,6 +336,11 @@ def async_register_services(hass: HomeAssistant) -> None:
         vol.Optional("mqtt_password"): cv.string}), supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_COMPLIANCE, _compliance, schema=COMPLIANCE_SCHEMA,
                                  supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, SERVICE_GENERATE_REPORT, _generate_report, schema=vol.Schema({
+        vol.Required("report"): cv.string, vol.Required("period", default="week"): vol.In(["week", "month", "custom"]),
+        vol.Optional("format", default="pdf"): vol.In(["pdf", "csv"]),
+        vol.Optional("start"): cv.datetime, vol.Optional("end"): cv.datetime,
+    }), supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_LOG, _log, schema=LOG_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_BATTERY, _battery, schema=TANK_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_PROFILE, _profile, schema=PROFILE_SCHEMA,

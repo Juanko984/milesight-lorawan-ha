@@ -265,6 +265,40 @@ compliance_report:
       default: true
       selector:
         boolean:
+generate_report:
+  fields:
+    report:
+      required: true
+      example: device_health
+      selector:
+        select:
+          options:
+            - cold_chain
+            - device_health
+            - energy
+            - team
+            - occupancy
+    period:
+      default: week
+      selector:
+        select:
+          options:
+            - week
+            - month
+            - custom
+    format:
+      default: pdf
+      selector:
+        select:
+          options:
+            - pdf
+            - csv
+    start:
+      selector:
+        datetime:
+    end:
+      selector:
+        datetime:
 configure_gateway:
   fields:
     host:

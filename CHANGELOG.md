@@ -2,6 +2,26 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.152.0
+- **New: a dedicated Reports page.** A reporting hub for point-in-time, archival reports (PDF / CSV) — distinct
+  from the live dashboards. Pick a report type, choose the period (last week / month, or a custom range) and
+  format, generate it, and download it from the report library. Files are written under
+  `www/milesight/reports/<year>/` and served at `/local/…`; cold-chain reports made from the Cold chain page
+  appear in the same library. This first release ships two working reports:
+  - **Cold-chain compliance** — the existing HACCP record, now also launchable from the hub.
+  - **Device health & uptime** — an SLA / support PDF (or CSV): fleet summary plus every device's status, last
+    seen, battery and link quality, with offline devices flagged.
+
+  **Energy & cost**, **Team attendance & timesheets** and **Occupancy & area use** are listed and coming next.
+  Also adds a `milesight_lorawan.generate_report` service.
+
+## 0.151.2
+- **Spaces now lists every occupancy and motion sensor, not just the VS range.** The Spaces list previously
+  showed only VS34x/37x occupancy sensors. It now includes any device that senses whether a space is in use —
+  other presence sensors (WS203, WT401, AM-L, VS330, GS601 …) and plain PIR / motion sensors (WS202, AM PIR).
+  Presence sensors keep their full busy/free + utilisation stats; a plain motion sensor shows busy/free with the
+  last-motion time (no usage bar). People counters and the VS321 workplace sensor keep their own cards.
+
 ## 0.151.1
 - **Chicken-coop page now finds devices by the Home Assistant area you set, and any “coop” area name.** Two
   fixes to the long-standing "coop page is empty" problem: (1) a device's area now falls back to its **Home

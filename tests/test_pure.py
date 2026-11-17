@@ -2940,6 +2940,36 @@ def test_messaging_calc():
     assert "as_worker" not in msc.new_message("site", "hi", author="Juan", user_id="u1")
 
 
+def test_reports():
+    rep = _load("reports"); rha = _load("reports_ha")
+    # registry: 5 types, cold_chain + device_health ready, the rest "soon"
+    pub = rep.types_public()
+    assert [t["id"] for t in pub] == ["cold_chain", "device_health", "energy", "team", "occupancy"]
+    assert rep.BY_ID["cold_chain"].status == "ready" and rep.BY_ID["device_health"].status == "ready"
+    assert all(rep.BY_ID[i].status == "soon" for i in ("energy", "team", "occupancy"))
+    assert "csv" in rep.BY_ID["device_health"].formats and rep.BY_ID["cold_chain"].formats == ("pdf",)
+    # period resolution
+    now = datetime(2026, 11, 17, 9, 0)
+    _s, _e, lbl = rep.resolve_period("week", now); assert "Week 46" in lbl
+    _s, _e, lbl = rep.resolve_period("month", now); assert lbl == "October 2026"
+    _s, _e, lbl = rep.resolve_period("custom", now, datetime(2026, 11, 1), datetime(2026, 11, 15))
+    assert lbl == "01 Nov 2026 – 14 Nov 2026"
+    # records merge newest-first and de-dupe by url/id
+    a = [rep.make_record("device_health", period="w", created="2026-11-17T09:00", url="/local/a.pdf")]
+    b = [rep.make_record("cold_chain", period="w", created="2026-11-16T09:00", url="/local/b.pdf"),
+         rep.make_record("cold_chain", period="w", created="2026-11-16T09:00", url="/local/a.pdf")]  # dup url
+    m = rep.merge_records(a, b)
+    assert [r["type"] for r in m] == ["device_health", "cold_chain"] and len(m) == 2
+    # PDF + CSV builders produce valid output
+    pdf = rha.build_pdf("Device health", "Site", "Week 46",
+                        [{"heading": "Devices", "cols": [("Device", 200, "left"), ("Status", 100, "right")],
+                          "rows": [["AM107", "Online"], ["WS202", "Offline"]], "row_colours": [None, "#c62828"]}],
+                        status=("1 OFFLINE", "#c62828"))
+    assert pdf[:5] == b"%PDF-" and len(pdf) > 500
+    csv = rha.to_csv(["Device", "Status"], [["AM107", "Online"], ["WS202", None]])
+    assert csv.startswith(b"\xef\xbb\xbf") and b"AM107,Online" in csv and b"WS202," in csv
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

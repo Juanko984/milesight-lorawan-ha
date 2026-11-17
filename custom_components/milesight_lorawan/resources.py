@@ -32,6 +32,7 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
     "team.yaml": ("milesight-team", "mdi:account-group", None),
     "devices.yaml": ("milesight-devices", "mdi:format-list-bulleted", None),
     "maintenance.yaml": ("milesight-maintenance", "mdi:wrench-clock", None),
+    "reports.yaml": ("milesight-reports", "mdi:file-chart-outline", None),
     "tanks_and_alerts.yaml": ("milesight-water", "mdi:water-percent", {"tank"}),
     "building_analytics.yaml": ("milesight-analytics", "mdi:chart-box-outline", {"comfort", "people", "weather"}),
     "farm.yaml": ("milesight-farm", "mdi:tractor-variant", {"pump", "irrigation", "silo"}),
