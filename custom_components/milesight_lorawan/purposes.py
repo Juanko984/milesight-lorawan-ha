@@ -155,6 +155,10 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
        temp_low=2, co2_limit=3000),
     _p("coop_light", "Coop light sensor", "comfort", "light", icon="mdi:brightness-6"),
     _p("coop_controller", "Coop lights / heater controller", "comfort", "controller", icon="mdi:home-lightning-bolt"),
+    # ---- general light / illuminance uses (so an EM500-LGT isn't limited to the coop)
+    _p("daylight", "Daylight / light level", "comfort", "light", icon="mdi:white-balance-sunny"),
+    _p("grow_light", "Grow light / greenhouse", "comfort", "light", icon="mdi:sprout"),
+    _p("security_light", "Security / yard light level", "security", "light", icon="mdi:lightbulb-alert"),
 )}
 
 SOIL_PURPOSES = ("field", "greenhouse", "garden")

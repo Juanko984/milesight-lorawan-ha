@@ -31,6 +31,7 @@ class CoopManager:
     def __init__(self, hass: HomeAssistant, entry: "ConfigEntry", hub: Any) -> None:
         self.hass, self.entry, self.hub = hass, entry, hub
         self.data: dict[str, Any] = {}
+        self._active: dict[str, bool] = {}        # per-rule on/off state, for hysteresis across ticks
 
     # ---- config --------------------------------------------------------
     @property
@@ -89,29 +90,25 @@ class CoopManager:
         from homeassistant.util import dt as dt_util
         now = dt_util.now()
         hour = now.hour + now.minute / 60.0
-        lux, lux_ok = self._read(cfg["lights"]["lux_entity"])
-        temp, probe_ok = self._read(cfg["heater"]["temp_entity"])
-        lights_on = self._relay_on(cfg["lights"]["relay"])
-        heater_on = self._relay_on(cfg["heater"]["relay"])
-        decision = cc.evaluate(cfg, hour=hour, lux=lux, temp=temp, lights_on=lights_on, heater_on=heater_on,
-                               lux_ok=lux_ok, probe_ok=probe_ok)
+        per_sensor: dict[str, Any] = {}
+        relay_on: dict[str, bool] = {}
+        for r in cfg["rules"]:
+            if r["sensor"] and r["sensor"] not in per_sensor:
+                per_sensor[r["sensor"]] = self._read(r["sensor"])
+            if r["relay"] and r["relay"] not in relay_on:
+                relay_on[r["relay"]] = self._relay_on(r["relay"])
 
-        for side in ("lights", "heater"):
-            want = decision[side]["want"]
-            relay = cfg[side]["relay"]
-            cur = lights_on if side == "lights" else heater_on
-            if want is not None and relay and want != cur:
+        ev = cc.evaluate({**cfg, "_per_sensor": per_sensor}, hour=hour, readings={},
+                         prev_active=self._active, relay_on=relay_on)
+        self._active = ev["active"]
+
+        for relay, want in ev["relays"].items():            # one relay, OR of its rules
+            if want != relay_on.get(relay, False):
                 await self._set_relay(relay, want)
 
         self.data = {
             "milesight_role": "coop_controller", "site": self.entry.title,
-            "lights": {**cfg["lights"], "on": decision["lights"]["want"] if decision["lights"]["want"] is not None else lights_on,
-                       "lux": None if lux is None else round(lux), "lux_fresh": lux_ok,
-                       "reason": decision["lights"]["reason"], "within_window": decision["lights"].get("within_window")},
-            "heater": {**cfg["heater"], "on": decision["heater"]["want"] if decision["heater"]["want"] is not None else heater_on,
-                       "temp": None if temp is None else round(temp, 1), "probe_fresh": probe_ok,
-                       "reason": decision["heater"]["reason"]},
-            "updated": now.isoformat(),
+            "rules": ev["rules"], "relays": ev["relays"], "updated": now.isoformat(),
         }
         async_dispatcher_send(self.hass, SIGNAL_COOP.format(self.entry.entry_id))
 
@@ -141,12 +138,11 @@ class CoopSensor(SensorEntity):
 
     @property
     def native_value(self) -> str:
-        d = self.manager.data
-        on = sum(1 for s in ("lights", "heater") if (d.get(s) or {}).get("enabled") and (d.get(s) or {}).get("on"))
-        en = sum(1 for s in ("lights", "heater") if (d.get(s) or {}).get("enabled"))
-        if not en:
+        rules = [r for r in (self.manager.data.get("rules") or []) if r.get("enabled")]
+        if not rules:
             return "Not set up"
-        return f"{on} of {en} on" if on else "All off"
+        on = sum(1 for r in rules if r.get("active"))
+        return f"{on} of {len(rules)} active" if on else "All off"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

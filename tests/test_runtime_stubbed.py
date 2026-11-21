@@ -805,6 +805,19 @@ s = sensor.MilesightSensor(rt, specs["modbus_chn_1"])
 assert s.native_value == 12.34 and s._attr_native_unit_of_measurement == "bar" and s._attr_unique_id.endswith("_modbus_chn_1")
 print("channel map ok")
 
+# A UC300 in the coop area: its PT100 channel is tagged for trending (ms_trend) and scoped to the coop area +
+# purpose, so the "Coop sensors" all-trend grid (trend: "*") can discover it alongside the climate sensors.
+_e_ucc, _rt_ucc = make_with("00000000000e03c0", "UC300", {"purpose": "coop_controller"},
+                            title="Coop controller", area="Chicken coop")
+send("00000000000e03c0", bytes.fromhex("030001070101096735000b02e8030000ff1900040200fa00ff1501"))
+_ctrl = _rt_ucc._controller(_rt_ucc.values)
+assert _ctrl is not None and any(m["key"] == "pt100_1" for m in _ctrl["metrics"]), _ctrl
+_pt = _rt_ucc.attrs.get("pt100_1")
+assert _pt is not None, "pt100_1 channel not tagged"
+assert _pt["ms_trend"] == "temperature", _pt
+assert _pt["area"] == "Chicken coop" and _pt["purpose"] == "coop_controller", _pt
+print("uc300 coop channel trend tag ok")
+
 # WitMotion WTVB01-485 vibration role sensor on a UC100 (ISO 10816 verdict from the Modbus channel values)
 _, rtv = make_with("00000000000e9001", "UC100", {"channel_templates": [
     {"template": "witmotion_wtvb01", "first": 1, "last": 10, "slave_id": 80,
@@ -2482,27 +2495,34 @@ def _cstate(eid, state, age_s=10):
                                               last_updated=types.SimpleNamespace(timestamp=lambda a=age_s: time.time() - a))
 _cstate("switch.lights", "off"); _cstate("switch.heater", "off")
 _cstate("sensor.coop_lux", 8); _cstate("sensor.coop_temp", 5)
-import importlib as _il
-_coop_entry = types.SimpleNamespace(entry_id="h", title="Green Acres", runtime_data=None, options={"coop_control": {
-    "lights": {"enabled": True, "relay": "switch.lights", "lux_entity": "sensor.coop_lux",
-               "on_lux": 15, "off_lux": 40, "start_hour": 0, "end_hour": 24},
-    "heater": {"enabled": True, "relay": "switch.heater", "temp_entity": "sensor.coop_temp",
-               "on_temp": 8, "off_temp": 12}}})
+_cstate("switch.fan", "off"); _cstate("sensor.coop_co2", 3200)
+_coop_entry = types.SimpleNamespace(entry_id="h", title="Green Acres", runtime_data=None, options={"coop_control": {"rules": [
+    {"id": "lights", "name": "Lights", "metric": "light", "mode": "below", "relay": "switch.lights",
+     "sensor": "sensor.coop_lux", "on_value": 15, "off_value": 40, "start_hour": 0, "end_hour": 24, "enabled": True},
+    {"id": "heater", "name": "Heater", "metric": "temperature", "mode": "below", "relay": "switch.heater",
+     "sensor": "sensor.coop_temp", "on_value": 8, "off_value": 12, "enabled": True},
+    {"id": "fan_co2", "name": "Extractor CO₂", "metric": "co2", "mode": "above", "relay": "switch.fan",
+     "sensor": "sensor.coop_co2", "on_value": 3000, "off_value": 2500, "enabled": True},
+    {"id": "fan_heat", "name": "Extractor heat", "metric": "temperature", "mode": "above", "relay": "switch.fan",
+     "sensor": "sensor.coop_temp", "on_value": 28, "off_value": 26, "enabled": True}]}})
 _coop = coop_ha.CoopManager(_coop_hass, _coop_entry, None)
-# dark (8 lx ≤ 15) and cold (5 °C ≤ 8): both relays should be switched on
+# dark (8 lx) → lights on; cold (5 °C) → heater on; CO₂ 3200 ≥ 3000 → extractor fan on
 asyncio.run(_coop._async_tick())
-assert ("switch", "turn_on", "switch.lights") in _coop_calls and ("switch", "turn_on", "switch.heater") in _coop_calls, _coop_calls
-assert _coop.data["lights"]["on"] is True and _coop.data["heater"]["on"] is True
-assert "dark" in _coop.data["lights"]["reason"] and "cold" in _coop.data["heater"]["reason"]
-# now bright and warm, relays currently on → both switch off
-_coop_calls.clear(); _cstate("switch.lights", "on"); _cstate("switch.heater", "on")
-_cstate("sensor.coop_lux", 80); _cstate("sensor.coop_temp", 15)
+for want in (("switch", "turn_on", "switch.lights"), ("switch", "turn_on", "switch.heater"), ("switch", "turn_on", "switch.fan")):
+    assert want in _coop_calls, (want, _coop_calls)
+_rules = {r["id"]: r for r in _coop.data["rules"]}
+assert _rules["fan_co2"]["active"] is True and _rules["fan_heat"]["active"] is False     # fan on from CO₂, not heat
+# clear CO₂ and warm/bright: lights off, heater off, and the shared fan relay off (neither fan rule active)
+_coop_calls.clear(); _cstate("switch.lights", "on"); _cstate("switch.heater", "on"); _cstate("switch.fan", "on")
+_cstate("sensor.coop_lux", 80); _cstate("sensor.coop_temp", 15); _cstate("sensor.coop_co2", 2200)
 asyncio.run(_coop._async_tick())
-assert ("switch", "turn_off", "switch.lights") in _coop_calls and ("switch", "turn_off", "switch.heater") in _coop_calls, _coop_calls
-# a stale probe (3 h old) must turn the heater off for safety even if the last reading was cold
+for want in (("switch", "turn_off", "switch.lights"), ("switch", "turn_off", "switch.heater"), ("switch", "turn_off", "switch.fan")):
+    assert want in _coop_calls, (want, _coop_calls)
+# a stale probe (3 h) turns the heater off for safety even if the last reading was cold
 _coop_calls.clear(); _cstate("switch.heater", "on"); _cstate("sensor.coop_temp", 5, age_s=3 * 3600)
 asyncio.run(_coop._async_tick())
-assert ("switch", "turn_off", "switch.heater") in _coop_calls and "safety" in _coop.data["heater"]["reason"], (_coop_calls, _coop.data["heater"]["reason"])
+assert ("switch", "turn_off", "switch.heater") in _coop_calls
+assert "safety" in {r["id"]: r["reason"] for r in _coop.data["rules"]}["heater"]
 print("coop controller ok")
 
 # v0.99: clock-on-behalf is recorded and flagged; a self clock-in is not

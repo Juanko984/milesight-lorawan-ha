@@ -648,9 +648,13 @@
     static getStubConfig() { return { trend: "cold_chain" }; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     setConfig(cfg) { this._cfg = cfg || {}; this._subs = {}; this._lastSig = null; this._render(); }
-    _match() { return this._cfg.match || (this._cfg.trend ? { attr: "ms_trend", eq: this._cfg.trend } : null); }
+    _match() {
+      if (this._cfg.match) return this._cfg.match;
+      if (this._cfg.trend === "*" || this._cfg.all_trends) return { has: "ms_trend" };  // every tagged reading in scope
+      return this._cfg.trend ? { attr: "ms_trend", eq: this._cfg.trend } : null;
+    }
     _discover() {
-      const S = (this._hass && this._hass.states) || {}, m = this._match(), area = this._cfg.area, out = [];
+      const S = (this._hass && this._hass.states) || {}, m = this._match(), out = [];
       if (!m) return out;
       for (const id in S) {
         if (!id.startsWith("sensor.")) continue;
@@ -658,7 +662,7 @@
         if (m.attr && a[m.attr] !== m.eq) continue;
         if (m.has && a[m.has] === undefined) continue;
         if (m.unit && a.unit_of_measurement !== m.unit) continue;
-        if (area && !areaEq(a.area, area)) continue;
+        if (!scopeMatch(this._cfg, a)) continue;          // area and/or purpose (either matches); neither set = all
         out.push(id);
       }
       out.sort((x, y) => String(S[x].attributes.friendly_name || x).localeCompare(String(S[y].attributes.friendly_name || y)));
@@ -5170,7 +5174,7 @@
     _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const a = S[id].attributes; if (a && (a.milesight_role === "tank" || a.milesight_role === "flood")) out.push(S[id]); }
+      for (const id in S) { const a = S[id].attributes; if (a && (a.milesight_role === "tank" || a.milesight_role === "flood") && scopeMatch(this._cfg || {}, a)) out.push(S[id]); }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _model(a) {
@@ -9185,137 +9189,226 @@
     }
   }
 
-  // ================================================================ coop controller (lights + heater)
-  // Self-discovers the "coop_controller" role sensor the gateway exposes. Two panels — lights by daylight and
-  // heater by temperature — each with an enable toggle, relay + sensor pickers and thresholds, plus a live
-  // status line. Edits are local until Save, which calls the milesight_lorawan/coop/set websocket.
+  // ================================================================ coop controller (rules → relays)
+  // Self-discovers the "coop_controller" role sensor the gateway exposes. A list of rules — each a metric
+  // (temperature / humidity / CO₂ / ammonia / …) above or below a threshold, driving a relay, with a live
+  // active/idle badge. "Add rule" offers ready-made presets (extractor fan, fresh-air flap, foggers, heater,
+  // lights …). Edits are local until Save, which calls the milesight_lorawan/coop/set websocket.
+  const COOP_METRICS = {
+    temperature: { label: "Temperature", unit: "°C", dc: "temperature" },
+    humidity: { label: "Humidity", unit: "%", dc: "humidity" },
+    co2: { label: "CO₂", unit: "ppm", dc: "carbon_dioxide" },
+    nh3: { label: "Ammonia (NH₃)", unit: "ppm", kw: /nh3|ammonia/i },
+    h2s: { label: "Hydrogen sulphide", unit: "ppm", kw: /h2s|hydrogen/i },
+    pm2_5: { label: "Dust (PM2.5)", unit: "µg/m³", dc: "pm25" },
+    light: { label: "Light", unit: "lx", dc: "illuminance" },
+  };
+  const COOP_PRESETS = [
+    { preset: "lights", name: "Lights by daylight", metric: "light", mode: "below", on_value: 15, off_value: 40, start_hour: 5, end_hour: 21, icon: "mdi:lightbulb-on-outline" },
+    { preset: "heater", name: "Heater", metric: "temperature", mode: "below", on_value: 8, off_value: 12, icon: "mdi:radiator" },
+    { preset: "frost", name: "Water-line frost protection", metric: "temperature", mode: "below", on_value: 2, off_value: 4, icon: "mdi:snowflake-alert" },
+    { preset: "fan_heat", name: "Extractor fan — heat", metric: "temperature", mode: "above", on_value: 28, off_value: 26, icon: "mdi:fan" },
+    { preset: "fan_co2", name: "Extractor fan — CO₂", metric: "co2", mode: "above", on_value: 3000, off_value: 2500, icon: "mdi:fan-alert" },
+    { preset: "fan_nh3", name: "Extractor fan — ammonia", metric: "nh3", mode: "above", on_value: 20, off_value: 12, icon: "mdi:fan-alert" },
+    { preset: "fan_humidity", name: "Extractor fan — humidity", metric: "humidity", mode: "above", on_value: 70, off_value: 60, icon: "mdi:fan" },
+    { preset: "flap", name: "Fresh-air flap", metric: "temperature", mode: "above", on_value: 26, off_value: 23, icon: "mdi:window-shutter" },
+    { preset: "foggers", name: "Foggers / cooling", metric: "temperature", mode: "above", on_value: 30, off_value: 28, icon: "mdi:sprinkler-variant" },
+    { preset: "circulation", name: "Circulation fan", metric: "temperature", mode: "above", on_value: 24, off_value: 22, icon: "mdi:fan" },
+    { preset: "dust", name: "Extractor fan — dust", metric: "pm2_5", mode: "above", on_value: 150, off_value: 100, icon: "mdi:blur" },
+  ];
   class CoopControlCard extends Base {
     static getStubConfig() { return {}; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _role() { const S = this._hass.states; for (const id in S) if (S[id].attributes && S[id].attributes.milesight_role === "coop_controller") { const st = S[id]; if (!st.entity_id) st.entity_id = id; return st; } return null; }
     _watch() { const r = this._role(); return r ? [r.entity_id] : null; }
+    _areaOf(id) {                                         // the entity's device area, from the registries
+      try {
+        const e = this._hass.entities && this._hass.entities[id];
+        const dev = e && e.device_id && this._hass.devices && this._hass.devices[e.device_id];
+        const aid = (e && e.area_id) || (dev && dev.area_id);
+        const area = aid && this._hass.areas && this._hass.areas[aid];
+        return area ? area.name : null;
+      } catch (err) { return null; }
+    }
+    _inScope(id, a) {                                     // only coop devices: the configured area, or a coop attr
+      const want = this._cfg && this._cfg.area;
+      if (!want) return true;                             // no area set on the card → show everything (fallback)
+      const an = this._areaOf(id);
+      return (an && areaEq(an, want)) || scopeMatch(this._cfg, a || {});
+    }
     _opts(filter) {
       const S = this._hass.states, out = [];
-      for (const id in S) { try { if (filter(id, S[id].attributes || {})) out.push([id, S[id].attributes.friendly_name || id]); } catch (e) {} }
+      for (const id in S) { try { const a = S[id].attributes || {}; if (filter(id, a) && this._inScope(id, a)) out.push([id, a.friendly_name || id]); } catch (e) {} }
       return out.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
     }
     _switches() { return this._opts((id) => id.startsWith("switch.")); }
-    _luxSensors() { return this._opts((id, a) => id.startsWith("sensor.") && (a.device_class === "illuminance" || a.unit_of_measurement === "lx")); }
-    _tempSensors() { return this._opts((id, a) => id.startsWith("sensor.") && a.device_class === "temperature"); }
-    _draft(d) {
-      if (!this._d) { this._d = { lights: { ...(d.lights || {}) }, heater: { ...(d.heater || {}) } }; }
-      return this._d;
+    _sensorsFor(metric) {
+      const m = COOP_METRICS[metric] || {};
+      const match = this._opts((id, a) => id.startsWith("sensor.") && ((m.dc && a.device_class === m.dc) || (m.kw && m.kw.test(id + " " + (a.friendly_name || ""))) || (metric === "light" && a.unit_of_measurement === "lx")));
+      return match.length ? match : this._opts((id) => id.startsWith("sensor."));   // fall back to any coop sensor
     }
-    _sel(side, key, options, placeholder) {
-      const d = this._d[side], cur = d[key] || "";
-      const sel = h("select", { class: "ccsel", onchange: (e) => { d[key] = e.target.value || null; } });
+    _draft(rules) { if (!this._d) this._d = JSON.parse(JSON.stringify(rules || [])); return this._d; }
+    _uid() { return "r" + Math.random().toString(36).slice(2, 8); }
+    _add(preset) { this._d.push({ id: this._uid(), ...preset, enabled: true, relay: null, sensor: null }); this._adding = false; this._render(); }
+    _del(i) { this._d.splice(i, 1); this._render(); }
+    _sel(obj, key, options, placeholder, onchange) {
+      const cur = obj[key] || "";
+      const sel = h("select", { class: "ccsel", onchange: (e) => { obj[key] = e.target.value || null; if (onchange) onchange(); } });
       sel.appendChild(h("option", { value: "" }, placeholder));
       let has = false;
       options.forEach(([v, label]) => { const o = h("option", { value: v }, esc(label)); if (v === cur) { o.selected = true; has = true; } sel.appendChild(o); });
       if (cur && !has) { const o = h("option", { value: cur }, esc(cur)); o.selected = true; sel.appendChild(o); }
       return sel;
     }
-    _num(side, key, step, unit) {
-      const d = this._d[side];
+    _num(obj, key, step, unit) {
       return h("div", { class: "ccnum" }, [
-        h("input", { type: "number", step: step || "1", value: d[key] == null ? "" : d[key],
-          oninput: (e) => { d[key] = e.target.value === "" ? null : Number(e.target.value); } }),
+        h("input", { type: "number", step: step || "1", value: obj[key] == null ? "" : obj[key], oninput: (e) => { obj[key] = e.target.value === "" ? null : Number(e.target.value); } }),
         unit ? h("span", { class: "u" }, unit) : null]);
-    }
-    _toggle(side) {
-      const d = this._d[side];
-      return h("label", { class: "ccsw" }, [
-        h("input", { type: "checkbox", checked: !!d.enabled, onchange: (e) => { d.enabled = e.target.checked; this._render(); } }),
-        h("span", {}, d.enabled ? "On" : "Off")]);
     }
     _field(label, el) { return h("label", { class: "ccf" }, [h("span", {}, label), el]); }
     async _save() {
       const r = this._role(); const hub = r ? r.attributes.hub : undefined;
       this._busy = true; this._msg = null; this._render();
-      try {
-        await this._hass.callWS({ type: "milesight_lorawan/coop/set", hub, config: this._d });
-        this._msg = { ok: true, text: "Saved — the controller runs on the next check (within a minute)." };
-      } catch (e) { this._msg = { ok: false, text: (e && e.message) || "Could not save." }; }
+      try { await this._hass.callWS({ type: "milesight_lorawan/coop/set", hub, config: { rules: this._d } }); this._msg = { ok: true, text: "Saved — runs on the next check (within a minute)." }; }
+      catch (e) { this._msg = { ok: false, text: (e && e.message) || "Could not save." }; }
       this._busy = false; this._render();
     }
-    _statusLine(side, s) {
-      const on = !!s.on, en = !!s.enabled;
-      const reading = side === "lights" ? (s.lux == null ? "—" : s.lux + " lx") : (s.temp == null ? "—" : s.temp + " °C");
-      return h("div", { class: "ccstatus" }, [
-        h("span", { class: "ccbadge " + (!en ? "off" : on ? (side === "heater" ? "heat" : "lit") : "idle") },
-          !en ? "Disabled" : on ? (side === "lights" ? "Lights on" : "Heating") : "Off"),
-        h("span", { class: "ccnow" }, reading),
-        h("span", { class: "ccreason" }, esc(s.reason || "")),
+    _live(id) { const r = this._role(); const rules = (r && r.attributes.rules) || []; return rules.find((x) => x.id === id) || null; }
+    _ruleRow(rule, i) {
+      const m = COOP_METRICS[rule.metric] || COOP_METRICS.temperature, unit = m.unit;
+      const live = this._live(rule.id) || {};
+      const metricOpts = Object.keys(COOP_METRICS).map((k) => [k, COOP_METRICS[k].label]);
+      const hasWindow = ("start_hour" in rule) || rule.metric === "light";
+      const badge = !rule.enabled ? ["off", "Disabled"] : live.active ? ["on", "Active"] : ["idle", "Idle"];
+      const head = h("div", { class: "cchd" }, [
+        h("div", { class: "ccic" }, [h("ha-icon", { icon: rule.icon || "mdi:cog-outline" })]),
+        h("input", { class: "ccname", type: "text", value: rule.name || "", maxlength: "48", oninput: (e) => { rule.name = e.target.value; } }),
+        h("span", { class: "ccbadge " + badge[0] }, badge[1]),
+        h("label", { class: "ccsw" }, [h("input", { type: "checkbox", checked: !!rule.enabled, onchange: (e) => { rule.enabled = e.target.checked; this._render(); } })]),
+        h("button", { class: "ccdel", title: "Remove", onclick: () => this._del(i) }, "✕"),
       ]);
-    }
-    _panel(side, s, title, icon) {
-      const isLights = side === "lights";
+      const status = h("div", { class: "ccstatus" }, [
+        h("span", { class: "ccnow" }, live.value == null ? "—" : (live.value + " " + unit)),
+        h("span", { class: "ccreason" }, esc(live.reason || "")),
+      ]);
       const rows = [
-        this._field("Relay to switch", this._sel(side, "relay", this._switches(), "— pick a relay / switch —")),
-        this._field(isLights ? "Light sensor" : "Temperature sensor",
-          this._sel(side, isLights ? "lux_entity" : "temp_entity", isLights ? this._luxSensors() : this._tempSensors(),
-            isLights ? "— pick a light sensor —" : "— pick a temperature sensor —")),
+        h("div", { class: "ccpair" }, [
+          this._field("Metric", this._sel(rule, "metric", metricOpts, "—", () => this._render())),
+          this._field("When", this._sel(rule, "mode", [["above", "rises above"], ["below", "drops below"]], "—")),
+        ]),
+        this._field("Sensor", this._sel(rule, "sensor", this._sensorsFor(rule.metric), "— pick a " + m.label.toLowerCase() + " sensor —")),
+        h("div", { class: "ccpair" }, [this._field("On at", this._num(rule, "on_value", "0.5", unit)), this._field("Off at", this._num(rule, "off_value", "0.5", unit))]),
+        this._field("Relay to switch", this._sel(rule, "relay", this._switches(), "— pick a relay / switch —")),
       ];
-      if (isLights) {
-        rows.push(h("div", { class: "ccpair" }, [this._field("On below", this._num(side, "on_lux", "1", "lx")), this._field("Off above", this._num(side, "off_lux", "1", "lx"))]));
-        rows.push(h("div", { class: "ccpair" }, [this._field("Window from", this._num(side, "start_hour", "0.5", "h")), this._field("to", this._num(side, "end_hour", "0.5", "h"))]));
-      } else {
-        rows.push(h("div", { class: "ccpair" }, [this._field("On below", this._num(side, "on_temp", "0.5", "°C")), this._field("Off above", this._num(side, "off_temp", "0.5", "°C"))]));
-      }
-      return h("div", { class: "ccpanel" }, [
-        h("div", { class: "cchd" }, [h("div", { class: "ccic" }, [h("ha-icon", { icon })]),
-          h("div", { class: "cctitle" }, title), this._toggle(side)]),
-        this._statusLine(side, s),
-        this._d[side].enabled ? h("div", { class: "ccbody" }, rows) : null,
-      ].filter(Boolean));
+      if (hasWindow) rows.push(h("div", { class: "ccpair" }, [this._field("Only between", this._num(rule, "start_hour", "0.5", "h")), this._field("and", this._num(rule, "end_hour", "0.5", "h"))]));
+      return h("div", { class: "ccrule" }, [head, status, h("div", { class: "ccbody" }, rows)]);
     }
     _render() {
       if (!this._hass) return;
       const r = this._role();
       if (!r) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
       this.style.display = "";
-      const d = r.attributes || {};
-      this._draft(d);
+      this._draft((r.attributes || {}).rules || []);
       this._css = `
         .wrap{padding:2px}
-        .ccgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
-        .ccpanel{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
-        .cchd{display:flex;align-items:center;gap:10px}
-        .ccic{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .ccic ha-icon{--mdc-icon-size:18px}
-        .cctitle{flex:1 1 auto;font-size:14.5px;font-weight:650;color:var(--ms-ink)}
-        .ccsw{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ms-ink2)} .ccsw input{width:16px;height:16px}
-        .ccstatus{display:flex;align-items:center;gap:9px;margin:11px 0 2px;flex-wrap:wrap}
-        .ccbadge{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--ms-ink2) 18%,transparent);color:var(--ms-ink2)}
-        .ccbadge.lit{background:color-mix(in srgb,#ffca28 22%,transparent);color:#c79400}
-        .ccbadge.heat{background:color-mix(in srgb,var(--ms-heat) 22%,transparent);color:var(--ms-heat)}
-        .ccbadge.idle{background:color-mix(in srgb,var(--ms-ink2) 18%,transparent);color:var(--ms-ink2)}
-        .ccnow{font-size:13px;font-weight:650;color:var(--ms-ink)} .ccreason{font-size:11.5px;color:var(--ms-ink2)}
-        .ccbody{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+        .cchint{font-size:11.5px;color:var(--ms-ink2);margin:2px 0 12px}
+        .ccgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:14px}
+        .ccrule{border:1px solid var(--ms-line);border-radius:14px;padding:13px 14px}
+        .cchd{display:flex;align-items:center;gap:9px}
+        .ccic{width:30px;height:30px;flex:0 0 auto;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .ccic ha-icon{--mdc-icon-size:17px}
+        .ccname{flex:1 1 auto;min-width:0;background:none;border:none;border-bottom:1px solid transparent;color:var(--ms-ink);font:inherit;font-size:14px;font-weight:650;padding:2px 0} .ccname:focus{outline:none;border-bottom-color:var(--ms-accent)}
+        .ccbadge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;background:color-mix(in srgb,var(--ms-ink2) 18%,transparent);color:var(--ms-ink2);flex:0 0 auto}
+        .ccbadge.on{background:color-mix(in srgb,var(--ms-good) 22%,transparent);color:var(--ms-good)} .ccbadge.idle{background:color-mix(in srgb,var(--ms-ink2) 16%,transparent);color:var(--ms-ink2)}
+        .ccsw input{width:16px;height:16px} .ccdel{background:none;border:none;color:var(--ms-ink2);cursor:pointer;font-size:14px;padding:2px 4px} .ccdel:hover{color:var(--ms-bad)}
+        .ccstatus{display:flex;align-items:center;gap:9px;margin:9px 0 2px;flex-wrap:wrap} .ccnow{font-size:13px;font-weight:650;color:var(--ms-ink)} .ccreason{font-size:11.5px;color:var(--ms-ink2)}
+        .ccbody{margin-top:11px;display:flex;flex-direction:column;gap:8px}
         .ccf{display:flex;flex-direction:column;gap:3px;flex:1 1 0;min-width:0} .ccf span{font-size:10.5px;color:var(--ms-ink2)}
         .ccpair{display:flex;gap:10px}
         .ccsel,.ccnum input{background:color-mix(in srgb,var(--ms-ink) 5%,transparent);border:1px solid var(--ms-line);border-radius:8px;padding:7px 9px;color:var(--ms-ink);font:inherit;font-size:12.5px;width:100%;box-sizing:border-box}
         .ccsel:focus,.ccnum input:focus{outline:none;border-color:var(--ms-accent)}
         .ccnum{display:flex;align-items:center;gap:5px} .ccnum .u{font-size:11px;color:var(--ms-ink2)}
+        .ccadd{border:1px dashed var(--ms-line);border-radius:14px;padding:16px;text-align:center;color:var(--ms-ink2);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;gap:7px} .ccadd:hover{border-color:var(--ms-accent);color:var(--ms-ink)}
+        .ccpresets{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:8px;margin-top:4px}
+        .ccpreset{border:1px solid var(--ms-line);border-radius:10px;padding:9px 11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ms-ink)} .ccpreset:hover{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 8%,transparent)} .ccpreset ha-icon{--mdc-icon-size:17px;color:var(--ms-accent)}
         .ccfoot{display:flex;align-items:center;gap:12px;margin-top:14px}
-        .ccsave{background:var(--ms-accent);border:1px solid var(--ms-accent);color:#fff;border-radius:9px;padding:8px 16px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
-        .ccsave[disabled]{opacity:.6;cursor:default}
+        .ccsave{background:var(--ms-accent);border:1px solid var(--ms-accent);color:#fff;border-radius:9px;padding:8px 18px;font:inherit;font-size:13px;font-weight:600;cursor:pointer} .ccsave[disabled]{opacity:.6;cursor:default}
         .ccmsg{font-size:12px} .ccmsg.ok{color:var(--ms-good)} .ccmsg.bad{color:var(--ms-bad)}
-        .cchint{font-size:11.5px;color:var(--ms-ink2);margin:2px 0 12px}
       `;
+      const body = this._adding
+        ? [h("div", { class: "ccpresets" }, COOP_PRESETS.map((p) => h("div", { class: "ccpreset", onclick: () => this._add(p) }, [h("ha-icon", { icon: p.icon }), esc(p.name)])))]
+        : [h("div", { class: "ccgrid" }, this._d.map((rule, i) => this._ruleRow(rule, i))),
+           h("div", { class: "ccadd", onclick: () => { this._adding = true; this._render(); } }, [h("ha-icon", { icon: "mdi:plus" }), "Add a rule"])];
       this._card(h("div", { class: "wrap" }, [
         h("p", { class: "title", style: { marginBottom: "4px" } }, "Coop controls"),
-        h("div", { class: "cchint" }, "The gateway switches these relays itself from the readings below — no automation to set up. The heater turns off if its probe stops reporting."),
-        h("div", { class: "ccgrid" }, [
-          this._panel("lights", d.lights || {}, "Lights by daylight", "mdi:lightbulb-on-outline"),
-          this._panel("heater", d.heater || {}, "Heater by temperature", "mdi:radiator"),
-        ]),
-        h("div", { class: "ccfoot" }, [
+        h("div", { class: "cchint" }, "The gateway switches each relay from its sensor — a relay turns on while any of its rules is active. A rule with a missing or stale sensor stays off (safety)."),
+        ...body,
+        this._adding ? null : h("div", { class: "ccfoot" }, [
           h("button", { class: "ccsave", disabled: this._busy || undefined, onclick: () => this._save() }, this._busy ? "Saving…" : "Save"),
           this._msg ? h("span", { class: "ccmsg " + (this._msg.ok ? "ok" : "bad") }, esc(this._msg.text)) : null,
         ].filter(Boolean)),
-      ]));
+      ].filter(Boolean)));
     }
     set hass(hass) { this._hass = hass; const sig = this._sig(); if (sig !== null && sig === this._lastSig && this._d) return; this._lastSig = sig; this._render(); }
+  }
+
+  // ================================================================ door / contact panel
+  // Self-discovers the door / leak binary entities the integration tags (ms_contact). One row per contact: the
+  // live state, how long it has been open / wet, today's count and the longest open today — scoped by area or
+  // purpose like the other cards. Matches the building / water pages' look. Hides itself when there are none.
+  class DoorPanelCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { if (!id.startsWith("binary_sensor.")) continue; const a = S[id].attributes || {}; if (a.ms_contact && scopeMatch(this._cfg || {}, a)) { const st = S[id]; if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => String(x.attributes.device || "").localeCompare(String(y.attributes.device || "")));
+    }
+    _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
+    _row(st) {
+      const a = st.attributes, leak = a.ms_contact === "leak", on = a.active === true;
+      const label = leak ? (on ? "Wet" : "Dry") : (on ? "Open" : "Closed");
+      const tone = on ? (leak ? "bad" : "warn") : "ok";
+      const since = num(a.since) ? fmtTime(new Date(num(a.since) * 1000).toISOString()) : null;
+      const stats = [];
+      if (on && num(a.current_s) != null) stats.push(["open for", fmtDur(a.current_s)]);
+      if (num(a.count_today) != null) stats.push([leak ? "today" : "opens today", String(Math.round(a.count_today))]);
+      if (num(a.today_s)) stats.push([leak ? "wet today" : "open today", fmtDur(a.today_s)]);
+      if (num(a.longest_today_s)) stats.push(["longest", fmtDur(a.longest_today_s)]);
+      return h("div", { class: "dpr" }, [
+        h("div", { class: "dpmain" }, [
+          h("div", { class: "dpdot " + tone }),
+          h("div", { class: "dptxt" }, [
+            h("div", { class: "dpn" }, [h("b", { class: "s-" + tone }, label), on && since ? h("span", { class: "dpsince" }, " · since " + since) : null].filter(Boolean)),
+            h("div", { class: "dpd" }, esc(a.device || "Contact") + (a.area ? " · " + a.area : "")),
+          ]),
+          h("ha-icon", { class: "dpic " + tone, icon: leak ? (on ? "mdi:water-alert" : "mdi:water-off") : (on ? "mdi:door-open" : "mdi:door-closed") }),
+        ]),
+        stats.length ? h("div", { class: "dpstats" }, stats.map(([l, v]) => h("div", { class: "dpstat" }, [h("b", {}, v), h("span", {}, l)]))) : null,
+      ].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      const items = this._find();
+      if (!items.length) {
+        if (this._cfg && this._cfg.empty) { this._card(emptyState(emptyOpts(this._cfg.empty, "mdi:door"))); return; }
+        this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return;
+      }
+      this.style.display = "";
+      this._css = `
+        .wrap{padding:2px;display:flex;flex-direction:column;gap:11px}
+        .dpr{border:1px solid var(--ms-line);border-radius:13px;padding:12px 14px}
+        .dpmain{display:flex;align-items:center;gap:11px}
+        .dpdot{width:11px;height:11px;border-radius:50%;flex:0 0 auto;background:var(--ms-ink2)}
+        .dpdot.ok{background:var(--ms-good)} .dpdot.warn{background:var(--ms-warn,#e67e00)} .dpdot.bad{background:var(--ms-bad)}
+        .dptxt{flex:1 1 auto;min-width:0} .dpn{font-size:15px;color:var(--ms-ink)} .dpn .s-ok{color:var(--ms-good)} .dpn .s-warn{color:var(--ms-warn,#e67e00)} .dpn .s-bad{color:var(--ms-bad)}
+        .dpsince{font-size:12.5px;color:var(--ms-ink2);font-weight:400}
+        .dpd{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .dpic{--mdc-icon-size:22px;flex:0 0 auto} .dpic.ok{color:var(--ms-good)} .dpic.warn{color:var(--ms-warn,#e67e00)} .dpic.bad{color:var(--ms-bad)}
+        .dpstats{display:flex;gap:18px;margin-top:10px;padding-top:9px;border-top:1px solid var(--ms-line);flex-wrap:wrap}
+        .dpstat b{font-size:14px;font-weight:650;color:var(--ms-ink);font-variant-numeric:tabular-nums} .dpstat span{display:block;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-ink2);margin-top:1px}
+      `;
+      this._card(h("div", { class: "wrap" }, items.map((st) => this._row(st))));
+    }
   }
 
   // ---------------------------------------------------------------- register
@@ -9353,6 +9446,7 @@
         ENERGY_TAG = "milesight-energy-card",
         THERMOSTAT_TAG = "milesight-climate-card",
         COOPCTL_TAG = "milesight-coop-control-card",
+        DOORPANEL_TAG = "milesight-door-card",
         GAS_TAG = "milesight-gas-card",
         GASDET_TAG = "milesight-gas-detector-card",
         SOUND_TAG = "milesight-sound-card",
@@ -9430,6 +9524,7 @@
     [ENERGY_TAG, EnergyCard, "Milesight Energy", "CT clamp: phase currents (L1/L2/L3) as chips that drive the trend, total current, estimated power and imbalance"],
     [THERMOSTAT_TAG, ThermostatCard, "Milesight Climate", "WT thermostat control: current temp, −/+ setpoint, mode and fan chips, valve opening and a temperature trend"],
     [COOPCTL_TAG, CoopControlCard, "Milesight Coop Controls", "Coop lights by daylight + heater by temperature: pick the relays and sensors, set the thresholds, the gateway switches them"],
+    [DOORPANEL_TAG, DoorPanelCard, "Milesight Door", "Door / leak contacts: live state, how long open, today's count and longest open — by area or purpose"],
     [GAS_TAG, GasCard, "Milesight Gas & Vape", "GS301 odour / GS601 vape: numeric chips drive the trend, odour / vape show status"],
     [GASDET_TAG, GasDetectorCard, "Milesight Gas Detector", "GS101 gas-leak detector: safe / gas-detected, shut-off valve + relay control, sensor life and events"],
     [SOUND_TAG, SoundCard, "Milesight Sound", "WS302 sound level with a learned baseline and continuous water-flow / 'left running' detection"],

@@ -2795,10 +2795,22 @@ class DeviceRuntime:
             v["co2_status"] = _co2_text(v["co2"])
             co2_lim = self.limits.get("co2")        # tag CO₂ for the trendline grid; expose its limit to flash on
             self.attrs["co2"] = {**(self.attrs.get("co2") or {}), "ms_trend": "air", "area": self._area(),
-                                 **({"ms_limit_high": co2_lim} if co2_lim else {})}
+                                 "purpose": self._pkey, **({"ms_limit_high": co2_lim} if co2_lim else {})}
         for _lk in ("illumination", "light_level"):  # tag light / illuminance for a trendline grid (trend: light)
             if isinstance(v.get(_lk), (int, float)) and not isinstance(v.get(_lk), bool):
-                self.attrs[_lk] = {**(self.attrs.get(_lk) or {}), "ms_trend": "light", "area": self._area()}
+                self.attrs[_lk] = {**(self.attrs.get(_lk) or {}), "ms_trend": "light", "area": self._area(),
+                                   "purpose": self._pkey}
+        # tag temperature / humidity so an "all sensors" trend grid (trend: "*") can find them, scoped by area +
+        # purpose. Temperature may already carry ms_trend (cold_chain / temperature) from the alarm-band block — keep it.
+        for _tk in ("temperature", "temperature_1"):
+            if isinstance(v.get(_tk), (int, float)) and not isinstance(v.get(_tk), bool):
+                self.attrs[_tk] = {**(self.attrs.get(_tk) or {}),
+                                   "ms_trend": (self.attrs.get(_tk) or {}).get("ms_trend", "temperature"),
+                                   "area": self._area(), "purpose": self._pkey}
+        for _hk in ("humidity", "humidity_1"):
+            if isinstance(v.get(_hk), (int, float)) and not isinstance(v.get(_hk), bool):
+                self.attrs[_hk] = {**(self.attrs.get(_hk) or {}), "ms_trend": "humidity",
+                                   "area": self._area(), "purpose": self._pkey}
         air = self._air_monitor(v)                  # AM air-quality monitor: all properties on one card + a trend
         if air is not None:
             pm = next((m for m in air["metrics"] if m["key"] == air["primary"]), None)
@@ -2912,6 +2924,15 @@ class DeviceRuntime:
             self.attrs["controller"] = ctrl
             for ch in ctrl["inputs"] + ctrl["outputs"] + ctrl["metrics"] + ctrl["counters"]:
                 v[f"label_{ch['key']}"] = self._uc_label(ch["key"], "")
+            # make the UC analog channels (PT100 temps, 4-20 mA / 0-10 V inputs) discoverable on an "all sensors"
+            # trend grid (trend: "*"), scoped by the controller's area + purpose, so a UC300 assigned to the coop
+            # shows its PT100 / analog readings alongside the climate sensors.
+            for _m in ctrl["metrics"]:
+                _mk = _m["key"]
+                _mt = "temperature" if _mk.startswith("pt100") else "analog"
+                self.attrs[_mk] = {**(self.attrs.get(_mk) or {}), "ms_trend": _mt,
+                                   "area": self._area(), "purpose": self._pkey,
+                                   "ms_label": _m.get("label"), "unit": _m.get("unit")}
         valves = self._valve_controller(v)          # UC valve controller → the Valve card
         if valves is not None:
             v["valve_controller"] = sum(1 for vv in valves["valves"] if vv.get("open"))
@@ -2972,6 +2993,7 @@ class DeviceRuntime:
                                               "window_min": self.tank_cfg.drop_minutes}
             # tag tank fill for the trendline grid (silo → its own grid on Farm); expose the low-level limit to flash
             self.attrs["tank_fill"] = {**(self.attrs.get("tank_fill") or {}), "ms_trend": "silo" if is_silo else "tank",
+                                       "area": self._area(), "purpose": self._pkey,
                                        **({"ms_limit_low": self.tank_cfg.low_pct} if self.tank_cfg.low_pct > 0 else {})}
         if self.distance is not None:
             v.update(self.distance.values(ts))
@@ -3025,10 +3047,22 @@ class DeviceRuntime:
                 v[f"{feature}_status"] = off_text
             else:
                 v[f"{feature}_status"] = "Waiting for data"
-            # expose purpose / area on the binary entity so dashboards can discover it (e.g. the coop door)
+            # expose purpose / area on the binary feature so dashboards can discover it
             self.attrs[feature] = {**(self.attrs.get(feature) or {}), "purpose": self._pkey,
                                    "purpose_label": self.purpose.label if self.purpose else None,
                                    "area": self._area(), "device": self.entry.title}
+            # ...and put purpose / area + live open/close stats on the actual binary ENTITY (door_active / leak_active)
+            # so a door / contact card can show the state, how long it has been open and today's count, scoped by
+            # area or purpose (e.g. the coop pop-hole). Contact / leak only — motion has its own cards.
+            if feature in ("door", "leak"):
+                ek = f"{feature}_active"
+                self.attrs[ek] = {**(self.attrs.get(ek) or {}), "ms_contact": feature, "purpose": self._pkey,
+                                  "purpose_label": self.purpose.label if self.purpose else None,
+                                  "area": self._area(), "device": self.entry.title,
+                                  "active": tv["active"], "since": tv["since"], "status_text": v[f"{feature}_status"],
+                                  "current_s": tv.get("current_s"), "count_today": tv.get("count_today"),
+                                  "today_s": tv.get("today_s"), "longest_today_s": tv.get("longest_today_s"),
+                                  "last_seen": self.meta.get("last_seen")}
 
         self._purpose_values(v, ts)
         for option, val in _setpoints.device_values(self).items():

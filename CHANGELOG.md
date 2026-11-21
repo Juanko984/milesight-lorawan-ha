@@ -2,6 +2,37 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.160.0
+- **New "Coop sensors" section — every coop reading on one grid.** A catch-all trendline grid on the coop page
+  shows a trendline for *every* sensor in the coop at once: temperature, humidity, CO₂, light, tank levels and a
+  **UC300's PT100 / analog channels** included. The focused CO₂ and Light sections above it stay as they were;
+  this is the one place to see the lot.
+- **UC300 channels now trend on the coop page.** PT100 temperatures and 4-20 mA / 0-10 V analog inputs on a
+  controller assigned to the coop are tagged for trending and scoped to the coop area/purpose, so they appear as
+  their own tiles — not just inside a rule's live status.
+- **Trendline grids gain an all-reading mode** (`trend: "*"`): a grid can now match any entity the integration
+  tagged for trending within its area/purpose scope, instead of a single trend type. Temperature, humidity and
+  tank entities now also carry area/purpose so they can be scoped this way.
+
+## 0.159.0
+- **Coop controls are now a rules engine — fans, flaps, foggers and more, not just lights & heater.** Each rule
+  is a metric (temperature, humidity, CO₂, ammonia, H₂S, dust/PM2.5 or light) that rises *above* or drops *below*
+  a threshold, with hysteresis and an optional time window, driving one relay. Several rules can share a relay —
+  it runs while *any* of its rules is active — so one extractor fan can run on heat **or** CO₂ **or** ammonia.
+  "Add a rule" offers ready-made, poultry-grounded presets: extractor fan (heat / CO₂ / ammonia / humidity /
+  dust), fresh-air flap, foggers / cooling, circulation fan, water-line frost protection, heater and lights. A
+  rule whose sensor is missing or stale stays off (safety). Existing lights/heater setups migrate automatically.
+- **The relay and sensor pickers now show only coop devices** — switches and sensors on devices in the Chicken
+  coop area (or with a coop purpose) — instead of every entity in Home Assistant. A UC300's PT100 / analog
+  channels in the coop are therefore pickable as a rule's temperature (etc.) sensor.
+- **Coop-page visibility fixed "once and for all".** The CO₂, light, tank and door sections now find a device by
+  the Chicken coop **area OR** a Coop purpose (either is enough) — so an EM500-LGT set up either way shows up.
+- **Nicer coop widgets, matching the other pages.** Tanks use the same cutaway model card as the Water page, and
+  a new **door card** shows the pop-hole's live Open / Closed, how long it has been open, today's open count and
+  the longest open — replacing the plain text line.
+- **More purposes for light sensors.** An EM500-LGT (or any light sensor) can now be Daylight / light level,
+  Grow light / greenhouse or Security / yard light, as well as Coop light sensor.
+
 ## 0.158.0
 - **Coop lights & heater now run from the Chicken coop page — no blueprint.** A new **Coop controls** card lets
   you pick the lights relay + light sensor and the heater relay + temperature sensor, set the on/off thresholds

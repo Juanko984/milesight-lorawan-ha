@@ -1905,10 +1905,11 @@ def test_bundled_dashboard_templates_render():
     coop = yaml.safe_load((PKG.parents[1] / "dashboards" / "coop.yaml").read_text(encoding="utf-8"))
     coop_cards = [c for v in coop["views"] for s in v["sections"] for c in s["cards"]]
     coop_types = {c["type"] for c in coop_cards}
-    assert {"custom:milesight-level-card", "custom:milesight-table-card"} <= coop_types
+    assert {"custom:milesight-level-model-card", "custom:milesight-table-card", "custom:milesight-door-card",
+            "custom:milesight-coop-control-card"} <= coop_types
     assert "custom:milesight-alerts-card" not in coop_types      # open alerts live on the Alerts page now
     assert all(c.get("area") == "Chicken coop" for c in coop_cards
-               if c["type"] in ("custom:milesight-level-card",) or (c["type"] == "custom:milesight-table-card"))
+               if c["type"] in ("custom:milesight-level-model-card",) or (c["type"] == "custom:milesight-table-card"))
     assert not any("|---|" in c.get("content", "") for c in coop_cards)
     # coop auto-installs only when a device is in a coop area, and ships the two blueprints
     from importlib.util import spec_from_file_location, module_from_spec  # noqa: F401
@@ -2974,37 +2975,54 @@ def test_messaging_calc():
 
 
 def test_coop_controller():
-    # lighting window, including one that wraps past midnight
+    # window, including one that wraps past midnight
     assert coc.in_window(6, 5, 21) and not coc.in_window(22, 5, 21) and not coc.in_window(4, 5, 21)
     assert coc.in_window(23, 20, 6) and coc.in_window(2, 20, 6) and not coc.in_window(12, 20, 6)
-    assert coc.in_window(12, 8, 8)                       # start == end → always
-    # lights: within window, on when dark, off when bright, hysteresis holds between the two levels
-    assert coc.lights_decision(10, 15, 40, True, False) is True      # 10 lx ≤ 15 → on
-    assert coc.lights_decision(25, 15, 40, True, True) is True       # in the band, already on → stays on
-    assert coc.lights_decision(50, 15, 40, True, True) is False      # 50 lx ≥ 40 → off
-    assert coc.lights_decision(5, 15, 40, False, True) is False      # outside window → always off
-    assert coc.lights_decision(None, 15, 40, True, True) is True     # no reading → hold
-    # heater: hysteresis, and a dropped probe / missing reading turns it off (safety)
-    assert coc.heater_decision(6, 8, 12, False) is True             # 6 °C ≤ 8 → on
-    assert coc.heater_decision(10, 8, 12, True) is True             # in the band, already on → stays on
-    assert coc.heater_decision(13, 8, 12, True) is False            # 13 °C ≥ 12 → off
-    assert coc.heater_decision(5, 8, 12, True, probe_ok=False) is False   # probe dropout → off
-    assert coc.heater_decision(None, 8, 12, True) is False          # no reading → off
-    # evaluate(): a disabled side or one without a relay is left untouched (want = None)
-    cfg = {"lights": {"enabled": True, "relay": "switch.lights", "on_lux": 15, "off_lux": 40,
+    assert coc.in_window(12, 8, 8)
+    # rule_active: hysteresis both ways; stale / out-of-window → inactive (safe)
+    assert coc.rule_active(6, "below", 8, 12, False, True) is True       # cold → on
+    assert coc.rule_active(10, "below", 8, 12, True, True) is True       # in band, on → stays on
+    assert coc.rule_active(13, "below", 8, 12, True, True) is False      # warm → off
+    assert coc.rule_active(3200, "above", 3000, 2500, False, True) is True   # CO₂ high → on
+    assert coc.rule_active(2700, "above", 3000, 2500, True, True) is True    # in band, on → stays
+    assert coc.rule_active(2400, "above", 3000, 2500, True, True) is False   # cleared → off
+    assert coc.rule_active(6, "below", 8, 12, True, fresh=False) is False    # stale → off (safety)
+    assert coc.rule_active(0, "below", 8, 12, True, True, within_window=False) is False  # out of window → off
+    # presets exist for the fans / flaps / foggers the user asked about
+    keys = coc.PRESET_BY_KEY
+    for k in ("lights", "heater", "frost", "fan_heat", "fan_co2", "fan_nh3", "fan_humidity", "flap", "foggers",
+              "circulation", "dust"):
+        assert k in keys, k
+    assert keys["fan_co2"]["metric"] == "co2" and keys["fan_co2"]["mode"] == "above"
+    assert keys["fan_nh3"]["metric"] == "nh3" and keys["flap"]["mode"] == "above"
+    # migrate the old {lights, heater} config into two rules
+    old = {"lights": {"enabled": True, "relay": "switch.l", "lux_entity": "sensor.lux", "on_lux": 15, "off_lux": 40,
                       "start_hour": 5, "end_hour": 21},
-           "heater": {"enabled": True, "relay": "switch.heater", "on_temp": 8, "off_temp": 12}}
-    r = coc.evaluate(cfg, hour=6, lux=10, temp=6, lights_on=False, heater_on=False)
-    assert r["lights"]["want"] is True and "dark" in r["lights"]["reason"]
-    assert r["heater"]["want"] is True and "cold" in r["heater"]["reason"]
-    r2 = coc.evaluate(cfg, hour=23, lux=0, temp=20, lights_on=True, heater_on=True)
-    assert r2["lights"]["want"] is False and "window" in r2["lights"]["reason"]
-    assert r2["heater"]["want"] is False and "warm" in r2["heater"]["reason"]
-    r3 = coc.evaluate(cfg, hour=6, lux=10, temp=6, lights_on=False, heater_on=False, probe_ok=False)
-    assert r3["heater"]["want"] is False and "safety" in r3["heater"]["reason"]
-    off = coc.evaluate({"lights": {"enabled": False}, "heater": {"enabled": False}},
-                       hour=6, lux=10, temp=6, lights_on=False, heater_on=False)
-    assert off["lights"]["want"] is None and off["heater"]["want"] is None
+           "heater": {"enabled": True, "relay": "switch.h", "temp_entity": "sensor.t", "on_temp": 8, "off_temp": 12}}
+    mig = coc.normalise(old)["rules"]
+    assert [r["metric"] for r in mig] == ["light", "temperature"] and mig[0]["relay"] == "switch.l"
+    assert "start_hour" in mig[0] and "start_hour" not in mig[1]
+    # evaluate: two rules on ONE extractor relay — on when EITHER CO₂ or heat is high (OR per relay)
+    cfg = {"rules": [
+        {"id": "co2", "name": "Fan CO₂", "metric": "co2", "mode": "above", "relay": "switch.fan",
+         "on_value": 3000, "off_value": 2500, "enabled": True},
+        {"id": "heat", "name": "Fan heat", "metric": "temperature", "mode": "above", "relay": "switch.fan",
+         "on_value": 28, "off_value": 26, "enabled": True},
+        {"id": "lights", "name": "Lights", "metric": "light", "mode": "below", "relay": "switch.lamp",
+         "on_value": 15, "off_value": 40, "start_hour": 5, "end_hour": 21, "enabled": True}]}
+    r = coc.evaluate(cfg, hour=6, readings={"co2": (3200, True), "temperature": (22, True), "light": (10, True)},
+                     prev_active={}, relay_on={})
+    assert r["relays"]["switch.fan"] is True and r["relays"]["switch.lamp"] is True     # CO₂ high; dark in window
+    act = {x["id"]: x["active"] for x in r["rules"]}
+    assert act["co2"] is True and act["heat"] is False and act["lights"] is True
+    # clear the air and brighten: the shared fan relay goes off, lamp off
+    r2 = coc.evaluate(cfg, hour=6, readings={"co2": (2400, True), "temperature": (22, True), "light": (80, True)},
+                      prev_active={"co2": True, "heat": False, "lights": True}, relay_on={"switch.fan": True})
+    assert r2["relays"]["switch.fan"] is False and r2["relays"]["switch.lamp"] is False
+    # a stale CO₂ reading makes the fan rule inactive (safety)
+    r3 = coc.evaluate(cfg, hour=12, readings={"co2": (9999, False), "temperature": (20, True), "light": (80, True)},
+                      prev_active={"co2": True}, relay_on={"switch.fan": True})
+    assert r3["relays"]["switch.fan"] is False and "safety" in {x["id"]: x["reason"] for x in r3["rules"]}["co2"]
 
 def test_reports():
     rep = _load("reports"); rha = _load("reports_ha")
