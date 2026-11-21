@@ -116,7 +116,23 @@ class NsApiClient:
 
     async def async_add_device(self, deveui: str, name: str, application_id: str, profile_id: str,
                                app_key: str | None = None, fport: int = 85) -> str:
-        """'added' or 'exists' (already registered – left as it is)."""
+        """'added' or 'exists' (already registered – left as it is).
+
+        Checks the gateway's device list first: a device that is already registered is reported as 'exists'
+        rather than re-POSTed, because some gateway firmwares reject a duplicate add with a generic
+        'parameter error – required fields are not filled in' instead of the 'already exists' code.
+        """
+        deveui = deveui.lower()
+        try:
+            existing = parse_devices(await self.async_request("GET", URL_DEVICE_LIST))
+            if any(d.get("deveui") == deveui for d in existing):
+                return "exists"
+        except NsApiError:
+            pass                                  # couldn't list (old firmware / transient) → fall through to POST
+        if not (str(application_id).strip() and str(profile_id).strip()):
+            # the gateway rejects an empty applicationID / profileID as 'required fields not filled in'; say so plainly
+            raise NsApiError(3, "the gateway has no application or device profile selected yet – open the gateway's "
+                                "Configure → Add devices to the gateway and choose them first")
         try:
             await self.async_request("POST", URL_DEVICES, device_body(deveui, name, application_id, profile_id,
                                                                       app_key, fport))

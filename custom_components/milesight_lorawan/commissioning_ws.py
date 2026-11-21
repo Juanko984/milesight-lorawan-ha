@@ -489,7 +489,9 @@ async def ws_add(hass: HomeAssistant, connection, msg: dict) -> None:
                 else:
                     gateway = await hub.async_provision(deveui, name, key)
             except Exception as err:  # noqa: BLE001
-                connection.send_error(msg["id"], "gateway", f"The gateway did not accept the device: {err}")
+                connection.send_error(msg["id"], "gateway", f"The gateway did not accept the device: {err}. "
+                                      "If it is already registered on the gateway, or you only want it in Home "
+                                      "Assistant, turn off 'Register on the gateway' and add it again.")
                 return
     exists = hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, deveui) is not None
     if not exists:

@@ -7399,15 +7399,25 @@
       const d = this._draftFor(st)[this._tabFor(st)];
       root.querySelectorAll(`[data-dev="${st.entity_id}"] [data-block]`).forEach((el) => { d[el.getAttribute("data-block")] = el.value; });
     }
-    _preview(st, tab) {
+    _previewScreen(st, tab) {     // the .pvscreen children for the current draft (shared by first render + live sync)
       const d = this._draftFor(st)[tab];
       const lines = [];
       for (let n = 1; n <= 10; n++) { const tx = (d["text_" + n] || "").trim(); if (tx) lines.push(h("div", { class: "pvline" }, esc(tx))); }
       const qr = (d.qrcode || "").trim();
+      return (lines.length || qr) ? lines.concat(qr ? [h("div", { class: "pvqr" }, [h("ha-icon", { icon: "mdi:qrcode" })])] : [])
+                                  : [h("div", { class: "pvempty" }, "Empty")];
+    }
+    _preview(st, tab) {
       return h("div", { class: "pv" }, [
-        h("div", { class: "pvscreen" }, (lines.length || qr) ? lines.concat(qr ? [h("div", { class: "pvqr" }, [h("ha-icon", { icon: "mdi:qrcode" })])] : []) : [h("div", { class: "pvempty" }, "Empty")]),
+        h("div", { class: "pvscreen" }, this._previewScreen(st, tab)),
         h("div", { class: "pvcap" }, "Template " + tab + " preview"),
       ]);
+    }
+    _syncPreview(st) {            // live-update the preview as the user types, without a full re-render (keeps focus)
+      this._readInputs(st);
+      const root = this.shadowRoot; if (!root) return;
+      const screen = root.querySelector(`[data-dev="${CSS.escape(st.entity_id)}"] .pvscreen`);
+      if (screen) screen.replaceChildren(...this._previewScreen(st, this._tabFor(st)));
     }
     _send(st, extra) {
       this._readInputs(st);
@@ -7436,9 +7446,9 @@
       const tabs = h("div", { class: "dtabs" }, ["1", "2"].map((t) => h("div", { class: "dtab" + (t === tab ? " on" : "") + (String(a.active) === t ? " live" : ""), onclick: () => t !== tab && this._switchTab(st, t) }, "Template " + t)));
       const fields = [];
       for (let n = 1; n <= 6; n++) fields.push(h("label", { class: "dfield" }, [h("span", {}, "Text " + n),
-        h("input", { type: "text", maxlength: "64", "data-block": "text_" + n, value: d["text_" + n] || "", placeholder: "—" })]));
+        h("input", { type: "text", maxlength: "64", "data-block": "text_" + n, value: d["text_" + n] || "", placeholder: "—", oninput: () => this._syncPreview(st) })]));
       fields.push(h("label", { class: "dfield" }, [h("span", {}, [h("ha-icon", { icon: "mdi:qrcode", style: { "--mdc-icon-size": "13px" } }), " QR / link"]),
-        h("input", { type: "text", maxlength: "128", "data-block": "qrcode", value: d.qrcode || "", placeholder: "https://…" })]));
+        h("input", { type: "text", maxlength: "128", "data-block": "qrcode", value: d.qrcode || "", placeholder: "https://…", oninput: () => this._syncPreview(st) })]));
       const actions = h("div", { class: "dactions" }, [
         h("button", { class: "primary", onclick: () => this._send(st, { show: true }) }, [h("ha-icon", { icon: "mdi:send", style: { "--mdc-icon-size": "15px" } }), " Send & show"]),
         h("button", { onclick: () => this._cmd(st, { refresh: true }) }, "Refresh"),
@@ -7451,8 +7461,8 @@
     _render() {
       if (!this._hass) return;
       this._css = MON_CSS + `
-        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:15px;margin-top:2px}
-        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px}
+        .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:15px;margin-top:2px}
+        .ablock{border:1px solid var(--ms-line);border-radius:14px;padding:15px 16px;max-width:100%;box-sizing:border-box}
         .ahd{display:flex;align-items:center;gap:11px}
         .aic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .aic ha-icon{--mdc-icon-size:19px}
         .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
@@ -7464,11 +7474,11 @@
         .dtab.on{background:color-mix(in srgb,var(--ms-accent) 16%,transparent);color:var(--ms-ink);border-color:color-mix(in srgb,var(--ms-accent) 40%,var(--ms-line))}
         .dtab.live::after{content:"●";color:var(--ms-good);font-size:8px;position:absolute;top:3px;right:4px}
         .dbody{display:flex;gap:14px;flex-wrap:wrap}
-        .dform{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:7px}
+        .dform{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;gap:7px}
         .dfield{display:flex;flex-direction:column;gap:3px} .dfield span{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:3px}
         .dfield input{background:color-mix(in srgb,var(--ms-ink) 5%,transparent);border:1px solid var(--ms-line);border-radius:8px;padding:7px 9px;color:var(--ms-ink);font:inherit;font-size:12.5px}
         .dfield input:focus{outline:none;border-color:var(--ms-accent)}
-        .pv{flex:0 0 170px;display:flex;flex-direction:column;gap:5px}
+        .pv{flex:1 1 150px;max-width:240px;min-width:0;display:flex;flex-direction:column;gap:5px}
         .pvscreen{background:#f4f4ee;border:1px solid var(--ms-line);border-radius:8px;min-height:150px;padding:11px 12px;display:flex;flex-direction:column;gap:6px}
         .pvline{color:#16181c;font-size:13px;font-weight:600;line-height:1.25;word-break:break-word}
         .pvqr{margin-top:auto;color:#16181c;align-self:flex-start} .pvqr ha-icon{--mdc-icon-size:40px}

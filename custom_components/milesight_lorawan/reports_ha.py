@@ -180,6 +180,12 @@ class ReportsManager:
             return await self._gen_cold_chain(period, s, e, label)
         if type_id == "device_health":
             return await self._gen_device_health(label, s, e, fmt, tz)
+        if type_id == "energy":
+            return await self._gen_energy(label, s, e, fmt, tz)
+        if type_id == "team":
+            return await self._gen_team(label, s, e, fmt, tz)
+        if type_id == "occupancy":
+            return await self._gen_occupancy(label, s, e, fmt, tz)
         return {"ok": False, "message": f"{t.title} is not available yet."}
 
     async def _gen_cold_chain(self, period: str, s: datetime, e: datetime, label: str) -> dict[str, Any]:
@@ -257,6 +263,240 @@ class ReportsManager:
                                     + (f", {len(off)} offline" if off else "") + (f", {low} low battery" if low else ""))
         self._save(rec)
         return {"ok": True, "message": rec["summary"], "record": rec}
+
+    # ---- shared helpers for the period reports --------------------------
+    def _entity_id(self, unique_id: str, platform: str = "sensor") -> str | None:
+        try:
+            from homeassistant.helpers import entity_registry as er
+            return er.async_get(self.hass).async_get_entity_id(platform, DOMAIN, unique_id)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _period_stats(self, entity_ids: list[str], start: datetime, end: datetime) -> dict[str, dict[str, Any]]:
+        """Per entity over [start, end): {eid: {first_sum, last_sum, delta, mean}} from long-term statistics.
+        `delta` = consumption for a total_increasing meter; `mean` = average of a measurement (e.g. utilisation)."""
+        out: dict[str, dict[str, Any]] = {}
+        if not entity_ids:
+            return out
+        try:
+            from homeassistant.components.recorder import get_instance
+            from homeassistant.components.recorder.statistics import statistics_during_period
+            inst = get_instance(self.hass)
+            stats = await inst.async_add_executor_job(
+                lambda: statistics_during_period(self.hass, start, end, set(entity_ids), "hour", None,
+                                                 {"sum", "mean", "state"}))
+        except Exception as err:  # noqa: BLE001 - recorder / statistics not available
+            _LOGGER.debug("No statistics for the report: %s", err)
+            return out
+        for eid, rows in (stats or {}).items():
+            if not rows:
+                continue
+            sums = [r["sum"] for r in rows if r.get("sum") is not None]
+            means = [r["mean"] for r in rows if r.get("mean") is not None]
+            rec: dict[str, Any] = {}
+            if sums:
+                rec["first_sum"], rec["last_sum"] = sums[0], sums[-1]
+                rec["delta"] = round(sums[-1] - sums[0], 3)
+            if means:
+                rec["mean"] = round(sum(means) / len(means), 1)
+            out[eid] = rec
+        return out
+
+    def _device_runtimes(self) -> list[Any]:
+        out = []
+        for e in self.hass.config_entries.async_entries(DOMAIN):
+            rt = getattr(e, "runtime_data", None)
+            if rt is not None and hasattr(rt, "deveui") and hasattr(rt, "model"):
+                out.append(rt)
+        return out
+
+    async def _finish(self, type_id: str, s: datetime, e: datetime, fmt: str, data: bytes, *,
+                      status: str, summary: str, label: str = "") -> dict[str, Any]:
+        from homeassistant.util import dt as dt_util
+        created = dt_util.now().isoformat()
+        token = created[-6:].replace(":", "")
+        name = f"{type_id.replace('_', '-')}-{s:%Y%m%d}-{token}.{fmt}"
+        folder = self.hass.config.path("www", "milesight", "reports", f"{s:%Y}")
+        url = f"/local/milesight/reports/{s:%Y}/{name}"
+
+        def _write() -> None:
+            import os
+            os.makedirs(folder, exist_ok=True)
+            with open(f"{folder}/{name}", "wb") as f:
+                f.write(data)
+        await self.hass.async_add_executor_job(_write)
+        rec = R.make_record(type_id, period=label, created=created, status=status, fmt=fmt, url=url,
+                            path=f"{folder}/{name}", size=len(data), summary=summary)
+        self._save(rec)
+        return {"ok": True, "message": summary, "record": rec}
+
+    # ---- Energy & cost ---------------------------------------------------
+    async def _gen_energy(self, label: str, s: datetime, e: datetime, fmt: str, tz: tzinfo) -> dict[str, Any]:
+        from .costs import device_meters
+        from .costs_calc import RESOURCE_UNIT, r_per_unit
+        from .costs import tariffs as _tariffs, currency as _currency
+        site = self.entry.title or "Site"
+        cur = _currency(self.hass, self.entry)
+        tar = _tariffs(self.entry)
+        rpu = {res: r_per_unit(res, tar.get(res)) for res in ("electricity", "water", "diesel", "feed")}
+
+        # one row per billable meter on each device; period consumption from the sensor's long-term statistics
+        meters: list[dict[str, Any]] = []
+        eids: list[str] = []
+        for rt in self._device_runtimes():
+            for m in device_meters(rt):
+                res = m["res"]
+                key = {"electricity": "energy", "water": "meter_reading", "diesel": "tank_volume",
+                       "feed": "tank_mass"}.get(res)
+                eid = self._entity_id(f"{rt.deveui}_{key}") if key else None
+                meters.append({"label": m["label"], "res": res, "unit": RESOURCE_UNIT[res], "eid": eid,
+                               "live": m.get("reading")})
+                if eid:
+                    eids.append(eid)
+        stats = await self._period_stats(eids, s, e)
+
+        rows, csv_rows = [], []
+        totals: dict[str, float] = {}
+        grand = 0.0
+        for m in meters:
+            st = stats.get(m["eid"] or "", {})
+            qty = st.get("delta")
+            if qty is None or qty < 0:
+                qty = None                                   # no statistics for the period (meter too new / purged)
+            price = rpu.get(m["res"])
+            cost = round(qty * price, 2) if (qty is not None and price) else None
+            if cost:
+                grand += cost
+                totals[m["res"]] = totals.get(m["res"], 0.0) + cost
+            rows.append([m["label"], m["res"].capitalize(),
+                         "—" if qty is None else f"{qty:g} {m['unit']}",
+                         "—" if price is None else f"{cur} {price:g}",
+                         "—" if cost is None else f"{cur} {cost:,.2f}"])
+            csv_rows.append([m["label"], m["res"], None if qty is None else qty, m["unit"],
+                             price, None if cost is None else cost])
+        rows.sort(key=lambda r: r[0])
+
+        if fmt == "csv":
+            data = to_csv(["Load", "Resource", "Consumption", "Unit", f"Tariff ({cur})", f"Cost ({cur})"], csv_rows)
+        else:
+            by_res = [[res.capitalize(), f"{cur} {amt:,.2f}"] for res, amt in sorted(totals.items())]
+            summary = [{"heading": "Summary",
+                        "cols": [("Metric", 240, "left"), ("Value", 240, "right")],
+                        "rows": [["Billable loads", str(len(meters))],
+                                 ["Priced resources", ", ".join(sorted(k for k, v in rpu.items() if v)) or "none set"],
+                                 ["Total cost", f"{cur} {grand:,.2f}"]] + by_res}]
+            detail = [{"heading": "Consumption & cost by load",
+                       "note": "Consumption is the metered change over the period from long-term statistics; "
+                               "a dash means no stored history yet for that meter.",
+                       "cols": [("Load", 150, "left"), ("Resource", 80, "left"), ("Consumption", 110, "right"),
+                                ("Tariff", 90, "right"), ("Cost", 90, "right")],
+                       "rows": rows}]
+            if not any(v for v in rpu.values()):
+                detail[0]["note"] = "No tariffs are set, so costs are blank. Set tariffs in the gateway options " \
+                                    "to price consumption."
+            data = build_pdf("Energy & cost", site, label, summary + detail, author=site,
+                             status=(f"{cur} {grand:,.0f}", "#0b3d62"))
+        summary_txt = f"{len([m for m in meters])} load(s), {cur} {grand:,.2f} over the period"
+        return await self._finish("energy", s, e, fmt, data, status="ok", summary=summary_txt, label=label)
+
+    # ---- Team attendance & timesheets -----------------------------------
+    async def _gen_team(self, label: str, s: datetime, e: datetime, fmt: str, tz: tzinfo) -> dict[str, Any]:
+        from . import team_calc as tc
+        team = getattr(self.hub, "team", None)
+        if team is None or not getattr(team, "workers", None):
+            return {"ok": False, "message": "No team is set up — add workers on the Team page first."}
+        site = self.entry.title or "Site"
+        cur = team._currency()
+        lo, hi = s.timestamp(), e.timestamp()
+        now = min(hi, datetime.now(tz).timestamp())
+        cal_days, d = [], s
+        from datetime import timedelta as _td
+        while d < e:
+            cal_days.append((d.strftime("%Y-%m-%d"), d.weekday()))
+            d += _td(days=1)
+
+        def day_of(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d")
+
+        pay = tc.payroll(team.workers, team.events, lo, hi, now, day_of, cal_days, leave=team.leave)
+        pay["currency"] = cur
+        rows = pay["rows"]
+        total_h = round(sum(r["hours"] for r in rows), 1)
+
+        if fmt == "csv":
+            text = tc.payroll_csv(pay)
+            data = text.encode("utf-8-sig")
+        else:
+            trows = [[r["name"] or r["id"], r.get("role") or "—", str(r["days_worked"]),
+                      str(r["expected_days"]), str(r["days_absent"]),
+                      f"{r['hours']:g}", f"{r['ot_hours']:g}",
+                      "—" if not r["gross"] else f"{cur} {r['gross']:,.2f}"] for r in rows]
+            trows.sort(key=lambda x: x[0].lower())
+            summary = [{"heading": "Summary",
+                        "cols": [("Metric", 240, "left"), ("Value", 240, "right")],
+                        "rows": [["Workers", str(len(rows))], ["Hours worked", f"{total_h:g}"],
+                                 ["Overtime hours", f"{pay['ot_hours']:g}"],
+                                 ["Total gross pay", f"{cur} {pay['total']:,.2f}"]]}]
+            detail = [{"heading": "Per worker",
+                       "note": "Absent counts expected working days neither worked nor on leave. Gross includes "
+                               "overtime at the configured multiplier.",
+                       "cols": [("Worker", 120, "left"), ("Role", 80, "left"), ("Worked", 46, "right"),
+                                ("Expected", 54, "right"), ("Absent", 46, "right"), ("Hours", 52, "right"),
+                                ("OT h", 42, "right"), ("Gross", 72, "right")],
+                       "rows": trows}]
+            data = build_pdf("Team attendance & timesheets", site, label, summary + detail, author=site,
+                             status=(f"{len(rows)} WORKER" + ("S" if len(rows) != 1 else ""), "#0b3d62"))
+        summary_txt = f"{len(rows)} worker(s), {total_h:g} h, {cur} {pay['total']:,.2f} gross"
+        return await self._finish("team", s, e, fmt, data, status="ok", summary=summary_txt, label=label)
+
+    # ---- Occupancy & area use -------------------------------------------
+    async def _gen_occupancy(self, label: str, s: datetime, e: datetime, fmt: str, tz: tzinfo) -> dict[str, Any]:
+        from .fleet import area_summary
+        site = self.entry.title or "Site"
+        areas = area_summary(self.hass, self.entry)
+        # the per-area occupancy sensor's daily occupied-share %; its statistics mean = average utilisation
+        slug = lambda a: "".join(ch if ch.isalnum() else "_" for ch in a.lower())
+        eid_of = {a: self._entity_id(f"{self.entry.entry_id}_area_{slug(a)}_occupancy") for a in areas}
+        eids = [v for v in eid_of.values() if v]
+        stats = await self._period_stats(eids, s, e)
+
+        rows, csv_rows = [], []
+        util_vals = []
+        for area in sorted(areas):
+            d = areas[area]
+            eid = eid_of.get(area)
+            util = (stats.get(eid or "", {}).get("mean"))
+            if util is None:
+                util = d.get("utilisation_today")            # fall back to today's live utilisation
+            if isinstance(util, (int, float)):
+                util_vals.append(util)
+            ndev = len(d.get("devices") or [])
+            rows.append([area, str(ndev), "—" if util is None else f"{util:g}%",
+                         "Occupied" if d.get("occupied") else "Empty" if d.get("occupied") is not None else "—",
+                         "—" if d.get("people") is None else str(d.get("people"))])
+            csv_rows.append([area, ndev, util, d.get("occupied"), d.get("people")])
+        rows.sort(key=lambda r: r[0])
+        avg_util = round(sum(util_vals) / len(util_vals), 1) if util_vals else None
+
+        if fmt == "csv":
+            data = to_csv(["Area", "Devices", "Avg utilisation %", "Occupied now", "People now"], csv_rows)
+        else:
+            summary = [{"heading": "Summary",
+                        "cols": [("Metric", 240, "left"), ("Value", 240, "right")],
+                        "rows": [["Areas", str(len(areas))],
+                                 ["Average utilisation", "—" if avg_util is None else f"{avg_util:g}%"]]}]
+            detail = [{"heading": "Utilisation by area",
+                       "note": "Average utilisation is the mean of each area's daily occupied-share over the period "
+                               "(from long-term statistics); a dash means no stored history yet.",
+                       "cols": [("Area", 170, "left"), ("Devices", 70, "right"), ("Avg utilisation", 110, "right"),
+                                ("Occupied now", 100, "left"), ("People now", 60, "right")],
+                       "rows": rows}]
+            if not areas:
+                detail[0]["note"] = "No areas with occupancy or motion sensors were found."
+            data = build_pdf("Occupancy & area use", site, label, summary + detail, author=site,
+                             status=("—" if avg_util is None else f"{avg_util:g}%", "#0b3d62"))
+        summary_txt = f"{len(areas)} area(s)" + ("" if avg_util is None else f", {avg_util:g}% average utilisation")
+        return await self._finish("occupancy", s, e, fmt, data, status="ok", summary=summary_txt, label=label)
 
     def _save(self, rec: dict[str, Any]) -> None:
         self.data.setdefault("reports", [])[:0] = [rec]

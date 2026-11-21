@@ -40,13 +40,13 @@ REPORT_TYPES: tuple[ReportType, ...] = (
                ("pdf", "csv"), ("site",), "ready"),
     ReportType("energy", "Energy & cost", "mdi:lightning-bolt",
                "Consumption, duty cycle and tariff cost per load and per period — for finance.",
-               ("pdf", "csv"), ("site",), "soon"),
+               ("pdf", "csv"), ("site",), "ready"),
     ReportType("team", "Team attendance & timesheets", "mdi:account-clock",
                "Hours worked, attendance and overtime per worker — payroll-ready.",
-               ("pdf", "csv"), ("site",), "soon"),
+               ("pdf", "csv"), ("site",), "ready"),
     ReportType("occupancy", "Occupancy & area use", "mdi:floor-plan",
                "Occupied time, utilisation and sessions per space / area over the period.",
-               ("pdf", "csv"), ("site",), "soon"),
+               ("pdf", "csv"), ("site",), "ready"),
 )
 
 BY_ID: dict[str, ReportType] = {t.id: t for t in REPORT_TYPES}

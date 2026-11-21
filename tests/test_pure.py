@@ -2948,11 +2948,10 @@ def test_messaging_calc():
 
 def test_reports():
     rep = _load("reports"); rha = _load("reports_ha")
-    # registry: 5 types, cold_chain + device_health ready, the rest "soon"
+    # registry: 5 types, all now ready (cold_chain, device_health, energy, team, occupancy)
     pub = rep.types_public()
     assert [t["id"] for t in pub] == ["cold_chain", "device_health", "energy", "team", "occupancy"]
-    assert rep.BY_ID["cold_chain"].status == "ready" and rep.BY_ID["device_health"].status == "ready"
-    assert all(rep.BY_ID[i].status == "soon" for i in ("energy", "team", "occupancy"))
+    assert all(rep.BY_ID[i].status == "ready" for i in ("cold_chain", "device_health", "energy", "team", "occupancy"))
     assert "csv" in rep.BY_ID["device_health"].formats and rep.BY_ID["cold_chain"].formats == ("pdf",)
     # period resolution
     now = datetime(2026, 11, 17, 9, 0)

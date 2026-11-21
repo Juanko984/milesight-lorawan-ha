@@ -2,6 +2,38 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.156.2
+- **DS3604 display card: live preview and a mobile-friendly layout.** The preview now updates as you type in the
+  text / QR fields, instead of only refreshing when you switched template tabs or pressed Send — so the "Empty"
+  preview that stayed blank while you typed is fixed. On a phone the editor and preview now stack: the preview
+  drops below the fields and fits the screen instead of overflowing off the right edge.
+
+## 0.156.1
+- **Commissioning: a device already on the gateway is reported, not rejected.** When adding a device whose
+  DevEUI is already registered on the gateway, the add previously failed with the gateway's raw "parameter
+  error – required fields are not filled in" (some gateway firmwares answer a duplicate registration that way
+  instead of "already exists"). Commissioning now checks the gateway's device list first: an already-registered
+  device is reported as "added (already on the gateway)" and still added to Home Assistant, rather than erroring.
+- **Clearer message when the gateway has no application / device profile set.** Registering into a gateway whose
+  network-server application or device profile hasn't been selected now says exactly that — "open the gateway's
+  Configure → Add devices to the gateway and choose them first" — instead of the raw "required fields" error. And
+  any gateway rejection now adds a reminder that you can turn off "Register on the gateway" to add the device to
+  Home Assistant only.
+
+## 0.156.0
+- **The Reports page now generates all five report types.** The three that were marked "soon" are live, each as
+  a PDF or CSV over the chosen period (last complete week / month, or a custom range):
+  - **Energy & cost** — consumption and tariff cost per billable load (electricity, water, fuel, feed), with a
+    per-resource and total-cost summary. Period consumption comes from each meter's long-term statistics; set
+    tariffs in the gateway options to price it.
+  - **Team attendance & timesheets** — payroll-ready: hours worked, days worked vs expected, absences, overtime
+    and gross pay per worker, with a site total. The CSV is the same payroll export used on the Team page.
+  - **Occupancy & area use** — average utilisation per area over the period (the mean of each area's daily
+    occupied-share from statistics), plus device count and current occupancy.
+
+  All three appear in the same report library with download links, alongside Cold-chain compliance and Device
+  health. No new setup — pick a type, period and format and generate.
+
 ## 0.155.1
 - **Fix: the GS101 gas-detector card is now actually on the dashboard.** The card was added in 0.153.0 but the
   "Gas & safety" section never made it into the dashboard source template, so it appeared on no dashboard. It is

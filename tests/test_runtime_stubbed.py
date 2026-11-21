@@ -1401,6 +1401,17 @@ async def _prov():
     assert len(data["devices"]) == 3 and len(entries.flows) == flows + 2      # 0001 and 0002 offered, 0003 known
     assert {f["device_name"] for f in entries.flows[-2:]} == {"EM300-TH Office", "Pump"}
     assert entries.flows[-2]["guess"] == "EM300-TH"
+    # a device already on the gateway is reported as 'exists' from the device list even when the firmware would
+    # reject a duplicate POST with a generic parameter error (code 3) rather than 'already exists' (code 6)
+    GW_DEVICES["24e124136d0000ff"] = "Already there"
+    assert await c.async_add_device("24e124136d0000ff", "Dupe", "1", "p-a") == "exists"   # pre-check, no POST
+    # a missing gateway application / profile is a clear, actionable error, not the raw 'required fields' message
+    try:
+        await c.async_add_device("24e124136d0000ab", "No app", "", "")
+    except prov.NsApiError as err:
+        assert err.code == 3 and "application or device profile" in str(err), err
+    else:
+        raise AssertionError("expected a parameter error for the empty application / profile")
     c2 = prov.NsApiClient(h, "ms/req", "ms/nobody")
     try:
         await c2.async_request("GET", "/api/urdevices", timeout=0.2)
@@ -2417,6 +2428,39 @@ assert _prows[w1["id"]]["pay_type"] == "salary" and _prows[w1["id"]]["gross"] ==
 assert _prows[w2["id"]]["pay_type"] == "hourly" and _prows[w2["id"]]["rate"] == 90.0
 _last = tm.payroll(1)
 assert _last["months_ago"] == 1 and _last["label"] != _pr["label"]
+
+# reports: the three period generators (energy / team / occupancy) produce real PDF + CSV files and library rows
+import os as _os
+_rep_tmp = tempfile.mkdtemp()
+dt_mod.DEFAULT_TIME_ZONE = ZoneInfo("Africa/Johannesburg")
+sys.modules["homeassistant.util.dt"].__dict__.update(vars(dt_mod))   # keep the submodule copy in step with dt_mod
+hass.config.path = lambda *p: _os.path.join(_rep_tmp, *p)
+hass.async_create_task = lambda c: c.close() if asyncio.iscoroutine(c) else None   # don't nest asyncio.run
+reports_ha = load("reports_ha")
+_rep_entry = types.SimpleNamespace(entry_id="h", title="Green Acres",
+                                   options={"tariff_elec_c_kwh": 285, "tariff_water_kl": 18.5}, data={})
+_rep_hub = types.SimpleNamespace(entry_id="h", title="Green Acres", team=tm, compliance=None)
+rmgr = reports_ha.ReportsManager(hass, _rep_entry, _rep_hub)
+asyncio.run(rmgr.async_start())
+# every type is advertised as ready (no "soon" left)
+assert all(t["status"] == "ready" for t in rmgr.types()), [t for t in rmgr.types() if t["status"] != "ready"]
+# team report: real worker data from the live team manager, as PDF and payroll CSV
+_rt_team = asyncio.run(rmgr.async_generate("team", period="month", fmt="pdf"))
+assert _rt_team["ok"] and open(_rt_team["record"]["path"], "rb").read(5) == b"%PDF-", _rt_team
+_rt_team_csv = asyncio.run(rmgr.async_generate("team", period="month", fmt="csv"))
+assert _rt_team_csv["ok"] and open(_rt_team_csv["record"]["path"], "rb").read().startswith(b"\xef\xbb\xbfWorker"), _rt_team_csv
+# energy + occupancy: run over real devices (consumption/utilisation dashed without a recorder) → valid PDF + CSV
+for _t in ("energy", "occupancy"):
+    _rp = asyncio.run(rmgr.async_generate(_t, period="month", fmt="pdf"))
+    assert _rp["ok"] and open(_rp["record"]["path"], "rb").read(5) == b"%PDF-", (_t, _rp)
+    _rc = asyncio.run(rmgr.async_generate(_t, period="week", fmt="csv"))
+    assert _rc["ok"] and _os.path.getsize(_rc["record"]["path"]) > 0, (_t, _rc)
+assert len(rmgr.recent()) >= 6 and {r["type"] for r in rmgr.recent()} >= {"energy", "team", "occupancy"}
+# a report with no team set up is refused, not a crash
+_rep_hub.team = types.SimpleNamespace(workers=[])
+assert asyncio.run(rmgr.async_generate("team", period="month"))["ok"] is False
+_rep_hub.team = tm
+print("reports energy/team/occupancy ok")
 
 # v0.99: clock-on-behalf is recorded and flagged; a self clock-in is not
 rb = tm.clock(w2["id"], "in", lat=-33.9003, lon=18.4002, by="Juan", note="forgot phone")
