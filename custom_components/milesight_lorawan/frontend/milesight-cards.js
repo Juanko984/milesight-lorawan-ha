@@ -9185,6 +9185,139 @@
     }
   }
 
+  // ================================================================ coop controller (lights + heater)
+  // Self-discovers the "coop_controller" role sensor the gateway exposes. Two panels — lights by daylight and
+  // heater by temperature — each with an enable toggle, relay + sensor pickers and thresholds, plus a live
+  // status line. Edits are local until Save, which calls the milesight_lorawan/coop/set websocket.
+  class CoopControlCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _role() { const S = this._hass.states; for (const id in S) if (S[id].attributes && S[id].attributes.milesight_role === "coop_controller") { const st = S[id]; if (!st.entity_id) st.entity_id = id; return st; } return null; }
+    _watch() { const r = this._role(); return r ? [r.entity_id] : null; }
+    _opts(filter) {
+      const S = this._hass.states, out = [];
+      for (const id in S) { try { if (filter(id, S[id].attributes || {})) out.push([id, S[id].attributes.friendly_name || id]); } catch (e) {} }
+      return out.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+    }
+    _switches() { return this._opts((id) => id.startsWith("switch.")); }
+    _luxSensors() { return this._opts((id, a) => id.startsWith("sensor.") && (a.device_class === "illuminance" || a.unit_of_measurement === "lx")); }
+    _tempSensors() { return this._opts((id, a) => id.startsWith("sensor.") && a.device_class === "temperature"); }
+    _draft(d) {
+      if (!this._d) { this._d = { lights: { ...(d.lights || {}) }, heater: { ...(d.heater || {}) } }; }
+      return this._d;
+    }
+    _sel(side, key, options, placeholder) {
+      const d = this._d[side], cur = d[key] || "";
+      const sel = h("select", { class: "ccsel", onchange: (e) => { d[key] = e.target.value || null; } });
+      sel.appendChild(h("option", { value: "" }, placeholder));
+      let has = false;
+      options.forEach(([v, label]) => { const o = h("option", { value: v }, esc(label)); if (v === cur) { o.selected = true; has = true; } sel.appendChild(o); });
+      if (cur && !has) { const o = h("option", { value: cur }, esc(cur)); o.selected = true; sel.appendChild(o); }
+      return sel;
+    }
+    _num(side, key, step, unit) {
+      const d = this._d[side];
+      return h("div", { class: "ccnum" }, [
+        h("input", { type: "number", step: step || "1", value: d[key] == null ? "" : d[key],
+          oninput: (e) => { d[key] = e.target.value === "" ? null : Number(e.target.value); } }),
+        unit ? h("span", { class: "u" }, unit) : null]);
+    }
+    _toggle(side) {
+      const d = this._d[side];
+      return h("label", { class: "ccsw" }, [
+        h("input", { type: "checkbox", checked: !!d.enabled, onchange: (e) => { d.enabled = e.target.checked; this._render(); } }),
+        h("span", {}, d.enabled ? "On" : "Off")]);
+    }
+    _field(label, el) { return h("label", { class: "ccf" }, [h("span", {}, label), el]); }
+    async _save() {
+      const r = this._role(); const hub = r ? r.attributes.hub : undefined;
+      this._busy = true; this._msg = null; this._render();
+      try {
+        await this._hass.callWS({ type: "milesight_lorawan/coop/set", hub, config: this._d });
+        this._msg = { ok: true, text: "Saved — the controller runs on the next check (within a minute)." };
+      } catch (e) { this._msg = { ok: false, text: (e && e.message) || "Could not save." }; }
+      this._busy = false; this._render();
+    }
+    _statusLine(side, s) {
+      const on = !!s.on, en = !!s.enabled;
+      const reading = side === "lights" ? (s.lux == null ? "—" : s.lux + " lx") : (s.temp == null ? "—" : s.temp + " °C");
+      return h("div", { class: "ccstatus" }, [
+        h("span", { class: "ccbadge " + (!en ? "off" : on ? (side === "heater" ? "heat" : "lit") : "idle") },
+          !en ? "Disabled" : on ? (side === "lights" ? "Lights on" : "Heating") : "Off"),
+        h("span", { class: "ccnow" }, reading),
+        h("span", { class: "ccreason" }, esc(s.reason || "")),
+      ]);
+    }
+    _panel(side, s, title, icon) {
+      const isLights = side === "lights";
+      const rows = [
+        this._field("Relay to switch", this._sel(side, "relay", this._switches(), "— pick a relay / switch —")),
+        this._field(isLights ? "Light sensor" : "Temperature sensor",
+          this._sel(side, isLights ? "lux_entity" : "temp_entity", isLights ? this._luxSensors() : this._tempSensors(),
+            isLights ? "— pick a light sensor —" : "— pick a temperature sensor —")),
+      ];
+      if (isLights) {
+        rows.push(h("div", { class: "ccpair" }, [this._field("On below", this._num(side, "on_lux", "1", "lx")), this._field("Off above", this._num(side, "off_lux", "1", "lx"))]));
+        rows.push(h("div", { class: "ccpair" }, [this._field("Window from", this._num(side, "start_hour", "0.5", "h")), this._field("to", this._num(side, "end_hour", "0.5", "h"))]));
+      } else {
+        rows.push(h("div", { class: "ccpair" }, [this._field("On below", this._num(side, "on_temp", "0.5", "°C")), this._field("Off above", this._num(side, "off_temp", "0.5", "°C"))]));
+      }
+      return h("div", { class: "ccpanel" }, [
+        h("div", { class: "cchd" }, [h("div", { class: "ccic" }, [h("ha-icon", { icon })]),
+          h("div", { class: "cctitle" }, title), this._toggle(side)]),
+        this._statusLine(side, s),
+        this._d[side].enabled ? h("div", { class: "ccbody" }, rows) : null,
+      ].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      const r = this._role();
+      if (!r) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      const d = r.attributes || {};
+      this._draft(d);
+      this._css = `
+        .wrap{padding:2px}
+        .ccgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+        .ccpanel{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .cchd{display:flex;align-items:center;gap:10px}
+        .ccic{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)} .ccic ha-icon{--mdc-icon-size:18px}
+        .cctitle{flex:1 1 auto;font-size:14.5px;font-weight:650;color:var(--ms-ink)}
+        .ccsw{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ms-ink2)} .ccsw input{width:16px;height:16px}
+        .ccstatus{display:flex;align-items:center;gap:9px;margin:11px 0 2px;flex-wrap:wrap}
+        .ccbadge{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--ms-ink2) 18%,transparent);color:var(--ms-ink2)}
+        .ccbadge.lit{background:color-mix(in srgb,#ffca28 22%,transparent);color:#c79400}
+        .ccbadge.heat{background:color-mix(in srgb,var(--ms-heat) 22%,transparent);color:var(--ms-heat)}
+        .ccbadge.idle{background:color-mix(in srgb,var(--ms-ink2) 18%,transparent);color:var(--ms-ink2)}
+        .ccnow{font-size:13px;font-weight:650;color:var(--ms-ink)} .ccreason{font-size:11.5px;color:var(--ms-ink2)}
+        .ccbody{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+        .ccf{display:flex;flex-direction:column;gap:3px;flex:1 1 0;min-width:0} .ccf span{font-size:10.5px;color:var(--ms-ink2)}
+        .ccpair{display:flex;gap:10px}
+        .ccsel,.ccnum input{background:color-mix(in srgb,var(--ms-ink) 5%,transparent);border:1px solid var(--ms-line);border-radius:8px;padding:7px 9px;color:var(--ms-ink);font:inherit;font-size:12.5px;width:100%;box-sizing:border-box}
+        .ccsel:focus,.ccnum input:focus{outline:none;border-color:var(--ms-accent)}
+        .ccnum{display:flex;align-items:center;gap:5px} .ccnum .u{font-size:11px;color:var(--ms-ink2)}
+        .ccfoot{display:flex;align-items:center;gap:12px;margin-top:14px}
+        .ccsave{background:var(--ms-accent);border:1px solid var(--ms-accent);color:#fff;border-radius:9px;padding:8px 16px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+        .ccsave[disabled]{opacity:.6;cursor:default}
+        .ccmsg{font-size:12px} .ccmsg.ok{color:var(--ms-good)} .ccmsg.bad{color:var(--ms-bad)}
+        .cchint{font-size:11.5px;color:var(--ms-ink2);margin:2px 0 12px}
+      `;
+      this._card(h("div", { class: "wrap" }, [
+        h("p", { class: "title", style: { marginBottom: "4px" } }, "Coop controls"),
+        h("div", { class: "cchint" }, "The gateway switches these relays itself from the readings below — no automation to set up. The heater turns off if its probe stops reporting."),
+        h("div", { class: "ccgrid" }, [
+          this._panel("lights", d.lights || {}, "Lights by daylight", "mdi:lightbulb-on-outline"),
+          this._panel("heater", d.heater || {}, "Heater by temperature", "mdi:radiator"),
+        ]),
+        h("div", { class: "ccfoot" }, [
+          h("button", { class: "ccsave", disabled: this._busy || undefined, onclick: () => this._save() }, this._busy ? "Saving…" : "Save"),
+          this._msg ? h("span", { class: "ccmsg " + (this._msg.ok ? "ok" : "bad") }, esc(this._msg.text)) : null,
+        ].filter(Boolean)),
+      ]));
+    }
+    set hass(hass) { this._hass = hass; const sig = this._sig(); if (sig !== null && sig === this._lastSig && this._d) return; this._lastSig = sig; this._render(); }
+  }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
@@ -9219,6 +9352,7 @@
         ENVMON_TAG = "milesight-environment-card",
         ENERGY_TAG = "milesight-energy-card",
         THERMOSTAT_TAG = "milesight-climate-card",
+        COOPCTL_TAG = "milesight-coop-control-card",
         GAS_TAG = "milesight-gas-card",
         GASDET_TAG = "milesight-gas-detector-card",
         SOUND_TAG = "milesight-sound-card",
@@ -9295,6 +9429,7 @@
     [ENVMON_TAG, EnvMonitorCard, "Milesight Environment", "Temp / humidity / door / leak / motion sensor: numeric chips drive the trend, door/leak/motion show status"],
     [ENERGY_TAG, EnergyCard, "Milesight Energy", "CT clamp: phase currents (L1/L2/L3) as chips that drive the trend, total current, estimated power and imbalance"],
     [THERMOSTAT_TAG, ThermostatCard, "Milesight Climate", "WT thermostat control: current temp, −/+ setpoint, mode and fan chips, valve opening and a temperature trend"],
+    [COOPCTL_TAG, CoopControlCard, "Milesight Coop Controls", "Coop lights by daylight + heater by temperature: pick the relays and sensors, set the thresholds, the gateway switches them"],
     [GAS_TAG, GasCard, "Milesight Gas & Vape", "GS301 odour / GS601 vape: numeric chips drive the trend, odour / vape show status"],
     [GASDET_TAG, GasDetectorCard, "Milesight Gas Detector", "GS101 gas-leak detector: safe / gas-detected, shut-off valve + relay control, sensor life and events"],
     [SOUND_TAG, SoundCard, "Milesight Sound", "WS302 sound level with a learned baseline and continuous water-flow / 'left running' detection"],

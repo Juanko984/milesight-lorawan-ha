@@ -79,6 +79,7 @@ class Hub:
         self.recipes = None     # recipes.RecipeManager, set by the sensor platform
         self.jobs = None        # jobs.JobsManager, set by the sensor platform
         self.team = None        # team.TeamManager, set by the sensor platform
+        self.coop = None        # coop_ha.CoopManager, set by the sensor platform
         self.chat = None        # messaging.MessagingManager, set during entry setup
         self.ns = None          # provisioning.NsApiClient when the ns-api topics are set
         if cfg.get(CONF_NS_REQUEST_TOPIC) and cfg.get(CONF_NS_RESPONSE_TOPIC):
@@ -522,6 +523,8 @@ class Hub:
                 self.hass.bus.async_fire(f"{DOMAIN}_gateway_{'online' if online else 'offline'}", {
                     "gateway_id": gid, "gateway": g.get("name"), "hub": self.entry.title})
             self._online[gid] = online
+        if self.coop is not None:
+            self.coop.tick()
         self._changed(force=True)
 
     async def async_send_downlink(self, deveui: str, payload: bytes, fport: int = DOWNLINK_FPORT,

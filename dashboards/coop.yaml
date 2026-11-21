@@ -117,16 +117,12 @@ views:
       - type: grid
         column_span: 3
         cards:
-          - type: markdown
+          - type: heading
+            heading: Lights & heater — automatic
+            icon: mdi:home-lightning-bolt
+          # The gateway runs the coop lights (by daylight) and heater (by temperature) itself: pick the UC relay
+          # and the sensor for each, set the thresholds, and it switches them. The heater turns off if its probe
+          # stops reporting. Assign the UC relay device the "Coop lights / heater controller" purpose (or put it
+          # in the Chicken coop area) so it is here to pick. No blueprint or automation to set up.
+          - type: custom:milesight-coop-control-card
             grid_options: {columns: full}
-            content: |
-              ## Automate the coop
-              Import these two blueprints (Settings → Automations → Blueprints → Import blueprint) to run the coop
-              hands-off. Both switch a **UC relay output** (or any switch), so pick your relay and thresholds when
-              you create the automation.
-
-              - **Coop lights by daylight** — when the EM500-LGT reads below your "on" level during the lighting
-                window, the lights come on; they switch off once it's bright enough or the window ends (so the
-                birds get a real dark period). Keeps a steady day length for laying.
-              - **Coop heater by temperature** — the heater comes on below your "on" temperature and off above the
-                "off" temperature (hysteresis stops short-cycling), with a safety cut-out if the probe drops out.

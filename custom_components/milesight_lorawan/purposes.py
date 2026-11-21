@@ -154,11 +154,12 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("coop_climate", "Coop climate", "comfort", "temperature air motion", icon="mdi:home-thermometer",
        temp_low=2, co2_limit=3000),
     _p("coop_light", "Coop light sensor", "comfort", "light", icon="mdi:brightness-6"),
+    _p("coop_controller", "Coop lights / heater controller", "comfort", "controller", icon="mdi:home-lightning-bolt"),
 )}
 
 SOIL_PURPOSES = ("field", "greenhouse", "garden")
 # poultry-coop purposes: any of these on a device tags the site "coop" (installs the chicken-coop dashboard)
-COOP_PURPOSES = ("coop_drinker", "coop_feeder", "coop_door", "coop_climate", "coop_light")
+COOP_PURPOSES = ("coop_drinker", "coop_feeder", "coop_door", "coop_climate", "coop_light", "coop_controller")
 # retail: a staff / counter coverage zone (assigned to a people or occupancy sensor at the till)
 RETAIL_PURPOSES = ("counter_zone",)
 LOAD_ANALYTICS = ("fridge", "freezer", "air_compressor", "motor", "ac", "geyser", "lighting", "mains", "appliance",

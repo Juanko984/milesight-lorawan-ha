@@ -278,6 +278,14 @@
    "sensor.ct101_energy": { state: "0", attributes: { milesight_role: "energy_monitor", device: "Borehole feeder", area: "Pump house", model: "CT101", three_phase: false, primary: "current", last_seen: Date.now() / 1000 - 30,
      metrics: [ { key: "current", label: "Current", unit: "A", color: "#4aa3ff", value: 9.2, entity_id: "sensor.ct101_current" } ],
      summary: { power: 2040, energy: 41.6, volts: 230 } } },
+   // Coop controller role sensor + a relay / lux / temp to pick from
+   "switch.coop_lights": { state: "on", attributes: { friendly_name: "Coop UC relay 1" } },
+   "switch.coop_heater": { state: "off", attributes: { friendly_name: "Coop UC relay 2" } },
+   "sensor.coop_lux": { state: "40", attributes: { friendly_name: "EM500-LGT Illuminance", device_class: "illuminance", unit_of_measurement: "lx" } },
+   "sensor.coop_temp": { state: "7.5", attributes: { friendly_name: "Coop temperature", device_class: "temperature", unit_of_measurement: "°C" } },
+   "sensor.coop_ctl": { state: "1 of 2 on", attributes: { milesight_role: "coop_controller", site: "Green Acres",
+     lights: { enabled: true, relay: "switch.coop_lights", lux_entity: "sensor.coop_lux", on_lux: 15, off_lux: 40, start_hour: 5, end_hour: 21, on: true, lux: 40, within_window: true, reason: "dark (40 lx ≤ 15)" },
+     heater: { enabled: true, relay: "switch.coop_heater", temp_entity: "sensor.coop_temp", on_temp: 8, off_temp: 12, on: false, temp: 7.5, reason: "warm enough (7.5 °C)" } } },
    // Climate — WT201 room thermostat (heat/cool/auto + fan) and WT101 radiator valve (heat + valve)
    "sensor.wt201_temperature": { state: "20.4", last_changed: new Date().toISOString(), attributes: { friendly_name: "Reception temp", unit_of_measurement: "°C" } },
    "climate.wt201": { state: "heat", attributes: { milesight_role: "thermostat", device: "Reception thermostat", area: "Reception", model: "WT201",
@@ -580,6 +588,7 @@
    ["milesight-environment-card", {}],
    ["milesight-energy-card", {}],
    ["milesight-climate-card", {}],
+   ["milesight-coop-control-card", {}],
    ["milesight-gas-card", {}],
    ["milesight-gas-detector-card", {}],
    ["milesight-sound-card", {}],

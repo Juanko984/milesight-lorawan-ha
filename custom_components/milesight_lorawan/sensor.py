@@ -44,6 +44,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         from .recipes import async_setup_recipes
         hub.recipes, rcents = await async_setup_recipes(hass, entry)
         async_add_entities(rcents)
+        from .coop_ha import async_setup_coop
+        hub.coop, coents = await async_setup_coop(hass, entry)
+        async_add_entities(coents)
         async_add_entities(hub_extra_sensors(hass, entry))
         from .irrigation_ha import irrigation_entities
         async_add_entities(irrigation_entities(hass, entry, "sensor"))

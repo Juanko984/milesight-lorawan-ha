@@ -23,6 +23,7 @@ dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = 
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage"); vbc = _load("vibration_calc"); wcl = _load("weather_calc"); scl = _load("soil_calc")
 cst = _load("costs_calc"); rcp = _load("recipes_calc"); jbc = _load("jobs_calc"); tmc = _load("team_calc")
+coc = _load("coop_calc")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1412,11 +1413,16 @@ def test_purposes_catalogue():
     assert prp.resolve("Fridge / cold room") == "fridge" and prp.resolve("fridge") == "fridge"
     assert prp.resolve("gate") == "gate" and prp.resolve("AC") == "ac" and prp.resolve("nonsense") is None
     # poultry coop purposes: in the dropdown, use existing groups, and a coop purpose tags the site "coop"
-    assert set(prp.COOP_PURPOSES) == {"coop_drinker", "coop_feeder", "coop_door", "coop_climate", "coop_light"}
+    assert set(prp.COOP_PURPOSES) == {"coop_drinker", "coop_feeder", "coop_door", "coop_climate", "coop_light",
+                                      "coop_controller"}
     assert prp.get("coop_drinker").group == "tank" and prp.get("coop_feeder").group == "tank"
     assert prp.get("coop_door").group == "security" and prp.get("coop_climate").group == "comfort"
     assert prp.get("coop_light").group == "comfort" and "light" in mdl.families("EM500-LGT")
+    # the lights / heater controller fits the UC range (controller family) so a UC relay device can run the coop
+    assert prp.get("coop_controller").group == "comfort" and "controller" in prp.get("coop_controller").families
+    assert "coop_controller" in [p.key for p in prp.for_families({"controller"})]
     assert "coop" in mdl.device_tags("EM500-LGT", {"purpose": "coop_light"})
+    assert "coop" in mdl.device_tags("UC300", {"purpose": "coop_controller"})
     assert prp.get("coop_door").defaults.get("left_open_min") == 15 and prp.get("coop_climate").defaults.get("temp_low") == 2
     assert "coop" in mdl.device_tags("EM400-MUD", {"purpose": "coop_drinker"})
     assert "coop" in mdl.device_tags("AM307", {"purpose": "coop_climate"})
@@ -2966,6 +2972,39 @@ def test_messaging_calc():
     assert aw["as_worker"] == "Riaan" and aw["user_id"] == "u1"
     assert "as_worker" not in msc.new_message("site", "hi", author="Juan", user_id="u1")
 
+
+def test_coop_controller():
+    # lighting window, including one that wraps past midnight
+    assert coc.in_window(6, 5, 21) and not coc.in_window(22, 5, 21) and not coc.in_window(4, 5, 21)
+    assert coc.in_window(23, 20, 6) and coc.in_window(2, 20, 6) and not coc.in_window(12, 20, 6)
+    assert coc.in_window(12, 8, 8)                       # start == end → always
+    # lights: within window, on when dark, off when bright, hysteresis holds between the two levels
+    assert coc.lights_decision(10, 15, 40, True, False) is True      # 10 lx ≤ 15 → on
+    assert coc.lights_decision(25, 15, 40, True, True) is True       # in the band, already on → stays on
+    assert coc.lights_decision(50, 15, 40, True, True) is False      # 50 lx ≥ 40 → off
+    assert coc.lights_decision(5, 15, 40, False, True) is False      # outside window → always off
+    assert coc.lights_decision(None, 15, 40, True, True) is True     # no reading → hold
+    # heater: hysteresis, and a dropped probe / missing reading turns it off (safety)
+    assert coc.heater_decision(6, 8, 12, False) is True             # 6 °C ≤ 8 → on
+    assert coc.heater_decision(10, 8, 12, True) is True             # in the band, already on → stays on
+    assert coc.heater_decision(13, 8, 12, True) is False            # 13 °C ≥ 12 → off
+    assert coc.heater_decision(5, 8, 12, True, probe_ok=False) is False   # probe dropout → off
+    assert coc.heater_decision(None, 8, 12, True) is False          # no reading → off
+    # evaluate(): a disabled side or one without a relay is left untouched (want = None)
+    cfg = {"lights": {"enabled": True, "relay": "switch.lights", "on_lux": 15, "off_lux": 40,
+                      "start_hour": 5, "end_hour": 21},
+           "heater": {"enabled": True, "relay": "switch.heater", "on_temp": 8, "off_temp": 12}}
+    r = coc.evaluate(cfg, hour=6, lux=10, temp=6, lights_on=False, heater_on=False)
+    assert r["lights"]["want"] is True and "dark" in r["lights"]["reason"]
+    assert r["heater"]["want"] is True and "cold" in r["heater"]["reason"]
+    r2 = coc.evaluate(cfg, hour=23, lux=0, temp=20, lights_on=True, heater_on=True)
+    assert r2["lights"]["want"] is False and "window" in r2["lights"]["reason"]
+    assert r2["heater"]["want"] is False and "warm" in r2["heater"]["reason"]
+    r3 = coc.evaluate(cfg, hour=6, lux=10, temp=6, lights_on=False, heater_on=False, probe_ok=False)
+    assert r3["heater"]["want"] is False and "safety" in r3["heater"]["reason"]
+    off = coc.evaluate({"lights": {"enabled": False}, "heater": {"enabled": False}},
+                       hour=6, lux=10, temp=6, lights_on=False, heater_on=False)
+    assert off["lights"]["want"] is None and off["heater"]["want"] is None
 
 def test_reports():
     rep = _load("reports"); rha = _load("reports_ha")

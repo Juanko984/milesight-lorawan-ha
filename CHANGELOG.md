@@ -2,6 +2,22 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.158.0
+- **Coop lights & heater now run from the Chicken coop page — no blueprint.** A new **Coop controls** card lets
+  you pick the lights relay + light sensor and the heater relay + temperature sensor, set the on/off thresholds
+  and the lighting window, and the gateway switches the relays itself each minute:
+  - **Lights by daylight** — within the lighting window the lights come on when it's too dark and off once it's
+    bright enough (hysteresis between the two levels); outside the window they stay off so the birds get a real
+    dark period.
+  - **Heater by temperature** — on below your "on" temperature, off above the "off" temperature, with a safety
+    cut-out: if the probe stops reporting (stale for 2 h) the heater is turned off.
+  - Each panel shows its live state (on/off, the current reading and the reason). The old Import-two-blueprints
+    section is replaced by this on-page card.
+- **The UC range can now be fitted to the coop.** Added a **Coop lights / heater controller** purpose for the
+  UC300 / UC500 controllers (and other RS485 controllers), so the UC relay device shows on the coop page and is
+  available to pick as the lights / heater relay. Any device in the Chicken coop area (or with a Coop purpose)
+  appears in the matching coop-page section.
+
 ## 0.157.1
 - **Fix: opening Configure on a CT clamp no longer shows a blank "Error".** The CT options form crashed while it
   was being built — the live-voltage-source field (added in 0.155.0) referenced a helper that isn't defined in

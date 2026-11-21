@@ -2468,6 +2468,43 @@ assert asyncio.run(rmgr.async_generate("team", period="month"))["ok"] is False
 _rep_hub.team = tm
 print("reports energy/team/occupancy ok")
 
+# ---------------- coop controller: reads sensors, switches the lights / heater relays on the gateway ----------------
+coop_ha = load("coop_ha")
+_coop_states = {}
+_coop_calls = []
+_coop_hass = types.SimpleNamespace(
+    states=types.SimpleNamespace(get=lambda eid: _coop_states.get(eid)),
+    services=types.SimpleNamespace(async_call=lambda d, s, data, blocking=False: _coop_calls.append((d, s, data["entity_id"]))),
+    config_entries=types.SimpleNamespace(async_update_entry=lambda e, options: setattr(e, "options", options)),
+    async_create_task=lambda c: c.close() if asyncio.iscoroutine(c) else None)
+def _cstate(eid, state, age_s=10):
+    _coop_states[eid] = types.SimpleNamespace(entity_id=eid, state=str(state), attributes={},
+                                              last_updated=types.SimpleNamespace(timestamp=lambda a=age_s: time.time() - a))
+_cstate("switch.lights", "off"); _cstate("switch.heater", "off")
+_cstate("sensor.coop_lux", 8); _cstate("sensor.coop_temp", 5)
+import importlib as _il
+_coop_entry = types.SimpleNamespace(entry_id="h", title="Green Acres", runtime_data=None, options={"coop_control": {
+    "lights": {"enabled": True, "relay": "switch.lights", "lux_entity": "sensor.coop_lux",
+               "on_lux": 15, "off_lux": 40, "start_hour": 0, "end_hour": 24},
+    "heater": {"enabled": True, "relay": "switch.heater", "temp_entity": "sensor.coop_temp",
+               "on_temp": 8, "off_temp": 12}}})
+_coop = coop_ha.CoopManager(_coop_hass, _coop_entry, None)
+# dark (8 lx ≤ 15) and cold (5 °C ≤ 8): both relays should be switched on
+asyncio.run(_coop._async_tick())
+assert ("switch", "turn_on", "switch.lights") in _coop_calls and ("switch", "turn_on", "switch.heater") in _coop_calls, _coop_calls
+assert _coop.data["lights"]["on"] is True and _coop.data["heater"]["on"] is True
+assert "dark" in _coop.data["lights"]["reason"] and "cold" in _coop.data["heater"]["reason"]
+# now bright and warm, relays currently on → both switch off
+_coop_calls.clear(); _cstate("switch.lights", "on"); _cstate("switch.heater", "on")
+_cstate("sensor.coop_lux", 80); _cstate("sensor.coop_temp", 15)
+asyncio.run(_coop._async_tick())
+assert ("switch", "turn_off", "switch.lights") in _coop_calls and ("switch", "turn_off", "switch.heater") in _coop_calls, _coop_calls
+# a stale probe (3 h old) must turn the heater off for safety even if the last reading was cold
+_coop_calls.clear(); _cstate("switch.heater", "on"); _cstate("sensor.coop_temp", 5, age_s=3 * 3600)
+asyncio.run(_coop._async_tick())
+assert ("switch", "turn_off", "switch.heater") in _coop_calls and "safety" in _coop.data["heater"]["reason"], (_coop_calls, _coop.data["heater"]["reason"])
+print("coop controller ok")
+
 # v0.99: clock-on-behalf is recorded and flagged; a self clock-in is not
 rb = tm.clock(w2["id"], "in", lat=-33.9003, lon=18.4002, by="Juan", note="forgot phone")
 assert rb["self"] is False and rb["by"] == "Juan"

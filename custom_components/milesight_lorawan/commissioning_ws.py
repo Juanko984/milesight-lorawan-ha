@@ -104,6 +104,8 @@ async def async_setup_panel(hass: HomeAssistant, version: str) -> None:
         register_team_ws(hass)
         from .alerts_ws import register as register_alerts_ws
         register_alerts_ws(hass)
+        from .coop_ha import register as register_coop_ws
+        register_coop_ws(hass)
         data["commissioning_ws"] = True
     if not data.get("commissioning_panel"):
         from homeassistant.components import panel_custom
