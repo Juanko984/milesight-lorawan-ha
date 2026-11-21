@@ -2,6 +2,12 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.157.1
+- **Fix: opening Configure on a CT clamp no longer shows a blank "Error".** The CT options form crashed while it
+  was being built — the live-voltage-source field (added in 0.155.0) referenced a helper that isn't defined in
+  that step, so the whole dialog failed before it could render. The form now opens, and the **Live voltage
+  source** picker (with the fixed-voltage box below it) is there under the CT device's Configure.
+
 ## 0.157.0
 - **Rebuilt Chicken coop page — graphs and trendlines, aligned with the other pages.** The coop dashboard now
   uses the same card family as Building analytics instead of generic entity/markdown cards:

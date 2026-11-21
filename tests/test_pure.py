@@ -1541,6 +1541,27 @@ def test_config_flow_selectors_have_no_none_options():
         args = [a.strip() for a in call.split(",")]
         assert len(args) < 3 or args[2] != "None", call
 
+def test_config_flow_local_helpers_in_scope():
+    """A method that calls the per-step `sv()` helper must define it — otherwise building that step's form raises
+    NameError and the Configure dialog shows a blank Error (regression: the CT voltage-source field)."""
+    import ast
+    tree = ast.parse((PKG / "config_flow.py").read_text())
+    LOCALS = ("sv",)                                   # helpers defined inside a step method, not at module scope
+
+    def defines(node, name):
+        return any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
+                   for n in ast.walk(node))
+
+    def calls(node, name):
+        return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name
+                   for n in ast.walk(node))
+
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for name in LOCALS:
+                if calls(fn, name):
+                    assert defines(fn, name), f"{fn.name}() calls {name}() but never defines it"
+
 def test_modbus_templates():
     # Ecowitt WS90 on channels 1–10 (UC300): the raw values the UC300 reported
     rows, errs = mtp.plan("ecowitt_ws90", None, 1)

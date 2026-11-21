@@ -1134,7 +1134,8 @@ class MilesightOptionsFlow(OptionsFlow):
             # A live voltage source (a WS558, a CTH01 phase, any voltage sensor) feeds the power / energy estimate;
             # leave it empty to use the fixed voltage below. The CT clamp only measures current, so the estimate is
             # current × voltage × power factor — a live voltage tracks the supply instead of assuming a fixed value.
-            schema[vol.Optional(CONF_VOLTAGE_SOURCE, description=sv(CONF_VOLTAGE_SOURCE))] = \
+            schema[vol.Optional(CONF_VOLTAGE_SOURCE,
+                                description={"suggested_value": opts.get(CONF_VOLTAGE_SOURCE)})] = \
                 EntitySelector(EntitySelectorConfig(domain="sensor", device_class="voltage"))
             schema[vol.Required(CONF_MAINS_VOLTAGE, default=opts.get(CONF_MAINS_VOLTAGE, 0))] = _int_box(0, 1000)
         if "co2high" in features:
