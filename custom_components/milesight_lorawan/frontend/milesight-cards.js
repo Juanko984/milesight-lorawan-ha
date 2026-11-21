@@ -5529,7 +5529,7 @@
       const S = this._hass.states, out = [];
       for (const id in S) {
         const st = S[id], a = st.attributes;
-        if (a && a.milesight_role === "air_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+        if (a && a.milesight_role === "air_monitor" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); }
       }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }

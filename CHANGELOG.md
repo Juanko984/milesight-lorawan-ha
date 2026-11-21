@@ -2,6 +2,28 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.157.0
+- **Rebuilt Chicken coop page — graphs and trendlines, aligned with the other pages.** The coop dashboard now
+  uses the same card family as Building analytics instead of generic entity/markdown cards:
+  - **Climate** — the coop's AM monitor as a chip card (temperature, humidity, CO₂, light) with a live trend for
+    whichever chip you tap, plus the EM300 temp / humidity / door sensors.
+  - **CO₂ trend** and **Light level** — one trendline per sensor, scoped to the coop, with the CO₂ limit marked.
+  - **Pop-hole door** — door open / closed discovered by the coop area (any door sensor), and **Feed & water**
+    fill gauges for coop drinkers / feeders set up as tanks.
+  - The old "Live controls" card that showed **"Area not found"** is gone: every card now finds coop devices by
+    the area *name* (or the Coop purpose), so there is no area id to hand-edit. Lights and heating are still run
+    by the two coop blueprints.
+- **Light sensors are now trendable by area.** Illuminance / light readings are tagged so a `trend: light`
+  trendline grid can show one graph per light sensor in an area (used by the coop's Light level section), and
+  CO₂ trend grids can now be scoped to a single area too.
+
+## 0.156.3
+- **Fix: an open door / wet leak now shows correctly on the Environment card.** The card could show "Closed"
+  (or "Dry") while the device page and the binary sensor showed "Open" (or "Leak"). The contact and motion state
+  was written into the device's values just after the Environment card was built, so the card read "no value yet"
+  and fell back to the resting state. The state is now seeded before any card is built, so the Environment,
+  temperature-probe and space cards all match the actual door / leak / motion sensor.
+
 ## 0.156.2
 - **DS3604 display card: live preview and a mobile-friendly layout.** The preview now updates as you type in the
   text / QR fields, instead of only refreshing when you switched template tabs or pressed Send — so the "Empty"

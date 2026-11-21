@@ -990,6 +990,12 @@ _, _mcs = make_with("00000000000eenv10", "EM300-MCS", {}, title="Store room door
 send("00000000000eenv10", bytes.fromhex("0175590367300104685e")); _mcs._tick(None)   # temp + humidity, no magnet byte
 _mcss = {s["key"]: s for s in _mcs._env_monitor(_mcs.values)["states"]}
 assert _mcss["door"]["text"] == "Closed" and _mcss["door"]["active"] is False, _mcss
+# ...but a reported OPEN door must show "Open" on the card, matching the binary sensor. The contact state is
+# seeded into the values before the role cards are built, so the env card doesn't read None and fall back to Closed.
+send("00000000000eenv10", bytes.fromhex("01755903673001046860060001"))   # magnet open (0x06 0x00 0x01)
+assert _mcs.values.get("door_active") is True and _mcs.values.get("door_status", "").startswith("Open")
+_mcso = {s["key"]: s for s in _mcs._env_monitor(_mcs.values)["states"]}
+assert _mcso["door"]["text"] == "Open" and _mcso["door"]["active"] is True, _mcso
 del entries.items[_env_from:]
 print("env monitor ok")
 

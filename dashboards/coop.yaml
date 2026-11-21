@@ -1,13 +1,12 @@
 # Milesight LoRaWAN – Chicken coop
 # Set up each coop device two ways and this page fills itself in:
 #   1. Purpose (device → Configure → Purpose): Coop drinker (water), Coop feeder (feed), Coop pop-hole / door,
-#      Coop climate (temp / CO2 / humidity). These set poultry-friendly alert defaults (frost at 2 °C, pop-hole
+#      Coop climate (temp / CO₂ / humidity). These set poultry-friendly alert defaults (frost at 2 °C, pop-hole
 #      left-open 15 min) and make this page install itself.
 #   2. Area: put those same devices (plus the EM500-LGT light sensor and the UC relay for lights / heater) in a
-#      Home Assistant area called "Chicken coop". The cards below find the devices by that area — no ids to edit.
-# Using a different area name? Change every `area: Chicken coop` below, and the `area:` on the live-controls card
-# (that one wants the area's id, e.g. my_coop). Lights and heating are automated by the two coop blueprints
-# (Settings → Automations → Blueprints → Import).
+#      Home Assistant area called "Chicken coop". Every card below finds the devices by that area NAME (not its id),
+#      so there is nothing to edit. Using a different area name? Change every `area: Chicken coop` below to match.
+# Lights and heating are automated by the two coop blueprints (Settings → Automations → Blueprints → Import).
 title: Chicken coop
 views:
   - title: Coop
@@ -22,13 +21,74 @@ views:
           - type: custom:milesight-page-header
             grid_options: {columns: full}
             title: Chicken coop
-            subtitle: Feed, water, climate, lighting and the door
+            subtitle: Climate, light, feed, water and the pop-hole door
             icon: mdi:egg
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: At a glance
+            icon: mdi:view-dashboard-outline
+          # Comfort score, temperature, humidity and CO₂ for the coop area in one row.
+          - type: custom:milesight-table-card
+            preset: comfort
+            title: false
+            area: Chicken coop
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Climate
+            icon: mdi:home-thermometer
+          # AM air monitor(s) in the coop (AM107 …): a chip for every property it measures — temperature, humidity,
+          # CO₂, light — and the trend for whichever chip you tap. Hides itself when there is no AM sensor here.
+          - type: custom:milesight-air-quality-card
+            area: Chicken coop
+            purpose: coop_climate
+            grid_options: {columns: full}
+          # EM300 temp / humidity / door / leak sensors in the coop: numeric chips drive the trend, door / leak show
+          # status. Hides itself when there are none.
+          - type: custom:milesight-environment-card
+            area: Chicken coop
+            purpose: coop_climate,coop_door
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: CO₂ trend
+            icon: mdi:molecule-co2
+          # One trendline per CO₂ sensor in the coop — flashes when CO₂ climbs over its limit.
+          - type: custom:milesight-trendline-grid-card
+            trend: air
+            area: Chicken coop
+            columns: 2
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Light level
+            icon: mdi:brightness-6
+          # One trendline per light sensor in the coop (EM500-LGT, AM light, UC analog light) — the day-length that
+          # drives the lighting blueprint. Hides itself when there is no light sensor here.
+          - type: custom:milesight-trendline-grid-card
+            trend: light
+            area: Chicken coop
+            columns: 2
+            empty:
+              icon: mdi:lightbulb-off-outline
+              title: No light sensor in the coop yet
+              hint: Add an EM500-LGT (or an AM monitor's light channel) and put it in the Chicken coop area to drive the lighting blueprint.
+            grid_options: {columns: full}
       - type: grid
         cards:
           - type: heading
             heading: Feed & water
             icon: mdi:silo
+          # Drinkers / feeders set up as a tank or silo (device → Configure → Tank or silo): a fill gauge and the
+          # days-to-empty. Both hide themselves until a level sensor in the coop is configured as a tank.
           - type: custom:milesight-level-card
             title: false
             area: Chicken coop
@@ -41,45 +101,19 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Climate
-            icon: mdi:thermometer
-          - type: custom:milesight-table-card
-            preset: comfort
-            title: false
-            area: Chicken coop
-            grid_options: {columns: full}
-      - type: grid
-        cards:
-          - type: heading
-            heading: Door & light level
+            heading: Pop-hole door
             icon: mdi:door
-          # Safe, dynamic discovery by area – degrades to a hint when nothing is found (never a config error).
+          # Door open / closed and today's open count, discovered by the coop area (works for any door sensor —
+          # EM300-MCS, WS301). A multi-sensor like the EM300-MCS also shows on the Climate card above.
           - type: markdown
             grid_options: {columns: full}
             content: |
               {% set ents = expand(area_entities('Chicken coop')) %}
               {% set doors = ents | selectattr('attributes.device_class', 'defined')
                  | selectattr('attributes.device_class', 'in', ['door', 'opening', 'window', 'garage_door']) | list %}
-              {% set lux = ents | selectattr('attributes.device_class', 'defined')
-                 | selectattr('attributes.device_class', 'eq', 'illuminance') | list %}
-              {% if not doors %}No door contact in the coop yet – add a magnet contact (EM300-MCS / WS301) and put it in the *Chicken coop* area.
-              {% else %}{% for d in doors %}{{ '🔴 **OPEN**' if d.state == 'on' else '🟢 Closed' }} · {{ d.name }}
+              {% if not doors %}No pop-hole contact in the coop yet — add a magnet contact (EM300-MCS / WS301), put it in the **Chicken coop** area or set its purpose to *Coop pop-hole*, and its status shows here.
+              {% else %}{% for d in doors %}{{ '🔴 **Open**' if d.state == 'on' else '🟢 **Closed**' }} · {{ d.name }}{% if d.last_changed %} · since {{ as_timestamp(d.last_changed) | timestamp_custom('%H:%M', true) }}{% endif %}
               {% endfor %}{% endif %}
-              {% if lux %}{% for l in lux %}
-              💡 **{{ l.name }}**: {{ l.state }} {{ l.attributes.unit_of_measurement or 'lx' }}{% endfor %}{% else %}
-
-              No light sensor yet – add an EM500-LGT to drive the lights blueprint.{% endif %}
-      - type: grid
-        cards:
-          - type: heading
-            heading: Live controls — door, lights, heater, light level
-            icon: mdi:home-lightning-bolt-outline
-          # Native area card: live badges and toggles for everything in the coop area (doors, UC relays, lux…).
-          # Wants the area id (slug). If this one card shows an error, set it to your coop area's id; the rest of
-          # the page is unaffected.
-          - type: area
-            area: chicken_coop
-            grid_options: {columns: full}
       - type: grid
         column_span: 3
         cards:

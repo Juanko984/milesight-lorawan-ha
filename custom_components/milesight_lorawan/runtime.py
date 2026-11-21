@@ -2724,6 +2724,14 @@ class DeviceRuntime:
             else:
                 v[f"set_{k}"] = val
 
+        # Door / leak / motion state must be in `v` before any role card reads it: the Environment card (and the
+        # temp-probe / space cards) look up e.g. v["door_active"], so an open door that is only written in the
+        # binary-tracker loop further down would read as None here and show the resting state ("Closed"). The full
+        # loop below still runs and adds the status text and per-feature attributes; this just seeds the values early.
+        for _feat, _tracker in self.binary.items():
+            for _k, _val in _tracker.values(ts).items():
+                v[f"{_feat}_{_k}"] = _val
+
         self._link_values(v, ts)
         last = self.meta.get("last_seen")
         offline_s, interval_s, src = self._offline_threshold_s()
@@ -2786,8 +2794,11 @@ class DeviceRuntime:
         if "co2" in v:
             v["co2_status"] = _co2_text(v["co2"])
             co2_lim = self.limits.get("co2")        # tag CO₂ for the trendline grid; expose its limit to flash on
-            self.attrs["co2"] = {**(self.attrs.get("co2") or {}), "ms_trend": "air",
+            self.attrs["co2"] = {**(self.attrs.get("co2") or {}), "ms_trend": "air", "area": self._area(),
                                  **({"ms_limit_high": co2_lim} if co2_lim else {})}
+        for _lk in ("illumination", "light_level"):  # tag light / illuminance for a trendline grid (trend: light)
+            if isinstance(v.get(_lk), (int, float)) and not isinstance(v.get(_lk), bool):
+                self.attrs[_lk] = {**(self.attrs.get(_lk) or {}), "ms_trend": "light", "area": self._area()}
         air = self._air_monitor(v)                  # AM air-quality monitor: all properties on one card + a trend
         if air is not None:
             pm = next((m for m in air["metrics"] if m["key"] == air["primary"]), None)
