@@ -48,8 +48,9 @@ def tariffs(entry: ConfigEntry) -> dict[str, float | None]:
 
 
 def currency(hass: HomeAssistant, entry: ConfigEntry) -> str:
-    return (entry.options.get(CONF_CURRENCY) or getattr(hass.config, "currency", None)
-            or DEFAULT_CURRENCY)
+    from .costs_calc import currency_symbol
+    return currency_symbol(entry.options.get(CONF_CURRENCY) or getattr(hass.config, "currency", None),
+                           DEFAULT_CURRENCY)
 
 
 def any_tariff(entry: ConfigEntry) -> bool:

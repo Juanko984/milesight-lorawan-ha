@@ -126,8 +126,13 @@ class FakeFlow:
 GW_FLOWS, OPEN_FLOWS, ABORTED = [], [], []
 entries = FakeEntries(); entries.flow = FakeFlow(entries)
 fired = []
+class _States:
+    def __init__(self): self._d = {}
+    def set(self, eid, state, attrs=None): self._d[eid] = types.SimpleNamespace(entity_id=eid, state=str(state), attributes=attrs or {})
+    def get(self, eid): return self._d.get(eid)
 hass = types.SimpleNamespace(bus=types.SimpleNamespace(async_fire=lambda e, d: fired.append((e, d))),
                              config=types.SimpleNamespace(time_zone="Africa/Johannesburg"),
+                             states=_States(),
                              config_entries=entries, data={}, async_create_task=lambda c: c.close() if asyncio.iscoroutine(c) else None)
 
 hub_entry = types.SimpleNamespace(data={"entry_type": "hub", "topic": "x/#", "payload_encoding": "base64"}, options={},
@@ -379,6 +384,19 @@ asyncio.run(th.async_set_hvac_mode("off"))
 assert PUBLISHED[-1][1]["data"] == base64.b64encode(bytes.fromhex("6700")).decode() and th.hvac_mode == "off"
 asyncio.run(th.async_set_hvac_mode("cool"))
 assert [base64.b64decode(p[1]["data"]).hex() for p in PUBLISHED[-2:]] == ["6701", "6802"] and th.hvac_mode == "cool"
+# WT304 (same wt303 command set): a cool-mode setpoint must hold across a stale report and confirm when applied.
+# The card reads cooling_target_temperature in cool mode, so the optimistic hold must track that key, not only
+# target_temperature — otherwise the next uplink (still showing the old setpoint) snaps the target back.
+rt4, ents4 = make_device("00000000000a0304", "WT304")
+th4 = next(e for e in ents4 if e.spec.platform == "climate")
+send("00000000000a0304", bytes.fromhex("6701") + bytes([0x68, 0x02, 0x6c]) + (2050).to_bytes(2, "little"))  # cool, 20.5
+assert th4.hvac_mode == "cool" and th4.native_target_temperature == 20.5
+asyncio.run(th4.async_set_temperature(temperature=21.5))
+assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "6c6608" and th4.native_target_temperature == 21.5  # 0x6c = cooling
+send("00000000000a0304", bytes.fromhex("6701") + bytes([0x68, 0x02, 0x6c]) + (2050).to_bytes(2, "little"))  # stale 20.5
+assert th4.native_target_temperature == 21.5, "cool setpoint must hold over a stale report"
+send("00000000000a0304", bytes.fromhex("6701") + bytes([0x68, 0x02, 0x6c]) + (2150).to_bytes(2, "little"))  # applied 21.5
+assert th4.native_target_temperature == 21.5 and not rt4.commands.items, "command confirmed → pending cleared"
 rt, ents = make_device("00000000000a0101", "WT101")
 th = next(e for e in ents if e.spec.platform == "climate")
 send("00000000000a0101", bytes.fromhex("01756104672C0103670A01059264099000000B900000"))
@@ -952,19 +970,42 @@ _, _ws3 = make_with("00000000000eenv05", "WS301", {}); assert not _ws3._env_appl
 # WS202 (PIR + daylight only, no numeric reading) is NOT an environment monitor – its motion / light are binary sensors
 _, _w2 = make_with("00000000000eenv06", "WS202", {}); assert not _w2._env_applies()
 assert "env_monitor" not in {sp.key for sp in _w2.extra_specs()}
+# EM500-CO2: CO₂ and pressure surface as trendable chips on the environment card (not only temp + humidity)
+_, _co2 = make_with("00000000000eenv07", "EM500-CO2", {}, title="Toilets", area="Toilets")
+send("00000000000eenv07", bytes.fromhex("01756403671901046873057D670406736827")); _co2._tick(None)
+_co2m = {m["key"]: m for m in _co2._env_monitor(_co2.values)["metrics"]}
+assert _co2m["co2"]["value"] == 1127 and _co2m["co2"]["unit"] == "ppm" and "pressure" in _co2m, _co2m
+# EM300-DI: water usage surfaces – a configured meter reading in its unit, else raw pulses
+_, _diw = make_with("00000000000eenv08", "EM300-DI",
+                    {"meter_type": "water", "meter_unit": "L", "meter_pulses_per_unit": 10}, title="Barn water", area="Barn")
+send("00000000000eenv08", bytes.fromhex("01755a03672c0104686405c864000000")); _diw._tick(None)
+_diwm = {m["key"]: m for m in _diw._env_monitor(_diw.values)["metrics"]}
+assert _diwm["meter_reading"]["label"] == "Water" and _diwm["meter_reading"]["value"] == 10.0 and _diwm["meter_reading"]["unit"] == "L", _diwm
+_, _dip = make_with("00000000000eenv09", "EM300-DI", {}, title="Yard pulses")
+send("00000000000eenv09", bytes.fromhex("01755a03672c0104686405c80a000000")); _dip._tick(None)
+_dipm = {m["key"]: m for m in _dip._env_monitor(_dip.values)["metrics"]}
+assert _dipm["pulse_count"]["label"] == "Pulses" and _dipm["pulse_count"]["value"] == 10, _dipm
+# Door / leak read the resting state (Closed / Dry) once online, even on a periodic uplink that omits the contact channel
+_, _mcs = make_with("00000000000eenv10", "EM300-MCS", {}, title="Store room door", area="Store")
+send("00000000000eenv10", bytes.fromhex("0175590367300104685e")); _mcs._tick(None)   # temp + humidity, no magnet byte
+_mcss = {s["key"]: s for s in _mcs._env_monitor(_mcs.values)["states"]}
+assert _mcss["door"]["text"] == "Closed" and _mcss["door"]["active"] is False, _mcss
 del entries.items[_env_from:]
 print("env monitor ok")
 
 # Energy monitor role sensor: CT303 three-phase (phase chips + imbalance) and CT101 single-channel
 _en_from = len(entries.items)
-_, _ct3 = make_with("00000000000eeng03", "CT303", {}, title="Main board", area="Plant room")
+_, _ct3 = make_with("00000000000eeng03", "CT303", {"mains_voltage": 230}, title="Main board", area="Plant room")
 assert _ct3._energy_applies() and "energy_monitor" in {sp.key for sp in _ct3.extra_specs()}
-for _k, _v in {"current_1": 12.4, "current_2": 11.8, "current_3": 14.1, "current_total": 38.3, "power": 8400}.items():
+for _k, _v in {"current_1": 12.4, "current_2": 11.8, "current_3": 14.1}.items():
     _ct3.raw[_k] = _v
 _ct3.meta["last_seen"] = time.time(); _ct3._publish(time.time())
 _em = _ct3.attrs["energy_monitor"]
 assert _em["three_phase"] is True and _em["primary"] == "current_1" and [m["label"] for m in _em["metrics"]] == ["L1", "L2", "L3"]
-assert _em["metrics"][2]["value"] == 14.1 and _em["summary"]["total_current"] == 38.3 and _em["summary"]["power"] == 8400
+# power is ESTIMATED from current × voltage × power-factor (default 230 V, 0.85) — not reported by the clamp;
+# and computed before the summary is built, so it's never blank (38.3 A × 230 × 0.85 = 7488 W)
+assert _em["metrics"][2]["value"] == 14.1 and _em["summary"]["total_current"] == 38.3
+assert _em["summary"]["power"] == 7488 and _em["summary"]["volts"] == 230
 assert _em["summary"]["imbalance"] == 18.0 and _em["summary"]["imbalance_status"] == "high"   # (14.1-11.8)/12.77*100
 assert _ct3.values["energy_monitor"] == 12.4
 _, _ct1 = make_with("00000000000eeng01", "CT101", {}, title="Feeder")
@@ -2079,6 +2120,18 @@ assert v["sp_mains_voltage"] == 230 and v["sp_run_threshold_a"] == 0 and v["sp_p
 e_nv, rt2 = make_with("24e124746e359612", "CT103", {}, title="No voltage")
 send("24e124746e359612", base64.b64decode("A5d1hw4ABJgtAAln//8="))
 assert rt2.values.get("energy") is None and rt2.limits["run_a"] == 0.2
+# Live voltage source: a CT reading a WS558 / CTH01 voltage sensor uses that reading (not the fixed value).
+_VS = {"sensor.ws558_voltage": "240"}
+hass.states = types.SimpleNamespace(get=lambda e: types.SimpleNamespace(entity_id=e, state=_VS[e], attributes={}) if e in _VS else None)
+e_vs, rtvs = make_with("24e124746e359613", "CT103", {"voltage_source": "sensor.ws558_voltage", "mains_voltage": 230},
+                       title="Live-volt feeder")
+send("24e124746e359613", base64.b64decode("A5d1hw4ABJgtAAln//8="))
+assert rtvs._mains_voltage() == 240 and rtvs.values["mains_volts"] == 240          # live 240 V wins over fixed 230
+assert rtvs.values["apparent_power"] == round(0.45 * 240), rtvs.values.get("apparent_power")
+_VS["sensor.ws558_voltage"] = "unavailable"                                        # source drops out → fixed fallback
+send("24e124746e359613", base64.b64decode("A5d1hw4ABJgtAAln//8="))
+assert rtvs._mains_voltage() == 230 and rtvs.values["mains_volts"] == 230
+hass.states = types.SimpleNamespace(get=lambda e: None)
 print("ct103 energy ok")
 
 # ---------------- running costs: device metering, tracker tick, sensor attributes ----------------

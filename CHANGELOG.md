@@ -2,6 +2,54 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.155.1
+- **Fix: the GS101 gas-detector card is now actually on the dashboard.** The card was added in 0.153.0 but the
+  "Gas & safety" section never made it into the dashboard source template, so it appeared on no dashboard. It is
+  now in the Building analytics dashboard, between "Fall detection & presence" and "Buttons & displays". Updating
+  regenerates that dashboard automatically; if you have hand-edited it, toggle "Update dashboard" in the gateway
+  options to pull in the new section.
+
+## 0.155.0
+- **Fix: thermostat setpoint now holds in cool mode.** On WT303 / WT304 (and WT401) the −/+ target buttons
+  appeared to do nothing in cool mode: the card reads the cooling setpoint, but the optimistic value tracked only
+  the generic target, so the next uplink — still reporting the old setpoint until the device applied the queued
+  command — snapped the number back. The pending command now mirrors the mode-specific setpoint and holds it
+  across uplinks until the device confirms the change, so the new target sticks. (The command itself was always
+  sent correctly; this is about what the card shows while the device catches up.)
+- **CT clamps can read a live voltage source.** A CT device's options now include a "Live voltage source" picker:
+  choose any voltage sensor — a WS558, a CTH01 phase, or any other — and the power / energy estimate uses that
+  live reading instead of a fixed number, tracking the real supply. Leave it empty to keep using the fixed
+  voltage you enter below it; an out-of-range reading falls back to the fixed value automatically.
+- **Currency shows the symbol, not the ISO code.** Home Assistant stores the locale currency as a code (ZAR,
+  USD, EUR …); the cards now show its symbol (R, $, €) everywhere — running costs, team wages, recipes. Unknown
+  codes and a custom symbol you type are left as-is.
+
+## 0.154.0
+- **Environment cards now surface every channel the sensor reports.** Three gaps are fixed on the Environment /
+  Air sensor cards:
+  - **EM500-CO2** now shows **CO₂** (ppm) and **barometric pressure** (hPa) chips, not just temperature and
+    humidity — and either chip drives the trend below like any other reading.
+  - **EM300-DI** now shows a **water-usage** chip: the configured meter reading in its own unit (e.g. litres or
+    m³) when a water / gas / energy meter is set up for the device, otherwise the device's own water total, and
+    failing that the raw pulse count.
+  - **EM300-MCS (door)** and **EM300-ZLD (leak)** now show their **resting state** — Closed / Dry — as soon as
+    the device is online, instead of a blank "—". These contact sensors only transmit the channel when it
+    changes, so on a plain temperature / humidity uplink the card previously had nothing to show; it now reads
+    the safe state until an open / leak event says otherwise.
+
+## 0.153.0
+- **New: a GS101 gas-detector widget.** Combustible-gas detectors (GS101) now get their own card on the
+  Building analytics dashboard, under a new "Gas & safety" section. Each detector shows a clear Safe / **Gas
+  detected** banner (with the time it started), one-tap **shut-off valve** and **relay output** controls,
+  health chips (device fault / end-of-life, and the gas sensor's remaining life in days with a warning under
+  90 days and an alert under 30), and today / this week / this month event counts. Alarming detectors sort to
+  the top; the card hides itself where no GS101 is fitted. A gas alarm is a critical **Safety** alert.
+- **Fix: CT energy-clamp cards now show est. power and energy.** On CT101/103/303 energy-monitor cards the
+  "est. power" and "energy" tiles could read "—" even with a mains voltage configured, because the estimate
+  was computed after the card's summary was built. The estimate now runs first, so power (I × V × PF) and
+  energy appear whenever a mains voltage is set, labelled with the voltage used (e.g. "est. power @ 230 V").
+  With no voltage set the cards still show measured current only, unchanged.
+
 ## 0.152.0
 - **New: a dedicated Reports page.** A reporting hub for point-in-time, archival reports (PDF / CSV) — distinct
   from the live dashboards. Pick a report type, choose the period (last week / month, or a custom range) and

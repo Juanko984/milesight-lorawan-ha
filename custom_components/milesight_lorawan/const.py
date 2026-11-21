@@ -116,6 +116,7 @@ CONF_TANK_REFILL_PCT = "tank_refill_pct"
 CONF_TANK_DROP_PCT = "tank_drop_pct"
 CONF_TANK_DROP_MIN = "tank_drop_minutes"
 CONF_MAINS_VOLTAGE = "mains_voltage"
+CONF_VOLTAGE_SOURCE = "voltage_source"       # CT clamps: a live voltage sensor (WS558 / CTH01 …) to read instead of the fixed value
 
 # Running costs: four tariffs on the gateway turn metered energy / water / fuel / feed into money
 CONF_CURRENCY = "cost_currency"              # symbol shown on the cards (defaults to HA locale, else "R")

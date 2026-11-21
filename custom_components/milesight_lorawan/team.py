@@ -51,8 +51,9 @@ class TeamManager:
         return dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.UTC
 
     def _currency(self) -> str:
+        from .costs_calc import currency_symbol
         cfg = {**(getattr(self.entry, "data", None) or {}), **(getattr(self.entry, "options", None) or {})}
-        return cfg.get(CONF_CURRENCY) or DEFAULT_CURRENCY
+        return currency_symbol(cfg.get(CONF_CURRENCY) or getattr(self.hass.config, "currency", None), DEFAULT_CURRENCY)
 
     def _month(self, months_ago: int = 0):
         """(lo, hi, now, day_of, cal_days, label) for the month `months_ago` back from the current one."""

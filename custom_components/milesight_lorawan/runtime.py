@@ -34,6 +34,7 @@ from .const import (
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
     CONF_MAINS_VOLTAGE,
+    CONF_VOLTAGE_SOURCE,
     CONF_RUN_THRESHOLD_A,
     CONF_DEVEUI,
     CONF_EMPTY_GRACE_MIN,
@@ -209,6 +210,8 @@ _ENV_NUM = (   # key, label, unit, icon, trend colour
     ("temperature_1", "Temp (probe 1)", "°C", "mdi:thermometer",   "#ff8a5c"),
     ("temperature_2", "Temp (probe 2)", "°C", "mdi:thermometer",   "#ffb07c"),
     ("humidity",      "Humidity",       "%",  "mdi:water-percent", "#4ab0c4"),
+    ("co2",           "CO₂",            "ppm", "mdi:molecule-co2", "#7e57c2"),
+    ("pressure",      "Pressure",       "hPa", "mdi:gauge",        "#7a8ca0"),
     ("light_level",   "Light",          "",   "mdi:brightness-6",  "#ffca28"),
     ("illumination",  "Light",          "lx", "mdi:brightness-6",  "#ffca28"),
 )
@@ -541,6 +544,12 @@ class DeviceRuntime:
         self.meta.update({"rssi": up.rssi, "snr": up.snr, "last_seen": ts})
         self._battery_reading(ts, decoded)
         self._check_commands(up.raw.hex() if up.raw else "", decoded, ts)
+        # Hold a still-pending thermostat setpoint / mode over a stale report: the device keeps sending the old
+        # value until it applies the queued downlink, which would otherwise snap the card back. _check_commands has
+        # already confirmed (and removed) any command the device has now acted on, so only unapplied ones remain.
+        for _name, _item in self.commands.items.items():
+            if _name.startswith("thermostat_") and _item.get("state"):
+                self.raw.update(_item["state"])
         self._update_registry()
 
         for feature, tracker in self.binary.items():
@@ -719,6 +728,8 @@ class DeviceRuntime:
             specs.append(EntitySpec("energy_monitor", "Energy", icon="mdi:flash"))
         if self._gas_applies():      # a GS odour / vape detector → a Gas & vape card
             specs.append(EntitySpec("gas_monitor", "Gas & vape", icon="mdi:scent"))
+        if self._gas_detector_applies():     # a GS101 gas-leak detector → the Gas detector (safety) card
+            specs.append(EntitySpec("gas_detector", "Gas detector", icon="mdi:gas-cylinder"))
         if self._space_applies():        # any occupancy / PIR-motion sensor → Spaces + per-device Occupancy card
             specs.append(EntitySpec("space", "Space", icon="mdi:seat"))
         if self.model.key == "VS321":    # VS321 room sensor → the AM-style Workplace card
@@ -902,6 +913,12 @@ class DeviceRuntime:
             props.add("temp")
         if {"humidity", "humidity_1"} & keys:
             props.add("humidity")
+        if "co2" in f or "co2" in keys:
+            props.add("co2")
+        if "pressure" in f or "pressure" in keys:
+            props.add("pressure")
+        if f & {"pulse", "input"} or {"meter_reading", "water"} & keys:
+            props.add("water")          # EM300-DI pulse / water meter: usage as a trendable chip
         if f & {"door", "ts_contact"}:
             props.add("door")
         if "leak" in f:
@@ -943,6 +960,22 @@ class DeviceRuntime:
             eid = resolve(key)
             metrics.append({"key": key, "label": label, "unit": unit, "icon": icon, "color": colour,
                             "value": round(val, 2), "entity_id": eid})
+        # EM300-DI pulse / water meter: show usage (configured meter reading, else device water total, else raw pulses)
+        if self.model.features & {"pulse", "input"}:
+            mt = self._meter_type()
+            if isinstance(v.get("meter_reading"), (int, float)):
+                unit = "mm" if mt == "rain" else str(self._opt(CONF_METER_UNIT, {"gas": "m³", "energy": "kWh"}.get(mt, "m³")))
+                label = {"rain": "Rain", "gas": "Gas", "energy": "Energy"}.get(mt, "Water")
+                metrics.append({"key": "meter_reading", "label": label, "unit": unit, "icon": "mdi:water",
+                                "color": "#4ab0c4", "value": round(float(v["meter_reading"]), 3),
+                                "entity_id": resolve("meter_reading")})
+            elif isinstance(v.get("water"), (int, float)):
+                metrics.append({"key": "water", "label": "Water", "unit": "m³", "icon": "mdi:water",
+                                "color": "#4ab0c4", "value": round(float(v["water"]), 3), "entity_id": resolve("water")})
+            elif isinstance(v.get("pulse_count"), (int, float)):
+                metrics.append({"key": "pulse_count", "label": "Pulses", "unit": "", "icon": "mdi:counter",
+                                "color": "#4ab0c4", "value": int(v["pulse_count"]), "entity_id": resolve("pulse_count")})
+        online = self.meta.get("last_seen") is not None
         states = []
         for feat, label, icon, on_t, off_t, tone in _ENV_BIN:
             active = since = None
@@ -957,6 +990,10 @@ class DeviceRuntime:
                 active, since = v.get(f"{feat}_active"), v.get(f"{feat}_since")
             else:
                 continue
+            # Contact sensors (door / leak) signal by exception: once the device is online, no alarm reported
+            # means the resting state (Closed / Dry), not "—". Motion stays unknown until it reports.
+            if active is None and online and feat in ("door", "leak"):
+                active = False
             on = active is True
             states.append({"key": feat, "label": label, "icon": icon, "active": active,
                            "text": on_t if on else off_t if active is False else "—",
@@ -995,12 +1032,13 @@ class DeviceRuntime:
                 mean = sum(ph) / 3
                 imb = round((max(ph) - min(ph)) / mean * 100, 0) if mean >= 2 else 0.0
             summary = {"total_current": _nz(v.get("current_total")), "power": _nz(v.get("power")),
+                       "volts": _nz(v.get("mains_volts")),
                        "imbalance": imb, "imbalance_status": "high" if (imb is not None and imb > 10) else "ok"}
         else:
             cur = _nz(v.get("current"))
             metrics.append({"key": "current", "label": "Current", "unit": "A", "color": "#4aa3ff",
                             "value": None if cur is None else round(cur, 2), "entity_id": resolve("current")})
-            summary = {"power": _nz(v.get("power")), "energy": _nz(v.get("energy"))}
+            summary = {"power": _nz(v.get("power")), "energy": _nz(v.get("energy")), "volts": _nz(v.get("mains_volts"))}
         if not any(m["value"] is not None for m in metrics):     # nothing measured yet
             return None
         primary = next((m for m in metrics if m["value"] is not None), metrics[0])
@@ -1031,6 +1069,29 @@ class DeviceRuntime:
     # ---------------------------------------------------------------- GS gas / vape
     def _gas_applies(self) -> bool:
         return bool(self.model.features & {"gs301", "gs601", "vape"})
+
+    def _gas_detector_applies(self) -> bool:
+        """A GS101 combustible-gas leak detector with a shut-off valve / relay output → the Gas detector card."""
+        return "gs101" in self.model.features
+
+    def _gas_detector(self, v: dict) -> dict | None:
+        """GS101 as one role sensor: the safety alarm (gas detected / safe), the valve and relay outputs with
+        their state and controllable switch entity ids, device / sensor-life health, and the event stats."""
+        if not self._gas_detector_applies():
+            return None
+        resolve = self._entity_id_resolver()
+        return {
+            "milesight_role": "gas_detector", "device": self.entry.title, "area": self._area(),
+            "model": self.model.key, "alarm": v.get("gas_active"), "since": v.get("gas_since"),
+            "status": v.get("gas_status"),
+            "valve_open": v.get("valve_status"), "valve_entity_id": resolve("valve_status", "switch"),
+            "relay_on": v.get("relay_output_status"), "relay_entity_id": resolve("relay_output_status", "switch"),
+            "device_fault": bool(v.get("device_fault")), "end_of_life": bool(v.get("end_of_life")),
+            "device_event": v.get("device_alarm"), "life_remain_days": _nz(v.get("life_remain_days")),
+            "events_today": v.get("gas_count_today"), "events_week": v.get("gas_count_week"),
+            "events_month": v.get("gas_count_month"), "detected_today_s": _nz(v.get("gas_today_s")),
+            "last_seen": self.meta.get("last_seen"),
+        }
 
     def _gas_monitor(self, v: dict) -> dict | None:
         """GS301 odour (NH₃ / H₂S) or GS601 vape as one role sensor: numeric chips + odour / vape status."""
@@ -2437,24 +2498,31 @@ class DeviceRuntime:
             kw["target"] = self.values.get("target_temperature") or 21
         payload = encode_wt(kind, action, value, **kw)
         await self._downlink(payload)
-        self._remember(f"thermostat_{action}", payload, None,
-                       state={"target_temperature": value} if action == "target" else None)
+        # The optimistic state mirrors exactly the keys the card reads, so it both confirms the command when the
+        # device echoes that state and (held across uplinks until then) survives a stale report that still shows the
+        # old setpoint. For target this must include the mode-specific key — in cool mode the card reads
+        # cooling_target_temperature, not target_temperature, so tracking only the latter would let the card snap back.
+        opt: dict[str, Any] = {}
         if action == "target":
             mode = kw.get("mode")
             if kind == "wt303":
-                self.raw["cooling_target_temperature" if mode == "cool" else "heating_target_temperature"] = value
-            self.raw["target_temperature"] = value
+                opt["cooling_target_temperature" if mode == "cool" else "heating_target_temperature"] = value
+            elif kind == "wt401" and mode == "cool":
+                opt["target_temperature_2"] = value
+            opt["target_temperature"] = value
         elif action == "mode":
-            self.raw["mode" if kind == "wt30x" else "temperature_control_mode"] = value
-            self.raw["climate_on"] = True
+            opt["mode" if kind == "wt30x" else "temperature_control_mode"] = value
+            opt["climate_on"] = True
             if "system_status" in self.raw:
-                self.raw["system_status"] = True
+                opt["system_status"] = True
         elif action == "power":
-            self.raw["climate_on"] = bool(value)
+            opt["climate_on"] = bool(value)
             if "system_status" in self.raw:
-                self.raw["system_status"] = bool(value)
+                opt["system_status"] = bool(value)
         elif action == "fan":
-            self.raw["fan_speed" if kind == "wt30x" else "fan_mode"] = value
+            opt["fan_speed" if kind == "wt30x" else "fan_mode"] = value
+        self._remember(f"thermostat_{action}", payload, None, state=opt or None)
+        self.raw.update(opt)
         self._publish(time.time())
 
     async def _downlink(self, payload: bytes, fport: int | None = None) -> None:
@@ -2738,6 +2806,8 @@ class DeviceRuntime:
                 active = next((s for s in env["states"] if s.get("active")), None)
                 v["env_monitor"] = active["text"] if active else "Clear"
             self.attrs["env_monitor"] = env
+        if "ct" in self.model.features:             # estimate power / energy (I×V×PF) before the card reads them
+            self._ct_values(v)
         energy = self._energy_monitor(v)            # CT clamp: phase currents + total / power / imbalance
         if energy is not None:
             pm = next((m for m in energy["metrics"] if m["key"] == energy["primary"]), None)
@@ -2748,6 +2818,10 @@ class DeviceRuntime:
             pm = next((m for m in gas["metrics"] if m["key"] == gas["primary"]), None)
             v["gas_monitor"] = pm["value"] if pm else None
             self.attrs["gas_monitor"] = gas
+        gdet = self._gas_detector(v)                 # GS101 gas-leak detector: safety status + valve / relay control
+        if gdet is not None:
+            v["gas_detector"] = "Gas detected" if gdet["alarm"] else "Safe"
+            self.attrs["gas_detector"] = gdet
         if self.occupancy is not None:              # occupancy values must be in `v` before the space / workplace cards read them
             ov = self.occupancy.values(ts)
             for k, val in ov.items():
@@ -2888,8 +2962,6 @@ class DeviceRuntime:
             # tag tank fill for the trendline grid (silo → its own grid on Farm); expose the low-level limit to flash
             self.attrs["tank_fill"] = {**(self.attrs.get("tank_fill") or {}), "ms_trend": "silo" if is_silo else "tank",
                                        **({"ms_limit_low": self.tank_cfg.low_pct} if self.tank_cfg.low_pct > 0 else {})}
-        if "ct" in self.model.features:
-            self._ct_values(v)
         if self.distance is not None:
             v.update(self.distance.values(ts))
         if self.pump is not None:
@@ -3009,14 +3081,30 @@ class DeviceRuntime:
                 for b in DS3604_BLOCKS:
                     v[f"display_t{t}_{b}"] = self.display_text(t, b)
 
+    def _mains_voltage(self) -> float:
+        """The voltage used for the CT power / energy estimate: a live reading from the chosen voltage sensor
+        (a WS558, a CTH01 phase, any voltage sensor) when set and valid, otherwise the fixed value entered."""
+        src = self._opt(CONF_VOLTAGE_SOURCE, "") or ""
+        if src:
+            try:
+                st = self.hass.states.get(src)
+                if st is not None and st.state not in (None, "", "unknown", "unavailable"):
+                    live = float(st.state)
+                    if 50 <= live <= 1000:          # ignore an implausible reading (wrong entity, sensor fault)
+                        return live
+            except (ValueError, TypeError, AttributeError):
+                pass
+        return float(self._opt(CONF_MAINS_VOLTAGE, 0) or 0)
+
     def _ct_values(self, v: dict[str, Any]) -> None:
-        volts = float(self._opt(CONF_MAINS_VOLTAGE, 0) or 0)
+        volts = self._mains_voltage()
         chans = [k for k in CT_CURRENT_KEYS if isinstance(v.get(k), (int, float))]
         if "ct3" in self.model.features:
             chans = [k for k in chans if k != "current"]
             if chans:
                 v["current_total"] = round(sum(v[k] for k in chans), 2)
         if volts > 0:
+            v["mains_volts"] = round(volts)
             pf = power_factor(dict(self.entry.options))
             for k in chans:                         # real power estimate: I × V × power factor (W); apparent: I × V
                 v[k.replace("current", "apparent_power")] = round(v[k] * volts)

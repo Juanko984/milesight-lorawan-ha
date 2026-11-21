@@ -259,7 +259,8 @@
           "auto_backfill": "Fetch stored data after an outage",
           "confirmed_downlinks": "Confirmed downlinks (network ACK)",
           "downlink_retries": "Retries for unanswered commands",
-          "display_max_bytes": "Max bytes per display downlink"
+          "display_max_bytes": "Max bytes per display downlink",
+          "voltage_source": "Live voltage source (optional)"
         },
         "data_description": {
           "dashboard": "Which ready-made dashboard this device is grouped under. Auto uses what the device is (a soil probe → Farm, a CO₂ sensor → Building analytics…). Pick a dashboard to install that one for the device and label it accordingly. Note: the device's widget still appears wherever its card is placed — this controls which dashboards are created and how the device is labelled, not where its reading is drawn.",
@@ -281,7 +282,8 @@
           "auto_backfill": "When the device comes back after a gap, ask it to resend what it stored and fill the history graphs.",
           "confirmed_downlinks": "Ask the device to acknowledge every downlink (LoRaWAN confirmed). Needs the gateway's ACK notification topic under the gateway's settings. Uses a little more airtime.",
           "downlink_retries": "Commands the device does not answer within two uplinks are sent again this many times, then marked failed. 0 = never retry.",
-          "display_max_bytes": "Text blocks are packed into downlinks of at most this size. 51 works at every EU868 data rate; raise it (up to 222) for displays close to a gateway, lower it to 11 for US915 SF10."
+          "display_max_bytes": "Text blocks are packed into downlinks of at most this size. 51 works at every EU868 data rate; raise it (up to 222) for displays close to a gateway, lower it to 11 for US915 SF10.",
+          "voltage_source": "A voltage sensor to read live (a WS558, a CTH01 phase, or any voltage sensor). When set, its reading is used for the power and energy estimate instead of the fixed value below; leave empty to use the fixed voltage. An out-of-range reading (under 50 V or over 1000 V) falls back to the fixed value."
         }
       },
       "channels": {

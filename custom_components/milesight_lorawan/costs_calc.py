@@ -14,6 +14,24 @@ from .analytics import Calendar
 
 RESOURCES = ("electricity", "water", "diesel", "feed")
 
+# Home Assistant stores the locale currency as an ISO-4217 code (ZAR, USD, EUR …); the cards want a symbol.
+# Map the common ones to their symbol and leave anything unknown as-is (a custom "R" stays "R").
+CURRENCY_SYMBOLS = {
+    "ZAR": "R", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥", "CNY": "¥", "INR": "₹",
+    "AUD": "$", "CAD": "$", "NZD": "$", "BRL": "R$", "NGN": "₦", "KES": "KSh", "GHS": "₵",
+    "CHF": "CHF", "SEK": "kr", "NOK": "kr", "DKK": "kr", "PLN": "zł", "RUB": "₽",
+    "KRW": "₩", "MXN": "$", "SGD": "$", "HKD": "$", "AED": "د.إ", "SAR": "﷼", "TRY": "₺",
+    "THB": "฿", "IDR": "Rp", "MYR": "RM", "PHP": "₱", "ILS": "₪", "BWP": "P", "NAD": "N$",
+}
+
+
+def currency_symbol(code: str | None, default: str = "R") -> str:
+    """The display symbol for a currency: map a known ISO-4217 code to its symbol, pass a symbol through."""
+    if not code:
+        return default
+    code = str(code).strip()
+    return CURRENCY_SYMBOLS.get(code.upper(), code)
+
 # base unit each meter reports in, and the tariff that prices it
 RESOURCE_UNIT = {"electricity": "kWh", "water": "kL", "diesel": "L", "feed": "t"}
 

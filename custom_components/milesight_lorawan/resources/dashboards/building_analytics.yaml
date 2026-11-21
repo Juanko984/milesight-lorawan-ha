@@ -107,6 +107,16 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Gas & safety
+            icon: mdi:gas-cylinder
+          # GS101 combustible-gas detectors: Safe / Gas-detected banner, one-tap shut-off valve and relay controls,
+          # device / sensor-life health and event counts. A gas alarm is a critical Safety alert. Hides when none.
+          - type: custom:milesight-gas-detector-card
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: Buttons & displays
             icon: mdi:gesture-tap-button
           # WS101 / WS136 / WS156 scene buttons: each button's last press and today's count. Hides when none.

@@ -2541,6 +2541,12 @@ def test_gateway_api():
 
 
 def test_running_costs():
+    # currency_symbol: HA stores an ISO-4217 code (ZAR) which we show as its symbol (R); a symbol passes through
+    assert cst.currency_symbol("ZAR") == "R" and cst.currency_symbol("zar") == "R"
+    assert cst.currency_symbol("USD") == "$" and cst.currency_symbol("EUR") == "€" and cst.currency_symbol("GBP") == "£"
+    assert cst.currency_symbol("R") == "R" and cst.currency_symbol("$") == "$"       # already a symbol
+    assert cst.currency_symbol(None) == "R" and cst.currency_symbol("") == "R"        # default
+    assert cst.currency_symbol("XYZ") == "XYZ"                                        # unknown code: leave as-is
     # r_per_unit: electricity is cents/kWh (÷100), the rest are currency per unit; blank / 0 hides the resource
     assert cst.r_per_unit("electricity", 285) == 2.85
     assert cst.r_per_unit("water", 18.5) == 18.5 and cst.r_per_unit("diesel", 23.4) == 23.4

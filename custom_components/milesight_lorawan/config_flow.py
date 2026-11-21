@@ -109,6 +109,7 @@ from .const import (
     CONF_CO2_LIMIT,
     CONF_INSTALL_HEIGHT_MM,
     CONF_MAINS_VOLTAGE,
+    CONF_VOLTAGE_SOURCE,
     CONF_RUN_THRESHOLD_A,
     CONF_DEVEUI,
     CONF_DOWNLINK_FORMAT,
@@ -900,7 +901,8 @@ class MilesightOptionsFlow(OptionsFlow):
             _schedule_dashboard(self.hass, entry, auto=True)       # tariffs may make the Energy page worth installing
             return self.async_create_entry(data=data)
         o = entry.options
-        cur = o.get(CONF_CURRENCY) or getattr(self.hass.config, "currency", None) or DEFAULT_CURRENCY
+        from .costs_calc import currency_symbol
+        cur = currency_symbol(o.get(CONF_CURRENCY) or getattr(self.hass.config, "currency", None), DEFAULT_CURRENCY)
 
         def sv(key: str, default: Any = None) -> dict:
             return {"suggested_value": o.get(key, default)}
@@ -1129,6 +1131,11 @@ class MilesightOptionsFlow(OptionsFlow):
             schema[vol.Required(CONF_RUN_THRESHOLD_A, default=run_threshold_setting(dict(entry.options)))] = \
                 NumberSelector(NumberSelectorConfig(min=0, max=5000, step=0.01, mode=NumberSelectorMode.BOX,
                                                     unit_of_measurement="A"))
+            # A live voltage source (a WS558, a CTH01 phase, any voltage sensor) feeds the power / energy estimate;
+            # leave it empty to use the fixed voltage below. The CT clamp only measures current, so the estimate is
+            # current × voltage × power factor — a live voltage tracks the supply instead of assuming a fixed value.
+            schema[vol.Optional(CONF_VOLTAGE_SOURCE, description=sv(CONF_VOLTAGE_SOURCE))] = \
+                EntitySelector(EntitySelectorConfig(domain="sensor", device_class="voltage"))
             schema[vol.Required(CONF_MAINS_VOLTAGE, default=opts.get(CONF_MAINS_VOLTAGE, 0))] = _int_box(0, 1000)
         if "co2high" in features:
             schema[vol.Required(CONF_CO2_LIMIT, default=opts.get(CONF_CO2_LIMIT, DEFAULT_CO2_LIMIT))] = \

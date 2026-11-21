@@ -5834,13 +5834,14 @@
         h("div", { class: "epv" }, _airFmt(m.value, m.unit)),
         a.three_phase ? h("div", { class: "ephbar", style: { width: Math.round((Math.abs(num(m.value) || 0) / maxA) * 100) + "%" } }) : null,
       ])));
+      const pwLabel = "est. power" + (sum.volts ? " @ " + Math.round(sum.volts) + " V" : "");
       const tiles = a.three_phase
         ? h("div", { class: "esum" }, [this._tile(sum.total_current, "A", "total current"),
-            this._tile(sum.power == null ? null : sum.power / 1000, "kW", "est. power"),
+            this._tile(sum.power == null ? null : sum.power / 1000, "kW", pwLabel),
             h("div", { class: "etile" }, [sum.imbalance == null ? h("div", { class: "ev" }, "—")
               : h("div", { class: "estat " + (sum.imbalance_status === "high" ? "warn" : "ok") }, [h("span", { class: "d" }), sum.imbalance + "%"]),
               h("div", { class: "ek" }, "imbalance")])])
-        : h("div", { class: "esum" }, [this._tile(sum.power == null ? null : sum.power / 1000, "kW", "est. power"),
+        : h("div", { class: "esum" }, [this._tile(sum.power == null ? null : sum.power / 1000, "kW", pwLabel),
             this._tile(sum.energy, "kWh", "energy")]);
       let trend;
       if (sel && sel.entity_id) {
@@ -6148,6 +6149,103 @@
       if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
       this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Gas & vape"),
         h("div", { class: "agrid" }, items.map((st) => this._block(st)))]));
+    }
+  }
+
+  // ================================================================ GS101 gas-leak detector (safety)
+  // Self-discovers the "gas_detector" role: a Safe / Gas-detected banner, the shut-off valve and relay output
+  // with one-tap control (switch.turn_on/off), device + sensor-life health, and the day/week/month event counts.
+  class GasDetectorCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }
+    _svc(service, data) { try { this._hass.callService("switch", service, data); } catch (e) { /* surfaced by HA */ } }
+    _find() {
+      const S = this._hass.states, out = [];
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "gas_detector") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      return out.sort((x, y) => (y.attributes.alarm === true) - (x.attributes.alarm === true) || String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _out(label, icon, on, note, entity, shut) {
+      const can = !!entity;
+      return h("div", { class: "octl" + (on ? " on" : "") + (shut ? " shut" : "") }, [
+        h("ha-icon", { class: "oic", icon }),
+        h("div", { class: "om" }, [h("div", { class: "onm" }, label), h("div", { class: "ost" }, note)]),
+        h("div", { class: "tog" + (on ? " on" : "") + (can ? "" : " dis"),
+          onclick: () => can && this._svc(on ? "turn_off" : "turn_on", { entity_id: entity }) }, [h("i")]),
+      ]);
+    }
+    _block(st) {
+      const a = st.attributes, alarm = a.alarm === true;
+      const life = num(a.life_remain_days), lifeTone = life == null ? "" : life <= 30 ? "bad" : life <= 90 ? "warn" : "";
+      const hhmm = (ts) => { try { return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+      const sinceTxt = alarm && a.since ? ("Since " + hhmm(a.since) + " · " + ago(a.since * 1000)) : "No gas detected";
+      const head = h("div", { class: "ghd" }, [
+        h("div", { class: "gic" + (alarm ? " bad" : "") }, [h("ha-icon", { icon: "mdi:gas-cylinder" })]),
+        h("div", { class: "ghl" }, [h("div", { class: "ghn" }, esc(a.device || "Gas detector")),
+          h("div", { class: "ghs" }, esc((a.model || "GS101") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "gdt" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const banner = h("div", { class: "gban " + (alarm ? "alarm" : "safe") }, [
+        h("ha-icon", { class: "gbi", icon: alarm ? "mdi:alert-octagon" : "mdi:check-circle" }),
+        h("div", {}, [h("div", { class: "gbt" }, alarm ? "Gas detected" : "Safe"),
+          h("div", { class: "gbs" }, esc(sinceTxt))]),
+      ]);
+      const valveShut = a.valve_open === false;
+      const controls = h("div", { class: "gctl" }, [
+        this._out("Shut-off valve", "mdi:valve", a.valve_open === true,
+          a.valve_open == null ? "—" : (a.valve_open ? "Open" : (alarm ? "Closed (safety)" : "Closed")), a.valve_entity_id, valveShut && alarm),
+        this._out("Relay output", "mdi:electric-switch", a.relay_on === true,
+          a.relay_on == null ? "—" : (a.relay_on ? "On" : "Off"), a.relay_entity_id, false),
+      ]);
+      const chips = [
+        h("div", { class: "gchip" + (a.device_fault || a.end_of_life ? " bad" : "") }, ["Device ", h("b", {}, a.end_of_life ? "End of life" : a.device_fault ? "Fault" : "OK")]),
+        life == null ? null : h("div", { class: "gchip " + lifeTone }, ["Sensor life ", h("b", {}, life + " d")]),
+      ].filter(Boolean);
+      const stats = h("div", { class: "gstats" }, [
+        ["events_today", "Events today"], ["events_week", "This week"], ["events_month", "This month"],
+      ].map(([k, lbl]) => h("div", { class: "gst" }, [h("div", { class: "v" }, a[k] == null ? "—" : String(a[k])), h("div", { class: "k" }, lbl)])));
+      return h("div", { class: "gcard" + (alarm ? " alarm" : "") }, [head, banner, controls,
+        chips.length ? h("div", { class: "gchips" }, chips) : null, stats].filter(Boolean));
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .ggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:15px;margin-top:2px}
+        .gcard{border:1px solid var(--ms-line);border-radius:15px;padding:15px 16px}
+        .gcard.alarm{border-color:color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ms-bad) 25%,transparent)}
+        .ghd{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+        .gic{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 14%,transparent);color:var(--ms-accent)}
+        .gic.bad{background:color-mix(in srgb,var(--ms-bad) 16%,transparent);color:var(--ms-bad)} .gic ha-icon{--mdc-icon-size:21px}
+        .ghl{flex:1 1 auto;min-width:0} .ghn{font-size:14.5px;font-weight:650;color:var(--ms-ink)} .ghs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .gdt{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto} .gdt i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .gban{border-radius:13px;padding:14px 16px;display:flex;align-items:center;gap:13px;margin-bottom:13px}
+        .gban.safe{background:color-mix(in srgb,var(--ms-good) 13%,transparent);border:1px solid color-mix(in srgb,var(--ms-good) 38%,var(--ms-line))}
+        .gban.alarm{background:color-mix(in srgb,var(--ms-bad) 15%,transparent);border:1px solid color-mix(in srgb,var(--ms-bad) 55%,var(--ms-line))}
+        .gban .gbi{--mdc-icon-size:30px} .gban.safe .gbi{color:var(--ms-good)} .gban.alarm .gbi{color:var(--ms-bad)}
+        .gbt{font-size:19px;font-weight:750;line-height:1.05} .gban.safe .gbt{color:var(--ms-good)} .gban.alarm .gbt{color:var(--ms-bad)}
+        .gbs{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .gctl{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px} @media(max-width:420px){.gctl{grid-template-columns:1fr}}
+        .octl{display:flex;align-items:center;gap:10px;border:1px solid var(--ms-line);border-radius:12px;padding:10px 12px}
+        .octl .oic{--mdc-icon-size:18px;color:var(--ms-ink2);flex:0 0 auto} .octl.on .oic{color:var(--ms-good)}
+        .octl .om{flex:1;min-width:0} .octl .onm{font-size:12.5px;font-weight:600;color:var(--ms-ink)} .octl .ost{font-size:11px;color:var(--ms-ink2);margin-top:1px}
+        .octl.shut{border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))} .octl.shut .ost{color:var(--ms-bad)}
+        .octl .tog{width:42px;height:24px;border-radius:999px;background:#2a333a;position:relative;flex:0 0 auto;cursor:pointer}
+        .octl .tog i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#8a97a0;transition:.15s}
+        .octl .tog.on{background:color-mix(in srgb,var(--ms-good) 60%,transparent)} .octl .tog.on i{left:20px;background:#eafff0}
+        .octl .tog.dis{opacity:.4;cursor:not-allowed}
+        .gchips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+        .gchip{border:1px solid var(--ms-line);border-radius:10px;padding:7px 10px;font-size:11.5px;color:var(--ms-ink2)} .gchip b{color:var(--ms-ink);font-weight:650}
+        .gchip.warn{border-color:color-mix(in srgb,var(--ms-warn) 45%,var(--ms-line))} .gchip.warn b{color:var(--ms-warn)}
+        .gchip.bad{border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))} .gchip.bad b{color:var(--ms-bad)}
+        .gstats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+        .gst{border:1px solid var(--ms-line);border-radius:10px;padding:9px 10px;text-align:center}
+        .gst .v{font-size:17px;font-weight:650;color:var(--ms-ink)} .gst .k{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--ms-ink2);margin-top:3px}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [h("p", { class: "title", style: { marginBottom: "6px" } }, "Gas detectors"),
+        h("div", { class: "ggrid" }, items.map((st) => this._block(st)))]));
     }
   }
 
@@ -9112,6 +9210,7 @@
         ENERGY_TAG = "milesight-energy-card",
         THERMOSTAT_TAG = "milesight-climate-card",
         GAS_TAG = "milesight-gas-card",
+        GASDET_TAG = "milesight-gas-detector-card",
         SOUND_TAG = "milesight-sound-card",
         LIGHT_TAG = "milesight-light-card",
         SPACES_TAG = "milesight-spaces-card",
@@ -9187,6 +9286,7 @@
     [ENERGY_TAG, EnergyCard, "Milesight Energy", "CT clamp: phase currents (L1/L2/L3) as chips that drive the trend, total current, estimated power and imbalance"],
     [THERMOSTAT_TAG, ThermostatCard, "Milesight Climate", "WT thermostat control: current temp, −/+ setpoint, mode and fan chips, valve opening and a temperature trend"],
     [GAS_TAG, GasCard, "Milesight Gas & Vape", "GS301 odour / GS601 vape: numeric chips drive the trend, odour / vape show status"],
+    [GASDET_TAG, GasDetectorCard, "Milesight Gas Detector", "GS101 gas-leak detector: safe / gas-detected, shut-off valve + relay control, sensor life and events"],
     [SOUND_TAG, SoundCard, "Milesight Sound", "WS302 sound level with a learned baseline and continuous water-flow / 'left running' detection"],
     [LIGHT_TAG, LightControlCard, "Milesight Lights", "WS558 / switch control: per-channel on/off toggles and all-on / all-off"],
     [SPACES_TAG, SpacesCard, "Milesight Spaces", "Occupancy / PIR-motion sensors as a list: busy / free, people count and utilisation"],
