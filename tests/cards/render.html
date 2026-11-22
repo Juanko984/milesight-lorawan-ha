@@ -354,6 +354,11 @@
    "sensor.vs373_a": { state: "fall", attributes: { milesight_role: "fall_monitor", device: "Room 12", area: "Care wing", model: "VS373", state: "fall", state_label: "Fall detected", tone: "critical", respiration: null, dwell_s: 120, occupied: true, alarms: ["fall"], last_alarm: "fall", last_alarm_at: Date.now() / 1000 - 90, last_seen: Date.now() / 1000 - 10 } },
    "sensor.vs373_b": { state: "in_bed", attributes: { milesight_role: "fall_monitor", device: "Room 8", area: "Care wing", model: "VS373", state: "in_bed", state_label: "In bed", tone: "ok", respiration: 16, respiration_status: "normal", dwell_s: 32400, occupied: true, alarms: [], last_seen: Date.now() / 1000 - 25 } },
    // UC I/O controller (digital in/out, PT100/analog chips, counters, RS485) + a UC valve controller
+   "sensor.crop_h": { state: "84", last_changed: new Date().toISOString(), attributes: { friendly_name: "Canopy height", unit_of_measurement: "cm" } },
+   "sensor.crop_growth": { state: "84", attributes: { milesight_role: "growth", kind: "crop", device: "Pivot 3 canopy", area: "Field 7", model: "EM500-UDL", last_seen: Date.now() / 1000 - 360,
+     height_cm: 84, mount_mm: 3000, distance_mm: 2160, rate_cm_day: 2.6, rate_cm_day_life: 2.2, total_cm: 78, days: 41, target_cm: 150, to_target_days: 25,
+     height_entity_id: "sensor.crop_h", reset_entity_id: "button.crop_reset" } },
+   "button.crop_reset": { state: "unknown", attributes: { friendly_name: "New crop / flock" } },
    "sensor.uc300_pt1": { state: "41.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Line temp", unit_of_measurement: "°C" } },
    "sensor.uc300_ai1": { state: "14.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Tank pressure", unit_of_measurement: "mA" } },
    "sensor.uc300_cnt1": { state: "184230", last_changed: new Date().toISOString(), attributes: { friendly_name: "Water meter" } },
@@ -608,6 +613,10 @@
    ["milesight-fall-card", {}],
    ["milesight-controller-card", {}],
    ["milesight-controller-sensors-card", {}],
+   ["milesight-growth-card", {}],
+   ["milesight-dynamic-layout", { sections: [
+     { heading: "Growth", icon: "mdi:sprout", cards: [{ type: "custom:milesight-growth-card" }] },
+     { heading: "Controller readings", icon: "mdi:developer-board", cards: [{ type: "custom:milesight-controller-sensors-card" }] } ] }],
    ["milesight-valve-card", {}],
    ["milesight-em-reading-card", {}],
    ["milesight-temp-probe-card", {}],

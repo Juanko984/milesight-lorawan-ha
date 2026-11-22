@@ -1147,6 +1147,30 @@ _, _ud = make_with("00000000000eem5ud", "EM500-UDL", {}, title="Reservoir", area
 _ur = _ud._em_reading({"distance": 710, "range_min": 0, "range_max": 2560})
 assert _ur["kind"] == "level" and _ur["fill_value"] == 1850 and _ur["headroom"] == 710 and 71 < _ur["pct"] < 73
 assert _ud._em_reading({"distance": 710})["pct"] is None                                               # no range → no %
+# Growth monitor: an EM500-UDL over a crop canopy. height = mount(3000) − distance; a daily-median height log gives
+# the growth rate, with a role entity, a height trend entity and a reset button.
+_eg, _rt_g = make_with("00000000000eem5gr", "EM500-UDL",
+                       {"purpose": "crop_growth", "install_height_mm": 3000, "growth_target_mm": 1500},
+                       title="Pivot 3 canopy", area="Field 7")
+_gspecs = {sp.key for sp in _rt_g.extra_specs()}
+assert {"growth", "growth_height", "cmd_growth_reset"} <= _gspecs, _gspecs
+_gday = _rt_g._growth_day(time.time())
+# seed four earlier daily medians (mm) so there is a history to fit a rate to
+_rt_g.meta["_growth"] = {"day": _gday, "vals": [], "log": [[_gday - 30, 100.0], [_gday - 20, 300.0],
+                                                           [_gday - 10, 560.0], [_gday - 3, 760.0]], "start": _gday - 30}
+send("00000000000eem5gr", bytes.fromhex("03827008"))        # distance 0x0870 = 2160 mm → height 840 mm = 84 cm
+_g = _rt_g.attrs.get("growth")
+assert _g is not None and _g["milesight_role"] == "growth" and _g["kind"] == "crop", _g
+assert _g["height_cm"] == 84.0 and _g["mount_mm"] == 3000 and _g["distance_mm"] == 2160, _g
+assert _g["total_cm"] == 74.0 and _g["days"] == 30, _g                         # 840−100 mm = 74 cm over 30 days
+assert _g["rate_cm_day"] is not None and _g["rate_cm_day_life"] is not None, _g
+assert _g["target_cm"] == 150.0 and isinstance(_g["to_target_days"], int), _g
+assert _rt_g.values["growth_height"] == 84.0                                   # the trend entity records the height
+# the reset button clears the history and restarts day 0 from now
+_rt_g.growth_reset()
+assert _rt_g.meta.get("_growth", {}).get("log") in (None, []), _rt_g.meta.get("_growth")
+print("growth monitor role ok")
+
 # EM500-SWL: submersible depth is the water column itself
 _, _sw = make_with("00000000000eem5sw", "EM500-SWL", {}, title="Borehole", area="Borehole 2")
 _sr = _sw._em_reading({"depth": 320, "range_min": 0, "range_max": 780})

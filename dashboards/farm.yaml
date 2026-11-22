@@ -120,3 +120,16 @@ views:
             trend: silo
             columns: 2
             grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Crop growth
+            icon: mdi:sprout-outline
+          # An EM500-UDL / EM400-MUD mounted looking down over a crop (on a pivot boom or a mast), set to the
+          # "Crop height / growth" purpose with its mount height: height = mount - distance, with the growth rate
+          # (cm/day), total growth, days since planting and an optional projection to a target height. The "New crop"
+          # button on the card resets it for the next planting. Hides itself when there is no crop-growth sensor.
+          - type: custom:milesight-growth-card
+            purpose: crop_growth
+            grid_options: {columns: full}

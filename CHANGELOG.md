@@ -2,6 +2,26 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.163.0
+- **Dynamic dashboard layout with a Packed ⇄ Rows toggle (on the coop page first).** Instead of every section
+  taking a full-width row (leaving two-thirds of a wide screen empty), the sections now flow into a space-filling
+  masonry — same-size widgets sit side by side, headings kept. A toggle in the card's top-right switches back to the
+  classic one-per-row **Rows** layout, and the choice is remembered per dashboard. Shipped on the **Coop** page as
+  the proving ground; once confirmed it rolls out to the other dashboards unchanged.
+- Added a reusable `milesight-dynamic-layout` card that wraps a page's sections and mounts the existing widgets
+  inside the masonry (no change to the widgets themselves).
+
+## 0.162.0
+- **New use case: growth monitoring with an overhead distance sensor.** Mount an EM500-UDL or EM400-MUD looking
+  down from a pivot boom / mast over a crop, or from the coop roof over a flock, set it to the new **Crop height /
+  growth** or **Flock growth** purpose and give it a mount height — the integration tracks **height = mount −
+  distance** and its **growth rate**. The new Growth card shows the current height, the recent rate (7-day fit) and
+  the lifetime average, a rising height trend, mount / distance / age / total-growth stats, and an optional
+  projection to a target height. A **"New crop / flock"** button resets it for the next cycle. Flock height is a
+  daily median, which smooths the birds moving under the sensor.
+- Added the **Growth & yield** purpose group with the two new purposes (fit for purpose), a **Crop growth** section
+  on the Farm page and a **Flock growth** section on the coop page, a height trend entity and the reset button.
+
 ## 0.161.0
 - **Fixes the coop "Controller readings" card showing "Configuration error".** The card bundle is cache-busted by
   the integration version; shipping it meant the browser needed a fresh version number to re-fetch the JS that

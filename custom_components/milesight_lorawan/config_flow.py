@@ -107,6 +107,7 @@ from .const import (
     DEFAULT_BATTERY_LOW,
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
+    CONF_GROWTH_TARGET_MM,
     CONF_INSTALL_HEIGHT_MM,
     CONF_MAINS_VOLTAGE,
     CONF_VOLTAGE_SOURCE,
@@ -1123,8 +1124,15 @@ class MilesightOptionsFlow(OptionsFlow):
         if "door" in features and opts.get("purpose") in (None, "", "none"):
             schema[vol.Required(CONF_LEFT_OPEN_MIN, default=opts.get(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN))] = \
                 _int_box(1, 1440)
-        if "em400" in features and not tank_source(model):
+        _is_growth = opts.get("purpose") in ("crop_growth", "flock_growth")
+        if ("em400" in features and not tank_source(model)) or _is_growth:
+            # the sensor's mount height above the ground: fill level for a bin (EM400), or height = mount − distance
+            # for a crop / flock growth sensor.
             schema[vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0))] = \
+                _int_box(0, 20000)
+        if _is_growth:
+            # an optional target height (mm) that drives the "reaches target in N days" projection; 0 = no target.
+            schema[vol.Optional(CONF_GROWTH_TARGET_MM, default=opts.get(CONF_GROWTH_TARGET_MM, 0))] = \
                 _int_box(0, 20000)
         if "load" in features:
             from .pump import run_threshold_setting

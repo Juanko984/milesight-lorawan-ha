@@ -23,7 +23,7 @@ dec = _load("decoders"); ana = _load("analytics"); mdl = _load("models"); lnk = 
 cms = _load("commissioning"); chm = _load("channel_map"); tnk = _load("tank"); alr = _load("alerts"); nsa = _load("ns_api")
 spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_config"); pmp = _load("pump"); pvt = _load("pivot"); irr = _load("irrigation"); prp = _load("purposes"); usg = _load("usage"); vbc = _load("vibration_calc"); wcl = _load("weather_calc"); scl = _load("soil_calc")
 cst = _load("costs_calc"); rcp = _load("recipes_calc"); jbc = _load("jobs_calc"); tmc = _load("team_calc")
-coc = _load("coop_calc")
+coc = _load("coop_calc"); grw = _load("growth_calc")
 
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
@@ -1401,6 +1401,11 @@ def test_purposes_catalogue():
     for _m in ("EM500-UDL", "EM500-SWL", "EM310-UDL", "EM410-RDL", "EM400-UDL"):
         assert {"water_tank", "fuel_tank", "silo", "flood"} <= {p.key for p in mdl.purposes_for(_m)}, _m
     assert mdl.purposes_for("EM500-PP") == []        # some sensors map to no purpose → selector falls back to the full list
+    # growth / yield: an overhead distance sensor (EM500-UDL / EM400-MUD) can be a crop-canopy or flock growth monitor
+    for _m in ("EM500-UDL", "EM400-MUD", "EM400-UDL"):
+        assert {"crop_growth", "flock_growth"} <= {p.key for p in mdl.purposes_for(_m)}, _m
+    assert prp.get("crop_growth").group == "growth" and prp.get("flock_growth").group == "growth"
+    assert "growth" in prp.GROUPS
     for k, p in prp.PURPOSES.items():
         assert p.group is None or p.group in prp.GROUPS, k
         assert set(p.defaults) <= set(prp.SETTINGS), k
@@ -1902,8 +1907,17 @@ def test_bundled_dashboard_templates_render():
             cards = [c for s in v.get("sections", []) for c in s.get("cards", [])] + v.get("cards", [])
             assert any(c["type"] == "custom:milesight-page-header" for c in cards), (dash, v.get("title"))
     # the chicken-coop page scopes our cards to the coop area, and no wide markdown tables
+    def _all_cards(sections):
+        # flatten a view's cards, descending into milesight-dynamic-layout (holds its own `sections`) and stacks
+        out = []
+        for s in sections:
+            for c in s.get("cards", []):
+                out.append(c)
+                out += _all_cards(c.get("sections", []))
+                out += [x for x in c.get("cards", [])]
+        return out
     coop = yaml.safe_load((PKG.parents[1] / "dashboards" / "coop.yaml").read_text(encoding="utf-8"))
-    coop_cards = [c for v in coop["views"] for s in v["sections"] for c in s["cards"]]
+    coop_cards = [c for v in coop["views"] for c in _all_cards(v["sections"])]
     coop_types = {c["type"] for c in coop_cards}
     assert {"custom:milesight-level-model-card", "custom:milesight-table-card", "custom:milesight-door-card",
             "custom:milesight-coop-control-card"} <= coop_types
@@ -3051,6 +3065,35 @@ def test_reports():
     assert pdf[:5] == b"%PDF-" and len(pdf) > 500
     csv = rha.to_csv(["Device", "Status"], [["AM107", "Online"], ["WS202", None]])
     assert csv.startswith(b"\xef\xbb\xbf") and b"AM107,Online" in csv and b"WS202," in csv
+
+
+def test_growth_calc():
+    # height = mount - distance, clamped at 0
+    assert grw.height_mm(3000, 2160) == 840 and grw.height_mm(2000, 2100) == 0.0
+    assert grw.height_mm(None, 2000) is None and grw.height_mm(3000, None) is None
+    # a clean +26 mm/day crop canopy over 10 days: recent and lifetime rates both ≈ +2.6 cm/day
+    samples = [[d, 100 + 26 * d] for d in range(0, 11)]     # day 0..10, 100mm + 26mm/day
+    assert grw.rate_cm_day_recent(samples, now_day=10) == 2.6
+    assert grw.rate_cm_day_life(samples) == 2.6
+    # the recent window only looks back 7 days: a growth spurt in the last week reads higher than the lifetime avg
+    slow_then_fast = [[d, 100 + 5 * d] for d in range(0, 20)] + [[d, 195 + 40 * (d - 19)] for d in range(20, 27)]
+    assert grw.rate_cm_day_recent(slow_then_fast, now_day=26) > grw.rate_cm_day_life(slow_then_fast)
+    # fewer than two distinct days → no rate (not a crash)
+    assert grw.rate_cm_day_recent([[5, 300]], now_day=5) is None and grw.rate_cm_day_life([[5, 300]]) is None
+    # daily fold keeps one row per day (running median), newest last, capped
+    log = grw.fold_day([], 1, 200.0); log = grw.fold_day(log, 1, 210.0)   # same day replaced
+    assert log == [[1, 210.0]]
+    log = grw.fold_day(log, 2, 240.0)
+    assert log == [[1, 210.0], [2, 240.0]]
+    # summary: current live reading overrides today, projection to target uses the recent rate
+    s = grw.summary(3000, samples[:-1], now_day=10, current_mm=360, start_day=0, target_mm=1500, kind="crop")
+    assert s["height_cm"] == 36.0 and s["distance_mm"] == 2640 and s["days"] == 10
+    assert s["rate_cm_day"] is not None and s["total_cm"] == 26.0      # 360mm now − 100mm first day = 260mm = 26cm
+    assert s["target_cm"] == 150.0 and isinstance(s["to_target_days"], int) and s["to_target_days"] > 0
+    # no target → no projection; flock kind carried through
+    s2 = grw.summary(2000, [[0, 80], [10, 150]], now_day=10, kind="flock")
+    assert s2["to_target_days"] is None and s2["kind"] == "flock" and s2["height_cm"] == 15.0
+    print("growth calc ok")
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ GROUPS = {
     "water": ("Milesight · Water", "mdi:water"),
     "tank": ("Milesight · Tank / silo", "mdi:storage-tank"),
     "irrigation": ("Milesight · Irrigation", "mdi:sprinkler-variant"),
+    "growth": ("Milesight · Growth & yield", "mdi:sprout"),
     "facilities": ("Milesight · Facilities", "mdi:broom"),
     "assets": ("Milesight · Assets & vehicles", "mdi:truck-fast"),
     "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
@@ -115,6 +116,10 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("bin", "Waste bin", "facilities", "level", icon="mdi:trash-can", bin_depth_mm=1000, full_pct=80),
     _p("flood", "Flood / drain level (early warning)", "water", "level", icon="mdi:home-flood", severity="critical",
        empty_distance_mm=3000, rise_cm_h=10, flood_danger_cm=50),
+    # ---- growth / yield: a downward distance sensor over a crop canopy or a flock gives height = mount - distance,
+    #      and its change over time is the growth rate. Mount height is set with the device's install height option.
+    _p("crop_growth", "Crop height / growth (overhead sensor)", "growth", "level", icon="mdi:sprout-outline"),
+    _p("flock_growth", "Flock growth (coop roof sensor)", "growth", "level", icon="mdi:bird"),
     # ---- meters
     _p("water_meter", "Water meter", "water", "pulse", meter="water"),
     _p("electricity_meter", "Electricity meter", "energy", "pulse", meter="energy"),

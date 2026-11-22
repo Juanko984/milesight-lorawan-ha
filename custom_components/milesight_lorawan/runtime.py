@@ -32,6 +32,7 @@ from .const import (
     CONF_METER_UNIT,
     CONF_CLOSE_HOUR,
     CONF_CO2_LIMIT,
+    CONF_GROWTH_TARGET_MM,
     CONF_INSTALL_HEIGHT_MM,
     CONF_MAINS_VOLTAGE,
     CONF_VOLTAGE_SOURCE,
@@ -748,6 +749,12 @@ class DeviceRuntime:
             specs.append(EntitySpec("valve_controller", "Valves", icon="mdi:pipe-valve"))
         if self._em_reading_applies():   # an EM500 single-reading sensor → the adaptive EM500 reading card
             specs.append(EntitySpec("em_reading", "Reading", icon="mdi:gauge"))
+        if self._growth_applies():       # overhead distance sensor over a crop / flock → the Growth card
+            specs.append(EntitySpec("growth", "Growth", unit="cm", icon="mdi:sprout"))
+            specs.append(EntitySpec("growth_height", "Canopy / flock height", unit="cm", state_class="measurement",
+                                    device_class="distance", icon="mdi:arrow-expand-up", precision=1))
+            specs.append(EntitySpec("cmd_growth_reset", "New crop / flock (reset growth)", platform="button",
+                                    icon="mdi:restart"))
         if self.model.key == "EM500-SMTC":   # native soil probe → the shared Soil card (trimmed to its readings)
             specs.append(EntitySpec("soil", "Soil", unit="%", icon="mdi:sprout", precision=0))
         if self._temp_probe_applies():   # a TS temperature probe → the Temperature-probe card
@@ -1388,6 +1395,50 @@ class DeviceRuntime:
             role.update(gmin=round(gmin, 2), gmax=round(gmax, 2),
                         pct=round(max(0.0, min(100.0, (value - gmin) / (gmax - gmin) * 100)), 1))
         return role
+
+    # ---------------------------------------------------------------- growth / yield (overhead distance sensor)
+    def _growth_applies(self) -> bool:
+        """A downward distance sensor set up to watch a crop canopy or a flock grow."""
+        return self._pkey in ("crop_growth", "flock_growth")
+
+    def _growth_day(self, ts: float) -> int:
+        """A local-date ordinal (increasing integer) for the daily height log."""
+        return datetime.fromtimestamp(ts, self.cal.tz).date().toordinal()
+
+    def growth_reset(self) -> None:
+        """'New crop / flock' button: clear the height history and start day 0 again from now."""
+        self.meta.pop("_growth", None)
+        self._publish(time.time())
+
+    def _growth(self, v: dict, ts: float) -> dict | None:
+        """Canopy / flock height (mount − distance) with its growth rate. Keeps a per-day median height log in meta
+        (persisted), auto-starts on the first reading, and folds in today's live median as the current point."""
+        if not self._growth_applies():
+            return None
+        from . import growth_calc as _gc
+        mount = float(self._opt(CONF_INSTALL_HEIGHT_MM, 0) or 0)
+        dist = _nz(v.get("distance"))
+        if mount <= 0 or dist is None:
+            return None
+        h = _gc.height_mm(mount, dist)
+        day = self._growth_day(ts)
+        g = self.meta.setdefault("_growth", {"day": day, "vals": [], "log": [], "start": day})
+        if day != g["day"]:                                    # a new day began → finalise yesterday's median
+            if g["vals"]:
+                g["log"] = _gc.fold_day(g["log"], g["day"], _gc._median(g["vals"]))
+            g["day"], g["vals"] = day, []
+        g["vals"].append(h)
+        cur = _gc._median(g["vals"])
+        target = float(self._opt(CONF_GROWTH_TARGET_MM, 0) or 0) or None
+        s = _gc.summary(mount, g["log"], day, current_mm=cur, start_day=g["start"], target_mm=target,
+                        kind="flock" if self._pkey == "flock_growth" else "crop")
+        v["growth_height"] = s["height_cm"]
+        _resolve = self._entity_id_resolver()
+        s.update(milesight_role="growth", device=self.entry.title, area=self._area(), purpose=self._pkey,
+                 model=self.model.key, height_entity_id=_resolve("growth_height"),
+                 reset_entity_id=_resolve("cmd_growth_reset", "button"),
+                 battery=_nz(v.get("battery")), last_seen=self.meta.get("last_seen"))
+        return s
 
     def _em_soil(self, v: dict) -> dict | None:
         """EM500-SMTC native soil probe (moisture / temperature / EC) on the shared Soil card. Only the three readings
@@ -2865,6 +2916,10 @@ class DeviceRuntime:
         if em_soil is not None:
             v["soil"] = em_soil["moisture"]
             self.attrs["soil"] = em_soil
+        growth = self._growth(v, ts)                # overhead distance sensor over a crop / flock → the Growth card
+        if growth is not None:
+            v["growth"] = growth["height_cm"]
+            self.attrs["growth"] = growth
         probe = self._temp_probe(v)                 # TS temperature / contact probe → the Temperature-probe card
         if probe is not None:
             v["temp_probe"] = probe["probes"][0]["value"] if probe["probes"] else None

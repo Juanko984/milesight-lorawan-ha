@@ -52,6 +52,8 @@ class MilesightCommandButton(MilesightEntity, ButtonEntity):
                 self.runtime.load_serviced(command.removesuffix("serviced"))
             elif command in ("cleaned", "panic_clear", "service_clear"):
                 self.runtime.purpose_clear(command.removesuffix("_clear"))
+            elif command == "growth_reset":
+                self.runtime.growth_reset()
             elif command == "fetch_history":
                 await self.runtime.async_fetch_history()
             elif command.startswith("display_"):

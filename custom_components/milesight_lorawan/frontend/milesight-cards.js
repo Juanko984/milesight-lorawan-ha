@@ -5765,6 +5765,133 @@
     }
   }
 
+  // ================================================================ growth monitor (overhead distance → height)
+  // Self-discovers the "growth" role (an EM500-UDL / EM400-MUD over a crop canopy or a flock). One card per device:
+  // the current height (mount − distance), the recent + lifetime growth rate, a rising height trend, mount / distance
+  // / age / total-growth stats, an optional projection to a target, and a "New crop / flock" reset.
+  class GrowthCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = (this._hass && this._hass.states) || {}, out = [];
+      for (const id in S) {
+        const st = S[id], a = st.attributes;
+        if (a && a.milesight_role === "growth" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); }
+      }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); if (st.attributes.height_entity_id) ids.push(st.attributes.height_entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _reset(a) {
+      if (!this._hass || !a.reset_entity_id) return;
+      if (!confirm("Start a new " + (a.kind === "flock" ? "flock" : "crop") + "? This clears the growth history and restarts the age at day 0.")) return;
+      this._hass.callService("button", "press", { entity_id: a.reset_entity_id });
+    }
+    _fmt(v, u) { return (v == null) ? "—" : [String(v), u ? h("small", {}, " " + u) : null]; }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, flock = a.kind === "flock";
+      const rate = a.rate_cm_day, up = rate != null && rate >= 0;
+      const head = h("div", { class: "ghd" }, [
+        h("div", { class: "gic" + (flock ? " flock" : " crop") }, [h("ha-icon", { icon: flock ? "mdi:bird" : "mdi:sprout-outline" })]),
+        h("div", { class: "ghl" }, [h("div", { class: "ghn" }, esc(a.device || "Growth")),
+          h("div", { class: "ghs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        a.reset_entity_id ? h("button", { class: "grst", title: "New crop / flock", onclick: () => this._reset(a) },
+          [h("ha-icon", { icon: "mdi:restart" })]) : null,
+        h("span", { class: "gdot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      const big = h("div", { class: "gbig" }, [
+        h("div", {}, [h("div", { class: "glab" }, flock ? "Flock height (daily median)" : "Canopy height"),
+          h("div", { class: "gvrow" }, [h("span", { class: "gv" }, a.height_cm == null ? "—" : String(a.height_cm)),
+            h("span", { class: "gu" }, "cm")])]),
+        rate == null ? null : h("span", { class: "grate" + (up ? "" : " dn") },
+          [h("span", { class: "gar" }, up ? "▲" : "▼"), " " + (up ? "+" : "") + rate + " cm/day"]),
+      ]);
+      let trend;
+      if (a.height_entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        if (el.__cfgSig !== a.height_entity_id) {
+          el.setConfig({ entity: a.height_entity_id, name: flock ? "Flock height" : "Canopy height", sub: a.model,
+            unit: "cm", color: flock ? "#f0a65c" : "#8bd450", max: a.target_cm != null ? a.target_cm : undefined });
+          el.__cfgSig = a.height_entity_id;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "gtrend" }, [el]);
+      } else { trend = null; }
+      const stats = h("div", { class: "gstats" }, [
+        h("div", { class: "gst" }, [h("div", { class: "gsl" }, "Mount"), h("div", { class: "gsv" }, this._fmt(a.mount_mm == null ? null : (a.mount_mm / 1000).toFixed(2), "m"))]),
+        h("div", { class: "gst" }, [h("div", { class: "gsl" }, "Distance"), h("div", { class: "gsv" }, this._fmt(a.distance_mm == null ? null : Math.round(a.distance_mm / 10), "cm"))]),
+        h("div", { class: "gst" }, [h("div", { class: "gsl" }, flock ? "Age" : "Days"), h("div", { class: "gsv" }, this._fmt(a.days, "d"))]),
+        h("div", { class: "gst" }, [h("div", { class: "gsl" }, "Total growth"), h("div", { class: "gsv" }, this._fmt(a.total_cm == null ? null : (a.total_cm >= 0 ? "+" : "") + a.total_cm, "cm"))]),
+      ]);
+      const foot = [];
+      if (a.rate_cm_day_life != null) foot.push(h("span", { class: "gfoot" }, [h("b", {}, (a.rate_cm_day_life >= 0 ? "+" : "") + a.rate_cm_day_life + " cm/day"), " lifetime average"]));
+      if (a.to_target_days != null && a.target_cm != null) foot.push(h("span", { class: "gfoot" }, [h("span", { class: "gpill" + (flock ? " flock" : "") }, (a.target_cm) + " cm target"), " reaches it in about ", h("b", {}, a.to_target_days + " days")]));
+      return h("div", { class: "gblock" }, [head, big, trend, stats, foot.length ? h("div", { class: "gfr" }, foot) : null]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .ggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .gblock{border:1px solid var(--ms-line);border-radius:16px;padding:15px 16px}
+        .ghd{display:flex;align-items:center;gap:11px}
+        .gic{flex:0 0 auto;width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center}
+        .gic.crop{background:color-mix(in srgb,#8bd450 20%,transparent);color:#8bd450}
+        .gic.flock{background:color-mix(in srgb,#f0a65c 20%,transparent);color:#f0a65c}
+        .gic ha-icon{--mdc-icon-size:20px}
+        .ghl{flex:1 1 auto;min-width:0} .ghn{font-size:14.5px;font-weight:650;line-height:1.1}
+        .ghs{font-size:11.5px;color:var(--ms-ink2);margin-top:2px}
+        .grst{flex:0 0 auto;background:none;border:1px solid var(--ms-line);border-radius:9px;color:var(--ms-ink2);cursor:pointer;width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+        .grst:hover{color:var(--ms-ink);border-color:color-mix(in srgb,var(--ms-ink) 30%,transparent)}
+        .grst ha-icon{--mdc-icon-size:16px}
+        .gdot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .gdot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .gbig{display:flex;align-items:flex-end;gap:12px;margin:14px 0 2px}
+        .glab{font-size:11.5px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+        .gvrow{display:flex;align-items:baseline;gap:7px}
+        .gv{font-size:38px;font-weight:760;letter-spacing:-.01em;line-height:1;font-variant-numeric:tabular-nums}
+        .gu{font-size:15px;color:var(--ms-ink2);font-weight:600}
+        .grate{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-size:13.5px;font-weight:720;color:var(--ms-good);background:color-mix(in srgb,var(--ms-good) 15%,transparent);border-radius:999px;padding:5px 11px}
+        .grate.dn{color:var(--ms-warn);background:color-mix(in srgb,var(--ms-warn) 15%,transparent)}
+        .grate .gar{font-size:11px}
+        .gtrend{margin-top:10px}
+        .gstats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--ms-line)}
+        .gsl{font-size:10.5px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em}
+        .gsv{font-size:16px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+        .gsv small{font-size:10.5px;color:var(--ms-ink2);font-weight:600}
+        .gfr{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+        .gfoot{font-size:12px;color:var(--ms-ink2)} .gfoot b{color:var(--ms-ink);font-weight:680}
+        .gpill{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 7px;background:color-mix(in srgb,#8bd450 16%,transparent);color:#8bd450}
+        .gpill.flock{background:color-mix(in srgb,#f0a65c 16%,transparent);color:#f0a65c}
+      `;
+      const items = this._find();
+      if (!items.length) {
+        if (this._cfg.area || this._cfg.purpose) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+        this._card(emptyState(emptyOpts(this._cfg.empty || { icon: "mdi:sprout", title: "No growth sensor yet",
+          hint: "Set an EM500-UDL / EM400-MUD over a crop or flock to the Crop / Flock growth purpose and give it a mount height." }, "mdi:sprout")));
+        return;
+      }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [
+        this._cfg.title !== false ? h("p", { class: "title", style: { marginBottom: "6px" } }, esc(this._cfg.title || "Growth monitor")) : null,
+        h("div", { class: "ggrid" }, items.map((st) => this._block(st))),
+      ]));
+    }
+  }
+
   // ================================================================ environment monitor (EM300-TH/MCS/SLD, TS, WS202/203…)
   // Self-discovers the "env_monitor" role sensors. One card per device: numeric properties (temperature, humidity,
   // battery, light) as chips that drive the trend when clicked — the existing trendline card, re-pointed — plus
@@ -9537,6 +9664,111 @@
     }
   }
 
+  // ================================================================ dynamic layout (packed ⇄ rows, with a toggle)
+  // Wraps a page's sections (each a heading + its cards) and flows the heading+widget blocks into a responsive
+  // masonry so equal-size widgets fill the width instead of each section taking a full-width row. A built-in toggle
+  // switches between "Packed" (masonry) and "Rows" (single column, the classic layout); the choice persists per
+  // dashboard in localStorage. Child cards are real HA cards, mounted via loadCardHelpers (with a fallback for our
+  // own custom elements), created once and kept across toggles so their state and history survive.
+  class DynamicLayoutCard extends HTMLElement {
+    constructor() { super(); this.attachShadow({ mode: "open" }); this._helpers = null; this._built = false; this._blocks = []; }
+    setConfig(cfg) {
+      this._cfg = cfg || {};
+      this._sections = (this._cfg.sections || []).filter((s) => s && (s.cards || s.card));
+      this._min = Math.max(220, this._cfg.min_width || 380);
+      let saved = null; try { saved = localStorage.getItem(this._key()); } catch (e) { /* private */ }
+      this._mode = saved || this._cfg.default || "packed";
+      this._built = false; this._blocks = [];
+      this._ensureAndBuild();
+    }
+    _key() { return "msLayoutMode:" + (this._cfg.id || (this._sections || []).map((s) => s.heading || "").join("|").slice(0, 120)); }
+    async _ensureAndBuild() {
+      if (this._building) return; this._building = true;
+      if (!this._helpers && window.loadCardHelpers) { try { this._helpers = await window.loadCardHelpers(); } catch (e) { /* ignore */ } }
+      this._building = false;
+      this._build();
+    }
+    _mk(cardCfg) {
+      let el = null;
+      try { if (this._helpers && this._helpers.createCardElement) el = this._helpers.createCardElement(cardCfg); } catch (e) { el = null; }
+      if (!el) {                                            // fallback: our own custom elements don't need the helpers
+        const t = (cardCfg && cardCfg.type) || "";
+        if (t.indexOf("custom:") === 0 && customElements.get(t.slice(7))) {
+          el = document.createElement(t.slice(7));
+          try { el.setConfig(cardCfg); } catch (e) { /* card validates later */ }
+        } else {
+          el = document.createElement("div"); el.className = "dl-missing"; el.textContent = "";
+        }
+      }
+      if (this._hass) { try { el.hass = this._hass; } catch (e) { /* not ready */ } }
+      return el;
+    }
+    _build() {
+      // create each block's child card elements once (cached); rebuild only when the config changed
+      this._blocks = this._sections.map((s) => {
+        const cards = s.cards ? s.cards : (s.card ? [s.card] : []);
+        return { heading: s.heading, icon: s.icon, els: cards.map((c) => this._mk(c)) };
+      });
+      this._built = true;
+      this._render();
+    }
+    set hass(hass) {
+      this._hass = hass;
+      for (const b of this._blocks) for (const el of b.els) { try { el.hass = hass; } catch (e) { /* not ready */ } }
+      if (!this._built) this._ensureAndBuild();
+    }
+    _setMode(m) {
+      this._mode = m; try { localStorage.setItem(this._key(), m); } catch (e) { /* private */ }
+      this._render();
+    }
+    _render() {
+      const packed = this._mode !== "rows";
+      const style = document.createElement("style");
+      style.textContent = `
+        :host{display:block}
+        .bar{display:flex;align-items:center;justify-content:flex-end;margin:0 0 12px}
+        .seg{display:inline-flex;background:var(--ms-card,var(--card-background-color,#15181e));border:1px solid var(--ms-line,var(--divider-color,#262b34));border-radius:10px;padding:3px;gap:2px}
+        .seg button{border:0;background:none;color:var(--ms-ink2,var(--secondary-text-color,#9aa3b2));font:600 12.5px system-ui;padding:6px 13px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+        .seg button.on{background:color-mix(in srgb,var(--ms-accent,var(--primary-color,#4aa3ff)) 22%,transparent);color:var(--ms-ink,var(--primary-text-color,#e7eaef))}
+        .seg ha-icon{--mdc-icon-size:16px}
+        .board.packed{column-width:${this._min}px;column-gap:16px}
+        .board.packed .block{break-inside:avoid;margin:0 0 16px}
+        .board.rows{display:flex;flex-direction:column;gap:16px}
+        .board.rows .block{width:100%}
+        .hdr{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;margin:0 0 9px;color:var(--ms-ink,var(--primary-text-color,#e7eaef))}
+        .hdr ha-icon{--mdc-icon-size:19px;color:var(--ms-ink2,var(--secondary-text-color,#9aa3b2))}
+        .block > *:not(.hdr){display:block;margin-bottom:10px}
+      `;
+      const bar = document.createElement("div"); bar.className = "bar";
+      const seg = document.createElement("div"); seg.className = "seg";
+      for (const [m, label, icon] of [["packed", "Packed", "mdi:view-grid-outline"], ["rows", "Rows", "mdi:view-agenda-outline"]]) {
+        const b = document.createElement("button");
+        b.className = (m === this._mode) ? "on" : "";
+        const ic = document.createElement("ha-icon"); ic.setAttribute("icon", icon);
+        b.appendChild(ic); b.appendChild(document.createTextNode(label));
+        b.addEventListener("click", () => this._setMode(m));
+        seg.appendChild(b);
+      }
+      bar.appendChild(seg);
+      const board = document.createElement("div"); board.className = "board " + (packed ? "packed" : "rows");
+      for (const blk of this._blocks) {
+        const wrap = document.createElement("div"); wrap.className = "block";
+        if (blk.heading) {
+          const hd = document.createElement("div"); hd.className = "hdr";
+          if (blk.icon) { const ic = document.createElement("ha-icon"); ic.setAttribute("icon", blk.icon); hd.appendChild(ic); }
+          hd.appendChild(document.createTextNode(blk.heading));
+          wrap.appendChild(hd);
+        }
+        for (const el of blk.els) wrap.appendChild(el);
+        board.appendChild(wrap);
+      }
+      const kids = this._cfg.show_toggle === false ? [style, board] : [style, bar, board];
+      this.shadowRoot.replaceChildren(...kids);
+    }
+    getCardSize() { return 12; }
+    getGridOptions() { return { columns: "full", rows: "auto" }; }
+  }
+
   // ---------------------------------------------------------------- register
   const GW_TAG = "milesight-gateway-card", DEV_TAG = "milesight-device-card",
         MINI_TAG = "milesight-trend-card", TLINE_TAG = "milesight-trendline-card",
@@ -9586,6 +9818,8 @@
         UCSENSOR_TAG = "milesight-controller-sensors-card",
         VALVE_TAG = "milesight-valve-card",
         EMREAD_TAG = "milesight-em-reading-card",
+        GROWTH_TAG = "milesight-growth-card",
+        LAYOUT_TAG = "milesight-dynamic-layout",
         TEMPPROBE_TAG = "milesight-temp-probe-card",
         SCENE_TAG = "milesight-scene-card",
         DISPLAY_TAG = "milesight-display-card",
@@ -9665,6 +9899,8 @@
     [UCSENSOR_TAG, UCSensorCard, "Milesight Controller Readings", "UC300 / UC50x readings (no RS485): every PT100 / analog input and counter as a chip that drives the trend, with a digital I/O state strip"],
     [VALVE_TAG, ValveCard, "Milesight Valves", "UC valve controller: solenoid open / close with an open-for timer, motorised % opening dial and pipe pressure"],
     [EMREAD_TAG, EmReadingCard, "Milesight EM500 Reading", "EM500 single-reading sensor: light / pressure / temperature as a gauge, UDL / SWL level as a filled shaft, each with a trend"],
+    [GROWTH_TAG, GrowthCard, "Milesight Growth", "Overhead EM500-UDL / EM400-MUD over a crop or flock: height (mount − distance), recent + lifetime growth rate, a height trend and a target projection"],
+    [LAYOUT_TAG, DynamicLayoutCard, "Milesight Dynamic Layout", "Flows a page's sections (heading + widget) into a space-filling masonry with a Packed ⇄ Rows toggle that persists per dashboard"],
     [TEMPPROBE_TAG, TempProbeCard, "Milesight Temperature Probe", "TS probe: temperature with alarm badge + threshold trend, humidity / door chips, dual probe for TS302, cold-chain tilt / light"],
     [SCENE_TAG, SceneCard, "Milesight Scene Buttons", "WS101 / WS136 / WS156 buttons: each button's last press (type + when) and today's count"],
     [DISPLAY_TAG, DisplayCard, "Milesight Display", "DS3604 e-ink composer: template 1/2 tabs, editable text + QR blocks, a live preview and Send / Refresh / Beep"],
