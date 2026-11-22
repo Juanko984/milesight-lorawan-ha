@@ -89,21 +89,16 @@ views:
         column_span: 3
         cards:
           - type: heading
-            heading: Coop sensors
-            icon: mdi:chart-multiple
-          # Every reading in the coop on one grid — temperature, humidity, CO₂, light, tank levels, and a UC300's
-          # PT100 / analog channels — one trendline each. `trend: "*"` matches any entity the integration tagged for
-          # trending, kept to the coop by the area OR any coop purpose. This is the catch-all; the sections above are
-          # the focused views.
-          - type: custom:milesight-trendline-grid-card
-            trend: "*"
+            heading: Controller readings
+            icon: mdi:developer-board
+          # A UC300 / UC50x in the coop, like the air-quality card: every PT100 temperature and 4-20 mA / 0-10 V
+          # analog input (and any pulse counter) is a chip — tap one and the trendline below switches to it. Its
+          # digital inputs and relay outputs show as a live on/off strip. RS485 / Modbus channels are not shown here
+          # (they have their own named entities). Found by the coop area OR a coop purpose; hides itself when there
+          # is no controller in the coop.
+          - type: custom:milesight-controller-sensors-card
             area: Chicken coop
-            purpose: coop_drinker,coop_feeder,coop_door,coop_climate,coop_light,coop_controller
-            columns: 3
-            empty:
-              icon: mdi:chart-line
-              title: No coop sensors reporting yet
-              hint: Put your coop devices (climate, light, tank, UC300) in the Chicken coop area or give them a Coop purpose, and every reading shows here.
+            purpose: coop_controller
             grid_options: {columns: full}
       - type: grid
         cards:

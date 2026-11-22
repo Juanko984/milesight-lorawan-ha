@@ -648,11 +648,7 @@
     static getStubConfig() { return { trend: "cold_chain" }; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     setConfig(cfg) { this._cfg = cfg || {}; this._subs = {}; this._lastSig = null; this._render(); }
-    _match() {
-      if (this._cfg.match) return this._cfg.match;
-      if (this._cfg.trend === "*" || this._cfg.all_trends) return { has: "ms_trend" };  // every tagged reading in scope
-      return this._cfg.trend ? { attr: "ms_trend", eq: this._cfg.trend } : null;
-    }
+    _match() { return this._cfg.match || (this._cfg.trend ? { attr: "ms_trend", eq: this._cfg.trend } : null); }
     _discover() {
       const S = (this._hass && this._hass.states) || {}, m = this._match(), out = [];
       if (!m) return out;
@@ -5639,6 +5635,136 @@
     }
   }
 
+  // ================================================================ UC controller sensors (AM-style, no RS485)
+  // Self-discovers the "controller" role (UC300 / UC50x / UC11xx). One card per device, modelled on the air-quality
+  // card: every analog reading (PT100 temperatures, 4-20 mA / 0-10 V inputs) and pulse counter is a chip; tap one and
+  // the trendline below switches to it. Digital inputs / relay outputs show as a live state strip. RS485 / Modbus
+  // channels are deliberately left out — they have their own named entities and the Controller card.
+  class UCSensorCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _find() {
+      const S = (this._hass && this._hass.states) || {}, out = [];
+      for (const id in S) {
+        const st = S[id], a = st.attributes;
+        if (a && a.milesight_role === "controller" && scopeMatch(this._cfg || {}, a)) {
+          if (!st.entity_id) st.entity_id = id; out.push(st);
+        }
+      }
+      return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
+    }
+    // the trendable properties: analog metrics (PT100 / mA / V) + pulse counters, each with a resolvable entity
+    _props(a) {
+      const metrics = (a.metrics || []).map((m) => ({ ...m, kind: "metric" }));
+      const counters = (a.counters || []).map((c) => ({
+        ...c, kind: "counter", unit: c.unit || "", icon: c.icon || "mdi:counter", color: c.color || "#56d4dd" }));
+      return metrics.concat(counters).filter((p) => p.entity_id);
+    }
+    _watch() {
+      if (!this._hass) return null;
+      const ids = [];
+      for (const st of this._find()) { ids.push(st.entity_id); for (const p of this._props(st.attributes)) ids.push(p.entity_id); }
+      return ids;
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._subs) for (const k in this._subs) this._subs[k].hass = hass;    // keep the embedded trend live
+      const sig = this._sig();
+      if (sig !== null && sig === this._lastSig) return;
+      this._lastSig = sig; this._render();
+    }
+    _selKey(roleId, props, primary) {
+      let s = (this._sel && this._sel[roleId]) || null;
+      if (!s) { try { s = localStorage.getItem("msUcMetric:" + roleId); } catch (e) { /* private */ } }
+      if (s && props.some((p) => p.key === s)) return s;
+      const prim = props.find((p) => p.key === primary) || props[0];
+      return prim ? prim.key : null;
+    }
+    _pick(roleId, key) {
+      this._sel = this._sel || {}; this._sel[roleId] = key;
+      try { localStorage.setItem("msUcMetric:" + roleId, key); } catch (e) { /* private */ }
+      this._render();
+    }
+    _block(st) {
+      const a = st.attributes, roleId = st.entity_id, props = this._props(a);
+      const head = h("div", { class: "uhd" }, [
+        h("div", { class: "uic" }, [h("ha-icon", { icon: "mdi:developer-board" })]),
+        h("div", { class: "uhl" }, [h("div", { class: "uhn" }, esc(a.device || "Controller")),
+          h("div", { class: "uhs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
+        h("span", { class: "udot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+      ]);
+      // digital inputs / relay outputs as a compact live state strip (not trended)
+      const io = (a.inputs || []).concat(a.outputs || []);
+      const strip = io.length ? h("div", { class: "uio" }, io.map((c) => h("div", { class: "uiopill" + (c.on ? " on" : "") }, [
+        h("i", {}), esc(c.label || c.name || c.key)]))) : null;
+      if (!props.length) {
+        return h("div", { class: "ublock" }, [head, strip,
+          h("div", { class: "umuted" }, "No analog readings or counters on this controller yet.")]);
+      }
+      const selKey = this._selKey(roleId, props, a.primary);
+      const sel = props.find((p) => p.key === selKey) || props[0];
+      const chips = h("div", { class: "uchips" }, props.map((p) => h("div", {
+        class: "uchip" + (p.key === selKey ? " sel" : ""), onclick: () => this._pick(roleId, p.key),
+      }, [
+        h("div", { class: "uchl" }, [h("ha-icon", { class: "uci", icon: p.icon || "mdi:sine-wave" }), esc(p.label || p.name || p.key)]),
+        h("div", { class: "uchv" }, _airFmt(p.value, p.unit)),
+      ])));
+      let trend;
+      if (sel && sel.entity_id) {
+        this._subs = this._subs || {};
+        let el = this._subs[roleId];
+        if (!el) { el = h("milesight-trendline-card"); this._subs[roleId] = el; }
+        if (el.__cfgSig !== sel.entity_id) {
+          el.setConfig({ entity: sel.entity_id, name: sel.label || sel.name, sub: a.model, unit: sel.unit, color: sel.color });
+          el.__cfgSig = sel.entity_id;
+        }
+        if (this._hass) el.hass = this._hass;
+        trend = h("div", { class: "utrend" }, [el]);
+      } else {
+        trend = h("div", { class: "utrend umuted" }, "History for this reading isn't available yet.");
+      }
+      return h("div", { class: "ublock" }, [head, strip, chips, trend]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .ugrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-top:2px}
+        .ublock{border:1px solid var(--ms-line);border-radius:14px;padding:14px 15px}
+        .uhd{display:flex;align-items:center;gap:11px}
+        .uic{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ms-accent) 15%,transparent);color:var(--ms-accent)}
+        .uic ha-icon{--mdc-icon-size:19px}
+        .uhl{flex:1 1 auto;min-width:0} .uhn{font-size:14.5px;font-weight:650;color:var(--ms-ink);line-height:1.1}
+        .uhs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
+        .udot{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+        .udot i{width:7px;height:7px;border-radius:50%;background:var(--ms-good);display:inline-block}
+        .uio{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 2px}
+        .uiopill{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:999px;padding:3px 9px}
+        .uiopill i{width:7px;height:7px;border-radius:50%;background:var(--ms-ink2);display:inline-block}
+        .uiopill.on{color:var(--ms-ink);border-color:color-mix(in srgb,var(--ms-good) 55%,var(--ms-line))}
+        .uiopill.on i{background:var(--ms-good)}
+        .uchips{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;margin:13px 0 2px}
+        .uchip{border:1px solid var(--ms-line);border-radius:11px;padding:8px 10px;cursor:pointer;transition:.12s}
+        .uchip:hover{border-color:color-mix(in srgb,var(--ms-ink) 25%,transparent)}
+        .uchip.sel{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);box-shadow:inset 0 0 0 1px var(--ms-accent)}
+        .uchl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ms-ink2);min-width:0}
+        .uchl .uci{--mdc-icon-size:14px;flex:0 0 auto;color:var(--ms-ink2)}
+        .uchv{font-size:18px;font-weight:720;color:var(--ms-ink);margin-top:5px;line-height:1;font-variant-numeric:tabular-nums}
+        .uchv small{font-size:10.5px;color:var(--ms-ink2);font-weight:600}
+        .umuted{font-size:12px;color:var(--ms-ink2);padding:14px 2px}
+        .utrend{margin-top:10px;padding-top:4px;border-top:1px solid var(--ms-line)}
+        .utrend milesight-trendline-card{display:block}
+      `;
+      const items = this._find();
+      if (!items.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+      this.style.display = "";
+      if (this._subs) { const live = new Set(items.map((s) => s.entity_id)); for (const k in this._subs) if (!live.has(k)) delete this._subs[k]; }
+      this._card(h("div", { class: "wrap" }, [
+        this._cfg.title !== false ? h("p", { class: "title", style: { marginBottom: "6px" } }, esc(this._cfg.title || "Controller readings")) : null,
+        h("div", { class: "ugrid" }, items.map((st) => this._block(st))),
+      ]));
+    }
+  }
+
   // ================================================================ environment monitor (EM300-TH/MCS/SLD, TS, WS202/203…)
   // Self-discovers the "env_monitor" role sensors. One card per device: numeric properties (temperature, humidity,
   // battery, light) as chips that drive the trend when clicked — the existing trendline card, re-pointed — plus
@@ -9457,6 +9583,7 @@
         WORKPLACE_TAG = "milesight-workplace-card",
         OCCUPANCY_TAG = "milesight-occupancy-card",
         CONTROLLER_TAG = "milesight-controller-card",
+        UCSENSOR_TAG = "milesight-controller-sensors-card",
         VALVE_TAG = "milesight-valve-card",
         EMREAD_TAG = "milesight-em-reading-card",
         TEMPPROBE_TAG = "milesight-temp-probe-card",
@@ -9535,6 +9662,7 @@
     [WORKPLACE_TAG, WorkplaceCard, "Milesight Room", "VS321 room sensor: occupancy headline, seat regions and temp / humidity / light chips that drive the trend"],
     [OCCUPANCY_TAG, OccupancyCard, "Milesight Occupancy", "VS desk / room / bathroom occupancy: a utilisation ring with live in-use / free time and sessions today"],
     [CONTROLLER_TAG, ControllerCard, "Milesight Controller", "UC I/O controller: digital inputs, relay-output toggles, PT100 / analog chips that drive a trend, counters and RS485"],
+    [UCSENSOR_TAG, UCSensorCard, "Milesight Controller Readings", "UC300 / UC50x readings (no RS485): every PT100 / analog input and counter as a chip that drives the trend, with a digital I/O state strip"],
     [VALVE_TAG, ValveCard, "Milesight Valves", "UC valve controller: solenoid open / close with an open-for timer, motorised % opening dial and pipe pressure"],
     [EMREAD_TAG, EmReadingCard, "Milesight EM500 Reading", "EM500 single-reading sensor: light / pressure / temperature as a gauge, UDL / SWL level as a filled shaft, each with a trend"],
     [TEMPPROBE_TAG, TempProbeCard, "Milesight Temperature Probe", "TS probe: temperature with alarm badge + threshold trend, humidity / door chips, dual probe for TS302, cold-chain tilt / light"],

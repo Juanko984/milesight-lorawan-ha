@@ -805,18 +805,19 @@ s = sensor.MilesightSensor(rt, specs["modbus_chn_1"])
 assert s.native_value == 12.34 and s._attr_native_unit_of_measurement == "bar" and s._attr_unique_id.endswith("_modbus_chn_1")
 print("channel map ok")
 
-# A UC300 in the coop area: its PT100 channel is tagged for trending (ms_trend) and scoped to the coop area +
-# purpose, so the "Coop sensors" all-trend grid (trend: "*") can discover it alongside the climate sensors.
+# A UC300's controller role: the Controller-sensors card trends the analog metrics (PT100) and counters, so those
+# must carry a resolvable entity_id; RS485 channels are kept out of `metrics` (they live in `rs485`).
 _e_ucc, _rt_ucc = make_with("00000000000e03c0", "UC300", {"purpose": "coop_controller"},
                             title="Coop controller", area="Chicken coop")
 send("00000000000e03c0", bytes.fromhex("030001070101096735000b02e8030000ff1900040200fa00ff1501"))
 _ctrl = _rt_ucc._controller(_rt_ucc.values)
 assert _ctrl is not None and any(m["key"] == "pt100_1" for m in _ctrl["metrics"]), _ctrl
-_pt = _rt_ucc.attrs.get("pt100_1")
-assert _pt is not None, "pt100_1 channel not tagged"
-assert _pt["ms_trend"] == "temperature", _pt
-assert _pt["area"] == "Chicken coop" and _pt["purpose"] == "coop_controller", _pt
-print("uc300 coop channel trend tag ok")
+for _m in _ctrl["metrics"]:
+    assert "entity_id" in _m, _m          # every analog metric is trendable
+for _c in _ctrl["counters"]:
+    assert "entity_id" in _c, _c          # counters are trendable too
+assert not any(m["key"].startswith("modbus_chn") for m in _ctrl["metrics"]), _ctrl  # no RS485 in the metric chips
+print("uc300 controller sensors card data ok")
 
 # WitMotion WTVB01-485 vibration role sensor on a UC100 (ISO 10816 verdict from the Modbus channel values)
 _, rtv = make_with("00000000000e9001", "UC100", {"channel_templates": [

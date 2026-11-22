@@ -3,16 +3,12 @@
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
 ## 0.160.0
-- **New "Coop sensors" section — every coop reading on one grid.** A catch-all trendline grid on the coop page
-  shows a trendline for *every* sensor in the coop at once: temperature, humidity, CO₂, light, tank levels and a
-  **UC300's PT100 / analog channels** included. The focused CO₂ and Light sections above it stay as they were;
-  this is the one place to see the lot.
-- **UC300 channels now trend on the coop page.** PT100 temperatures and 4-20 mA / 0-10 V analog inputs on a
-  controller assigned to the coop are tagged for trending and scoped to the coop area/purpose, so they appear as
-  their own tiles — not just inside a rule's live status.
-- **Trendline grids gain an all-reading mode** (`trend: "*"`): a grid can now match any entity the integration
-  tagged for trending within its area/purpose scope, instead of a single trend type. Temperature, humidity and
-  tank entities now also carry area/purpose so they can be scoped this way.
+- **New UC300 / UC50x "Controller readings" widget**, modelled on the air-quality card: every PT100 temperature
+  and 4-20 mA / 0-10 V analog input (and any pulse counter) is a chip — tap one and the trendline below switches
+  to it. The controller's digital inputs and relay outputs show as a live on/off state strip above the chips.
+  RS485 / Modbus channels are intentionally left out (they keep their own named entities and the Controller card).
+  Added to the coop page in place of the earlier per-property list, so a UC300 in the coop shows its PT100 and
+  analog readings in one tidy widget instead of duplicating properties the device cards already show.
 
 ## 0.159.0
 - **Coop controls are now a rules engine — fans, flaps, foggers and more, not just lights & heater.** Each rule

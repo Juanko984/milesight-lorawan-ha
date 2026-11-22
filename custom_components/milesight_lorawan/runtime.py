@@ -1285,7 +1285,7 @@ class DeviceRuntime:
                 n = key.rsplit("_", 1)[-1]
                 generic = "Pulses" if not n.isdigit() else f"Counter {n}"
                 counters.append({"key": key, "label": self._uc_label(key, generic), "name": generic,
-                                 "value": int(_nz(v.get(key)))})
+                                 "value": int(_nz(v.get(key))), "entity_id": resolve(key)})
         if not (inputs or outputs or metrics or counters):
             return None
         primary = next((m for m in metrics if m.get("entity_id")), metrics[0] if metrics else None)
@@ -2800,17 +2800,6 @@ class DeviceRuntime:
             if isinstance(v.get(_lk), (int, float)) and not isinstance(v.get(_lk), bool):
                 self.attrs[_lk] = {**(self.attrs.get(_lk) or {}), "ms_trend": "light", "area": self._area(),
                                    "purpose": self._pkey}
-        # tag temperature / humidity so an "all sensors" trend grid (trend: "*") can find them, scoped by area +
-        # purpose. Temperature may already carry ms_trend (cold_chain / temperature) from the alarm-band block — keep it.
-        for _tk in ("temperature", "temperature_1"):
-            if isinstance(v.get(_tk), (int, float)) and not isinstance(v.get(_tk), bool):
-                self.attrs[_tk] = {**(self.attrs.get(_tk) or {}),
-                                   "ms_trend": (self.attrs.get(_tk) or {}).get("ms_trend", "temperature"),
-                                   "area": self._area(), "purpose": self._pkey}
-        for _hk in ("humidity", "humidity_1"):
-            if isinstance(v.get(_hk), (int, float)) and not isinstance(v.get(_hk), bool):
-                self.attrs[_hk] = {**(self.attrs.get(_hk) or {}), "ms_trend": "humidity",
-                                   "area": self._area(), "purpose": self._pkey}
         air = self._air_monitor(v)                  # AM air-quality monitor: all properties on one card + a trend
         if air is not None:
             pm = next((m for m in air["metrics"] if m["key"] == air["primary"]), None)
@@ -2924,15 +2913,6 @@ class DeviceRuntime:
             self.attrs["controller"] = ctrl
             for ch in ctrl["inputs"] + ctrl["outputs"] + ctrl["metrics"] + ctrl["counters"]:
                 v[f"label_{ch['key']}"] = self._uc_label(ch["key"], "")
-            # make the UC analog channels (PT100 temps, 4-20 mA / 0-10 V inputs) discoverable on an "all sensors"
-            # trend grid (trend: "*"), scoped by the controller's area + purpose, so a UC300 assigned to the coop
-            # shows its PT100 / analog readings alongside the climate sensors.
-            for _m in ctrl["metrics"]:
-                _mk = _m["key"]
-                _mt = "temperature" if _mk.startswith("pt100") else "analog"
-                self.attrs[_mk] = {**(self.attrs.get(_mk) or {}), "ms_trend": _mt,
-                                   "area": self._area(), "purpose": self._pkey,
-                                   "ms_label": _m.get("label"), "unit": _m.get("unit")}
         valves = self._valve_controller(v)          # UC valve controller → the Valve card
         if valves is not None:
             v["valve_controller"] = sum(1 for vv in valves["valves"] if vv.get("open"))
@@ -2993,7 +2973,6 @@ class DeviceRuntime:
                                               "window_min": self.tank_cfg.drop_minutes}
             # tag tank fill for the trendline grid (silo → its own grid on Farm); expose the low-level limit to flash
             self.attrs["tank_fill"] = {**(self.attrs.get("tank_fill") or {}), "ms_trend": "silo" if is_silo else "tank",
-                                       "area": self._area(), "purpose": self._pkey,
                                        **({"ms_limit_low": self.tank_cfg.low_pct} if self.tank_cfg.low_pct > 0 else {})}
         if self.distance is not None:
             v.update(self.distance.values(ts))
