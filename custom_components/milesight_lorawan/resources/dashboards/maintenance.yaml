@@ -4,147 +4,134 @@
 # No entity ids to edit: everything comes from the gateway's sensors.
 title: Maintenance
 views:
-  - title: Overview
-    path: maintenance
-    icon: mdi:wrench-clock
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
+- title: Overview
+  path: maintenance
+  icon: mdi:wrench-clock
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-onboarding
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Maintenance
+      subtitle: Device health, signal and firmware across your fleet
+      icon: mdi:wrench-clock
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-dynamic-layout
+      id: maintenance-maintenance
+      default: packed
+      grid_options:
+        columns: full
+      sections:
+      - heading: Fleet health
+        icon: mdi:heart-pulse
         cards:
-          # First-run setup checklist – hides itself once the gateway, devices, data and purposes are in place.
-          - type: custom:milesight-onboarding
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Maintenance
-            subtitle: Device health, signal and firmware across your fleet
-            icon: mdi:wrench-clock
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-fleet-band
+      - cards:
+        - type: custom:milesight-vibration-card
+      - heading: Batteries
+        icon: mdi:battery-clock
         cards:
-          - type: heading
-            heading: Fleet health
-            icon: mdi:heart-pulse
-          # Self-discovering fleet tiles: online, batteries due, offline, weak signal, firmware.
-          - type: custom:milesight-fleet-band
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-table-card
+          preset: batteries_due
+          title: false
+      - heading: Offline more than 24 h or never heard
+        icon: mdi:access-point-network-off
         cards:
-          # Condition monitoring for WitMotion WTVB01-485 sensors on UC controllers (ISO 10816 velocity).
-          # The card has its own title and hides itself (no heading) when there are no vibration sensors.
-          - type: custom:milesight-vibration-card
-            grid_options: {columns: full}
-      - type: grid
+        - type: custom:milesight-table-card
+          preset: offline
+          title: false
+      - heading: Firmware
+        icon: mdi:chip
         cards:
-          - type: heading
-            heading: Batteries
-            icon: mdi:battery-clock
-          # Only batteries that need attention (low or due within 90 days); the full list is on the Devices tab.
-          - type: custom:milesight-table-card
-            preset: batteries_due
-            title: false
-            grid_options: {columns: full}
-      - type: grid
+        - type: custom:milesight-table-card
+          preset: firmware
+          title: false
+      - heading: Service history
+        icon: mdi:history
         cards:
-          - type: heading
-            heading: Offline more than 24 h or never heard
-            icon: mdi:access-point-network-off
-          - type: custom:milesight-table-card
-            preset: offline
-            title: false
-            grid_options: {columns: full}
-      - type: grid
+        - type: custom:milesight-table-card
+          preset: service
+          title: false
+- title: Devices
+  path: devices
+  icon: mdi:format-list-bulleted
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Devices
+      subtitle: Every device on the fleet, with signal, battery and firmware
+      icon: mdi:format-list-bulleted
+  - type: grid
+    column_span: 3
+    cards:
+    - type: heading
+      heading: All devices
+      icon: mdi:access-point-network
+    - type: custom:milesight-table-card
+      preset: devices
+      title: false
+      grid_options:
+        columns: full
+- title: Signal
+  path: signal
+  icon: mdi:signal
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Signal
+      subtitle: Gateways and the devices with a weak or lossy link
+      icon: mdi:signal
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-dynamic-layout
+      id: maintenance-signal
+      default: packed
+      grid_options:
+        columns: full
+      sections:
+      - heading: Gateways
+        icon: mdi:router-wireless
         cards:
-          - type: heading
-            heading: Firmware
-            icon: mdi:chip
-          - type: custom:milesight-table-card
-            preset: firmware
-            title: false
-            grid_options: {columns: full}
-      - type: grid
+        - type: custom:milesight-table-card
+          preset: gateways
+          title: false
+      - heading: Weak or lossy devices
+        icon: mdi:signal-cellular-1
         cards:
-          - type: heading
-            heading: Service history
-            icon: mdi:history
-          - type: custom:milesight-table-card
-            preset: service
-            title: false
-            grid_options: {columns: full}
-  - title: Devices
-    path: devices
-    icon: mdi:format-list-bulleted
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
-        cards:
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Devices
-            subtitle: Every device on the fleet, with signal, battery and firmware
-            icon: mdi:format-list-bulleted
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: All devices
-            icon: mdi:access-point-network
-          # A sortable table that faintly tints a row red when a device is offline and amber when its battery is
-          # low, and emphasises any cell past its threshold (weak RSSI/SNR, high spreading factor, packet loss).
-          - type: custom:milesight-table-card
-            preset: devices
-            title: false
-            grid_options: {columns: full}
-  - title: Signal
-    path: signal
-    icon: mdi:signal
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
-        cards:
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Signal
-            subtitle: Gateways and the devices with a weak or lossy link
-            icon: mdi:signal
-      - type: grid
-        cards:
-          - type: heading
-            heading: Gateways
-            icon: mdi:router-wireless
-          - type: custom:milesight-table-card
-            preset: gateways
-            title: false
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 2
-        cards:
-          - type: heading
-            heading: Weak or lossy devices
-            icon: mdi:signal-cellular-1
-          - type: custom:milesight-table-card
-            preset: weak
-            title: false
-            grid_options: {columns: full}
-          - type: markdown
-            grid_options: {columns: full}
-            content: |
-              <small>Move the device or gateway, add an antenna or a second gateway. Run a walk test from *Commissioning*. Link margin = SNR above what the spreading factor needs.</small>
-  # Per-device page: opened when you click a device in the tables above (a sub-view, so it has a back button and
-  # no tab of its own). The panel reads ?device=<id> from the URL and lays itself out by the device's type.
-  - title: Device
-    path: device
-    subview: true
-    type: sections
-    max_columns: 2
-    sections:
-      - type: grid
-        column_span: 2
-        cards:
-          - type: custom:milesight-device-panel
+        - type: custom:milesight-table-card
+          preset: weak
+          title: false
+        - type: markdown
+          content: '<small>Move the device or gateway, add an antenna or a second gateway. Run a walk test from *Commissioning*. Link margin = SNR above what the spreading factor needs.</small>
+
+            '
+- title: Device
+  path: device
+  subview: true
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    column_span: 2
+    cards:
+    - type: custom:milesight-device-panel

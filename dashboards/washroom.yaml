@@ -5,62 +5,47 @@
 # VS330 (occupancy), GS601 (vape), an AM sensor (CO2) and WS302 (noise) to each washroom and set their area.
 title: Washrooms
 views:
-  - title: Washrooms
-    path: washrooms
-    icon: mdi:human-male-female
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
+- title: Washrooms
+  path: washrooms
+  icon: mdi:human-male-female
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Washrooms
+      subtitle: Cleanliness, supplies, traffic and air across every restroom
+      icon: mdi:human-male-female
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-dynamic-layout
+      id: washroom-washrooms
+      default: packed
+      grid_options:
+        columns: full
+      sections:
+      - heading: At a glance
+        icon: mdi:view-dashboard-outline
         cards:
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Washrooms
-            subtitle: Cleanliness, supplies, traffic and air across every restroom
-            icon: mdi:human-male-female
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-washroom-band
+      - heading: Washrooms
+        icon: mdi:human-male-female
         cards:
-          - type: heading
-            heading: At a glance
-            icon: mdi:view-dashboard-outline
-          - type: custom:milesight-washroom-band
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-washroom-card
+      - heading: Supplies
+        icon: mdi:paper-roll
         cards:
-          - type: heading
-            heading: Washrooms
-            icon: mdi:human-male-female
-          - type: custom:milesight-washroom-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-supplies-card
+      - heading: Odour & vape
+        icon: mdi:scent
         cards:
-          - type: heading
-            heading: Supplies
-            icon: mdi:paper-roll
-          # WS201 consumables dispensers (tissue / soap / paper towels): a roll filled to what's left, % remaining,
-          # low / out badge, days-to-empty and last refill. Hides itself when there are no WS201s.
-          - type: custom:milesight-supplies-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-gas-card
+      - heading: Sound & water flow
+        icon: mdi:volume-high
         cards:
-          - type: heading
-            heading: Odour & vape
-            icon: mdi:scent
-          # GS301 odour (NH₃ / H₂S) and GS601 vape detectors: numeric chips drive the trend, odour/vape show status.
-          - type: custom:milesight-gas-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Sound & water flow
-            icon: mdi:volume-high
-          # WS302 sound sensors: a learned quiet baseline + continuous-flow detection raises a "water left running"
-          # alert when the level stays up past the set time. Hides itself when there are no WS302s.
-          - type: custom:milesight-sound-card
-            grid_options: {columns: full}
+        - type: custom:milesight-sound-card

@@ -38,12 +38,13 @@ views:
             sections:
               - heading: At a glance
                 icon: mdi:view-dashboard-outline
-                # Comfort score, temperature, humidity and CO₂ for the coop area in one row.
+                # One KPI tile per coop reading — comfort, temperature (+ today's min/max), humidity, CO₂, ammonia
+                # (NH₃), light, water & feed level, flock growth and the pop-hole — coloured against its safe range.
+                # Each tile hides when its sensor isn't set up.
                 cards:
-                  - type: custom:milesight-table-card
-                    preset: comfort
-                    title: false
+                  - type: custom:milesight-insights-card
                     area: Chicken coop
+                    purpose: coop_climate,coop_door,coop_drinker,coop_feeder,coop_light,flock_growth
               - heading: Climate
                 icon: mdi:home-thermometer
                 # AM air monitor(s) in the coop (AM107 …): a chip per property (temp / humidity / CO₂ / light) that

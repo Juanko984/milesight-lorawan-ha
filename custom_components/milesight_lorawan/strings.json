@@ -161,6 +161,7 @@
           "general": "Device settings",
           "channels": "Channels (Modbus / analog)",
           "tank": "Tank or silo",
+          "growth": "Growth monitor (mount height)",
           "irrigation": "Irrigation and frost (weather forecast)",
           "pump": "Pump (current clamp)",
           "pivot": "Centre pivot (GPS tracker)",
@@ -302,6 +303,18 @@
         },
         "data_description": {
           "tank_contents": "Water, fuel and other liquids show on the Water dashboard; grain or feed silos show on the Farm dashboard."
+        }
+      },
+      "growth": {
+        "title": "Growth monitor",
+        "description": "This sensor looks straight down from a fixed point over a {kind}. It measures the distance to the top, and the integration turns that into height = mount − distance, then tracks the growth rate (cm/day), total growth and age.\n\nMeasure the mount height once (ground to the sensor face). Age counts from the first reading; the ‘New crop / flock’ button on the card resets it for the next cycle.",
+        "data": {
+          "install_height_mm": "Mount height above the ground (mm)",
+          "growth_target_mm": "Target height (mm)"
+        },
+        "data_description": {
+          "install_height_mm": "Ground (or floor) to the sensor face, in mm. Height is this minus the measured distance. Required.",
+          "growth_target_mm": "Optional. A target height that drives the ‘reaches target in N days’ projection on the card. 0 = no target."
         }
       },
       "tank_size": {

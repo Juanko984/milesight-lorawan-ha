@@ -25,6 +25,34 @@ spt = _load("setpoints"); mtp = _load("modbus_templates"); mcf = _load("modbus_c
 cst = _load("costs_calc"); rcp = _load("recipes_calc"); jbc = _load("jobs_calc"); tmc = _load("team_calc")
 coc = _load("coop_calc"); grw = _load("growth_calc")
 
+
+def _dash_blocks(view):
+    """(heading, cards) for every block of a dashboard view, descending into a milesight-dynamic-layout wrapper.
+    A native heading section yields (its heading, its non-heading cards); the wrapper yields each of its blocks."""
+    out = []
+    for sec in view.get("sections", []) or []:
+        cards = sec.get("cards", []) or []
+        wrap = next((c for c in cards if c.get("type") == "custom:milesight-dynamic-layout"), None)
+        if wrap:
+            for b in wrap.get("sections", []) or []:
+                out.append((b.get("heading"), b.get("cards", []) or []))
+        else:
+            head = next((c.get("heading") for c in cards if c.get("type") == "heading"), None)
+            out.append((head, [c for c in cards if c.get("type") != "heading"]))
+    return out
+
+
+def _dcards(view):
+    """Every card in a dashboard view, descending into the dynamic-layout wrapper and into stacks."""
+    out = []
+    def add(cards):
+        for c in cards:
+            out.append(c)
+            add(c.get("cards", []) or [])
+    for _head, cards in _dash_blocks(view):
+        add(cards)
+    return out
+
 TZ = ZoneInfo("Africa/Johannesburg")
 CAL = ana.Calendar(TZ)
 def T(s): return datetime.fromisoformat(s).replace(tzinfo=TZ).timestamp()
@@ -767,7 +795,7 @@ def test_compute_washroom():
 def test_washroom_dashboard_and_tags():
     import yaml as _yaml
     w = _yaml.safe_load((PKG.parents[1] / "dashboards" / "washroom.yaml").read_text(encoding="utf-8"))
-    types = {c["type"] for v in w["views"] for s in v["sections"] for c in s["cards"]}
+    types = {c["type"] for v in w["views"] for c in _dcards(v)}
     assert {"custom:milesight-washroom-band", "custom:milesight-washroom-card", "custom:milesight-page-header"} <= types
     # washroom devices (odour / supplies / occupancy / vape) and the toilet purpose tag the site "washroom"
     assert "washroom" in mdl.device_tags("GS301") and "washroom" in mdl.device_tags("WS201")
@@ -781,7 +809,7 @@ def test_washroom_dashboard_and_tags():
 def test_retail_dashboard_structure():
     import yaml as _yaml
     r = _yaml.safe_load((PKG.parents[1] / "dashboards" / "retail.yaml").read_text(encoding="utf-8"))
-    cards = [c for v in r["views"] for s in v["sections"] for c in s["cards"]]
+    cards = [c for v in r["views"] for c in _dcards(v)]
     types = {c["type"] for c in cards}
     assert {"custom:milesight-retail-band", "custom:milesight-footfall-card", "custom:milesight-zones-card"} <= types
     # it reuses the cold-chain, power and air cards, so a store sees one page for everything
@@ -901,7 +929,7 @@ def test_level_models_contents_and_card():
     # the level-model card is on the Water dashboard and the contents have UI labels
     import yaml
     wd = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
-    types = {c["type"] for v in wd["views"] for s in v["sections"] for c in s["cards"]}
+    types = {c["type"] for v in wd["views"] for c in _dcards(v)}
     assert "custom:milesight-level-model-card" in types
     import json
     # the tank_contents select has UI labels for dam and waste
@@ -1573,6 +1601,22 @@ def test_config_flow_local_helpers_in_scope():
                 if calls(fn, name):
                     assert defines(fn, name), f"{fn.name}() calls {name}() but never defines it"
 
+def test_growth_settings_step_wired():
+    """A new feature must bring its settings: the growth monitor has a dedicated options step, offered in the menu
+    when the purpose is crop/flock growth, with translated labels in both strings files."""
+    src = (PKG / "config_flow.py").read_text(encoding="utf-8")
+    assert "async def async_step_growth" in src                      # the dedicated step exists
+    assert '(["growth"] if entry.options.get("purpose") in ("crop_growth", "flock_growth")' in src  # menu offers it
+    assert "CONF_GROWTH_TARGET_MM" in src and "CONF_INSTALL_HEIGHT_MM" in src
+    for fn in ("strings.json", "translations/en.json"):
+        data = json.loads((PKG / fn).read_text(encoding="utf-8"))
+        opt = data["options"]["step"]
+        assert opt["init"]["menu_options"]["growth"], fn            # menu label
+        g = opt["growth"]                                            # the step's own strings
+        assert "install_height_mm" in g["data"] and "growth_target_mm" in g["data"], fn
+        assert "install_height_mm" in g["data_description"] and "growth_target_mm" in g["data_description"], fn
+
+
 def test_modbus_templates():
     # Ecowitt WS90 on channels 1–10 (UC300): the raw values the UC300 reported
     rows, errs = mtp.plan("ecowitt_ws90", None, 1)
@@ -1702,7 +1746,7 @@ def test_vibration_iso10816_and_purpose():
     # the vibration card is on the Maintenance dashboard
     import yaml
     mnt = yaml.safe_load((PKG.parents[1] / "dashboards" / "maintenance.yaml").read_text(encoding="utf-8"))
-    types = {c["type"] for v in mnt["views"] for s in v["sections"] for c in s["cards"]}
+    types = {c["type"] for v in mnt["views"] for c in _dcards(v)}
     assert "custom:milesight-vibration-card" in types
 
 
@@ -1722,7 +1766,7 @@ def test_weather_helpers_and_purpose():
     assert '{"comfort", "people", "weather"}' in res
     import yaml
     ba = yaml.safe_load((PKG.parents[1] / "dashboards" / "building_analytics.yaml").read_text(encoding="utf-8"))
-    types = {c["type"] for v in ba["views"] for s in v["sections"] for c in s["cards"]}
+    types = {c["type"] for v in ba["views"] for c in _dcards(v)}
     assert "custom:milesight-weather-card" in types
 
 
@@ -1742,8 +1786,8 @@ def test_soil_thresholds_and_purposes():
     import yaml
     farm = yaml.safe_load((PKG.parents[1] / "dashboards" / "farm.yaml").read_text(encoding="utf-8"))
     water = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
-    ft = {c["type"] for v in farm["views"] for s in v["sections"] for c in s["cards"]}
-    wt = {c["type"] for v in water["views"] for s in v["sections"] for c in s["cards"]}
+    ft = {c["type"] for v in farm["views"] for c in _dcards(v)}
+    wt = {c["type"] for v in water["views"] for c in _dcards(v)}
     assert "custom:milesight-soil-card" in ft and "custom:milesight-liquid-level-card" in wt
 
 
@@ -1845,18 +1889,18 @@ def test_bundled_dashboard_templates_render():
     for f in ("building_analytics", "tanks_and_alerts", "farm"):
         cfg = yaml.safe_load((PKG.parents[1] / "dashboards" / f"{f}.yaml").read_text(encoding="utf-8"))
         for view in cfg["views"]:
-            for sec in view["sections"]:
-                for card in sec["cards"]:
-                    if card["type"] == "markdown":
+            for head, cards in _dash_blocks(view):
+                for card in cards:
+                    if card.get("type") == "markdown":
                         text = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0)
                         assert "|---|" not in text, (f, text)          # no wide tables any more
-                        out[f"{f}:{sec['cards'][0]['heading']}"] = text
+                        out[f"{f}:{head}"] = text
     # Occupancy stays a per-hour heatmap, irrigation stays a status card
     assert "**Lab** · 🧑 2 · 40 % today" in out["building_analytics:Occupancy today"]
     assert "Irrigate about 40 min" in out["farm:Irrigation and frost"]
     # open alerts moved to the dedicated Alerts page — the Water dashboard no longer carries the alerts card
     ta = yaml.safe_load((PKG.parents[1] / "dashboards" / "tanks_and_alerts.yaml").read_text(encoding="utf-8"))
-    ta_types = {c["type"] for v in ta["views"] for s in v["sections"] for c in s["cards"]}
+    ta_types = {c["type"] for v in ta["views"] for c in _dcards(v)}
     assert "custom:milesight-alerts-card" not in ta_types
     assert {"custom:milesight-tank-band", "custom:milesight-tank-supply-card", "custom:milesight-trough-card",
             "custom:milesight-flood-card"} <= ta_types
@@ -1883,11 +1927,14 @@ def test_bundled_dashboard_templates_render():
     assert any(c["type"] == "custom:milesight-fence-card" for s_ in fcfg["views"][0]["sections"] for c in s_["cards"])
     # Record-style lists are now table cards, not markdown. Check each converted section carries the right preset.
     def _preset(dash, head):
-        sec = next(s for v in yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))["views"]
-                   for s in v["sections"] if any(c.get("heading") == head for c in s["cards"]))
-        return next(c for c in sec["cards"] if c["type"] == "custom:milesight-table-card")["preset"]
+        cfg = yaml.safe_load((PKG.parents[1] / "dashboards" / f"{dash}.yaml").read_text(encoding="utf-8"))
+        cards = next(cs for v in cfg["views"] for hd, cs in _dash_blocks(v) if hd == head)
+        return next(c for c in cards if c["type"] == "custom:milesight-table-card")["preset"]
     assert _preset("farm", "Pumps") == "pumps" and _preset("farm", "Centre pivots") == "pivots"
-    assert _preset("building_analytics", "Comfort per area") == "comfort"
+    # building's per-area comfort is now the insights KPI strip (per_area), not a comfort table
+    _ba = yaml.safe_load((PKG.parents[1] / "dashboards" / "building_analytics.yaml").read_text(encoding="utf-8"))
+    assert any(c["type"] == "custom:milesight-insights-card" and c.get("per_area")
+               for v in _ba["views"] for c in _dcards(v))
     assert _preset("building_analytics", "Utilisation today (opening hours)") == "utilisation"
     assert _preset("tanks_and_alerts", "Tanks") == "tanks"
     assert _preset("farm", "Silos") == "silos"
@@ -1932,24 +1979,18 @@ def test_bundled_dashboard_templates_render():
     assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
     # the Power & Energy page uses the new mains board + load summary cards
     energy = yaml.safe_load((PKG.parents[1] / "dashboards" / "energy.yaml").read_text(encoding="utf-8"))
-    energy_types = {c["type"] for v in energy["views"] for s in v["sections"] for c in s["cards"]}
+    energy_types = {c["type"] for v in energy["views"] for c in _dcards(v)}
     assert {"custom:milesight-mains-card", "custom:milesight-load-summary-card", "custom:milesight-table-card"} <= energy_types
     # the dedicated Alerts page owns open alerts, the 7-day summary and escalation / notifications
     al = yaml.safe_load((PKG.parents[1] / "dashboards" / "alerts.yaml").read_text(encoding="utf-8"))
-    def _types(cards):                         # recurse into stacks (horizontal-stack holds the two widgets)
-        out = set()
-        for c in cards:
-            out.add(c["type"])
-            out |= _types(c.get("cards", []))
-        return out
-    al_types = {t for v in al["views"] for s in v["sections"] for t in _types(s["cards"])}
+    al_types = {c["type"] for v in al["views"] for c in _dcards(v)}   # descends the wrapper + stacks
     assert {"custom:milesight-alerts-band", "custom:milesight-alerts-card",
             "custom:milesight-alert-summary-card", "custom:milesight-escalation-card"} <= al_types
     # and the duplicated open-alerts card is gone from the operational dashboards
     for _d in ("tanks_and_alerts", "coop", "washroom"):
         _dd = yaml.safe_load((PKG.parents[1] / "dashboards" / f"{_d}.yaml").read_text(encoding="utf-8"))
         assert not any(c["type"] == "custom:milesight-alerts-card"
-                       for v in _dd["views"] for s in v["sections"] for c in s["cards"]), _d
+                       for v in _dd["views"] for c in _dcards(v)), _d
     # alerts.yaml installs on every site (no tag gate)
     assert '"alerts.yaml": ("milesight-alerts", "mdi:bell-ring", None)' in (PKG / "resources.py").read_text(encoding="utf-8")
 
@@ -2361,21 +2402,20 @@ def test_maintenance_dashboard_renders():
     assert next(v for v in cfg["views"] if v["path"] == "device").get("subview") is True
     out = {}
     for view in cfg["views"]:
-        for sec in view["sections"]:
-            for card in sec["cards"]:
-                if card["type"] == "markdown":
-                    head = next((c.get("heading") for c in sec["cards"] if c["type"] == "heading"), "summary")
-                    out[head] = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0,
-                                                                        dict=dict)
-                    assert "|---|" not in out[head], head          # phone-friendly, no wide tables
+        for head, cards in _dash_blocks(view):
+            for card in cards:
+                if card.get("type") == "markdown":
+                    key = head or "summary"
+                    out[key] = env.from_string(card["content"]).render(states=states, as_timestamp=lambda v: 0,
+                                                                       dict=dict)
+                    assert "|---|" not in out[key], key            # phone-friendly, no wide tables
     # the plain-text summary line is replaced by the self-discovering fleet-health band
-    all_cards = [c for v in cfg["views"] for s in v["sections"] for c in s["cards"]]
+    all_cards = [c for v in cfg["views"] for c in _dcards(v)]
     assert any(c["type"] == "custom:milesight-fleet-band" for c in all_cards)
     # All the fleet lists are now custom table cards with presets, not markdown
     def table_preset(head):
-        sec = next(s for v in cfg["views"] for s in v["sections"]
-                   if any(c.get("heading") == head for c in s["cards"]))
-        return next(c for c in sec["cards"] if c["type"] == "custom:milesight-table-card")["preset"]
+        cards = next(cs for v in cfg["views"] for hd, cs in _dash_blocks(v) if hd == head)
+        return next(c for c in cards if c["type"] == "custom:milesight-table-card")["preset"]
     assert table_preset("All devices") == "devices"
     assert table_preset("Offline more than 24 h or never heard") == "offline"
     assert table_preset("Firmware") == "firmware"

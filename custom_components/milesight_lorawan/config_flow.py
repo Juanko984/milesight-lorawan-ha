@@ -929,6 +929,7 @@ class MilesightOptionsFlow(OptionsFlow):
         sections = (["purpose"]                                  # fit-for-purpose is offered on every device
                     + (["channels", "channel_template"] if MODELS[model].dynamic else [])
                     + (["tank"] if tank_source(model) else [])
+                    + (["growth"] if entry.options.get("purpose") in ("crop_growth", "flock_growth") else [])
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if _lns_hub(self.hass) is not None or entry.data.get(CONF_LNS_APP_KEY):
             sections.append("network_keys")
@@ -957,6 +958,27 @@ class MilesightOptionsFlow(OptionsFlow):
                   vol.Required("clear", default=False): BooleanSelector()}
         return self.async_show_form(step_id="location", data_schema=vol.Schema(schema), description_placeholders={
             "status": f"{cur['latitude']:.6f}, {cur['longitude']:.6f}" if cur.get("latitude") is not None else "not set"})
+
+    async def async_step_growth(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Device: an overhead distance sensor used as a crop-canopy or flock growth monitor. Needs the mount height
+        above the ground (height = mount − distance) and an optional target height for the projection."""
+        entry = self.config_entry
+        opts = dict(entry.options)
+        if user_input is not None:
+            opts[CONF_INSTALL_HEIGHT_MM] = int(user_input.get(CONF_INSTALL_HEIGHT_MM) or 0)
+            target = int(user_input.get(CONF_GROWTH_TARGET_MM) or 0)
+            if target > 0:
+                opts[CONF_GROWTH_TARGET_MM] = target
+            else:
+                opts.pop(CONF_GROWTH_TARGET_MM, None)
+            return self.async_create_entry(data=opts)
+        kind = "flock" if opts.get("purpose") == "flock_growth" else "crop"
+        schema = {
+            vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0)): _int_box(0, 20000),
+            vol.Optional(CONF_GROWTH_TARGET_MM, default=opts.get(CONF_GROWTH_TARGET_MM, 0)): _int_box(0, 20000),
+        }
+        return self.async_show_form(step_id="growth", data_schema=vol.Schema(schema),
+                                    description_placeholders={"kind": kind})
 
     async def async_step_settings_profile(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Device: copy this device's set-up to others of the same model, save it as a profile, or load one."""
@@ -1124,15 +1146,10 @@ class MilesightOptionsFlow(OptionsFlow):
         if "door" in features and opts.get("purpose") in (None, "", "none"):
             schema[vol.Required(CONF_LEFT_OPEN_MIN, default=opts.get(CONF_LEFT_OPEN_MIN, DEFAULT_LEFT_OPEN_MIN))] = \
                 _int_box(1, 1440)
-        _is_growth = opts.get("purpose") in ("crop_growth", "flock_growth")
-        if ("em400" in features and not tank_source(model)) or _is_growth:
-            # the sensor's mount height above the ground: fill level for a bin (EM400), or height = mount − distance
-            # for a crop / flock growth sensor.
+        if "em400" in features and not tank_source(model) and opts.get("purpose") not in ("crop_growth", "flock_growth"):
+            # EM400 bin fill level needs the empty-distance here. A growth sensor sets its mount height in the
+            # dedicated "Growth monitor" step instead (async_step_growth), not in Device settings.
             schema[vol.Required(CONF_INSTALL_HEIGHT_MM, default=opts.get(CONF_INSTALL_HEIGHT_MM, 0))] = \
-                _int_box(0, 20000)
-        if _is_growth:
-            # an optional target height (mm) that drives the "reaches target in N days" projection; 0 = no target.
-            schema[vol.Optional(CONF_GROWTH_TARGET_MM, default=opts.get(CONF_GROWTH_TARGET_MM, 0))] = \
                 _int_box(0, 20000)
         if "load" in features:
             from .pump import run_threshold_setting

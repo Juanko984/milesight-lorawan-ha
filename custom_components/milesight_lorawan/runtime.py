@@ -1354,7 +1354,8 @@ class DeviceRuntime:
 
     # ---------------------------------------------------------------- EM500 single-reading sensors + native soil
     def _em_reading_applies(self) -> bool:
-        return self.model.key in _EM_READING
+        # a growth monitor (overhead UDL over a crop / flock) shows the Growth card instead of the generic gauge
+        return self.model.key in _EM_READING and self._pkey not in ("crop_growth", "flock_growth")
 
     def _em_reading(self, v: dict) -> dict | None:
         """An EM500 single-value sensor (light / pipe pressure / PT100 temp / UDL / SWL) as one role: the reading with

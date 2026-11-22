@@ -2,6 +2,31 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.166.0
+- **Packed ⇄ Rows layout rolled out to every dashboard.** The space-filling masonry toggle now covers all the
+  multi-section pages (Farm, Water, Energy, Cold chain, Building, Devices, Maintenance, Retail, Washroom, Alerts),
+  not just the coop. Single-widget pages (Jobs, Rules, Team, device panels) are unchanged. Each page remembers its
+  own Packed / Rows choice. Dashboards are wrapped by `tools/pack_dashboards.py` (page headers and summary bands
+  stay on top, outside the toggle).
+- **Per-area insights strip on the Building page.** The old "Comfort per area" table is now a KPI strip per area —
+  comfort, temperature (+min/max), humidity, CO₂, ammonia, light, water, feed, growth and door — each coloured
+  against its safe range. The insights card gained a `per_area` mode for multi-area pages.
+
+## 0.165.0
+- **Richer "At a glance" — an insights KPI strip.** The coop's At-a-glance row is now a strip of tiles, one per
+  headline reading, each coloured against its safe range and each hiding when its sensor isn't set up: comfort,
+  temperature (with today's min / max), humidity (ideal 50–70 %), CO₂ (limit 3000), **ammonia NH₃** (limit 20 — the
+  key coop air risk), light, **water** and **feed** level (+ days left), **flock growth** (height + cm/day) and the
+  **pop-hole** door. Built as a reusable `milesight-insights-card` scoped by area / purpose, so other dashboards can
+  use the same strip. Grounded in poultry-house guidance (air quality and water intake are the leading welfare
+  indicators).
+
+## 0.164.0
+- **Growth monitor now has its own settings step.** Configure → **Growth monitor (mount height)** on a crop/flock
+  growth sensor asks for the mount height above the ground (height = mount − distance) and an optional target height
+  for the projection — no longer buried in Device settings. A growth sensor also stops showing the generic EM500
+  "Reading" gauge (it shows the Growth card instead).
+
 ## 0.163.0
 - **Dynamic dashboard layout with a Packed ⇄ Rows toggle (on the coop page first).** Instead of every section
   taking a full-width row (leaving two-thirds of a wide screen empty), the sections now flow into a space-filling

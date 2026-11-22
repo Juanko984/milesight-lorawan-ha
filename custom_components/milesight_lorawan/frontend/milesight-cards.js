@@ -9664,6 +9664,124 @@
     }
   }
 
+  // ================================================================ area insights ("At a glance" KPI strip)
+  // One tile per headline reading in an area / purpose scope — comfort, temperature (+ today's min/max), humidity,
+  // CO₂, ammonia (NH₃), light, water & feed level, flock growth and the pop-hole door — each coloured against its
+  // safe range, and each hidden when its sensor isn't there. Read-only: it reuses the role sensors the other cards
+  // publish, so it fills itself in like the rest of the page.
+  class InsightsCard extends Base {
+    static getStubConfig() { return {}; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _watch() { return null; }                              // re-render on any state change (cheap; few tiles)
+    _fmt(v) { const n = num(v); if (n == null) return "—"; return Math.abs(n) >= 100 ? String(Math.round(n)) : Math.abs(n) >= 10 ? n.toFixed(1) : (+n.toFixed(2)).toString(); }
+    _areas() {                                             // distinct area names (for per-area mode), scoped by purpose
+      const S = (this._hass && this._hass.states) || {}, cfg = this._cfg || {}, seen = new Set(), out = [];
+      for (const st of byAttr(S, "kind", "comfort")) {
+        const a = st.attributes;
+        if (!scopeMatch({ purpose: cfg.purpose }, a)) continue;
+        const name = a.area; if (name && !seen.has(name)) { seen.add(name); out.push(name); }
+      }
+      return out.sort((x, y) => String(x).localeCompare(String(y)));
+    }
+    _tiles(areaOverride) {
+      const S = (this._hass && this._hass.states) || {}, cfg = this._cfg || {}, T = [];
+      const inScope = (st) => st && (areaOverride ? areaEq(st.attributes.area, areaOverride) : scopeMatch(cfg, st.attributes));
+      const first = (list) => (list || []).filter(inScope)[0];
+      const scan = (pred) => { for (const id in S) { const st = S[id]; if (pred(id, st) && inScope(st)) return st; } return null; };
+      // comfort score + the climate numbers it carries
+      const comfort = first(byAttr(S, "kind", "comfort"));
+      if (comfort) {
+        const c = num(comfort.state), a = comfort.attributes;
+        T.push({ ic: "mdi:emoticon-happy-outline", label: "Comfort", value: c == null ? "—" : String(c), unit: "/100",
+          sub: c == null ? "" : c >= 75 ? "good day" : c >= 50 ? "fair" : "poor", cls: c == null ? "" : c < 50 ? "bad" : c < 70 ? "warn" : "good", pill: c == null ? "" : c < 50 ? "POOR" : c < 70 ? "FAIR" : "OK" });
+        if (a.temperature != null) {
+          const tEnt = scan((id, st) => id.startsWith("sensor.") && st.attributes.ms_trend === "temperature");
+          const ta = tEnt ? tEnt.attributes : {}; const lo = num(ta.min_today), hi = num(ta.max_today);
+          T.push({ ic: "mdi:thermometer", label: "Temperature", value: this._fmt(a.temperature), unit: "°C",
+            sub: (lo != null && hi != null) ? `min ${this._fmt(lo)} · max ${this._fmt(hi)} today` : "now", cls: "" });
+        }
+        if (a.humidity != null) { const hm = num(a.humidity); T.push({ ic: "mdi:water-percent", label: "Humidity", value: this._fmt(hm), unit: "%", sub: "ideal 50–70 %", cls: (hm < 40 || hm > 75) ? "warn" : "good", pill: hm < 40 ? "LOW" : hm > 75 ? "HIGH" : "" }); }
+        if (a.co2 != null) { const co = num(a.co2); T.push({ ic: "mdi:molecule-co2", label: "CO₂", value: String(Math.round(co)), unit: "ppm", sub: "limit 3000", cls: co > 3000 ? "bad" : co > 2000 ? "warn" : "good", pill: co > 3000 ? "HIGH" : "OK" }); }
+      }
+      // ammonia (and H₂S) from a GS301 odour detector
+      const gas = first(byRole(S, "gas_monitor"));
+      if (gas) { const m = (gas.attributes.metrics || []).find((x) => x.key === "nh3"); if (m && m.value != null) { const nh = num(m.value); T.push({ ic: "mdi:scent", label: "Ammonia", value: this._fmt(nh), unit: "ppm", sub: "limit 20 · NH₃", cls: nh > 25 ? "bad" : nh > 15 ? "warn" : "good", pill: nh > 25 ? "HIGH" : "OK" }); } }
+      // light level
+      const lightEnt = scan((id, st) => id.startsWith("sensor.") && st.attributes.ms_trend === "light");
+      if (lightEnt) { const lx = num(lightEnt.state); if (lx != null) T.push({ ic: "mdi:brightness-6", label: "Light", value: String(Math.round(lx)), unit: "lx", sub: lx < 5 ? "dark" : "lit", cls: "" }); }
+      // water (drinker) and feed from tank roles in scope
+      const tanks = (byRole(S, "tank")).filter(inScope);
+      const water = tanks.find((t) => !t.attributes.is_silo);
+      const feed = tanks.find((t) => t.attributes.is_silo || t.attributes.contents === "feed");
+      const tankTile = (t, ic, label) => { const f = num(t.attributes.fill), d = num(t.attributes.days_left); return { ic, label, value: f == null ? "—" : String(Math.round(f)), unit: "%", sub: d == null ? "" : `~${Math.round(d)} days left`, cls: t.attributes.low ? "warn" : "good", pill: t.attributes.low ? "LOW" : "" }; };
+      if (water) T.push(tankTile(water, "mdi:cup-water", "Water"));
+      if (feed && feed !== water) T.push(tankTile(feed, "mdi:grain", "Feed"));
+      // flock / crop growth
+      const g = first(byRole(S, "growth"));
+      if (g) { const a = g.attributes, r = num(a.rate_cm_day); T.push({ ic: a.kind === "flock" ? "mdi:bird" : "mdi:sprout-outline", label: a.kind === "flock" ? "Flock height" : "Canopy", value: a.height_cm == null ? "—" : String(a.height_cm), unit: "cm", sub: r == null ? `${a.days || 0} d` : `${r >= 0 ? "▲ +" : "▼ "}${r} cm/day · ${a.days || 0} d`, cls: "" }); }
+      // pop-hole / door
+      const door = scan((id, st) => id.startsWith("binary_sensor.") && st.attributes.ms_contact);
+      if (door) {
+        const a = door.attributes, open = a.active === true;
+        const hhmm = (ts) => { try { return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+        T.push({ ic: "mdi:door", label: a.contact_noun || "Door", value: a.status_text || (open ? "Open" : "Closed"), unit: "",
+          sub: a.since ? ("since " + hhmm(a.since)) : "", cls: open ? "warn" : "good", pill: open ? "OPEN" : "" });
+      }
+      return T;
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = `
+        .igrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+        .itile{border:1px solid var(--ms-line);border-radius:12px;padding:12px 13px;position:relative}
+        .itile.good{border-color:color-mix(in srgb,var(--ms-good) 45%,var(--ms-line))}
+        .itile.warn{border-color:color-mix(in srgb,var(--ms-warn) 55%,var(--ms-line))}
+        .itile.bad{border-color:color-mix(in srgb,var(--ms-bad) 60%,var(--ms-line))}
+        .itl{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em}
+        .itl ha-icon{--mdc-icon-size:14px;flex:0 0 auto;color:var(--ms-ink2)}
+        .ipill{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.03em;border-radius:5px;padding:1px 6px}
+        .ipill.good{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .ipill.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .ipill.bad{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .iv{font-size:23px;font-weight:760;margin-top:7px;line-height:1;font-variant-numeric:tabular-nums}
+        .iv small{font-size:12px;color:var(--ms-ink2);font-weight:600}
+        .iv.good{color:var(--ms-good)} .iv.warn{color:var(--ms-warn)} .iv.bad{color:var(--ms-bad)}
+        .is{font-size:11px;color:var(--ms-ink2);margin-top:5px}
+        .iarea{font-size:12px;font-weight:650;color:var(--ms-ink);margin:14px 0 8px;display:flex;align-items:center;gap:6px}
+        .iarea:first-child{margin-top:0}
+        .iarea ha-icon{--mdc-icon-size:15px;color:var(--ms-ink2)}
+      `;
+      const strip = (tiles) => h("div", { class: "igrid" }, tiles.map((t) => h("div", { class: "itile " + (t.cls || "") }, [
+        h("div", { class: "itl" }, [h("ha-icon", { icon: t.ic }), t.label, t.pill ? h("span", { class: "ipill " + (t.cls || "") }, t.pill) : null]),
+        h("div", { class: "iv " + (t.cls || "") }, t.unit ? [t.value, h("small", {}, " " + t.unit)] : t.value),
+        t.sub ? h("div", { class: "is" }, esc(t.sub)) : null,
+      ])));
+      if (this._cfg.per_area) {                            // one labelled strip per area (the multi-area pages)
+        const groups = this._areas().map((name) => [name, this._tiles(name)]).filter(([, t]) => t.length);
+        if (!groups.length) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+        this.style.display = "";
+        this._card(h("div", { class: "wrap" }, [
+          this._cfg.title && this._cfg.title !== false ? h("p", { class: "title", style: { marginBottom: "6px" } }, esc(this._cfg.title)) : null,
+          ...groups.map(([name, tiles]) => h("div", {}, [
+            h("div", { class: "iarea" }, [h("ha-icon", { icon: "mdi:map-marker-outline" }), esc(name)]), strip(tiles)])),
+        ]));
+        return;
+      }
+      const tiles = this._tiles();
+      if (!tiles.length) {
+        if (this._cfg.area || this._cfg.purpose) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+        this._card(emptyState(emptyOpts(this._cfg.empty || { icon: "mdi:view-dashboard-outline", title: "No insights yet",
+          hint: "Assign coop / area devices (climate, water, growth …) and their headline numbers show here." }, "mdi:view-dashboard-outline")));
+        return;
+      }
+      this.style.display = "";
+      this._card(h("div", { class: "wrap" }, [
+        this._cfg.title && this._cfg.title !== false ? h("p", { class: "title", style: { marginBottom: "6px" } }, esc(this._cfg.title)) : null,
+        strip(tiles),
+      ]));
+    }
+  }
+
   // ================================================================ dynamic layout (packed ⇄ rows, with a toggle)
   // Wraps a page's sections (each a heading + its cards) and flows the heading+widget blocks into a responsive
   // masonry so equal-size widgets fill the width instead of each section taking a full-width row. A built-in toggle
@@ -9819,6 +9937,7 @@
         VALVE_TAG = "milesight-valve-card",
         EMREAD_TAG = "milesight-em-reading-card",
         GROWTH_TAG = "milesight-growth-card",
+        INSIGHTS_TAG = "milesight-insights-card",
         LAYOUT_TAG = "milesight-dynamic-layout",
         TEMPPROBE_TAG = "milesight-temp-probe-card",
         SCENE_TAG = "milesight-scene-card",
@@ -9900,6 +10019,7 @@
     [VALVE_TAG, ValveCard, "Milesight Valves", "UC valve controller: solenoid open / close with an open-for timer, motorised % opening dial and pipe pressure"],
     [EMREAD_TAG, EmReadingCard, "Milesight EM500 Reading", "EM500 single-reading sensor: light / pressure / temperature as a gauge, UDL / SWL level as a filled shaft, each with a trend"],
     [GROWTH_TAG, GrowthCard, "Milesight Growth", "Overhead EM500-UDL / EM400-MUD over a crop or flock: height (mount − distance), recent + lifetime growth rate, a height trend and a target projection"],
+    [INSIGHTS_TAG, InsightsCard, "Milesight Insights", "An 'At a glance' KPI strip for an area: comfort, temp (+min/max), humidity, CO₂, ammonia, light, water, feed, growth and door — each coloured and self-hiding"],
     [LAYOUT_TAG, DynamicLayoutCard, "Milesight Dynamic Layout", "Flows a page's sections (heading + widget) into a space-filling masonry with a Packed ⇄ Rows toggle that persists per dashboard"],
     [TEMPPROBE_TAG, TempProbeCard, "Milesight Temperature Probe", "TS probe: temperature with alarm badge + threshold trend, humidity / door chips, dual probe for TS302, cold-chain tilt / light"],
     [SCENE_TAG, SceneCard, "Milesight Scene Buttons", "WS101 / WS136 / WS156 buttons: each button's last press (type + when) and today's count"],

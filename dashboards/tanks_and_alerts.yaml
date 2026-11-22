@@ -4,109 +4,87 @@
 # per-tank gauges, sliders and the 30-day level history for the site's actual tanks is added after this Overview.
 title: Water
 views:
-  - title: Overview
-    path: tanks
-    icon: mdi:water-percent
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
+- title: Overview
+  path: tanks
+  icon: mdi:water-percent
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Water
+      subtitle: Levels, days of supply, usage and leaks across your water and fuel tanks
+      icon: mdi:water-percent
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-level-model-card
+      grid_options:
+        columns: full
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-liquid-level-card
+      grid_options:
+        columns: full
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-recipe-strip-card
+      category:
+      - water
+      grid_options:
+        columns: full
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-dynamic-layout
+      id: tanks_and_alerts-tanks
+      default: packed
+      grid_options:
+        columns: full
+      sections:
+      - heading: Supply at a glance
+        icon: mdi:view-dashboard-outline
         cards:
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Water
-            subtitle: Levels, days of supply, usage and leaks across your water and fuel tanks
-            icon: mdi:water-percent
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-tank-band
+      - heading: Running cost today
+        icon: mdi:cash-multiple
         cards:
-          # A 2D cutaway model of each level sensor (tank / silo / dam / storm drain / waste bin), chosen from
-          # its contents and filled to the live level. The card has its own title and hides itself when empty.
-          - type: custom:milesight-level-model-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-cost-strip-card
+          resources:
+          - water
+          - diesel
+          - feed
+      - heading: Tanks
+        icon: mdi:storage-tank
         cards:
-          # WoMaster WS101LL liquid-level probes on a UC controller (mm + % of range). Self-hiding.
-          - type: custom:milesight-liquid-level-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-table-card
+          preset: tanks
+          title: false
+        - type: markdown
+          content: '<small>A row turns red on a sudden drop (theft or leak) and amber when low – press the tank''s *Clear sudden-drop alarm* button once checked.</small>
+
+            '
+      - heading: Level trends
+        icon: mdi:chart-line
         cards:
-          # Water recipes (plain-language automations). Hidden when there are none for this domain.
-          - type: custom:milesight-recipe-strip-card
-            category: [water]
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-trendline-grid-card
+          trend: tank
+          columns: 2
+      - heading: Supply and refills
+        icon: mdi:calendar-clock
         cards:
-          - type: heading
-            heading: Supply at a glance
-            icon: mdi:view-dashboard-outline
-          - type: custom:milesight-tank-band
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-tank-supply-card
+      - heading: Flood and early warning
+        icon: mdi:home-flood
         cards:
-          - type: heading
-            heading: Running cost today
-            icon: mdi:cash-multiple
-          # Water, diesel and feed cost today (from the gateway tariffs). Hidden until a tariff is set.
-          - type: custom:milesight-cost-strip-card
-            resources: [water, diesel, feed]
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-flood-card
+      - heading: Drinking troughs
+        icon: mdi:water-well
         cards:
-          - type: heading
-            heading: Tanks
-            icon: mdi:storage-tank
-          # Water, fuel and other liquid tanks. Grain/feed silos live on the Farm dashboard.
-          - type: custom:milesight-table-card
-            preset: tanks
-            title: false
-            grid_options: {columns: full}
-          - type: markdown
-            grid_options: {columns: full}
-            content: |
-              <small>A row turns red on a sudden drop (theft or leak) and amber when low – press the tank's *Clear sudden-drop alarm* button once checked.</small>
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Level trends
-            icon: mdi:chart-line
-          # One trendline per tank — flashes amber when the level drops below its low threshold.
-          - type: custom:milesight-trendline-grid-card
-            trend: tank
-            columns: 2
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Supply and refills
-            icon: mdi:calendar-clock
-          - type: custom:milesight-tank-supply-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Flood and early warning
-            icon: mdi:home-flood
-          # Water-body level in drains, culverts, under bridges or rivers (EM500-UDL / radar). Set the device's
-          # purpose to "Flood / drain level". Rises toward a danger line; raises a flood warning in time to act.
-          - type: custom:milesight-flood-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Drinking troughs
-            icon: mdi:water-well
-          # Animal water troughs: a float switch on an EM300-MCS contact (open = empty). Set the device's
-          # purpose to "Water trough". Shows nothing until a trough is set up.
-          - type: custom:milesight-trough-card
-            grid_options: {columns: full}
+        - type: custom:milesight-trough-card

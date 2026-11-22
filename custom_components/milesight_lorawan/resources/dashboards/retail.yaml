@@ -7,71 +7,55 @@
 # with gauges and history is added after this Overview.
 title: Retail
 views:
-  - title: Store
-    path: store
-    icon: mdi:storefront-outline
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
+- title: Store
+  path: store
+  icon: mdi:storefront-outline
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Retail
+      subtitle: Footfall, dwell, cold-chain compliance, air and power
+      icon: mdi:storefront-outline
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-dynamic-layout
+      id: retail-store
+      default: packed
+      grid_options:
+        columns: full
+      sections:
+      - heading: Store insights
+        icon: mdi:chart-box-outline
         cards:
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Retail
-            subtitle: Footfall, dwell, cold-chain compliance, air and power
-            icon: mdi:storefront-outline
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-retail-band
+      - heading: Footfall today
+        icon: mdi:chart-timeline-variant
         cards:
-          - type: heading
-            heading: Store insights
-            icon: mdi:chart-box-outline
-          - type: custom:milesight-retail-band
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-footfall-card
+      - heading: Zones — dwell and staff time
+        icon: mdi:select-group
         cards:
-          - type: heading
-            heading: Footfall today
-            icon: mdi:chart-timeline-variant
-          - type: custom:milesight-footfall-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-zones-card
+      - heading: Cold chain
+        icon: mdi:snowflake-thermometer
         cards:
-          - type: heading
-            heading: Zones — dwell and staff time
-            icon: mdi:select-group
-          - type: custom:milesight-zones-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-coldchain-band
+        - type: custom:milesight-table-card
+          preset: cold_chain
+          title: false
+      - heading: Power and compressors
+        icon: mdi:lightning-bolt
         cards:
-          - type: heading
-            heading: Cold chain
-            icon: mdi:snowflake-thermometer
-          - type: custom:milesight-coldchain-band
-            grid_options: {columns: full}
-          - type: custom:milesight-table-card
-            preset: cold_chain
-            title: false
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-mains-card
+        - type: custom:milesight-load-summary-card
+      - heading: Shopper comfort and air
+        icon: mdi:air-filter
         cards:
-          - type: heading
-            heading: Power and compressors
-            icon: mdi:lightning-bolt
-          - type: custom:milesight-mains-card
-            grid_options: {columns: full}
-          - type: custom:milesight-load-summary-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Shopper comfort and air
-            icon: mdi:air-filter
-          - type: custom:milesight-air-card
-            grid_options: {columns: full}
+        - type: custom:milesight-air-card

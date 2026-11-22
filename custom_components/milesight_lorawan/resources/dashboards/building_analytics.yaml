@@ -7,183 +7,131 @@
 # Flow: overview band → air → environment → people & occupancy → buttons/displays → trends → per-area tables.
 title: Building analytics
 views:
-  - title: Overview
-    path: areas
-    icon: mdi:office-building-outline
-    type: sections
-    max_columns: 3
-    sections:
-      - type: grid
-        column_span: 3
+- title: Overview
+  path: areas
+  icon: mdi:office-building-outline
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-page-header
+      grid_options:
+        columns: full
+      title: Building
+      subtitle: Comfort, air quality and occupancy across every area
+      icon: mdi:office-building-outline
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-weather-card
+      grid_options:
+        columns: full
+  - type: grid
+    column_span: 3
+    cards:
+    - type: custom:milesight-dynamic-layout
+      id: building_analytics-areas
+      default: packed
+      grid_options:
+        columns: full
+      sections:
+      - heading: At a glance
+        icon: mdi:view-dashboard-outline
         cards:
-          - type: custom:milesight-page-header
-            grid_options: {columns: full}
-            title: Building
-            subtitle: Comfort, air quality and occupancy across every area
-            icon: mdi:office-building-outline
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-building-band
+      - heading: Air quality now
+        icon: mdi:air-filter
         cards:
-          # Ecowitt WS90 weather station(s) on a UC controller. The card has its own title and hides itself
-          # (no heading) when there is no weather sensor, so it only shows where one is fitted.
-          - type: custom:milesight-weather-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-air-card
+      - heading: Air monitors
+        icon: mdi:air-filter
         cards:
-          - type: heading
-            heading: At a glance
-            icon: mdi:view-dashboard-outline
-          - type: custom:milesight-building-band
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-air-quality-card
+      - heading: Environment sensors
+        icon: mdi:home-thermometer
         cards:
-          - type: heading
-            heading: Air quality now
-            icon: mdi:air-filter
-          - type: custom:milesight-air-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-environment-card
+        - type: custom:milesight-temp-probe-card
+      - heading: Spaces
+        icon: mdi:floor-plan
         cards:
-          - type: heading
-            heading: Air monitors
-            icon: mdi:air-filter
-          # One card per AM air sensor (AM103/107, AM307/308, AM319): a chip for every property it measures;
-          # click a chip to drive the trend below. Hides itself when there are no AM monitors.
-          - type: custom:milesight-air-quality-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-spaces-card
+        - type: custom:milesight-workplace-card
+        - type: custom:milesight-occupancy-card
+      - heading: People counters
+        icon: mdi:account-group
         cards:
-          - type: heading
-            heading: Environment sensors
-            icon: mdi:home-thermometer
-          # Temp / humidity / door / leak / motion sensors (EM300-TH/MCS/SLD, WS203 …): numeric chips drive the
-          # trend, door/leak/motion show status. Hides itself when there are no such sensors.
-          - type: custom:milesight-environment-card
-            grid_options: {columns: full}
-          # TS temperature probes (TS101/201/301/302/601/602): temperature + alarm badge, threshold trend, humidity /
-          # door chips. Hides itself when there are no TS probes.
-          - type: custom:milesight-temp-probe-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-people-counter-card
+      - heading: Fall detection & presence
+        icon: mdi:account-alert
         cards:
-          - type: heading
-            heading: Spaces
-            icon: mdi:floor-plan
-          # VS occupancy / people sensors as a live list: busy / free, people count and today's utilisation.
-          - type: custom:milesight-spaces-card
-            grid_options: {columns: full}
-          # VS321 room sensor: occupancy headline, seat regions and temp / humidity / light chips that drive a trend.
-          - type: custom:milesight-workplace-card
-            grid_options: {columns: full}
-          # Per-device occupancy (desk / room / bathroom / VS370 radar): a utilisation ring, live in-use / free time
-          # and the day's sessions. Hides itself when there are no VS occupancy sensors.
-          - type: custom:milesight-occupancy-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-fall-card
+      - heading: Gas & safety
+        icon: mdi:gas-cylinder
         cards:
-          - type: heading
-            heading: People counters
-            icon: mdi:account-group
-          # VS people counters (per entrance / passage): inside now, in / out / net today, capacity + occupancy trend.
-          - type: custom:milesight-people-counter-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-gas-detector-card
+      - heading: Buttons & displays
+        icon: mdi:gesture-tap-button
         cards:
-          - type: heading
-            heading: Fall detection & presence
-            icon: mdi:account-alert
-          # VS373 radar: in bed / out of bed / vacant / fall, respiration and dwell. A fall / motionless alarm is a
-          # critical Safety alert. Hides itself when there are no VS373s.
-          - type: custom:milesight-fall-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-scene-card
+        - type: custom:milesight-display-card
+      - heading: CO₂ trends
+        icon: mdi:chart-line
         cards:
-          - type: heading
-            heading: Gas & safety
-            icon: mdi:gas-cylinder
-          # GS101 combustible-gas detectors: Safe / Gas-detected banner, one-tap shut-off valve and relay controls,
-          # device / sensor-life health and event counts. A gas alarm is a critical Safety alert. Hides when none.
-          - type: custom:milesight-gas-detector-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-trendline-grid-card
+          trend: air
+          columns: 2
+      - heading: Insights per area
+        icon: mdi:emoticon-happy-outline
         cards:
-          - type: heading
-            heading: Buttons & displays
-            icon: mdi:gesture-tap-button
-          # WS101 / WS136 / WS156 scene buttons: each button's last press and today's count. Hides when none.
-          - type: custom:milesight-scene-card
-            grid_options: {columns: full}
-          # DS3604 e-ink displays: compose the text / QR blocks of each template, preview, and send. Hides when none.
-          - type: custom:milesight-display-card
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
+        - type: custom:milesight-insights-card
+          per_area: true
+          title: false
+      - heading: Occupancy today
+        icon: mdi:account-clock
         cards:
-          - type: heading
-            heading: CO₂ trends
-            icon: mdi:chart-line
-          # One trendline per CO₂ sensor — flashes when CO₂ climbs over its limit.
-          - type: custom:milesight-trendline-grid-card
-            trend: air
-            columns: 2
-            grid_options: {columns: full}
-      - type: grid
-        column_span: 3
-        cards:
-          - type: heading
-            heading: Comfort per area
-            icon: mdi:emoticon-happy-outline
-          - type: custom:milesight-table-card
-            preset: comfort
-            title: false
-            grid_options: {columns: full}
-      - type: grid
-        cards:
-          - type: heading
-            heading: Occupancy today
-            icon: mdi:account-clock
-          - type: markdown
-            grid_options: {columns: full}
-            content: |
-              {% set names = [] %}
-              {% set rows = states.sensor | selectattr('attributes.hourly_today', 'defined') | selectattr('attributes.area', 'defined') | list %}
-              {% set names = names or (rows | map(attribute='attributes.area') | unique | sort | list) %}
-              {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
-              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**{% if s.attributes.occupied_now %} · 🧑 {{ s.attributes.people_now if s.attributes.people_now is not none else 'occupied' }}{% elif s.attributes.occupied_now is not none %} · empty{% endif %}{% if s.state not in ('unknown', 'unavailable') %} · {{ s.state }} % today{% endif %}
-              {% for h in range(6, 22) %}{% set p = s.attributes.hourly_today[h] %}{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}{% endfor %}
+        - type: markdown
+          content: '{% set names = [] %}
 
-              {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
-      - type: grid
-        cards:
-          - type: heading
-            heading: Occupancy yesterday
-            icon: mdi:account-clock-outline
-          - type: markdown
-            grid_options: {columns: full}
-            content: |
-              {% set names = [] %}
-              {% set rows = states.sensor | selectattr('attributes.hourly_yesterday', 'defined') | selectattr('attributes.area', 'defined') | list %}
-              {% set names = names or (rows | map(attribute='attributes.area') | unique | sort | list) %}
-              {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
-              {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**
-              {% for h in range(6, 22) %}{% set p = s.attributes.hourly_yesterday[h] %}{{ '⬜' if p is none else ('🟥' if p >= 75 else ('🟧' if p >= 50 else ('🟨' if p >= 25 else ('🟩' if p > 0 else '⬛')))) }}{% endfor %}
+            {% set rows = states.sensor | selectattr(''attributes.hourly_today'', ''defined'') | selectattr(''attributes.area'', ''defined'') | list %}
 
-              {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
-      - type: grid
+            {% set names = names or (rows | map(attribute=''attributes.area'') | unique | sort | list) %}
+
+            {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
+
+            {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**{% if s.attributes.occupied_now %} · 🧑 {{ s.attributes.people_now if s.attributes.people_now is not none else ''occupied'' }}{% elif s.attributes.occupied_now is not none %} · empty{% endif %}{% if s.state not in (''unknown'', ''unavailable'') %} · {{ s.state }} % today{% endif %}
+
+            {% for h in range(6, 22) %}{% set p = s.attributes.hourly_today[h] %}{{ ''⬜'' if p is none else (''🟥'' if p >= 75 else (''🟧'' if p >= 50 else (''🟨'' if p >= 25 else (''🟩'' if p > 0 else ''⬛'')))) }}{% endfor %}
+
+
+            {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
+
+            '
+      - heading: Occupancy yesterday
+        icon: mdi:account-clock-outline
         cards:
-          - type: heading
-            heading: Utilisation today (opening hours)
-            icon: mdi:chart-donut
-          - type: custom:milesight-table-card
-            preset: utilisation
-            title: false
-            grid_options: {columns: full}
+        - type: markdown
+          content: '{% set names = [] %}
+
+            {% set rows = states.sensor | selectattr(''attributes.hourly_yesterday'', ''defined'') | selectattr(''attributes.area'', ''defined'') | list %}
+
+            {% set names = names or (rows | map(attribute=''attributes.area'') | unique | sort | list) %}
+
+            {% if not rows %}No occupancy data yet – people counters, PIR and desk sensors in an area fill this in.{% else %}
+
+            {% for n in names %}{% for s in rows if s.attributes.area == n %}**{{ s.attributes.area }}**
+
+            {% for h in range(6, 22) %}{% set p = s.attributes.hourly_yesterday[h] %}{{ ''⬜'' if p is none else (''🟥'' if p >= 75 else (''🟧'' if p >= 50 else (''🟨'' if p >= 25 else (''🟩'' if p > 0 else ''⬛'')))) }}{% endfor %}
+
+
+            {% endfor %}{% endfor %}<small>06:00 → 21:00, one square per hour · ⬛ empty · 🟩 <25 % · 🟨 25–50 % · 🟧 50–75 % · 🟥 >75 % · ⬜ no data</small>{% endif %}
+
+            '
+      - heading: Utilisation today (opening hours)
+        icon: mdi:chart-donut
+        cards:
+        - type: custom:milesight-table-card
+          preset: utilisation
+          title: false
