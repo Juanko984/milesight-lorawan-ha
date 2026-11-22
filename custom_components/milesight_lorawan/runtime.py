@@ -1120,7 +1120,7 @@ class DeviceRuntime:
         primary = next((m for m in metrics if m["key"] in ("vaping_index", "nh3")), metrics[0] if metrics else None)
         return {
             "milesight_role": "gas_monitor", "device": self.entry.title, "area": self._area(),
-            "model": self.model.key, "metrics": metrics, "states": states,
+            "purpose": self._pkey, "model": self.model.key, "metrics": metrics, "states": states,
             "primary": primary["key"] if primary else None, "last_seen": self.meta.get("last_seen"),
         }
 

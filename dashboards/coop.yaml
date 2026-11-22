@@ -57,6 +57,19 @@ views:
         column_span: 3
         cards:
           - type: heading
+            heading: Air quality — ammonia & odour
+            icon: mdi:scent
+          # A GS301 odour detector in the coop (NH₃ / H₂S): each gas is a chip that drives the trend, with the odour
+          # level. Ammonia from droppings is the key coop air-quality risk, so this sits right under Climate. Found by
+          # the coop area OR a coop purpose; hides itself when there is no gas detector here.
+          - type: custom:milesight-gas-card
+            area: Chicken coop
+            purpose: coop_climate
+            grid_options: {columns: full}
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
             heading: CO₂ trend
             icon: mdi:molecule-co2
           # One trendline per CO₂ sensor in the coop — flashes when CO₂ climbs over its limit. Found by the coop

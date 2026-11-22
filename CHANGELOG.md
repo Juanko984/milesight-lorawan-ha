@@ -2,6 +2,16 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.161.0
+- **Fixes the coop "Controller readings" card showing "Configuration error".** The card bundle is cache-busted by
+  the integration version; shipping it meant the browser needed a fresh version number to re-fetch the JS that
+  defines the new UC300 card. Updating to 0.161.0 and reloading clears it.
+- **GS301 odour detector now shows on the coop page — ammonia (NH₃) & H₂S.** New "Air quality — ammonia & odour"
+  section, right under Climate, using the gas-detector card: each gas is a chip that drives a trend, with the odour
+  level. The gas card is now area/purpose-scoped (like the other coop cards), so a GS301 put in the Chicken coop
+  area shows here. Ammonia from droppings is the main coop air risk, and an NH₃ rule can already drive an extractor
+  fan from the coop controls.
+
 ## 0.160.0
 - **New UC300 / UC50x "Controller readings" widget**, modelled on the air-quality card: every PT100 temperature
   and 4-20 mA / 0-10 V analog input (and any pulse counter) is a chip — tap one and the trendline below switches
