@@ -3102,6 +3102,11 @@ class DeviceRuntime:
         self._purpose_values(v, ts)
         for option, val in _setpoints.device_values(self).items():
             v[_setpoints.key(option)] = val
+        # every self-discovering widget shows a "last updated" time top-right: make sure each role carries last_seen
+        _ls = self.meta.get("last_seen")
+        for _role in self.attrs.values():
+            if isinstance(_role, dict) and _role.get("milesight_role") and _role.get("last_seen") is None:
+                _role["last_seen"] = _ls
         self.values = v
         sig = tuple(sorted(device_alerts(self.entry.title, self.deveui, v)))
         if sig != self._alert_sig:

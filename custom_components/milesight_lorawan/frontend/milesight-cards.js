@@ -7876,7 +7876,10 @@
         h("div", { class: "suic " + status }, [h("ha-icon", { icon: "mdi:paper-roll" })]),
         h("div", { class: "ahl" }, [h("div", { class: "ahn" }, esc(a.device || "Dispenser")),
           h("div", { class: "ahs" }, esc((a.model || "WS201") + (a.area ? " · " + a.area : "")))]),
-        a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "15px" } }), " " + Math.round(a.battery) + "%"]) : null,
+        h("span", { class: "sumeta" }, [
+          a.battery != null ? h("span", { class: "abat" }, [h("ha-icon", { icon: "mdi:battery", style: { "--mdc-icon-size": "14px" } }), " " + Math.round(a.battery) + "%"]) : null,
+          h("span", { class: "sudot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
+        ]),
       ]);
       const badge = h("div", { class: "subadge " + status }, [h("span", { class: "d" }),
         status === "out" ? "Replace now" : status === "low" ? "Low" : "In stock"]);
@@ -7902,6 +7905,9 @@
         .ahl{flex:1 1 auto;min-width:0} .ahn{font-size:14px;font-weight:650;color:var(--ms-ink);line-height:1.1}
         .ahs{font-size:11.5px;color:var(--ms-ink2);margin-top:1px}
         .abat{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:2px;flex:0 0 auto}
+        .sumeta{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+        .sudot{font-size:10.5px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px}
+        .sudot i{width:6px;height:6px;border-radius:50%;background:var(--ms-good);display:inline-block}
         .suhero{display:flex;align-items:center;gap:15px;margin:11px 0 4px}
         .subig{font-size:29px;font-weight:740;color:var(--ms-ink);line-height:1} .subig small{font-size:13px;color:var(--ms-ink2);font-weight:600}
         .subig.low{color:var(--ms-warn)} .subig.out{color:var(--ms-bad)}

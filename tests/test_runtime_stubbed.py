@@ -1368,7 +1368,8 @@ assert mgr.cfg.action_title == "Start pump"
 for gid in hb.stats.gateways:                         # keep the gateways out of this test
     hb.stats.gateways[gid]["last_heard"] = time.time()
 asyncio.run(mgr._run())
-sent = [c for c in CALLS if c[1] == "mobile_app_juan"]
+sent = [c for c in CALLS if c[1] == "mobile_app_juan"
+        and not c[2].get("title", "").startswith("Weekly alert summary")]   # the weekly summary is tested below
 assert len(sent) == 1 and sent[0][2]["title"] == "Tank low – Diesel tank", CALLS
 acts = sent[0][2]["data"]["actions"]
 assert acts[2]["title"] == "Start pump" and acts[0]["action"].startswith("MSL_ACK_")
@@ -2609,17 +2610,11 @@ assert isinstance(fr.values["temp_in_range_7d"], (int, float)) or fr.values["tem
 dl = load("dashboard_live")
 eid = lambda plat, uid: f"{plat}.{uid}"
 hubobj = types.SimpleNamespace(entry=types.SimpleNamespace(entry_id="hubX", title="Site"))
-cv = dl.cold_chain_views(eid, [fr, rt], [hubobj])
-assert [v["path"] for v in cv] == ["overview", "units", "trends", "compliance", "compressors"], [v["path"] for v in cv]
-flat = json.dumps(cv)
-assert "statistics-graph" in flat                                             # trends still use statistics graphs
-assert "custom:milesight-coldchain-band" in flat and "custom:milesight-compliance-card" in flat   # modern self-discovering cards
-assert "custom:milesight-table-card" in flat and "Kitchen" in flat and "Pump W" not in flat
-# every generated cold-chain view carries the page header
-assert all(any(c.get("type") == "custom:milesight-page-header" for s in v["sections"] for c in s["cards"]) for v in cv)
-cfg = dl.with_live_view("cold_chain.yaml", {"views": [{"title": "Table"}]}, eid, [fr], [hubobj])
-assert cfg["views"][0]["path"] == "overview"                                  # generated views replace the bundled ones
-assert all(v.get("title") != "Table" for v in cfg["views"])                   # the bundled placeholder view is dropped
+# cold storage is now a single bundled page (coldchain-band, units table, trends, probes, compressors, compliance)
+# built from self-discovering widgets — no generated Units / Trends tabs. with_live_view leaves the bundled config.
+assert "cold_chain.yaml" not in dl.VIEWS
+cfg = dl.with_live_view("cold_chain.yaml", {"views": [{"title": "Overview", "path": "cold-chain"}]}, eid, [fr], [hubobj])
+assert [v["title"] for v in cfg["views"]] == ["Overview"]                      # the bundled single page is used as-is
 
 # compliance manager end to end with a stubbed recorder
 import tempfile, time as _time

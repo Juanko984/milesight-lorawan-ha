@@ -335,142 +335,7 @@ REPORTS_MD = """{% set r = state_attr('{e}', 'reports') or [] %}{% if not r %}No
 🟢 compliant · 🟠 excursions with a corrective action recorded · 🔴 needs attention (excursion without an action, or data missing){% endif %}
 {% if state_attr('{e}', 'email') %}E-mailed with {{ state_attr('{e}', 'email') | join(', ') }}.{% else %}Not e-mailed yet: gateway → Configure → *Cold-chain compliance reports*.{% endif %}"""
 
-LOG_MD = """{% set a = states['{e}'].attributes if states['{e}'] is defined else {} %}| Day | Min | Max | Out of range | Excursions |
-|---|---|---|---|---|
-{% for d in (a.log or [])[-14:] | reverse %}| {{ d.day }} | {{ d.min }} °C | {{ d.max }} °C | {{ d.out_min }} min | {{ d.excursions }} |
-{% endfor %}"""
-
-
-def _cold_units(runtimes: list) -> list:
-    return sorted([rt for rt in runtimes if getattr(getattr(rt, "purpose", None), "group", None) == "cold_chain"
-                   and getattr(rt, "tempw", None) is not None],
-                  key=lambda rt: ((rt.entry.data.get("area") or "~").lower(), rt.entry.title.lower()))
-
-
-def _cold_temp(eid: Resolver, rt: Any) -> str | None:
-    key = "temperature" if "temperature" in rt.raw or "temperature_1" not in rt.raw else "temperature_1"
-    return _e(eid, rt, "sensor", key)
-
-
-def _cold_gauge(eid: Resolver, rt: Any, cols: int = HALF, name: str | None = None) -> dict | None:
-    lo, hi = rt.pcfg.get("temp_low"), rt.pcfg.get("temp_high")
-    if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)):
-        return _tile(_cold_temp(eid, rt), name or rt.entry.title, None, cols)
-    span = max(4, hi - lo)
-    return _gauge(_cold_temp(eid, rt), name or rt.entry.title, lo - span, hi + span,
-                  [(lo - span, BLUE), (lo, GREEN), (hi, RED)], unit="°C", cols=cols)
-
-
-def _stats(entities: list, title: str, days: int, period: str) -> dict | None:
-    ents = [e for e in entities if e]
-    if not ents:
-        return None
-    return _g({"type": "statistics-graph", "title": title, "entities": ents, "days_to_show": days,
-               "period": period, "stat_types": ["min", "mean", "max"], "chart_type": "line"}, FULL)
-
-
-def _press(entity: str | None, name: str, icon: str) -> dict | None:
-    if not entity:
-        return None
-    return _g({"type": "tile", "entity": entity, "name": name, "icon": icon, "hide_state": True,
-               "tap_action": {"action": "perform-action", "perform_action": "button.press",
-                              "target": {"entity_id": entity}, "confirmation": {"text": f"{name}?"}}}, HALF)
-
-
-def cold_chain_views(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
-    """Cold storage: Overview (status, alarms, every unit at a glance by area), Units (detail), Trends (7 / 30
-    days min-mean-max) and Compliance (reports, corrective actions, daily log)."""
-    units = _cold_units(runtimes)
-    if not units:
-        return []
-    areas: dict[str, list] = {}
-    for rt in units:
-        areas.setdefault(rt.entry.data.get("area") or "Other", []).append(rt)
-
-    # modern Overview: self-discovering status band + the units table + the day-log (no entity ids needed)
-    overview = [
-        _section("Cold chain status", [{"type": "custom:milesight-coldchain-band", "grid_options": {"columns": "full"}}],
-                 "mdi:snowflake-thermometer", span=4),
-        _section("Units", [{"type": "custom:milesight-table-card", "preset": "cold_chain", "title": False, "grid_options": {"columns": "full"}},
-                           {"type": "custom:milesight-coldlog-card", "title": False, "grid_options": {"columns": "full"}}],
-                 "mdi:fridge-outline", span=4),
-    ]
-    for area, rts in areas.items():
-        cards = []
-        for rt in rts:
-            cards += [_cold_gauge(eid, rt, HALF),
-                      _g({"type": "vertical-stack", "cards": [c for c in (
-                          {"type": "tile", "entity": _e(eid, rt, "binary_sensor", "temp_alarm"), "name": "Alarm",
-                           "icon": "mdi:thermometer-alert"} if _e(eid, rt, "binary_sensor", "temp_alarm") else None,
-                          {"type": "tile", "entity": _e(eid, rt, "sensor", "temp_in_range_7d"), "name": "In range 7 d"}
-                          if _e(eid, rt, "sensor", "temp_in_range_7d") else None,
-                          {"type": "tile", "entity": _e(eid, rt, "binary_sensor", "door_active"), "name": "Door"}
-                          if _e(eid, rt, "binary_sensor", "door_active") else None,
-                          {"type": "tile", "entity": _e(eid, rt, "sensor", "load_duty_24h"), "name": "Compressor 24 h"}
-                          if _e(eid, rt, "sensor", "load_duty_24h") else None) if c]}, HALF)]
-        overview.append(_section(area, cards, "mdi:texture-box"))
-
-    detail = []
-    for rt in units:
-        temp = _cold_temp(eid, rt)
-        lo, hi = rt.pcfg.get("temp_low"), rt.pcfg.get("temp_high")
-        detail.append(_section(rt.entry.title, [
-            _cold_gauge(eid, rt, FULL, "Temperature"),
-            _md(f"**Allowed** {'' if lo is None else lo} … {'' if hi is None else hi} °C · alarm after "
-                f"{rt.pcfg.get('temp_delay_min') or 0} min out of range"
-                + (f" · {rt.entry.data['area']}" if rt.entry.data.get("area") else "")),
-            _tile(_e(eid, rt, "sensor", "temp_out_today"), "Out of range today", cols=HALF),
-            _tile(_e(eid, rt, "sensor", "temp_excursions_today"), "Excursions today", cols=HALF),
-            _tile(_e(eid, rt, "binary_sensor", "door_active"), "Door", cols=HALF),
-            _tile(_e(eid, rt, "sensor", "door_today_s"), "Door open today", cols=HALF),
-            _tile(_e(eid, rt, "binary_sensor", "load_active"), "Compressor", cols=HALF),
-            _tile(_e(eid, rt, "sensor", "load_duty_24h"), "Compressor duty 24 h", cols=HALF),
-            _history([temp, _e(eid, rt, "binary_sensor", "door_active")], "Last 24 h"),
-            *_setpoint_tiles(eid, rt, ["p_temp_low", "p_temp_high", "p_left_open_min"]),
-            _tile(_e(eid, rt, "sensor", "battery"), "Battery", cols=HALF),
-            _tile(_e(eid, rt, "binary_sensor", "online") or _e(eid, rt, "sensor", "last_seen"), "Online", cols=HALF),
-        ], getattr(rt.purpose, "icon", None) or "mdi:fridge-outline"))
-
-    trends = []
-    for rt in units:
-        temp = _cold_temp(eid, rt)
-        trends.append(_section(rt.entry.title, [
-            _stats([temp], "Hourly min / mean / max – 7 days", 7, "hour"),
-            _stats([temp], "Daily min / mean / max – 30 days", 30, "day"),
-            _history([_e(eid, rt, "sensor", "temp_in_range_7d")], "Time in range, 7 days (%)", 24 * 7),
-        ], "mdi:chart-bell-curve-cumulative"))
-
-    # Compliance: the self-discovering card (time in range, one-tap PDF reports, corrective actions, recent reports)
-    comp = []
-    if any(eid("sensor", f"{hub.entry.entry_id}_compliance_reports") for hub in hubs):
-        comp.append(_section("Compliance", [{"type": "custom:milesight-compliance-card", "title": False,
-                                             "grid_options": {"columns": "full"}}], "mdi:file-certificate-outline", span=4))
-        for rt in units:                               # the per-unit daily log stays as a drill-down
-            e = _e(eid, rt, "sensor", "temp_out_today")
-            if e:
-                comp.append(_section(f"{rt.entry.title} – daily log", [_md(LOG_MD.replace("{e}", e))],
-                                     "mdi:notebook-outline"))
-
-    compressors = [_section("Compressors", [{"type": "custom:milesight-table-card", "preset": "compressors",
-                                             "title": False, "grid_options": {"columns": "full"}}],
-                            "mdi:heat-pump-outline", span=4)]
-
-    _SUB = {"Overview": "Every fridge and freezer at a glance", "Units": "Temperature, door and compressor per unit",
-            "Trends": "7- and 30-day min / mean / max", "Compliance": "Time in range, PDF reports and corrective actions",
-            "Compressors": "Compressor duty and short-cycling"}
-
-    def view(title: str, path: str, icon: str, sections: list) -> dict | None:
-        sections = [x for x in sections if x]
-        return {"type": "sections", "title": title, "path": path, "icon": icon, "max_columns": 4,
-                "sections": [_header(title, icon, _SUB.get(title))] + sections} if sections else None
-    return [v for v in (view("Overview", "overview", "mdi:view-dashboard-outline", overview),
-                        view("Units", "units", "mdi:fridge-outline", detail),
-                        view("Trends", "trends", "mdi:chart-line", trends),
-                        view("Compliance", "compliance", "mdi:file-certificate-outline", comp),
-                        view("Compressors", "compressors", "mdi:heat-pump-outline", compressors)) if v]
-
-
-VIEWS = {"cold_chain.yaml": cold_chain_views}     # builders that make several tabs in front of the bundled ones
+VIEWS: dict = {}     # no generated cold-chain tabs: the bundled cold_chain.yaml is one page
 
 
 def energy_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
@@ -593,7 +458,9 @@ def retail_cards(eid: Resolver, runtimes: list, hubs: list) -> list[dict]:
     return out
 
 
-BUILDERS = {"farm.yaml": farm_cards, "tanks_and_alerts.yaml": tank_cards, "cold_chain.yaml": cold_chain_cards,
+# cold_chain.yaml is intentionally not here: it is a single self-contained page (no prepended 'Live' tab).
+# cold_chain_cards is still used by the site landing page below.
+BUILDERS = {"farm.yaml": farm_cards, "tanks_and_alerts.yaml": tank_cards,
             "energy.yaml": energy_cards, "building_analytics.yaml": analytics_cards, "retail.yaml": retail_cards}
 
 # Dashboards whose bundled view is itself the command-center Overview: the generated "Live" tab goes AFTER it

@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.168.0
+- **Cold storage is now one page**, like the Coop and Building pages: a single Overview built from the
+  self-discovering widgets (status band, units table, temperature trends, probes, environment, compressors and
+  compliance), inside the Packed ⇄ Rows layout. The old Units / Trends / Compliance / Compressors tabs and the
+  entity-id "Live" tab are gone.
+- **Every per-device widget shows a "last updated" time top-right.** Each device role now carries its `last_seen`,
+  so cards that showed "—" (level/tank model) or nothing (WS201 supplies) now show e.g. "2m ago" consistently.
+
 ## 0.167.0
 - **Fit-for-purpose overhaul.** The purpose picker now matches a device's **primary role**, not any incidental
   channel — so an AM107 air monitor no longer offers Fridge / Silo / Pool just because it reads temperature, and a

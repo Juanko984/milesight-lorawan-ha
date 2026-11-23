@@ -1,7 +1,8 @@
 # Milesight LoRaWAN – cold storage (fridges, freezers, cold rooms)
 # Installed by the integration when a device is fitted to a fridge / freezer (device → Configure → Purpose).
 # The cards find the probes, door contacts and compressor clamps themselves – no entity ids to edit.
-# The integration adds Units (per-unit gauges) and Trends tabs in front of these when it generates the dashboard.
+# One page, like the Coop and Building pages: a page header, then every section inside one dynamic-layout card
+# (Packed ⇄ Rows toggle, top-right). Compliance and compressor duty are sections here now, not separate tabs.
 title: Cold storage
 views:
 - title: Overview
@@ -14,27 +15,23 @@ views:
     column_span: 3
     cards:
     - type: custom:milesight-page-header
-      grid_options:
-        columns: full
+      grid_options: {columns: full}
       title: Cold storage
-      subtitle: Temperatures, excursions and compliance
+      subtitle: Temperatures, excursions, compliance and compressor duty
       icon: mdi:snowflake-thermometer
   - type: grid
     column_span: 3
     cards:
     - type: custom:milesight-recipe-strip-card
-      category:
-      - cold_chain
-      grid_options:
-        columns: full
+      category: [cold_chain]
+      grid_options: {columns: full}
   - type: grid
     column_span: 3
     cards:
     - type: custom:milesight-dynamic-layout
       id: cold_chain-cold-chain
       default: packed
-      grid_options:
-        columns: full
+      grid_options: {columns: full}
       sections:
       - heading: Cold chain status
         icon: mdi:snowflake-thermometer
@@ -62,56 +59,17 @@ views:
         icon: mdi:home-thermometer
         cards:
         - type: custom:milesight-environment-card
-- title: Compliance
-  path: compliance
-  icon: mdi:file-certificate-outline
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    column_span: 3
-    cards:
-    - type: custom:milesight-page-header
-      grid_options:
-        columns: full
-      title: Compliance
-      subtitle: Time in range, PDF reports and corrective actions
-      icon: mdi:file-certificate-outline
-  - type: grid
-    column_span: 3
-    cards:
-    - type: custom:milesight-compliance-card
-      title: false
-      grid_options:
-        columns: full
-- title: Compressors
-  path: compressors
-  icon: mdi:heat-pump-outline
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    column_span: 3
-    cards:
-    - type: custom:milesight-page-header
-      grid_options:
-        columns: full
-      title: Compressors
-      subtitle: Compressor duty and short-cycling
-      icon: mdi:heat-pump-outline
-  - type: grid
-    column_span: 3
-    cards:
-    - type: custom:milesight-table-card
-      preset: compressors
-      title: false
-      grid_options:
-        columns: full
-    - type: markdown
-      grid_options:
-        columns: full
-      content: '<small>A compressor at 90–100 % duty or never stopping means it cannot keep up (door, seals, gas,
-
-        condenser); one that has not run for hours has tripped or failed.</small>
-
-        '
+      - heading: Compressors
+        icon: mdi:heat-pump-outline
+        # Compressor duty and short-cycling (CT clamps fitted to a fridge / freezer). 90–100 % duty or never
+        # stopping means it can't keep up (door, seals, gas, condenser); hours with no run means it has tripped.
+        cards:
+        - type: custom:milesight-table-card
+          preset: compressors
+          title: false
+      - heading: Compliance
+        icon: mdi:file-certificate-outline
+        # Time in range, PDF reports and corrective actions.
+        cards:
+        - type: custom:milesight-compliance-card
+          title: false
