@@ -282,14 +282,31 @@ def _float_box(lo: float, hi: float, unit: str | None = None, step: Any = "any")
     return NumberSelector(cfg)
 
 
-def _purpose_selector(model: str | None = None, load_only: bool = False) -> SelectSelector:
-    """Purposes for the model (all when the model is not known yet, or the model matches none), grouped by group."""
+def _purpose_items(model: str | None, load_only: bool = False) -> list:
     items = (purposes_for(model) or list(_purposes.PURPOSES.values())) if model else list(_purposes.PURPOSES.values())
     if load_only:
         items = [p for p in items if "load" in p.families and (p.key in _purposes.LOAD_ANALYTICS or p.key == "pump")]
+    return items
+
+
+def _purpose_selector(model: str | None = None, load_only: bool = False, industry: str | None = None,
+                      keep: str | None = None) -> SelectSelector:
+    """Purposes for the model (all when the model is unknown or matches none), optionally filtered to one industry.
+    `keep` is the device's current purpose, always kept in the list so it stays a valid selection when filtering."""
+    items = _purpose_items(model, load_only)
+    if industry and industry not in (None, "", "all"):
+        items = [p for p in items if _purposes.industry_of(p.key) == industry or p.key == keep]
     opts = [{"value": "none", "label": "– not set –"}] + [
         {"value": p.key, "label": f"{p.label}" + (f"  ·  {_purposes.GROUPS[p.group][0].split('· ')[1]}"
                                                    if p.group else "")} for p in items]
+    return SelectSelector(SelectSelectorConfig(options=opts, mode=SelectSelectorMode.DROPDOWN))
+
+
+def _industry_selector(model: str | None) -> SelectSelector:
+    """An optional 'industry / sector' filter for the purpose picker, listing only the sectors the device can serve."""
+    inds = _purposes.industries_for(_purpose_items(model))
+    opts = [{"value": "all", "label": "All sectors — show every purpose"}] + [
+        {"value": k, "label": _purposes.INDUSTRIES[k]} for k in inds]
     return SelectSelector(SelectSelectorConfig(options=opts, mode=SelectSelectorMode.DROPDOWN))
 
 
@@ -1499,10 +1516,15 @@ class MilesightOptionsFlow(OptionsFlow):
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
         chans = load_channels(model)
         keys = ["purpose"] + [f"purpose_{n}" for n in range(1, chans + 1)]
+        cur = entry.options.get("purpose", entry.data.get("purpose")) or "none"
         if user_input is not None:
+            sector = user_input.get("industry", "all")
+            # changing the sector filter just re-renders the picker — it is not a save
+            if sector != getattr(self, "_pick_industry", None):
+                self._pick_industry = sector
+                return self._show_purpose_form(model, chans, cur, user_input.get("purpose") or cur)
             data = {k: v for k, v in entry.options.items() if k not in keys}
-            changed = (user_input.get("purpose") or "none") != \
-                (entry.options.get("purpose", entry.data.get("purpose")) or "none")
+            changed = (user_input.get("purpose") or "none") != cur
             for k in keys:
                 data[k] = user_input.get(k) or "none"
             if changed:                                    # a new purpose starts from its own defaults
@@ -1511,10 +1533,18 @@ class MilesightOptionsFlow(OptionsFlow):
             if _purposes.setting_fields(data.get("purpose"), families(model)):
                 return await self.async_step_purpose_settings()
             return self.async_create_entry(data=data)
-        cur = entry.options.get("purpose", entry.data.get("purpose")) or "none"
-        schema = {vol.Required("purpose", default=cur): _purpose_selector(model)}
-        for n in range(1, chans + 1):
-            schema[vol.Required(f"purpose_{n}", default=entry.options.get(f"purpose_{n}") or "none")] = \
+        # first render: pre-filter to the current purpose's sector (so it opens on what it is already set to)
+        self._pick_industry = _purposes.industry_of(cur) if cur != "none" else "all"
+        return self._show_purpose_form(model, chans, cur, cur)
+
+    def _show_purpose_form(self, model, chans, cur, purpose_default):
+        sector = getattr(self, "_pick_industry", "all")
+        schema = {}
+        if chans == 0:                                     # single-purpose devices get the sector filter
+            schema[vol.Optional("industry", default=sector)] = _industry_selector(model)
+        schema[vol.Required("purpose", default=purpose_default)] = _purpose_selector(model, industry=sector, keep=cur)
+        for n in range(1, chans + 1):                      # multi-channel clamps: one load purpose per channel
+            schema[vol.Required(f"purpose_{n}", default=self.config_entry.options.get(f"purpose_{n}") or "none")] = \
                 _purpose_selector(model, load_only=True)
         return self.async_show_form(step_id="purpose", data_schema=vol.Schema(schema),
                                     description_placeholders={"model": model})

@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.167.0
+- **Fit-for-purpose overhaul.** The purpose picker now matches a device's **primary role**, not any incidental
+  channel — so an AM107 air monitor no longer offers Fridge / Silo / Pool just because it reads temperature, and a
+  door sensor stops offering silo/pipe/pool. Much shorter, more relevant lists.
+- **Industry / sector filter.** The purpose step has an optional **Industry** dropdown (Agriculture, Poultry, Cold
+  chain, Buildings, Facilities, Retail, Water, Energy, Industrial, Security, Logistics, Weather) that trims the
+  "Fitted to" list to that sector; "All sectors" shows everything the device can do.
+- **~20 new purposes.** Poultry/livestock (incubator, brooder, barn), growing (greenhouse climate, grow room,
+  compost), energy & backup (EV charger, generator, solar inverter, boiler/plant room), storage & industrial (wine
+  cellar / humidor, process/chemical tank, dust / PM air quality, parking bay).
+- **Two device types now have purposes they lacked:** the **WS302 sound sensor** → machine / plant noise and
+  workplace / nuisance noise; the **EM500-PP pressure sensor** → water main / large-pipe pressure, steam pressure
+  and compressed-air pressure.
+
 ## 0.166.0
 - **Packed ⇄ Rows layout rolled out to every dashboard.** The space-filling masonry toggle now covers all the
   multi-section pages (Farm, Water, Energy, Cold chain, Building, Devices, Maintenance, Retail, Washroom, Alerts),

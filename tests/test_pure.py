@@ -1428,10 +1428,30 @@ def test_purposes_catalogue():
     # the EM500 / level range offers tank & level purposes (fit-for-purpose, not just the Tank section)
     for _m in ("EM500-UDL", "EM500-SWL", "EM310-UDL", "EM410-RDL", "EM400-UDL"):
         assert {"water_tank", "fuel_tank", "silo", "flood"} <= {p.key for p in mdl.purposes_for(_m)}, _m
-    assert mdl.purposes_for("EM500-PP") == []        # some sensors map to no purpose → selector falls back to the full list
+    assert mdl.purposes_for("WS558") == []           # a switch maps to no purpose → selector falls back to the full list
     # growth / yield: an overhead distance sensor (EM500-UDL / EM400-MUD) can be a crop-canopy or flock growth monitor
     for _m in ("EM500-UDL", "EM400-MUD", "EM400-UDL"):
         assert {"crop_growth", "flock_growth"} <= {p.key for p in mdl.purposes_for(_m)}, _m
+    # relevance: an air monitor that also reads temperature offers air / comfort purposes, not fridge / silo / pool
+    _am = {p.key for p in mdl.purposes_for("AM107")}
+    assert {"room", "meeting_room", "classroom", "coop_climate"} <= _am
+    assert not ({"fridge", "freezer", "silo", "pool", "pipe", "geyser"} & _am), _am
+    assert mdl.primary_family("AM107") == "air" and mdl.primary_family("EM300-MCS") == "contact"
+    # WS302 sound → noise purposes; EM500-PP pipe pressure → pressure purposes (water main, steam, compressed air)
+    assert {p.key for p in mdl.purposes_for("WS302")} == {"machine_noise", "noise_level"}
+    assert {p.key for p in mdl.purposes_for("EM500-PP")} == {"water_pressure", "steam_pressure", "compressed_air"}
+    assert "pressure" not in mdl.families("AM107")    # an AM board's barometric pressure is not the pipe-pressure family
+    # the new poultry / growing / energy purposes exist and sit in a sector
+    for _k in ("incubator", "brooder", "barn", "greenhouse_climate", "grow_room", "ev_charger", "generator",
+               "wine_cellar", "process_tank", "machine_noise", "water_pressure"):
+        assert _k in prp.PURPOSES, _k
+        assert prp.industry_of(_k) in prp.INDUSTRIES, _k
+    # every purpose is tagged to a known sector; the industry filter narrows a device's list
+    assert all(prp.industry_of(k) in prp.INDUSTRIES for k in prp.PURPOSES)
+    _ct = mdl.purposes_for("CT103")
+    assert {p.key for p in prp.for_industry(_ct, "energy")} == {"geyser", "lighting", "mains", "appliance",
+                                                                "ev_charger", "generator", "inverter"}
+    assert "poultry" in prp.industries_for(mdl.purposes_for("AM107"))
     assert prp.get("crop_growth").group == "growth" and prp.get("flock_growth").group == "growth"
     assert "growth" in prp.GROUPS
     for k, p in prp.PURPOSES.items():

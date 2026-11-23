@@ -18,6 +18,7 @@ GROUPS = {
     "tank": ("Milesight · Tank / silo", "mdi:storage-tank"),
     "irrigation": ("Milesight · Irrigation", "mdi:sprinkler-variant"),
     "growth": ("Milesight · Growth & yield", "mdi:sprout"),
+    "industrial": ("Milesight · Industrial", "mdi:factory"),
     "facilities": ("Milesight · Facilities", "mdi:broom"),
     "assets": ("Milesight · Assets & vehicles", "mdi:truck-fast"),
     "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
@@ -164,6 +165,36 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("daylight", "Daylight / light level", "comfort", "light", icon="mdi:white-balance-sunny"),
     _p("grow_light", "Grow light / greenhouse", "comfort", "light", icon="mdi:sprout"),
     _p("security_light", "Security / yard light level", "security", "light", icon="mdi:lightbulb-alert"),
+    # ---- poultry & livestock
+    _p("incubator", "Incubator / hatchery", "comfort", "temperature air", "Incubator", "mdi:egg-easter",
+       temp_low=37, temp_high=39, temp_delay_min=10),
+    _p("brooder", "Brooder (chick heat area)", "comfort", "temperature", icon="mdi:heat-wave",
+       temp_low=30, temp_high=35, temp_delay_min=15),
+    _p("barn", "Livestock barn / shed", "comfort", "temperature air motion", icon="mdi:barn", co2_limit=3000),
+    # ---- growing & greenhouse (climate, distinct from the soil purposes above)
+    _p("greenhouse_climate", "Greenhouse climate (air)", "comfort", "temperature air", icon="mdi:greenhouse",
+       co2_limit=1500),
+    _p("grow_room", "Grow room (indoor)", "comfort", "temperature air", icon="mdi:sprout-outline", co2_limit=1500),
+    _p("compost", "Compost / silage (temperature)", "comfort", "temperature", icon="mdi:leaf",
+       temp_high=70, temp_delay_min=60),
+    # ---- energy & backup
+    _p("ev_charger", "EV charger", "energy", "load", "Charger", "mdi:ev-station"),
+    _p("generator", "Generator / backup set", "energy", "load", "Generator", "mdi:engine-outline"),
+    _p("inverter", "Solar inverter / battery", "energy", "load", "Inverter", "mdi:solar-power"),
+    _p("plant_room", "Boiler / plant room", "energy", "temperature air", icon="mdi:water-boiler", temp_high=35),
+    # ---- storage & industrial climate
+    _p("wine_cellar", "Wine cellar / humidor", "comfort", "temperature", icon="mdi:bottle-wine",
+       temp_low=10, temp_high=15, temp_delay_min=120),
+    _p("process_tank", "Process / chemical tank", "tank", "level", icon="mdi:storage-tank", severity="critical"),
+    _p("dust_air", "Dust / air quality (PM)", "comfort", "air", icon="mdi:blur"),
+    _p("parking", "Parking bay / vehicle presence", "facilities", "motion", icon="mdi:parking"),
+    # ---- WS302 sound level
+    _p("machine_noise", "Machine / plant noise", "industrial", "sound", "Noise", "mdi:ear-hearing"),
+    _p("noise_level", "Workplace / nuisance noise", "facilities", "sound", "Noise", "mdi:volume-high"),
+    # ---- EM500-PP pipe / process pressure (water main, steam, compressed air)
+    _p("water_pressure", "Water pressure (main / large pipe)", "water", "pressure", "Pressure", "mdi:gauge"),
+    _p("steam_pressure", "Steam pressure", "industrial", "pressure", "Pressure", "mdi:kettle-steam"),
+    _p("compressed_air", "Compressed-air pressure", "industrial", "pressure", "Pressure", "mdi:air-filter"),
 )}
 
 SOIL_PURPOSES = ("field", "greenhouse", "garden")
@@ -172,7 +203,72 @@ COOP_PURPOSES = ("coop_drinker", "coop_feeder", "coop_door", "coop_climate", "co
 # retail: a staff / counter coverage zone (assigned to a people or occupancy sensor at the till)
 RETAIL_PURPOSES = ("counter_zone",)
 LOAD_ANALYTICS = ("fridge", "freezer", "air_compressor", "motor", "ac", "geyser", "lighting", "mains", "appliance",
-                  "washer")
+                  "washer", "ev_charger", "generator", "inverter")
+
+# Industry / sector — an optional first filter in the purpose picker so a device only shows the purposes for the
+# sector you work in. Catalogue order.
+INDUSTRIES = {
+    "agriculture": "Agriculture & farming",
+    "poultry": "Poultry & livestock",
+    "coldchain": "Cold chain & food",
+    "buildings": "Buildings & offices",
+    "facilities": "Facilities & washrooms",
+    "retail": "Retail",
+    "water": "Water & utilities",
+    "energy": "Energy & power",
+    "industrial": "Industrial & manufacturing",
+    "security": "Security & access",
+    "logistics": "Logistics & assets",
+    "weather": "Weather & environment",
+}
+_PURPOSE_INDUSTRY = {
+    "fridge": "coldchain", "freezer": "coldchain",
+    "pump": "water", "air_compressor": "industrial", "motor": "industrial",
+    "vibration": "industrial", "vibration_large": "industrial", "weather": "weather",
+    "soil": "agriculture", "liquid_level": "water",
+    "ac": "buildings", "geyser": "energy", "lighting": "energy", "mains": "energy", "appliance": "energy",
+    "door": "buildings", "window": "buildings", "gate": "security", "garage": "buildings",
+    "cabinet": "security", "lid": "water",
+    "room": "buildings", "meeting_room": "buildings", "classroom": "buildings", "warehouse": "industrial",
+    "server_room": "buildings", "pool": "facilities", "pipe": "water", "outdoor": "buildings",
+    "washer": "facilities", "basement": "water", "roof": "water", "water_tank": "water",
+    "water_trough": "agriculture", "fuel_tank": "energy", "silo": "agriculture", "bin": "facilities", "flood": "water",
+    "crop_growth": "agriculture", "flock_growth": "poultry",
+    "water_meter": "water", "electricity_meter": "energy", "gas_meter": "energy", "rain_gauge": "weather",
+    "counter": "industrial",
+    "desk": "buildings", "counter_zone": "retail", "toilet": "facilities", "intrusion": "security",
+    "electric_fence": "agriculture",
+    "panic": "security", "service": "facilities", "doorbell": "buildings", "scene": "buildings",
+    "asset": "logistics", "vehicle": "logistics", "livestock": "poultry", "pivot": "agriculture",
+    "field": "agriculture", "greenhouse": "agriculture", "garden": "agriculture",
+    "irrigation_valve": "agriculture", "water_valve": "water",
+    "coop_drinker": "poultry", "coop_feeder": "poultry", "coop_door": "poultry", "coop_climate": "poultry",
+    "coop_light": "poultry", "coop_controller": "poultry",
+    "daylight": "buildings", "grow_light": "agriculture", "security_light": "security",
+    "incubator": "poultry", "brooder": "poultry", "barn": "poultry",
+    "greenhouse_climate": "agriculture", "grow_room": "agriculture", "compost": "agriculture",
+    "ev_charger": "energy", "generator": "energy", "inverter": "energy", "plant_room": "energy",
+    "wine_cellar": "industrial", "process_tank": "industrial", "dust_air": "industrial", "parking": "logistics",
+    "machine_noise": "industrial", "noise_level": "facilities",
+    "water_pressure": "water", "steam_pressure": "industrial", "compressed_air": "industrial",
+}
+
+
+def industry_of(key: str | None) -> str:
+    return _PURPOSE_INDUSTRY.get(key or "", "buildings")
+
+
+def industries_for(purposes: list[Purpose]) -> list[str]:
+    """Distinct industries among a list of purposes, in catalogue order."""
+    present = {industry_of(p.key) for p in purposes}
+    return [k for k in INDUSTRIES if k in present]
+
+
+def for_industry(purposes: list[Purpose], industry: str | None) -> list[Purpose]:
+    """Keep only the purposes in the given industry; an empty / unknown industry keeps them all."""
+    if not industry or industry not in INDUSTRIES:
+        return purposes
+    return [p for p in purposes if industry_of(p.key) == industry]
 
 
 def get(key: str | None) -> Purpose | None:

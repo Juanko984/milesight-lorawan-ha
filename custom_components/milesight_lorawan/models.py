@@ -2065,11 +2065,36 @@ def families(model_key: str) -> frozenset[str]:
         out.add("valve")
     if model_key.startswith(("UC1", "UC3", "UC50", "UC51", "UC52")):   # RS485/Modbus controllers (vibration etc.)
         out.add("controller")
+    if "ws302" in f:                      # WS302 sound-level sensor → noise monitoring
+        out.add("sound")
+    if "pipe_pressure" in f:              # EM500-PP pipe / process pressure (water, steam, compressed air) — not the
+        out.add("pressure")               # barometric pressure an AM air monitor also reports
     return frozenset(out)
 
 
+# A device's primary role, most-defining family first. Used to keep the purpose list relevant: an air monitor that
+# happens to read temperature should offer room / comfort purposes, not fridge / silo / pool.
+_FAMILY_PRIORITY = ("tracker", "button", "valve", "controller", "sound", "pressure", "level", "contact", "leak",
+                    "soil", "air", "motion", "load", "light", "pulse", "temperature", "humidity")
+
+
+def primary_family(model_key: str) -> str | None:
+    fam = families(model_key)
+    for f in _FAMILY_PRIORITY:
+        if f in fam:
+            return f
+    return next(iter(fam), None)
+
+
 def purposes_for(model_key: str) -> list:
-    return _for_families(families(model_key))
+    """Purposes relevant to a device, led by its primary role. Falls back to the full family match when the primary
+    role alone offers too few (so niche devices are not starved), then to nothing (caller shows the full list)."""
+    prime = primary_family(model_key)
+    allfam = _for_families(families(model_key))
+    if prime is None:
+        return allfam
+    strong = [p for p in allfam if prime in p.families]
+    return strong if len(strong) >= 3 else allfam
 
 
 def load_channels(model_key: str) -> int:

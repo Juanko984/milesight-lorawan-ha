@@ -462,12 +462,14 @@
         "title": "Purpose",
         "description": "What is this {model} fitted to? The purpose sets the device's label (Milesight · Cold chain, · Security …), how its entities look (a contact as a window or gate, a fridge icon), default alarm limits, extra analytics (duty cycle, cold-chain log, bin fill …) and which dashboards it appears on.\n\nThe same purpose fits every sensor on one thing: the fridge's temperature probe, its door contact and the clamp on its compressor are all *Fridge / cold room*.",
         "data": {
+          "industry": "Industry / sector",
           "purpose": "Fitted to",
           "purpose_1": "Channel 1",
           "purpose_2": "Channel 2",
           "purpose_3": "Channel 3"
         },
         "data_description": {
+          "industry": "Optional: pick your sector to shorten the 'Fitted to' list to just that sector's purposes. Change it and submit to re-filter; 'All sectors' shows everything the device can do.",
           "purpose_1": "3-channel clamps: give a channel its own purpose when the channels measure different loads (leave 'not set' for a single 3-phase motor)."
         }
       },

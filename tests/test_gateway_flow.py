@@ -277,3 +277,31 @@ CALLS.clear()
 r = run(fl.async_step_gateway_configure({"host": "192.168.1.99", "username": "admin", "password": "pw", "mode": "lns"}))
 assert ("init", "192.168.1.99", "admin", "pw") in CALLS and r["reason"] == "gateway_configured"
 print("gateway flow ok")
+
+
+# ---- options flow: the purpose step's industry filter ----
+class _OF(cf.MilesightOptionsFlow):
+    def __init__(self, entry):
+        self._entry = entry
+    @property
+    def config_entry(self):
+        return self._entry
+    def async_show_form(self, step_id, data_schema=None, errors=None, description_placeholders=None):
+        return {"type": "form", "step_id": step_id, "schema": data_schema, "placeholders": description_placeholders}
+    def async_create_entry(self, data, **kw):
+        return {"type": "create_entry", "data": data}
+
+_am = types.SimpleNamespace(options={}, data={"entry_type": "device", "deveui": "x", "model": "AM107"})
+of = _OF(_am)
+r0 = run(of.async_step_purpose())                                  # first render, no purpose set
+assert r0["type"] == "form" and r0["step_id"] == "purpose" and of._pick_industry == "all"
+assert "industry" in r0["schema"].schema                          # single-purpose device gets the sector filter
+r1 = run(of.async_step_purpose({"industry": "poultry", "purpose": "none"}))   # change sector → re-render, no save
+assert r1["type"] == "form" and r1["step_id"] == "purpose" and of._pick_industry == "poultry"
+r2 = run(of.async_step_purpose({"industry": "poultry", "purpose": "coop_light"}))  # no settings → saves straight away
+assert r2["type"] == "create_entry" and r2["data"]["purpose"] == "coop_light"
+# a 3-channel clamp has no sector filter (each channel is a load purpose)
+of3 = _OF(types.SimpleNamespace(options={}, data={"entry_type": "device", "deveui": "z", "model": "CT303"}))
+rc = run(of3.async_step_purpose())
+assert "industry" not in rc["schema"].schema and "purpose_1" in rc["schema"].schema
+print("options purpose industry filter ok")
