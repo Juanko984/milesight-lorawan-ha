@@ -943,10 +943,11 @@ class MilesightOptionsFlow(OptionsFlow):
                                                                       "irrigation", "provisioning", "network_server",
                                                                       "connection"])
         model = entry.options.get(CONF_MODEL, entry.data[CONF_MODEL])
+        _growth = entry.options.get("purpose") in ("crop_growth", "flock_growth")
         sections = (["purpose"]                                  # fit-for-purpose is offered on every device
                     + (["channels", "channel_template"] if MODELS[model].dynamic else [])
-                    + (["tank"] if tank_source(model) else [])
-                    + (["growth"] if entry.options.get("purpose") in ("crop_growth", "flock_growth") else [])
+                    + (["tank"] if tank_source(model) and not _growth else [])   # growth monitors are not tanks
+                    + (["growth"] if _growth else [])
                     + (["pump"] if pump_capable(model) else []) + (["pivot"] if "at101" in MODELS[model].features else []))
         if _lns_hub(self.hass) is not None or entry.data.get(CONF_LNS_APP_KEY):
             sections.append("network_keys")

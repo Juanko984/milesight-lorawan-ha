@@ -2,6 +2,14 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.170.0
+- **A growth monitor is no longer also a tank.** When a UDL is set to Crop/Flock growth, the "Tank or silo" setup
+  step is hidden and all the tank behaviour is switched off — no Bin fill / Contents / Days-until-empty entities,
+  no Tank-refilled control, no "Tank / silo" label, and the install-height option is used only as the growth mount
+  height (which fixes the inflated canopy/flock height that came from reusing the tank's empty-distance).
+- **Flock / crop growth now supported on the EM310-UDL** (same overhead ultrasonic distance → height), alongside
+  the EM500-UDL and EM400-UDL / MUD.
+
 ## 0.169.0
 - **Coop tile on the Overview now shows real values.** It picked water vs feed by the device's name, so a tank
   named "EM400-MUD" showed "—". It now identifies them by what the tank holds / its coop purpose, and **adds an air

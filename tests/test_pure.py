@@ -1626,7 +1626,9 @@ def test_growth_settings_step_wired():
     when the purpose is crop/flock growth, with translated labels in both strings files."""
     src = (PKG / "config_flow.py").read_text(encoding="utf-8")
     assert "async def async_step_growth" in src                      # the dedicated step exists
-    assert '(["growth"] if entry.options.get("purpose") in ("crop_growth", "flock_growth")' in src  # menu offers it
+    assert '_growth = entry.options.get("purpose") in ("crop_growth", "flock_growth")' in src
+    assert '(["growth"] if _growth else [])' in src                  # the menu offers the growth step
+    assert 'tank_source(model) and not _growth' in src               # …and hides the tank/silo step for growth
     assert "CONF_GROWTH_TARGET_MM" in src and "CONF_INSTALL_HEIGHT_MM" in src
     for fn in ("strings.json", "translations/en.json"):
         data = json.loads((PKG / fn).read_text(encoding="utf-8"))

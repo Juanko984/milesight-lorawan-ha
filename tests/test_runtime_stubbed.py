@@ -1169,7 +1169,20 @@ assert _rt_g.values["growth_height"] == 84.0                                   #
 # the reset button clears the history and restarts day 0 from now
 _rt_g.growth_reset()
 assert _rt_g.meta.get("_growth", {}).get("log") in (None, []), _rt_g.meta.get("_growth")
-print("growth monitor role ok")
+# a growth monitor is NOT a tank: no tank config, tracker, tank role or tank/silo entity specs
+assert _rt_g.tank_cfg is None and _rt_g.tank is None, _rt_g.tank_cfg
+_gspec = {s.key for s in _rt_g.extra_specs()}
+assert not ({"tank_fill", "tank_volume", "tank_days_left", "tank_capacity"} & _gspec), _gspec
+assert "tank" not in models.device_tags("EM500-UDL", {"purpose": "crop_growth"})     # tags Growth, not Tank
+# flock growth also works on an EM310-UDL (same ultrasonic distance → height)
+_e310, _rt310 = make_with("00000000000e310g", "EM310-UDL",
+                          {"purpose": "flock_growth", "install_height_mm": 2000}, title="Coop roof", area="Chicken coop")
+send("00000000000e310g", bytes.fromhex("0382d003"))          # distance 0x03d0 = 976 mm → height 1024 mm = 102.4 cm
+_g310 = _rt310.attrs.get("growth")
+assert _g310 is not None and _g310["kind"] == "flock" and _g310["height_cm"] == 102.4, _g310
+assert _g310["distance_mm"] == 976 and _g310["mount_mm"] == 2000, _g310
+assert _rt310.tank_cfg is None
+print("growth monitor role ok (incl. EM310-UDL + tank suppression)")
 
 # EM500-SWL: submersible depth is the water column itself
 _, _sw = make_with("00000000000eem5sw", "EM500-SWL", {}, title="Borehole", area="Borehole 2")

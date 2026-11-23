@@ -324,7 +324,10 @@ class DeviceRuntime:
         self.link = LinkStats()
         self.display: dict[str, Any] = {}           # DS3604: {"sent": {tpl: {block: text}}, "reported": {...}}
         self.attrs: dict[str, dict[str, Any]] = {}  # extra state attributes per entity key
-        self.tank_src = tank_source(self.model.key)
+        # a growth monitor (overhead UDL over a crop / flock) is not a tank: suppress the tank/silo setup, entities,
+        # role and tag, and keep the install-height option as the growth mount height only.
+        _is_growth = entry.options.get("purpose") in ("crop_growth", "flock_growth")
+        self.tank_src = None if _is_growth else tank_source(self.model.key)   # keep the source key ("distance"/"depth")
         self.tank_cfg = tank_config(dict(entry.options)) if self.tank_src else None
         self.tank: TankTracker | None = None
         self.pump: PumpTracker | None = None
