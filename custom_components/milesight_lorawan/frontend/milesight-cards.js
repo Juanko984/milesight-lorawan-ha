@@ -2868,13 +2868,30 @@
       } },
     coop: { name: "Coop", icon: "mdi:egg", path: "/milesight-coop/coop",
       compute(S) {
-        const t = byRole(S, "tank").filter((x) => areaEq(x.attributes.area, "Chicken coop")); if (!t.length) return null;
-        const water = t.find((x) => /water|drink/i.test(x.attributes.device || "")), feed = t.find((x) => /feed/i.test(x.attributes.device || ""));
+        const inCoop = (x) => areaEq(x.attributes.area, "Chicken coop");
+        const t = byRole(S, "tank").filter(inCoop);
+        // air quality in the coop: CO₂ from a comfort sensor, else ammonia (NH₃) from a GS301 odour detector
+        const comfort = byAttr(S, "kind", "comfort").filter(inCoop)[0];
+        const gas = byRole(S, "gas_monitor").filter(inCoop)[0];
+        let airV = "—", airL = "air", airBad = false, airWarn = false;
+        if (comfort && num(comfort.attributes.co2) != null) {
+          const c = Math.round(num(comfort.attributes.co2)); airV = String(c); airL = "CO₂ ppm"; airBad = c > 3000; airWarn = c > 2000;
+        } else if (gas) {
+          const nh = (gas.attributes.metrics || []).find((m) => m.key === "nh3");
+          if (nh && nh.value != null) { const n = num(nh.value); airV = (+n.toFixed(1)).toString(); airL = "NH₃ ppm"; airBad = n > 25; airWarn = n > 15; }
+        }
+        if (!t.length && airV === "—") return null;
+        // water vs feed by what the tank holds / its coop purpose — not the device's name (an "EM400-MUD" is water)
+        const isFeed = (x) => x.attributes.is_silo || x.attributes.contents === "feed" || x.attributes.purpose === "coop_feeder"
+          || /feed/i.test(x.attributes.device || "");
+        const water = t.find((x) => !isFeed(x)), feed = t.find((x) => isFeed(x));
         const low = t.filter((x) => x.attributes.low);
-        return { bcls: low.length ? "warn" : "good", badge: low.length ? `${low.length} low` : "OK",
+        const bad = airBad, warn = low.length || airWarn;
+        return { bcls: bad ? "bad" : warn ? "warn" : "good", badge: bad ? "air" : low.length ? `${low.length} low` : "OK",
           metrics: [[water && num(water.attributes.fill) != null ? `${Math.round(num(water.attributes.fill))}%` : "—", "water"],
-                    [feed && num(feed.attributes.fill) != null ? `${Math.round(num(feed.attributes.fill))}%` : "—", "feed"]],
-          issue: low.length ? `${low[0].attributes.device || "A level"} low` : "Water & feed OK" };
+                    [feed && num(feed.attributes.fill) != null ? `${Math.round(num(feed.attributes.fill))}%` : "—", "feed"],
+                    [airV, airL, airBad ? "bad" : airWarn ? "warn" : ""]],
+          issue: airBad ? `${airL.split(" ")[0]} high` : low.length ? `${low[0].attributes.device || "A level"} low` : "Water, feed & air OK" };
       } },
   };
   function byRole(S, role) { const o = []; for (const id in S) if (id.startsWith("sensor.") && S[id].attributes.milesight_role === role) o.push(S[id]); return o; }
@@ -5680,6 +5697,10 @@
       const prim = props.find((p) => p.key === primary) || props[0];
       return prim ? prim.key : null;
     }
+    _toggle(entityId, on) {                                // manual override of a relay output (DO1 / DO2 …)
+      if (!this._hass || !entityId) return;
+      this._hass.callService("switch", on ? "turn_off" : "turn_on", { entity_id: entityId });
+    }
     _pick(roleId, key) {
       this._sel = this._sel || {}; this._sel[roleId] = key;
       try { localStorage.setItem("msUcMetric:" + roleId, key); } catch (e) { /* private */ }
@@ -5693,10 +5714,17 @@
           h("div", { class: "uhs" }, esc((a.model || "") + (a.area ? " · " + a.area : "")))]),
         h("span", { class: "udot" }, [h("i", {}), " " + ago(a.last_seen ? a.last_seen * 1000 : null)]),
       ]);
-      // digital inputs / relay outputs as a compact live state strip (not trended)
-      const io = (a.inputs || []).concat(a.outputs || []);
-      const strip = io.length ? h("div", { class: "uio" }, io.map((c) => h("div", { class: "uiopill" + (c.on ? " on" : "") }, [
-        h("i", {}), esc(c.label || c.name || c.key)]))) : null;
+      // digital inputs (read-only) + relay outputs (tap to toggle) as a compact live strip
+      const inputs = a.inputs || [], outputs = a.outputs || [];
+      const inPill = (c) => h("div", { class: "uiopill" + (c.on ? " on" : "") }, [h("i", {}), esc(c.label || c.name || c.key)]);
+      const outPill = (c) => h("div", {
+        class: "uiopill out" + (c.on ? " on" : "") + (c.entity_id ? " ctl" : ""),
+        title: c.entity_id ? "Tap to switch " + (c.on ? "off" : "on") : "read-only",
+        onclick: c.entity_id ? (() => this._toggle(c.entity_id, c.on)) : null,
+      }, [h("i", {}), esc(c.label || c.name || c.key),
+        c.entity_id ? h("ha-icon", { class: "uioswitch", icon: c.on ? "mdi:toggle-switch" : "mdi:toggle-switch-off-outline" }) : null]);
+      const strip = (inputs.length || outputs.length)
+        ? h("div", { class: "uio" }, [...inputs.map(inPill), ...outputs.map(outPill)]) : null;
       if (!props.length) {
         return h("div", { class: "ublock" }, [head, strip,
           h("div", { class: "umuted" }, "No analog readings or counters on this controller yet.")]);
@@ -5742,6 +5770,10 @@
         .uiopill i{width:7px;height:7px;border-radius:50%;background:var(--ms-ink2);display:inline-block}
         .uiopill.on{color:var(--ms-ink);border-color:color-mix(in srgb,var(--ms-good) 55%,var(--ms-line))}
         .uiopill.on i{background:var(--ms-good)}
+        .uiopill.out.ctl{cursor:pointer;transition:.12s;padding-right:6px}
+        .uiopill.out.ctl:hover{border-color:color-mix(in srgb,var(--ms-accent) 60%,var(--ms-line))}
+        .uiopill .uioswitch{--mdc-icon-size:17px;color:var(--ms-ink2);margin-left:1px}
+        .uiopill.on .uioswitch{color:var(--ms-good)}
         .uchips{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;margin:13px 0 2px}
         .uchip{border:1px solid var(--ms-line);border-radius:11px;padding:8px 10px;cursor:pointer;transition:.12s}
         .uchip:hover{border-color:color-mix(in srgb,var(--ms-ink) 25%,transparent)}

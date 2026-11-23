@@ -2,6 +2,13 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.169.0
+- **Coop tile on the Overview now shows real values.** It picked water vs feed by the device's name, so a tank
+  named "EM400-MUD" showed "—". It now identifies them by what the tank holds / its coop purpose, and **adds an air
+  tile** (CO₂ from a coop climate sensor, or ammonia NH₃ from a GS301) — flagging the system when air goes high.
+- **Manual override of UC relay outputs.** On the Controller-readings card, the **DO1 / DO2** output pills are now
+  tap-to-toggle switches (turn a relay on/off by hand); digital inputs stay read-only.
+
 ## 0.168.0
 - **Cold storage is now one page**, like the Coop and Building pages: a single Overview built from the
   self-discovering widgets (status band, units table, temperature trends, probes, environment, compressors and
