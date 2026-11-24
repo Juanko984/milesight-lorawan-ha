@@ -9820,6 +9820,402 @@
     }
   }
 
+  // ================================================================ short-stay / Airbnb property monitor
+  // Pure, unit-testable brains for the Property card. They take plain signal objects (no DOM / hass) so the
+  // same logic can be checked in Node (see tests/cards/property.test.cjs).
+  // Stay-state machine: Vacant → Checked in → Occupied → Checked out → Turnover, inferred from live sensors only
+  // (occupancy count/presence, how long occupied/empty, and the front-door contact). No booking system needed.
+  function msStayState(s) {
+    s = s || {};
+    const STATES = ["vacant", "checkin", "occupied", "checkout", "turnover"];
+    const occ = !!s.occupied, people = num(s.people);
+    const occS = num(s.occupiedS), emptyS = num(s.emptyS);
+    const doorOpen = !!s.doorOpen, doorSinceMin = num(s.doorSinceMin);
+    let key, label, sub;
+    if (occ) {
+      if (occS != null && occS < 3600) { key = "checkin"; label = "Checked in"; sub = "guest just arrived"; }
+      else { key = "occupied"; label = "Occupied"; sub = occS != null ? ("in for " + msDur(occS)) : "guest in"; }
+    } else if (doorOpen || (doorSinceMin != null && doorSinceMin < 20 && !occ)) {
+      key = "turnover"; label = "Turnover"; sub = "door active, nobody counted — cleaning / changeover";
+    } else if (emptyS != null && emptyS < 7200) {
+      key = "checkout"; label = "Checked out"; sub = "empty for " + msDur(emptyS);
+    } else {
+      key = "vacant"; label = "Vacant"; sub = emptyS != null ? ("empty for " + msDur(emptyS)) : "no guest";
+    }
+    const tone = (key === "occupied" || key === "checkin") ? "good" : key === "turnover" ? "warn" : "";
+    const peopleTxt = people != null ? (people + (people === 1 ? " guest in" : " guests in")) : label;
+    return { key, label, sub, tone, index: STATES.indexOf(key), states: STATES, peopleTxt };
+  }
+  function msDur(sec) {
+    const s = Math.max(0, Math.round(num(sec) || 0));
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m";
+    if (s < 86400) { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return m ? h + "h " + m + "m" : h + "h"; }
+    return Math.round(s / 86400) + "d";
+  }
+  // Party & smoking risk: blend sound level, CO₂ rise, occupancy-vs-booking and the vape sensor into one
+  // host-friendly 0–100 score. Any single strong signal (vaping, well over the booking, loud after hours) pushes
+  // the score into the danger band on its own — a party rarely trips every sensor at once.
+  function msPartyRisk(s) {
+    s = s || {};
+    const bars = [];
+    const push = (label, valueTxt, pct) => { pct = clamp(Math.round(pct), 0, 100); bars.push({ label, value: valueTxt, pct, tone: pct >= 67 ? "bad" : pct >= 40 ? "warn" : "good" }); return pct; };
+    // noise: quiet ≈ 40 dB, threshold (learned or 70) = full; after 22:00 the same level matters more
+    const db = num(s.noiseDb), thr = num(s.noiseThreshold) || 70;
+    let noise = 0;
+    if (db != null) { noise = (db - 40) / ((thr - 40) || 30) * 100; if (s.afterHours) noise *= 1.3; }
+    const noisePct = push("Noise", db != null ? Math.round(db) + " dB" : "—", db != null ? noise : 0);
+    // CO₂ rise (ppm/h) — a filling room; absolute CO₂ used as a fallback when no slope is known
+    const rise = num(s.co2Rise), co2 = num(s.co2);
+    let co2pct = 0, co2txt = "—";
+    if (rise != null) { co2pct = rise / 300 * 100; co2txt = (rise >= 0 ? "+" : "") + Math.round(rise) + " ppm/h"; }
+    else if (co2 != null) { co2pct = (co2 - 600) / 1400 * 100; co2txt = Math.round(co2) + " ppm"; }
+    co2pct = push("CO₂ rise", co2txt, co2pct);
+    // occupancy vs booking
+    const people = num(s.people), cap = num(s.capacity);
+    let occPct = 0, occTxt = people != null ? String(people) : "—";
+    if (people != null && cap) { occPct = people / cap * 60; if (people > cap) occPct = 60 + (people - cap) / cap * 80; occTxt = people + " / " + cap; }
+    else if (people != null) occPct = people * 12;
+    occPct = push("Occupancy", occTxt, occPct);
+    // vaping / smoking
+    const vapeOn = s.vape === true, vi = num(s.vapingIndex);
+    const vapePct = push("Vaping index", vapeOn ? "Detected" : (vi != null ? String(Math.round(vi)) : "Clear"),
+      vapeOn ? 100 : (vi != null ? vi : 0));
+    let score = Math.round(0.33 * noisePct + 0.22 * co2pct + 0.20 * occPct + 0.25 * vapePct);
+    if (vapeOn) score = Math.max(score, 85);
+    if (people != null && cap && people > cap) score = Math.max(score, 62);
+    if (s.afterHours && noisePct >= 60) score = Math.max(score, 68);
+    score = clamp(score, 0, 100);
+    const label = score >= 67 ? "High" : score >= 34 ? "Elevated" : "Low";
+    const tone = score >= 67 ? "bad" : score >= 34 ? "warn" : "good";
+    return { score, label, tone, bars };
+  }
+
+  class PropertyCard extends Base {
+    static getStubConfig() { return { purpose: "guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety" }; }
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    setConfig(cfg) {
+      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._render();
+    }
+    _watch() { return null; }                              // re-render on any state change (cheap)
+    set hass(hass) {
+      const first = !this._hass; this._hass = hass;
+      const areas = this._areas();
+      const key = areas.join("|");
+      if (first || this._loadedFor !== key) { this._loadedFor = key; this._loadHistory(areas); }
+      this._render();
+    }
+    // distinct property areas in scope (detail = the one `area`; overview = every rental area discovered by purpose)
+    _areas() {
+      const cfg = this._cfg || {};
+      if (cfg.area) return String(cfg.area).split(",").map((x) => x.trim()).filter(Boolean);
+      const S = (this._hass && this._hass.states) || {}, seen = new Set(), out = [];
+      const add = (name) => { if (name && !seen.has(name)) { seen.add(name); out.push(name); } };
+      for (const id in S) {
+        const a = S[id].attributes; if (!a) continue;
+        if (a.area && purposeEq(a.purpose, cfg.purpose || PropertyCard.getStubConfig().purpose)) add(a.area);
+      }
+      return out.sort((x, y) => String(x).localeCompare(String(y)));
+    }
+    // all the live signals for one property area
+    _signals(area) {
+      const S = (this._hass && this._hass.states) || {};
+      const inA = (st) => st && areaEq(st.attributes.area, area);
+      const firstRole = (role) => byRole(S, role).filter(inA)[0] || null;
+      const firstBin = (role) => byRoleBin(S, role).filter(inA)[0] || null;
+      // occupancy: people counter inside-now, else sum presence spaces
+      const pc = firstRole("people_counter");
+      const spaces = byRole(S, "space").filter(inA);
+      const workplace = firstRole("workplace");
+      let people = null, occupied = false, occupiedS = null, emptyS = null, capacity = null;
+      if (pc) { people = num(pc.attributes.inside); capacity = num(pc.attributes.capacity); occupied = (people || 0) > 0; }
+      if (people == null && workplace) { people = num(workplace.attributes.people); occupied = occupied || !!workplace.attributes.occupied; occupiedS = num(workplace.attributes.occupied_s); emptyS = num(workplace.attributes.empty_s); }
+      if (spaces.length) {
+        const anyOcc = spaces.some((x) => x.attributes.occupied === true);
+        occupied = occupied || anyOcc;
+        const occs = spaces.map((x) => num(x.attributes.occupied_s)).filter((v) => v != null);
+        const emps = spaces.map((x) => num(x.attributes.empty_s)).filter((v) => v != null);
+        if (occs.length) occupiedS = occupiedS == null ? Math.max(...occs) : Math.max(occupiedS, ...occs);
+        if (!anyOcc && emps.length) emptyS = emptyS == null ? Math.min(...emps) : Math.min(emptyS, ...emps);
+        if (people == null) { const cnt = spaces.map((x) => num(x.attributes.people)).filter((v) => v != null); if (cnt.length) people = cnt.reduce((s, v) => s + v, 0); }
+      }
+      if (capacity == null) capacity = num((this._cfg || {}).capacity);
+      // front door contact
+      let door = null; for (const id in S) { const st = S[id]; if (id.startsWith("binary_sensor.") && st.attributes.ms_contact === "door" && inA(st)) { door = st; break; } }
+      const doorA = door ? door.attributes : null;
+      const doorOpen = doorA ? doorA.active === true : false;
+      const doorSinceMin = (doorA && doorA.since) ? Math.max(0, (Date.now() - doorA.since * 1000) / 60000) : null;
+      // comfort (per-area temperature / humidity / CO₂)
+      const comfort = byAttr(S, "kind", "comfort").filter(inA)[0] || null;
+      const ca = comfort ? comfort.attributes : {};
+      const air = firstRole("air_monitor");
+      const co2 = num(ca.co2 != null ? ca.co2 : (air ? (air.attributes.metrics || []).reduce((acc, m) => m.key === "co2" ? m.value : acc, null) : null));
+      // noise
+      const sound = firstRole("sound_monitor");
+      // vape (GS601 via gas_monitor role)
+      const gm = byRole(S, "gas_monitor").filter(inA);
+      let vape = false, vapingIndex = null;
+      for (const g of gm) { const stx = (g.attributes.states || []).find((x) => x.key === "vape"); if (stx) vape = vape || (stx.tone === "critical"); const vm = (g.attributes.metrics || []).find((x) => x.key === "vaping_index"); if (vm && vm.value != null) vapingIndex = num(vm.value); }
+      // gas leak (GS101) + leak contact
+      const gasDet = firstRole("gas_detector");
+      let leak = null; for (const id in S) { const st = S[id]; if (id.startsWith("binary_sensor.") && st.attributes.ms_contact === "leak" && inA(st)) { leak = st; break; } }
+      // thermostat (climate entity)
+      let thermo = null; for (const id in S) { const st = S[id]; if (id.startsWith("climate.") && st.attributes.milesight_role === "thermostat" && areaEq(st.attributes.area, area)) { thermo = st; break; } }
+      const co2Rise = this._co2Rise(area);
+      const hour = new Date().getHours(); const afterHours = hour >= 22 || hour < 7;
+      return {
+        area, people, occupied, occupiedS, emptyS, capacity,
+        door, doorOpen, doorSinceMin, doorA,
+        comfort, ca, co2, temperature: num(ca.temperature), humidity: num(ca.humidity),
+        sound, noiseDb: sound ? num(sound.attributes.level) : null, noiseThreshold: sound ? num(sound.attributes.threshold) : null,
+        gm, vape, vapingIndex, gasDet, leak, thermo, co2Rise, afterHours,
+        over: !!(pc && pc.attributes.over) || (people != null && capacity && people > capacity),
+      };
+    }
+    // CO₂ rise (ppm/h) over the last ~2 h from the comfort/air history we fetched
+    _co2Rise(area) {
+      const d = this._hist[area] && this._hist[area].co2;
+      if (!d || d.length < 2) return null;
+      const now = Date.now(), cut = now - 2 * 3600 * 1000;
+      const pts = d.filter((p) => p[0] >= cut);
+      if (pts.length < 2) return null;
+      const dt = (pts[pts.length - 1][0] - pts[0][0]) / 3600000;
+      if (dt <= 0) return null;
+      return (pts[pts.length - 1][1] - pts[0][1]) / dt;
+    }
+    async _loadHistory(areas) {
+      if (!this._hass || !areas.length) return;
+      const S = this._hass.states;
+      const start = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      for (const area of areas) {
+        const inA = (st) => st && areaEq(st.attributes.area, area);
+        const want = {};
+        const comfort = byAttr(S, "kind", "comfort").filter(inA)[0];
+        if (comfort) want.co2 = this._findId(comfort, (a) => a.ms_trend === "air");  // the area's CO₂ trend entity
+        // door + occupancy entity ids for the timeline
+        for (const id in S) { const st = S[id]; if (id.startsWith("binary_sensor.") && st.attributes.ms_contact === "door" && inA(st)) { want.door = id; break; } }
+        const pc = byRole(S, "people_counter").filter(inA)[0];
+        if (pc && pc.attributes.trend_entity_id) want.people = pc.attributes.trend_entity_id;
+        const ids = Object.values(want).filter(Boolean);
+        if (!ids.length) continue;
+        try {
+          const r = await this._hass.callWS({ type: "history/history_during_period", start_time: start, entity_ids: ids, minimal_response: true, no_attributes: true });
+          const parse = (id) => { const ser = (r && r[id]) || []; return ser.map((p) => [p.lu ? p.lu * 1000 : Date.parse(p.last_changed || p.lc), p.s != null ? p.s : p.state]).filter((p) => Number.isFinite(p[0])); };
+          this._hist[area] = {
+            co2: want.co2 ? parse(want.co2).map((p) => [p[0], num(p[1])]).filter((p) => p[1] != null) : null,
+            door: want.door ? parse(want.door) : null,
+            people: want.people ? parse(want.people).map((p) => [p[0], num(p[1])]).filter((p) => p[1] != null) : null,
+          };
+        } catch (e) { /* history off */ }
+      }
+      this._render();
+    }
+    _findId(st, pred) {                                    // an area sibling entity id matching pred (for co2 trend)
+      const S = this._hass.states;
+      for (const id in S) { if (id.startsWith("sensor.") && areaEq(S[id].attributes.area, st.attributes.area) && pred(S[id].attributes)) return id; }
+      return null;
+    }
+    // build a short guest-activity timeline from today's door + occupancy + CO₂ history, plus a live "now" row
+    _timeline(area, sig) {
+      const H = this._hist[area] || {}, evs = [];
+      const hhmm = (ts) => { try { const d = new Date(ts); return (Date.now() - ts > 86400000 ? d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " : "") + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+      // door opens
+      if (H.door) { let prev = null; for (const [t, s] of H.door) { const on = s === "on" || s === "open" || s === "Open"; if (prev === false && on) evs.push({ t, cls: "", title: "Front door opened", sub: "entry / exit" }); prev = on; } }
+      // occupancy arrivals (people goes 0 → >0)
+      if (H.people) { let prev = null; for (const [t, v] of H.people) { if ((prev === 0 || prev == null) && v > 0) evs.push({ t, cls: "key", title: "Occupied · " + v + (v === 1 ? " person" : " people"), sub: "arrival" }); if (prev > 0 && v === 0) evs.push({ t, cls: "", title: "Property emptied", sub: "all guests out" }); prev = v; } }
+      // CO₂ peaks over 900
+      if (H.co2) { let flagged = false; for (const [t, v] of H.co2) { if (v > 900 && !flagged) { evs.push({ t, cls: "warnd", title: "CO₂ climbed to " + Math.round(v) + " ppm", sub: "cooking / full room" }); flagged = true; } if (v < 750) flagged = false; } }
+      evs.sort((a, b) => b.t - a.t);
+      const top = evs.slice(0, 6).map((e) => ({ ...e, time: hhmm(e.t) }));
+      // live "now" row at the head
+      const st = msStayState({ occupied: sig.occupied, people: sig.people, occupiedS: sig.occupiedS, emptyS: sig.emptyS, doorOpen: sig.doorOpen, doorSinceMin: sig.doorSinceMin });
+      top.unshift({ time: "now", cls: sig.occupied ? "key" : "", title: st.label + (sig.people != null ? " · " + sig.people + (sig.people === 1 ? " person" : " people") : ""), sub: st.sub });
+      return top;
+    }
+    _fmt(v, d) { const n = num(v); if (n == null) return "—"; return Math.abs(n) >= 100 ? String(Math.round(n)) : (d != null ? +n.toFixed(d) : Math.round(n * 10) / 10).toString(); }
+    _kpis(sig) {
+      const T = [];
+      if (sig.people != null || sig.capacity) T.push({ ic: "mdi:account-group", label: "Occupancy", value: sig.people != null ? String(sig.people) : "—", unit: "", sub: sig.capacity ? ("of " + sig.capacity + " booked") : "guests in", cls: sig.over ? "bad" : "good", pill: sig.over ? "OVER" : "" });
+      if (sig.doorA) { const open = sig.doorOpen; T.push({ ic: "mdi:door", label: "Front door", value: open ? "Open" : "Closed", unit: "", sub: (num(sig.doorA.count_today) != null ? sig.doorA.count_today + " opens today" : (open ? "now open" : "closed")), cls: open ? "warn" : "good", pill: open ? "OPEN" : "" }); }
+      if (sig.co2 != null) { const c = sig.co2; T.push({ ic: "mdi:molecule-co2", label: "Air (CO₂)", value: String(Math.round(c)), unit: "ppm", sub: c > 1200 ? "stuffy" : "fresh", cls: c > 1500 ? "bad" : c > 1200 ? "warn" : "good", pill: c > 1500 ? "HIGH" : "" }); }
+      if (sig.temperature != null) T.push({ ic: "mdi:thermometer", label: "Climate", value: this._fmt(sig.temperature), unit: "°C", sub: sig.humidity != null ? ("humidity " + Math.round(sig.humidity) + "%") : "now", cls: "" });
+      if (sig.noiseDb != null) { const n = sig.noiseDb, thr = sig.noiseThreshold || 70; T.push({ ic: "mdi:volume-high", label: "Noise", value: String(Math.round(n)), unit: "dB", sub: n >= thr ? "loud" : "quiet", cls: n >= thr ? "bad" : n >= thr - 8 ? "warn" : "good", pill: n >= thr ? "LOUD" : "" }); }
+      // safety roll-up
+      if (sig.gasDet || sig.leak || sig.gm.length) {
+        const gasAlarm = sig.gasDet && sig.gasDet.attributes.alarm === true;
+        const leakAlarm = sig.leak && sig.leak.attributes.active === true;
+        const bad = gasAlarm || leakAlarm || sig.vape;
+        T.push({ ic: "mdi:shield-home", label: "Safety", value: bad ? "Alert" : "OK", unit: "", sub: bad ? (gasAlarm ? "gas leak" : leakAlarm ? "water leak" : "vaping") : "all clear", cls: bad ? "bad" : "good", pill: bad ? "CHECK" : "" });
+      }
+      return T;
+    }
+    _ring(score, tone) {
+      const C = 2 * Math.PI * 42, off = C * (1 - clamp(score, 0, 100) / 100);
+      const col = tone === "bad" ? "var(--ms-bad)" : tone === "warn" ? "var(--ms-warn)" : "var(--ms-good)";
+      return svgNS(`<svg viewBox="0 0 100 100" style="width:92px;height:92px"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--ms-line)" stroke-width="9"/><circle cx="50" cy="50" r="42" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 50 50)"/></svg>`);
+    }
+    _css_() {
+      return `
+        .phero{display:flex;flex-direction:column;gap:12px}
+        .prow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+        .ppill{font-size:12px;font-weight:800;letter-spacing:.03em;border-radius:999px;padding:5px 12px;border:1px solid var(--ms-line);color:var(--ms-ink2)}
+        .ppill.good{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good);border-color:transparent}
+        .ppill.warn{background:color-mix(in srgb,var(--ms-warn) 16%,transparent);color:var(--ms-warn);border-color:transparent}
+        .pbig{font-size:23px;font-weight:760;line-height:1}
+        .psub{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .pstates{display:flex;gap:4px;margin-top:2px}
+        .pst{flex:1;text-align:center;font-size:10px;color:var(--ms-ink2);padding:7px 2px;border:1px solid var(--ms-line);border-radius:8px}
+        .pst.on{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);color:var(--ms-ink);font-weight:650}
+        .pkpi{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+        .ptile{border:1px solid var(--ms-line);border-radius:12px;padding:11px 12px}
+        .ptile.good{border-color:color-mix(in srgb,var(--ms-good) 42%,var(--ms-line))}
+        .ptile.warn{border-color:color-mix(in srgb,var(--ms-warn) 52%,var(--ms-line))}
+        .ptile.bad{border-color:color-mix(in srgb,var(--ms-bad) 58%,var(--ms-line))}
+        .ptl{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em}
+        .ptl ha-icon{--mdc-icon-size:14px;flex:0 0 auto}
+        .ppl{margin-left:auto;font-size:9px;font-weight:800;border-radius:5px;padding:1px 6px}
+        .ppl.good{background:color-mix(in srgb,var(--ms-good) 16%,transparent);color:var(--ms-good)}
+        .ppl.warn{background:color-mix(in srgb,var(--ms-warn) 18%,transparent);color:var(--ms-warn)}
+        .ppl.bad{background:color-mix(in srgb,var(--ms-bad) 18%,transparent);color:var(--ms-bad)}
+        .ptv{font-size:19px;font-weight:740;margin-top:6px;line-height:1;font-variant-numeric:tabular-nums}
+        .ptv small{font-size:11px;color:var(--ms-ink2);font-weight:600}
+        .ptv.good{color:var(--ms-good)}.ptv.warn{color:var(--ms-warn)}.ptv.bad{color:var(--ms-bad)}
+        .pts{font-size:10.5px;color:var(--ms-ink2);margin-top:4px}
+        .prisk{display:flex;align-items:center;gap:16px}
+        .pring{position:relative;flex:0 0 auto;width:92px;height:92px}
+        .pring .rv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+        .pring .rv b{font-size:18px;font-weight:760}.pring .rv span{font-size:9px;color:var(--ms-ink2);text-transform:uppercase}
+        .pbars{flex:1;min-width:150px;display:flex;flex-direction:column;gap:9px}
+        .pbar .pbl{display:flex;justify-content:space-between;font-size:11px;color:var(--ms-ink2);margin-bottom:3px}
+        .pbar .pbl b{color:var(--ms-ink)}
+        .pbt{height:6px;border-radius:4px;background:var(--ms-line);overflow:hidden}.pbt i{display:block;height:100%;border-radius:4px}
+        .pbt i.good{background:var(--ms-good)}.pbt i.warn{background:var(--ms-warn)}.pbt i.bad{background:var(--ms-bad)}
+        .peco{font-size:11px;color:var(--ms-ink2);margin-top:12px;line-height:1.45}.peco b{color:var(--ms-ink)}
+        .ptml{position:relative;padding-left:16px}
+        .ptml:before{content:"";position:absolute;left:4px;top:4px;bottom:4px;width:2px;background:var(--ms-line)}
+        .pev{position:relative;padding:0 0 13px}
+        .pev:before{content:"";position:absolute;left:-15px;top:3px;width:9px;height:9px;border-radius:50%;background:var(--ms-accent);border:2px solid var(--ms-surface)}
+        .pev.key:before{background:var(--ms-good)}.pev.warnd:before{background:var(--ms-warn)}
+        .pev .pt{font-size:12.5px;font-weight:600;color:var(--ms-ink)}.pev .ps{font-size:11px;color:var(--ms-ink2)}
+        .pev .ptime{float:right;font-size:11px;color:var(--ms-ink2)}
+        .parea{font-size:13px;font-weight:650;color:var(--ms-ink);margin:16px 0 9px;display:flex;align-items:center;gap:7px}
+        .parea:first-child{margin-top:0}.parea ha-icon{--mdc-icon-size:16px;color:var(--ms-ink2)}
+        .pov{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+        .povc{border:1px solid var(--ms-line);border-radius:13px;padding:13px 14px}
+        .povh{display:flex;align-items:center;gap:8px;margin-bottom:9px}.povh .pn{font-size:13px;font-weight:650;color:var(--ms-ink)}
+        .povm{display:flex;gap:14px;font-size:11px;color:var(--ms-ink2);flex-wrap:wrap}
+        .povm b{color:var(--ms-ink);font-weight:650;font-size:13px;display:block}
+        .pmeta{font-size:11px;color:var(--ms-ink2);display:inline-flex;align-items:center;gap:5px}.pmeta i{width:6px;height:6px;border-radius:50%;background:var(--ms-good);display:inline-block}
+      `;
+    }
+    // one compact tile per property for the multi-property overview
+    _overviewCard(area, sig) {
+      const st = msStayState(sig);
+      const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex });
+      const safeBad = (sig.gasDet && sig.gasDet.attributes.alarm === true) || (sig.leak && sig.leak.attributes.active === true) || sig.vape;
+      return h("div", { class: "povc" }, [
+        h("div", { class: "povh" }, [
+          h("span", { class: "ppill " + st.tone }, st.label),
+          h("div", { class: "pn" }, esc(area)),
+          h("span", { class: "ppl " + risk.tone, style: { marginLeft: "auto" } }, risk.label + " risk"),
+        ]),
+        h("div", { class: "povm" }, [
+          h("div", {}, [h("b", {}, sig.people != null ? String(sig.people) + (sig.capacity ? "/" + sig.capacity : "") : "—"), "guests"]),
+          h("div", {}, [h("b", {}, sig.co2 != null ? Math.round(sig.co2) + "" : "—"), "CO₂ ppm"]),
+          h("div", {}, [h("b", {}, sig.noiseDb != null ? Math.round(sig.noiseDb) + "" : "—"), "dB"]),
+          h("div", {}, [h("b", { class: safeBad ? "" : "", style: { color: safeBad ? "var(--ms-bad)" : "var(--ms-good)" } }, safeBad ? "Alert" : "OK"), "safety"]),
+        ]),
+      ]);
+    }
+    _render() {
+      if (!this._hass) return;
+      this._css = this._css_();
+      const cfg = this._cfg || {}, areas = this._areas();
+      const overview = !cfg.area && (cfg.mode === "overview" || !cfg.mode);
+      // ---------- overview (multi-property) ----------
+      if (overview) {
+        const cards = areas.map((a) => [a, this._signals(a)]).filter(([, s]) => s.people != null || s.doorA || s.co2 != null || s.comfort || s.sound);
+        if (!cards.length) {
+          this._card(emptyState(emptyOpts(cfg.empty || { icon: "mdi:home-city", title: "No properties yet",
+            hint: "Set a device's purpose to a Short-stay purpose (or put it in the property's area) and each property shows here." }, "mdi:home-city")));
+          return;
+        }
+        this.style.display = "";
+        this._card(h("div", { class: "wrap" }, [
+          cfg.title !== false ? h("p", { class: "title", style: { marginBottom: "10px" } }, esc(cfg.title || "Properties")) : null,
+          h("div", { class: "pov" }, cards.map(([a, s]) => this._overviewCard(a, s))),
+        ]));
+        return;
+      }
+      // ---------- detail ----------
+      // One property when `area` is set; otherwise one labelled detail block per discovered rental area
+      // (so a single page becomes "one page per property"). `section` lets the dashboard place stay / kpi /
+      // risk / timeline in separate masonry sections.
+      const section = cfg.section || "all";               // all | stay | kpi | risk | timeline
+      const hasSig = (s) => s && (s.people != null || s.doorA || s.co2 != null || s.comfort || s.sound || s.gm.length);
+      const live = areas.map((a) => [a, this._signals(a)]).filter(([, s]) => hasSig(s));
+      if (!live.length) {
+        if (cfg.area || cfg.purpose) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
+        this._card(emptyState(emptyOpts(cfg.empty || { icon: "mdi:home-city", title: "No property sensors yet",
+          hint: "Put the door, occupancy, air, noise and safety sensors in this property's area (or give them a Short-stay purpose)." }, "mdi:home-city")));
+        return;
+      }
+      this.style.display = "";
+      const multi = live.length > 1;
+      const out = [];
+      for (const [area, sig] of live) {
+        if (multi) out.push(h("div", { class: "parea" }, [h("ha-icon", { icon: "mdi:map-marker-outline" }), esc(area)]));
+        for (const b of this._detailBlocks(area, sig, section)) out.push(b);
+      }
+      this._card(h("div", { class: "wrap" }, out));
+    }
+    _detailBlocks(area, sig, section) {
+      const blocks = [];
+      const st = msStayState(sig);
+      const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex });
+      if (section === "all" || section === "stay") {
+        blocks.push(h("div", { class: "phero" }, [
+          h("div", { class: "prow" }, [
+            h("span", { class: "ppill " + st.tone }, st.label.toUpperCase()),
+            h("div", {}, [h("div", { class: "pbig" }, st.peopleTxt), h("div", { class: "psub" }, esc(st.sub))]),
+          ]),
+          h("div", { class: "pstates" }, st.states.map((k, i) => h("div", { class: "pst" + (i === st.index ? " on" : "") },
+            ({ vacant: "Vacant", checkin: "Checked in", occupied: "Occupied", checkout: "Checked out", turnover: "Turnover" })[k]))),
+        ]));
+      }
+      if (section === "all" || section === "kpi") {
+        const tiles = this._kpis(sig);
+        if (tiles.length) blocks.push(h("div", { class: "pkpi" }, tiles.map((t) => h("div", { class: "ptile " + (t.cls || "") }, [
+          h("div", { class: "ptl" }, [h("ha-icon", { icon: t.ic }), t.label, t.pill ? h("span", { class: "ppl " + (t.cls || "") }, t.pill) : null]),
+          h("div", { class: "ptv " + (t.cls || "") }, t.unit ? [t.value, h("small", {}, " " + t.unit)] : t.value),
+          t.sub ? h("div", { class: "pts" }, esc(t.sub)) : null,
+        ]))));
+      }
+      if (section === "all" || section === "risk") {
+        blocks.push(h("div", {}, [
+          h("div", { class: "prisk" }, [
+            h("div", { class: "pring" }, [this._ring(risk.score, risk.tone), h("div", { class: "rv" }, [h("b", { style: { color: risk.tone === "bad" ? "var(--ms-bad)" : risk.tone === "warn" ? "var(--ms-warn)" : "var(--ms-good)" } }, risk.label), h("span", {}, "risk")])]),
+            h("div", { class: "pbars" }, risk.bars.map((b) => h("div", { class: "pbar" }, [
+              h("div", { class: "pbl" }, [b.label, h("b", {}, " " + b.value)]),
+              h("div", { class: "pbt" }, h("i", { class: b.tone, style: { width: Math.max(3, b.pct) + "%" } })),
+            ]))),
+          ]),
+          h("div", { class: "peco" }, [
+            "Blends sound, CO₂ trend, people count and the vape sensor into one host-friendly signal. ",
+            h("b", {}, "Flags"), " a sustained spike — loud after 22:00, people over the booking, or any vaping.",
+          ]),
+        ]));
+      }
+      if (section === "all" || section === "timeline") {
+        const evs = this._timeline(area, sig);
+        blocks.push(h("div", { class: "ptml" }, evs.map((e) => h("div", { class: "pev " + (e.cls || "") }, [
+          e.time ? h("span", { class: "ptime" }, e.time) : null,
+          h("div", { class: "pt" }, esc(e.title)), e.sub ? h("div", { class: "ps" }, esc(e.sub)) : null,
+        ]))));
+      }
+      return blocks;
+    }
+  }
+
   // ================================================================ dynamic layout (packed ⇄ rows, with a toggle)
   // Wraps a page's sections (each a heading + its cards) and flows the heading+widget blocks into a responsive
   // masonry so equal-size widgets fill the width instead of each section taking a full-width row. A built-in toggle
@@ -9976,6 +10372,7 @@
         EMREAD_TAG = "milesight-em-reading-card",
         GROWTH_TAG = "milesight-growth-card",
         INSIGHTS_TAG = "milesight-insights-card",
+        PROPERTY_TAG = "milesight-property-card",
         LAYOUT_TAG = "milesight-dynamic-layout",
         TEMPPROBE_TAG = "milesight-temp-probe-card",
         SCENE_TAG = "milesight-scene-card",
@@ -10058,6 +10455,7 @@
     [EMREAD_TAG, EmReadingCard, "Milesight EM500 Reading", "EM500 single-reading sensor: light / pressure / temperature as a gauge, UDL / SWL level as a filled shaft, each with a trend"],
     [GROWTH_TAG, GrowthCard, "Milesight Growth", "Overhead EM500-UDL / EM400-MUD over a crop or flock: height (mount − distance), recent + lifetime growth rate, a height trend and a target projection"],
     [INSIGHTS_TAG, InsightsCard, "Milesight Insights", "An 'At a glance' KPI strip for an area: comfort, temp (+min/max), humidity, CO₂, ammonia, light, water, feed, growth and door — each coloured and self-hiding"],
+    [PROPERTY_TAG, PropertyCard, "Milesight Property Monitor", "Short-stay / Airbnb property: stay-state (vacant→checked in→occupied→checked out→turnover), a party & smoking risk score, at-a-glance KPIs, and a guest-activity timeline — by area; unscoped shows every property"],
     [LAYOUT_TAG, DynamicLayoutCard, "Milesight Dynamic Layout", "Flows a page's sections (heading + widget) into a space-filling masonry with a Packed ⇄ Rows toggle that persists per dashboard"],
     [TEMPPROBE_TAG, TempProbeCard, "Milesight Temperature Probe", "TS probe: temperature with alarm badge + threshold trend, humidity / door chips, dual probe for TS302, cold-chain tilt / light"],
     [SCENE_TAG, SceneCard, "Milesight Scene Buttons", "WS101 / WS136 / WS156 buttons: each button's last press (type + when) and today's count"],
@@ -10079,6 +10477,9 @@
   }
   // eslint-disable-next-line no-console
   console.info("%cMilesight LoRaWAN cards loaded", "color:#1e88e5;font-weight:600");
+
+  // expose the pure, DOM-free brains for the Property card so they can be unit-tested (tests/cards/property.test.cjs)
+  try { window.__milesightTest = Object.assign(window.__milesightTest || {}, { msStayState, msPartyRisk, msDur }); } catch (e) { /* no window */ }
 
   // --- sidebar unread badge: this module loads on every page, so it can badge the "Team chat" panel item.
   (function chatSidebarBadge() {

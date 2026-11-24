@@ -1437,8 +1437,8 @@ def test_purposes_catalogue():
     assert {"room", "meeting_room", "classroom", "coop_climate"} <= _am
     assert not ({"fridge", "freezer", "silo", "pool", "pipe", "geyser"} & _am), _am
     assert mdl.primary_family("AM107") == "air" and mdl.primary_family("EM300-MCS") == "contact"
-    # WS302 sound → noise purposes; EM500-PP pipe pressure → pressure purposes (water main, steam, compressed air)
-    assert {p.key for p in mdl.purposes_for("WS302")} == {"machine_noise", "noise_level"}
+    # WS302 sound → noise purposes (incl. the short-stay noise purpose); EM500-PP pipe pressure → pressure purposes
+    assert {p.key for p in mdl.purposes_for("WS302")} == {"machine_noise", "noise_level", "rental_noise"}
     assert {p.key for p in mdl.purposes_for("EM500-PP")} == {"water_pressure", "steam_pressure", "compressed_air"}
     assert "pressure" not in mdl.families("AM107")    # an AM board's barometric pressure is not the pipe-pressure family
     # the new poultry / growing / energy purposes exist and sit in a sector
@@ -1480,6 +1480,21 @@ def test_purposes_catalogue():
     assert "coop" in mdl.device_tags("EM400-MUD", {"purpose": "coop_drinker"})
     assert "coop" in mdl.device_tags("AM307", {"purpose": "coop_climate"})
     assert "coop" not in mdl.device_tags("EM400-MUD", {"purpose": "water_tank"})
+    # short-stay / Airbnb purposes: new hospitality sector, and any of them tags the site "rental" (installs the page)
+    assert set(prp.RENTAL_PURPOSES) == {"guest_door", "guest_occupancy", "rental_climate", "rental_air",
+                                        "rental_noise", "rental_safety"}
+    assert "hospitality" in prp.INDUSTRIES and "hospitality" in prp.GROUPS
+    for _k in prp.RENTAL_PURPOSES:
+        assert prp.industry_of(_k) == "hospitality", _k
+    assert prp.get("guest_door").group == "security" and prp.get("guest_door").defaults.get("left_open_min") == 10
+    assert prp.get("rental_climate").group == "comfort" and prp.get("rental_climate").defaults.get("co2_limit") == 1500
+    assert "contact" in mdl.families("WS301") and "guest_door" in {p.key for p in mdl.purposes_for("WS301")}
+    assert "rental" in mdl.device_tags("WS301", {"purpose": "guest_door"})
+    assert "rental" in mdl.device_tags("VS121", {"purpose": "guest_occupancy"})
+    assert "rental" in mdl.device_tags("GS101", {"purpose": "rental_safety"})
+    assert "rental" not in mdl.device_tags("WS301", {"purpose": "door"})
+    assert "rental" in mdl.DASHBOARD_PINS and mdl.DASHBOARD_PINS["rental"] == frozenset({"rental"})
+    assert prp.for_industry(mdl.purposes_for("AM307"), "hospitality")  # an air monitor offers rental purposes
     assert "temp_low" in prp.setting_fields("fridge", mdl.families("EM300-MCS"))
     assert "left_open_min" in prp.setting_fields("fridge", mdl.families("EM300-MCS"))
     assert "max_run_h" in prp.setting_fields("fridge", {"load"}) and prp.setting_fields("doorbell", {"button"}) == []

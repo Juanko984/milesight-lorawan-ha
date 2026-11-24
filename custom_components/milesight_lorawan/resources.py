@@ -39,6 +39,7 @@ DASHBOARDS = {  # file -> (url, icon, device tags that call for it; None = every
     "cold_chain.yaml": ("milesight-cold-chain", "mdi:snowflake-thermometer", {"cold_chain"}),
     "energy.yaml": ("milesight-energy", "mdi:lightning-bolt", {"energy", "hvac"}),
     "coop.yaml": ("milesight-coop", "mdi:egg", {"coop"}),
+    "rental.yaml": ("milesight-rental", "mdi:home-city", {"rental"}),
     "retail.yaml": ("milesight-retail", "mdi:storefront-outline", {"retail"}),
     "washroom.yaml": ("milesight-washroom", "mdi:human-male-female", {"washroom"}),
 }
@@ -50,6 +51,7 @@ _EXTRA_TAG_LABELS: dict[str, tuple[str, str]] = {
     "retail":   ("Milesight · Retail", "mdi:storefront-outline"),
     "washroom": ("Milesight · Washroom", "mdi:human-male-female"),
     "coop":     ("Milesight · Chicken coop", "mdi:egg"),
+    "rental":   ("Milesight · Short-stay", "mdi:home-city"),
     "silo":     ("Milesight · Tank / silo", "mdi:storage-tank"),
     "safety":   ("Milesight · Safety", "mdi:shield-alert"),
     "fence":    ("Milesight · Security", "mdi:shield-home"),

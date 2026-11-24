@@ -2,6 +2,22 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.171.0
+- **New Short-stay / Airbnb property monitor.** A new ready-made dashboard for holiday-let and short-stay hosts,
+  with a per-property detail page **and** a multi-property overview. Set each property's devices to one of the new
+  **Short-stay purposes** (Guest front door, Guest occupancy, Rental climate, Rental air quality, Rental noise,
+  Rental safety) or just put them in an area named after the property, and the page installs and fills itself.
+- **Out-of-the-box, computed from the sensors you already have:**
+  - **Stay-state machine** — Vacant → Checked in → Occupied → Checked out → Turnover, inferred from occupancy and
+    the front-door contact (no booking system needed).
+  - **Party & smoking risk** — one 0–100 score blending noise, CO₂ rise, people-vs-booking and the GS601 vape
+    sensor, with a ring and per-signal bars; flags a sustained spike (loud after 22:00, over the booking, vaping).
+  - **Over-capacity alert** — guests over the booked count (set the people counter's Capacity).
+  - **Guest-activity timeline** — door opens, arrivals / departures and CO₂ peaks over the last day.
+  - **Auto-eco HVAC** — a new *Short-stay auto-eco HVAC* blueprint holds the thermostat at Comfort while a guest is
+    in and falls back to Eco once the property has been empty for a set delay (never heats an empty house).
+- Adds a **Short-stay & hospitality** sector to the purpose picker and a *Milesight · Short-stay* device label.
+
 ## 0.170.0
 - **A growth monitor is no longer also a tank.** When a UDL is set to Crop/Flock growth, the "Tank or silo" setup
   step is hidden and all the tank behaviour is switched off — no Bin fill / Contents / Days-until-empty entities,

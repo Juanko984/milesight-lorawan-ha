@@ -1962,6 +1962,7 @@ DASHBOARD_PINS: dict[str, frozenset[str]] = {
     "retail":     frozenset({"retail"}),
     "washroom":   frozenset({"washroom"}),
     "coop":       frozenset({"coop"}),
+    "rental":     frozenset({"rental"}),
 }
 DASHBOARD_CHOICES = ("auto", *DASHBOARD_PINS)
 
@@ -1996,7 +1997,7 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
         tags.add("pump")
     if model_key.startswith(("UC51", "UC52")) or ("at101" in model.features and options.get("pivot_centre")):
         tags.add("irrigation")
-    from .purposes import COOP_PURPOSES
+    from .purposes import COOP_PURPOSES, RENTAL_PURPOSES
     purposes = [options.get("purpose")] + [options.get(f"purpose_{n}") for n in (1, 2, 3)]
     for key in purposes:
         p = _PURPOSES.get(key or "")
@@ -2004,6 +2005,8 @@ def device_tags(model_key: str, options: dict | None = None) -> frozenset[str]:
             tags.add(p.group)
         if key in COOP_PURPOSES:               # a coop purpose installs the chicken-coop dashboard
             tags.add("coop")
+        if key in RENTAL_PURPOSES:             # a short-stay purpose installs the Property monitor dashboard
+            tags.add("rental")
         if key == "flood":                     # flood / drain early-warning shows on the Water Level dashboard
             tags.add("tank")
         if key == "electric_fence":            # perimeter fence shows on the site landing page

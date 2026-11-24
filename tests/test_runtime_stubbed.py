@@ -1506,9 +1506,12 @@ out = asyncio.run(res.async_sync(hass4))                                   # a r
 assert out["dashboards"]["written"] == ["Water"] and "Water" in res.summary(out)
 assert models.device_tags("EM410-RDL") == {"tank"} and models.device_tags("VS121") >= {"people"}
 assert "comfort" in models.device_tags("AM307") and models.device_tags("WS101") == frozenset()
+assert "rental" in models.device_tags("GS101", {"purpose": "rental_safety"})
+assert res.wanted_dashboards({"rental"})["milesight-rental"] and not res.wanted_dashboards({"comfort"})["milesight-rental"]
 bp = cfgdir / "blueprints" / "automation" / "milesight_lorawan"
-assert len(out0["blueprints"]["written"]) == 13 and (bp / "leak.yaml").exists()
+assert len(out0["blueprints"]["written"]) == 14 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
+assert (bp / "rental_auto_eco.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
 assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-jobs", "milesight-team", "milesight-devices", "milesight-maintenance", "milesight-reports", "milesight-water", "milesight-analytics"}
 assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS

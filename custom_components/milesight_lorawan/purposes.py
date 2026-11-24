@@ -24,6 +24,7 @@ GROUPS = {
     "comfort": ("Milesight · Air & comfort", "mdi:air-filter"),
     "people": ("Milesight · People & occupancy", "mdi:account-group"),
     "weather": ("Milesight · Weather", "mdi:weather-partly-cloudy"),
+    "hospitality": ("Milesight · Short-stay", "mdi:home-city"),
 }
 
 # settings a purpose can set (defaults) and the user can override (option "p_<name>")
@@ -195,6 +196,18 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
     _p("water_pressure", "Water pressure (main / large pipe)", "water", "pressure", "Pressure", "mdi:gauge"),
     _p("steam_pressure", "Steam pressure", "industrial", "pressure", "Pressure", "mdi:kettle-steam"),
     _p("compressed_air", "Compressed-air pressure", "industrial", "pressure", "Pressure", "mdi:air-filter"),
+    # ---- short-stay / Airbnb (any of these on a device, or a device in the property's area, installs the
+    #      Property monitor page). Guest-friendly defaults: front door left-open 10 min, calmer CO₂ limits.
+    _p("guest_door", "Guest front door / entry", "security", "contact", "Front door", "mdi:door-closed",
+       "door", contact_noun="Door", left_open_min=10),
+    _p("guest_occupancy", "Guest occupancy (people count / presence)", "people", "motion",
+       icon="mdi:account-group"),
+    _p("rental_climate", "Rental climate (temp / humidity / air)", "comfort", "temperature air motion",
+       icon="mdi:home-thermometer", temp_low=14, co2_limit=1500),
+    _p("rental_air", "Rental air quality", "comfort", "air", icon="mdi:air-filter", co2_limit=1200),
+    _p("rental_noise", "Rental noise / nuisance", "facilities", "sound", "Noise", "mdi:volume-high"),
+    _p("rental_safety", "Rental safety (gas / smoke / leak)", "security", "air leak contact",
+       icon="mdi:shield-home", severity="critical"),
 )}
 
 SOIL_PURPOSES = ("field", "greenhouse", "garden")
@@ -202,6 +215,8 @@ SOIL_PURPOSES = ("field", "greenhouse", "garden")
 COOP_PURPOSES = ("coop_drinker", "coop_feeder", "coop_door", "coop_climate", "coop_light", "coop_controller")
 # retail: a staff / counter coverage zone (assigned to a people or occupancy sensor at the till)
 RETAIL_PURPOSES = ("counter_zone",)
+# short-stay / Airbnb purposes: any of these on a device tags the site "rental" (installs the Property monitor page)
+RENTAL_PURPOSES = ("guest_door", "guest_occupancy", "rental_climate", "rental_air", "rental_noise", "rental_safety")
 LOAD_ANALYTICS = ("fridge", "freezer", "air_compressor", "motor", "ac", "geyser", "lighting", "mains", "appliance",
                   "washer", "ev_charger", "generator", "inverter")
 
@@ -214,6 +229,7 @@ INDUSTRIES = {
     "buildings": "Buildings & offices",
     "facilities": "Facilities & washrooms",
     "retail": "Retail",
+    "hospitality": "Short-stay & hospitality",
     "water": "Water & utilities",
     "energy": "Energy & power",
     "industrial": "Industrial & manufacturing",
@@ -251,6 +267,8 @@ _PURPOSE_INDUSTRY = {
     "wine_cellar": "industrial", "process_tank": "industrial", "dust_air": "industrial", "parking": "logistics",
     "machine_noise": "industrial", "noise_level": "facilities",
     "water_pressure": "water", "steam_pressure": "industrial", "compressed_air": "industrial",
+    "guest_door": "hospitality", "guest_occupancy": "hospitality", "rental_climate": "hospitality",
+    "rental_air": "hospitality", "rental_noise": "hospitality", "rental_safety": "hospitality",
 }
 
 

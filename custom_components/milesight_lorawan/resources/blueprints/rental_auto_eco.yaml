@@ -1,0 +1,89 @@
+blueprint:
+  name: Milesight – Short-stay auto-eco HVAC
+  description: >
+    Heat (or cool) a short-stay property only while a guest is in. When the occupancy sensor shows someone
+    present, the thermostat is set to the Comfort target; after the property has been empty for a set delay, it
+    drops to the Eco target — no heating or cooling an empty house. Works with any presence / occupancy binary
+    sensor or a people-count sensor (treated as occupied when the count is above zero). A grace delay stops it
+    flipping on every brief vacancy, and if the occupancy sensor goes unavailable the thermostat is left exactly
+    as it is (never changed blind).
+  domain: automation
+  source_url: https://github.com/Juanko984/milesight-lorawan-ha/blob/main/blueprints/automation/milesight_lorawan/rental_auto_eco.yaml
+  input:
+    occupancy_sensor:
+      name: Occupancy sensor
+      description: A presence / occupancy sensor (VS occupancy, WS203, AM-L, …) or a VS people counter.
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+            - domain: sensor
+    thermostat:
+      name: Thermostat
+      description: The WT thermostat (climate entity) to set.
+      selector:
+        entity:
+          filter:
+            - domain: climate
+    comfort_temp:
+      name: Comfort target (°C) — while occupied
+      default: 21.5
+      selector:
+        number: {min: 10, max: 30, step: 0.5, unit_of_measurement: "°C", mode: box}
+    eco_temp:
+      name: Eco target (°C) — while vacant
+      default: 16
+      selector:
+        number: {min: 5, max: 28, step: 0.5, unit_of_measurement: "°C", mode: box}
+    vacant_delay:
+      name: Drop to Eco after empty for (minutes)
+      description: How long the property must be empty before falling back to the Eco target.
+      default: 30
+      selector:
+        number: {min: 0, max: 240, step: 5, unit_of_measurement: min, mode: box}
+mode: single
+max_exceeded: silent
+trigger:
+  - trigger: state
+    entity_id: !input occupancy_sensor
+    id: occ
+  - trigger: time_pattern
+    minutes: "/10"
+    id: tick
+variables:
+  occupancy_sensor: !input occupancy_sensor
+  thermostat: !input thermostat
+  comfort_temp: !input comfort_temp
+  eco_temp: !input eco_temp
+  vacant_delay: !input vacant_delay
+  occ_state: "{{ states(occupancy_sensor) }}"
+  occ_num: "{{ occ_state | float(none) }}"
+  # occupied when a binary sensor is 'on' / 'home' / 'open', or a numeric count is above zero
+  occupied: >
+    {{ (occ_num is not none and occ_num > 0)
+       or occ_state in ['on', 'home', 'occupied', 'open', 'detected', 'true'] }}
+  empty_long: >
+    {{ occ_state not in ['unknown', 'unavailable']
+       and (now() - states[occupancy_sensor].last_changed).total_seconds() >= (vacant_delay | int) * 60 }}
+  target_now: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
+action:
+  - choose:
+      # occupancy sensor unavailable -> leave the thermostat exactly as it is
+      - conditions: "{{ occ_state in ['unknown', 'unavailable'] }}"
+        sequence: []
+      # a guest is in -> Comfort (only write when it differs, to avoid needless downlinks)
+      - conditions: "{{ occupied and (target_now is none or (target_now - comfort_temp) | abs > 0.1) }}"
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input thermostat
+            data:
+              temperature: !input comfort_temp
+      # empty long enough -> Eco
+      - conditions: "{{ (not occupied) and empty_long and (target_now is none or (target_now - eco_temp) | abs > 0.1) }}"
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input thermostat
+            data:
+              temperature: !input eco_temp

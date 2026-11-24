@@ -1,0 +1,141 @@
+# Milesight LoRaWAN – Short-stay / Airbnb property monitor
+# Set up each property's devices two ways and this page fills itself in:
+#   1. Purpose (device → Configure → Purpose): Guest front door / entry, Guest occupancy (people count / presence),
+#      Rental climate, Rental air quality, Rental noise / nuisance, Rental safety (gas / smoke / leak). These set
+#      guest-friendly alert defaults (front door left-open 10 min, calmer CO₂ limits) and make this page install itself.
+#   2. Area: put all of a property's devices in a Home Assistant area named after the property (e.g. "The Vineyard
+#      Cottage"). Every card finds devices by that area NAME, so one page serves many properties: each property shows
+#      as its own card on Overview and its own labelled block on the Property page. Nothing to edit.
+#
+# OUT-OF-THE-BOX FEATURES (all computed in the cards from the devices you already have):
+#   • Stay-state machine — Vacant → Checked in → Occupied → Checked out → Turnover, inferred from occupancy + the door.
+#   • Party & smoking risk — one 0–100 score blended from noise, CO₂ rise, people-vs-booking and the GS601 vape sensor.
+#   • Over-capacity alert — people over the booked count (set the counter's Capacity).
+#   • Guest-activity timeline — door opens, arrivals and CO₂ peaks over the last day.
+#   • Auto-eco HVAC — import the "Short-stay auto-eco HVAC" blueprint: Comfort while occupied, Eco when vacant.
+#
+# LAYOUT: sections live inside one milesight-dynamic-layout card (Packed ⇄ Rows toggle, remembered per dashboard).
+title: Short-stay
+views:
+  - title: Properties
+    path: properties
+    icon: mdi:home-city
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Short-stay properties
+            subtitle: Guest-ready · comfort · safety · house-rules — every property at a glance
+            icon: mdi:home-city
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-dynamic-layout
+            id: rental_overview
+            default: packed
+            grid_options: {columns: full}
+            sections:
+              - heading: Properties
+                icon: mdi:home-group
+                # One compact card per property: stay state, party/smoking risk, guests (vs booking), CO₂, noise and
+                # a safety roll-up. Discovers every property by its short-stay purposes; hides until one is set up.
+                cards:
+                  - type: custom:milesight-property-card
+                    mode: overview
+                    title: false
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+              - heading: At a glance — per property
+                icon: mdi:view-dashboard-outline
+                # A KPI strip per property area (comfort, temp/min-max, humidity, CO₂, …) from the area comfort score.
+                cards:
+                  - type: custom:milesight-insights-card
+                    per_area: true
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+  - title: Property
+    path: property
+    icon: mdi:home-account
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Property monitor
+            subtitle: One block per property — stay status, house-rule watch, climate and safety
+            icon: mdi:home-account
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-dynamic-layout
+            id: rental_property
+            default: packed
+            grid_options: {columns: full}
+            sections:
+              - heading: Stay status
+                icon: mdi:bell-ring-outline
+                # The stay-state machine: Vacant → Checked in → Occupied → Checked out → Turnover, with who's in and
+                # how long. Inferred from occupancy count / presence and the front-door contact — no booking needed.
+                cards:
+                  - type: custom:milesight-property-card
+                    mode: detail
+                    section: stay
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+              - heading: At a glance
+                icon: mdi:view-grid-outline
+                # Occupancy (vs booking), front door, air (CO₂), climate, noise and a safety roll-up — each coloured.
+                cards:
+                  - type: custom:milesight-property-card
+                    mode: detail
+                    section: kpi
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+              - heading: Party & smoking watch
+                icon: mdi:party-popper
+                # The composite risk ring + bars: noise, CO₂ rise, people-vs-booking and the vape sensor in one signal.
+                cards:
+                  - type: custom:milesight-property-card
+                    mode: detail
+                    section: risk
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+              - heading: Guest activity
+                icon: mdi:timeline-clock-outline
+                # The last day: door opens, arrivals / departures and CO₂ peaks, newest first, with a live "now" row.
+                cards:
+                  - type: custom:milesight-property-card
+                    mode: detail
+                    section: timeline
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+              - heading: Air & comfort
+                icon: mdi:air-filter
+                # The AM air monitor (CO₂ / PM / TVOC / temp / humidity) and any EM300 temp/humidity/door sensors.
+                cards:
+                  - type: custom:milesight-air-quality-card
+                    purpose: rental_air,rental_climate
+                  - type: custom:milesight-environment-card
+                    purpose: rental_climate,guest_door
+              - heading: Climate control
+                icon: mdi:thermostat
+                # The WT thermostat: current temp, −/+ setpoint, mode and fan, valve opening and a temperature trend.
+                # Pair with the "Short-stay auto-eco HVAC" blueprint for Comfort-while-occupied / Eco-when-vacant.
+                cards:
+                  - type: custom:milesight-climate-card
+                    purpose: rental_climate
+              - heading: Safety
+                icon: mdi:shield-home
+                # Gas leak (GS101 shut-off valve + relay), smoke / vape (GS601), water leak and the front-door contact.
+                cards:
+                  - type: custom:milesight-gas-detector-card
+                    purpose: rental_safety
+                  - type: custom:milesight-gas-card
+                    purpose: rental_safety
+                  - type: custom:milesight-door-card
+                    purpose: guest_door,rental_safety
+                    empty:
+                      icon: mdi:door
+                      title: No door / leak contact yet
+                      hint: Add a magnet contact (WS301 / EM300-MCS) or a leak detector, put it in the property's area or set its purpose to Guest front door / Rental safety, and it shows here.
