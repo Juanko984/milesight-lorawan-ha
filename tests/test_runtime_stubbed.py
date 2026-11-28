@@ -231,7 +231,7 @@ for i, (model, raw) in enumerate(samples.items()):
         assert st["feels_like"] is not None, model
     if model.startswith("EM500"):
         empty = [k for k, v in st.items() if v is None and not k.endswith(("_at", "_since")) and k not in ("snr",)
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
+                 and not k.startswith(("cmd_", "cfg_", "set_", "mold_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
         assert not empty, (model, empty)
     if model == "EM500-CO2":
         assert st["co2"] == 1127 and st["co2_status"] == "Moderate" and st["co2high_active"] is True
@@ -241,7 +241,7 @@ for i, (model, raw) in enumerate(samples.items()):
         enabled = [e.spec.key for e in ents if e.spec.enabled_default]
         empty = [k for k in enabled if st.get(k) is None and not k.endswith(("_at", "_since", "snr"))
                  and not k.endswith(("_alarm_active", "_alarm_status", "probe_connected"))
-                 and not k.startswith(("cmd_", "cfg_", "set_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
+                 and not k.startswith(("cmd_", "cfg_", "set_", "mold_")) and k not in ("last_command", "last_backfill", "command_status", "battery_replace_by", "battery_days_left")]
         assert not empty, (model, empty)
     if model == "TS301":
         assert st["temperature"] == -5.6 and st["temperature_alarm_active"] is True and st["temperature_alarm_status"] == "Below threshold alarm"
@@ -3068,3 +3068,12 @@ assert _bs.get("The Cottage") == _b and "The Cottage" in _bs.all()
 assert asyncio.run(_bs.async_set("The Cottage", {"guests": 999})) is None   # invalid -> cleared
 assert _bs.get("The Cottage") is None
 print("rental booking store ok")
+
+# ---- mould growth risk on a temp+humidity device ----
+_rt_mold, _ = make_device("00000000000fmold", "EM300-TH")
+send("00000000000fmold", bytes.fromhex("017590" + "0367c800" + "0468b4"))   # 20.0 °C, 90 % RH
+assert _rt_mold.values["mold_risk_index"] == 2 and "4" in _rt_mold.values["mold_risk"]
+assert _rt_mold.values["mold_index"] == 50 and _rt_mold.attrs["mold_risk"]["rh_critical"] == 80.0
+send("00000000000fmold", bytes.fromhex("017590" + "0367c800" + "046896"))   # 20.0 °C, 75 % RH -> no risk
+assert _rt_mold.values["mold_risk_index"] == 0 and _rt_mold.values["mold_risk"] == "No mold growth risk"
+print("mould risk ok")

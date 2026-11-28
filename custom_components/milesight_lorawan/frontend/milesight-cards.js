@@ -110,10 +110,23 @@
     .warnbar{display:flex;align-items:center;gap:9px;margin-bottom:10px;padding:9px 12px;border-radius:9px;font-size:13px;
       background:color-mix(in srgb,var(--ms-bad) 11%,transparent);color:var(--ms-bad);box-shadow:inset 3px 0 0 var(--ms-bad)}
     .warnbar.warn{background:color-mix(in srgb,var(--ms-warn) 12%,transparent);color:var(--ms-warn);box-shadow:inset 3px 0 0 var(--ms-warn)}
+    .msmold{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--ms-line);color:var(--ms-ink2)}
+    .msmold ha-icon{--mdc-icon-size:14px}
+    .msmold.good{color:var(--ms-good);border-color:color-mix(in srgb,var(--ms-good) 40%,var(--ms-line))}
+    .msmold.warn{color:var(--ms-warn);border-color:color-mix(in srgb,var(--ms-warn) 50%,var(--ms-line));background:color-mix(in srgb,var(--ms-warn) 8%,transparent)}
+    .msmold.bad{color:var(--ms-bad);border-color:var(--ms-bad);background:color-mix(in srgb,var(--ms-bad) 10%,transparent)}
   `;
   function navigate(path) {
     history.pushState(null, "", path);
     window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+  }
+  // a compact mould-growth-risk badge from a role's `mold` field (set on env / air / workplace roles)
+  function moldBadge(a) {
+    const m = a && a.mold; if (!m) return null;
+    const tone = m.index >= 3 ? "bad" : m.index >= 1 ? "warn" : "good";
+    const txt = m.index === 0 ? "Mould risk: none" : "Mould risk · " + String(m.text).replace(/^Mold growth risk /, "");
+    return h("span", { class: "msmold " + tone, title: String(m.text) + (m.weeks ? " (~" + m.weeks + " weeks)" : "") },
+      [h("ha-icon", { icon: "mdi:biohazard" }), txt]);
   }
   function emptyState(o) {
     o = o || {};
@@ -148,6 +161,15 @@
     const hasA = !!cfg.area, hasP = !!cfg.purpose;
     if (!hasA && !hasP) return true;
     return (hasA && areaEq(a.area, cfg.area)) || (hasP && purposeEq(a.purpose, cfg.purpose));
+  }
+  // like scopeMatch, but a device also counts as in scope when it shares an area with another device whose purpose
+  // matches the filter — so a thermostat in the rental's area shows even if its own purpose isn't in the scope list
+  function scopeMatchArea(cfg, a, S) {
+    if (scopeMatch(cfg, a)) return true;
+    if (cfg && cfg.purpose && a && a.area && S) {
+      for (const id in S) { const x = S[id].attributes; if (x && x.area && areaEq(x.area, a.area) && purposeEq(x.purpose, cfg.purpose)) return true; }
+    }
+    return false;
   }
   // normalise a preset's `empty` (string or object) into emptyState options
   function emptyOpts(empty, fallbackIcon) {
@@ -5612,7 +5634,8 @@
         trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } },
           "History for this reading isn't available yet.");
       }
-      return h("div", { class: "ablock" }, [head, chips, trend]);
+      const mold = moldBadge(a);
+      return h("div", { class: "ablock" }, [head, mold ? h("div", { style: { margin: "10px 0 2px" } }, mold) : null, chips, trend]);
     }
     _render() {
       if (!this._hass) return;
@@ -6013,7 +6036,8 @@
         trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } },
           "No numeric property to trend.");
       }
-      return h("div", { class: "ablock" }, [head, chips, trend]);
+      const mold = moldBadge(a);
+      return h("div", { class: "ablock" }, [head, mold ? h("div", { style: { margin: "10px 0 2px" } }, mold) : null, chips, trend]);
     }
     _render() {
       if (!this._hass) return;
@@ -6204,7 +6228,7 @@
       const S = this._hass.states, out = [];
       for (const id in S) {
         const st = S[id], a = st.attributes;
-        if (id.startsWith("climate.") && a && a.milesight_role === "thermostat" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); }
+        if (id.startsWith("climate.") && a && a.milesight_role === "thermostat" && scopeMatchArea(this._cfg || {}, a, S)) { if (!st.entity_id) st.entity_id = id; out.push(st); }
       }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
@@ -6427,7 +6451,8 @@
         if (this._hass) el.hass = this._hass;
         trend = h("div", { class: "atrend" }, [el]);
       } else { trend = h("div", { class: "atrend muted", style: { fontSize: "12px", padding: "14px 2px" } }, "No reading to trend."); }
-      return h("div", { class: "ablock" }, [head, chips, trend]);
+      const mold = moldBadge(a);
+      return h("div", { class: "ablock" }, [head, mold ? h("div", { style: { margin: "10px 0 2px" } }, mold) : null, chips, trend]);
     }
     _render() {
       if (!this._hass) return;
@@ -10310,13 +10335,14 @@
       // booking sub-line: "Booking for N · checked in <arrival>" when we have booking details
       let sub = st.sub;
       const parts = [];
+      if (b.name) parts.push(esc(b.name));
       if (sig.bookedGuests != null) parts.push("Booking for " + sig.bookedGuests);
       if (b.arrival && (st.key === "occupied" || st.key === "checkin")) parts.push("checked in " + this._bdate(b.arrival, true));
       else if (b.arrival && st.key === "vacant" && new Date(b.arrival) > new Date()) parts.push("arrives " + this._bdate(b.arrival, true));
       if (parts.length) sub = parts.join(" · ");
       const cd = this._countdown(b.departure);
       const chk = cd ? h("div", { class: "pchk" }, [h("b", { class: cd.late ? "late" : "" }, cd.txt), h("span", {}, "check-out")]) : null;
-      const editBtn = h("button", { class: "pedit", onclick: () => { this._editKey = key; this._draft = { guests: b.guests || "", arrival: b.arrival || "", departure: b.departure || "" }; this._render(); } },
+      const editBtn = h("button", { class: "pedit", onclick: () => { this._editKey = key; this._draft = { name: b.name || "", guests: b.guests || "", arrival: b.arrival || "", departure: b.departure || "" }; this._render(); } },
         [h("ha-icon", { icon: "mdi:calendar-edit" }), sig.bookedGuests != null || b.arrival ? "Edit booking" : "Add booking"]);
       const head = h("div", { class: "phero" }, [
         h("div", { class: "prow" }, [
@@ -10334,12 +10360,16 @@
     _bookingEditor(key) {
       const d = this._draft || {};
       const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); };
-      const field = (label, fkey, type) => h("label", { class: "pfl" }, [h("span", {}, label),
+      const field = (label, fkey, type, flex) => h("label", { class: "pfl", style: flex ? { flex: flex } : null }, [h("span", {}, label),
         h("input", { class: "pfi", type, value: d[fkey] == null ? "" : String(d[fkey]), min: type === "number" ? "1" : undefined, step: type === "number" ? "1" : undefined, oninput: set(fkey) })]);
+      const collect = () => { const dd = this._draft || {}; return {
+        name: (dd.name || "").trim() || undefined, guests: parseInt(dd.guests, 10) || undefined,
+        arrival: dd.arrival || undefined, departure: dd.departure || undefined }; };
       return h("div", { class: "pform" }, [
-        h("div", { class: "pfrow" }, [field("Guests", "guests", "number"), field("Arrival", "arrival", "datetime-local"), field("Departure", "departure", "datetime-local")]),
+        h("div", { class: "pfrow" }, [field("Guest name", "name", "text", "2 1 220px"), field("Guests", "guests", "number", "0 1 90px")]),
+        h("div", { class: "pfrow" }, [field("Arrival", "arrival", "datetime-local"), field("Departure", "departure", "datetime-local")]),
         h("div", { class: "pfbtns" }, [
-          h("button", { class: "pfb primary", onclick: () => this._saveBooking(key, { guests: parseInt(d.guests, 10) || undefined, arrival: d.arrival || undefined, departure: d.departure || undefined }) }, "Save"),
+          h("button", { class: "pfb primary", onclick: () => this._saveBooking(key, collect()) }, "Save"),
           h("button", { class: "pfb", onclick: () => { this._editKey = null; this._draft = null; this._render(); } }, "Cancel"),
           h("button", { class: "pfb danger", onclick: () => this._saveBooking(key, null) }, "Clear"),
         ]),

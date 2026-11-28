@@ -1516,9 +1516,11 @@ def test_purposes_catalogue():
 def test_rental_bookings():
     rt = _load("rental")
     # valid booking: guests + arrival / departure kept, notes trimmed
-    b = rt.clean_booking({"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00",
-                          "notes": "  late check-in  "})
-    assert b == {"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00", "notes": "late check-in"}
+    b = rt.clean_booking({"name": "  Jane Doe  ", "guests": 2, "arrival": "2026-11-14T15:02",
+                          "departure": "2026-11-16T10:00", "notes": "  late check-in  "})
+    assert b == {"name": "Jane Doe", "guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00",
+                 "notes": "late check-in"}
+    assert rt.clean_booking({"name": "Guest"}) == {"name": "Guest"}   # a name alone is a valid booking
     # a date-only arrival is fine
     assert rt.clean_booking({"arrival": "2026-12-01"}) == {"arrival": "2026-12-01"}
     # rubbish values are dropped; out-of-range / non-int guests cleared
@@ -1528,6 +1530,26 @@ def test_rental_bookings():
     assert rt.clean_booking({}) is None and rt.clean_booking("nope") is None
     # guests kept even if one date is bad
     assert rt.clean_booking({"guests": 4, "departure": "bad"}) == {"guests": 4}
+
+
+def test_mold_risk():
+    mc = _load("mold_calc")
+    assert mc.mold_risk(None, 80) is None and mc.mold_risk(20, None) is None
+    # below the critical humidity for the temperature → no risk
+    assert mc.mold_risk(20, 70)["index"] == 0 and mc.mold_risk(20, 70)["text"] == "No mold growth risk"
+    # 20 °C: 85 % → 8+ weeks (level 1), 88 % → 4–8 weeks (level 2), 92 % → <4 weeks (level 3)
+    assert mc.mold_risk(20, 85)["index"] == 1 and "8+ weeks" in mc.mold_risk(20, 85)["text"]
+    assert mc.mold_risk(20, 88)["index"] == 2 and "4–8 weeks" in mc.mold_risk(20, 88)["text"]
+    assert mc.mold_risk(20, 92)["index"] == 3 and "<4 weeks" in mc.mold_risk(20, 92)["text"]
+    # cold walls need more humidity: 5 °C critical ≈ 88 %, so 85 % is still safe but 95 % is a risk
+    assert round(mc.rh_critical(5)) == 88 and mc.mold_risk(5, 85)["index"] == 0
+    assert mc.mold_risk(5, 95)["index"] >= 1
+    # too cold / too hot → no growth
+    assert mc.rh_critical(-2) is None and mc.mold_risk(-2, 99)["index"] == 0
+    assert mc.rh_critical(55) is None and mc.mold_risk(55, 99)["index"] == 0
+    # severity is a 0–100 % above the critical humidity
+    m = mc.mold_risk(20, 90)
+    assert 0 < m["severity"] <= 100 and m["rh_critical"] == 80.0 and m["weeks"] is not None
 
 
 def test_load_tracker():

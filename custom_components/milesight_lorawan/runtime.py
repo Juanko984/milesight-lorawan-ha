@@ -3103,6 +3103,22 @@ class DeviceRuntime:
                                   "last_seen": self.meta.get("last_seen")}
 
         self._purpose_values(v, ts)
+        # Mould growth risk for any device that reports both temperature and humidity (air-based estimate).
+        _mt, _mh = _nz(v.get("temperature")), _nz(v.get("humidity"))
+        if _mt is not None and _mh is not None:
+            from .mold_calc import mold_risk
+            _m = mold_risk(_mt, _mh)
+            if _m is not None:
+                v["mold_risk"] = _m["text"]
+                v["mold_risk_index"] = _m["index"]
+                v["mold_index"] = _m["severity"]
+                self.attrs["mold_risk"] = {"risk_index": _m["index"], "weeks_to_mold": _m["weeks"],
+                                           "rh_critical": _m["rh_critical"], "mold_index": _m["severity"],
+                                           "last_seen": self.meta.get("last_seen")}
+                _mb = {"index": _m["index"], "text": _m["text"], "weeks": _m["weeks"], "severity": _m["severity"]}
+                for _rk in ("env_monitor", "air_monitor", "workplace"):   # show a mould badge on the T/H cards
+                    if isinstance(self.attrs.get(_rk), dict):
+                        self.attrs[_rk]["mold"] = _mb
         for option, val in _setpoints.device_values(self).items():
             v[_setpoints.key(option)] = val
         # every self-discovering widget shows a "last updated" time top-right: make sure each role carries last_seen

@@ -32,6 +32,9 @@ def clean_booking(raw: Any) -> dict | None:
     if not isinstance(raw, dict):
         return None
     out: dict[str, Any] = {}
+    name = raw.get("name")
+    if isinstance(name, str) and name.strip():
+        out["name"] = name.strip()[:80]
     g = raw.get("guests")
     if isinstance(g, bool):
         g = None

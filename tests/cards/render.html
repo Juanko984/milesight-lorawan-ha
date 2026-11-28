@@ -256,6 +256,7 @@
    "sensor.ws203_battery": { state: "72", last_changed: new Date().toISOString(), attributes: { friendly_name: "Store room Battery", unit_of_measurement: "%" } },
    // coop env sensor: found by PURPOSE (coop_climate), not by HA area
    "sensor.coop_env": { state: "18.4", attributes: { milesight_role: "env_monitor", device: "Coop climate", area: null, purpose: "coop_climate", model: "EM300-TH", primary: "temperature", last_seen: Date.now() / 1000 - 40,
+     mold: { index: 2, text: "Mold growth risk in 4–8 weeks", weeks: 5.8, severity: 48 },
      metrics: [ { key: "temperature", label: "Temp", value: 18.4, unit: "°C", icon: "mdi:thermometer", color: "#ff8a5c", entity_id: "sensor.coop_env_t", primary: true },
                 { key: "humidity", label: "Humidity", value: 63, unit: "%", icon: "mdi:water-percent", color: "#4aa3ff", entity_id: "sensor.coop_env_h" } ], states: [] } },
    "sensor.ws203_env": { state: "19.8", attributes: { milesight_role: "env_monitor", device: "Store room", area: "Store room", model: "WS203", primary: "temperature", last_seen: Date.now() / 1000 - 120,

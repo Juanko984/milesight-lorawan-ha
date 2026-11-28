@@ -1801,6 +1801,14 @@ def entity_specs(model_key: str) -> list[EntitySpec]:
     # a controllable output replaces its read-only binary sensor / sensor
     specs = [s_ for s_ in specs if not (s_.key in control and s_.platform in ("binary_sensor", "sensor"))]
     keys = {s_.key for s_ in specs}
+    # Any device that reports both temperature and humidity gets a mould-growth risk (level + wording) and a
+    # mould index (% above the critical humidity for its temperature), computed from the air reading.
+    if {"temperature", "humidity"} <= keys:
+        specs.append(EntitySpec("mold_risk", "Mould risk", kind="text", icon="mdi:biohazard"))
+        specs.append(EntitySpec("mold_index", "Mould index", unit="%", state_class="measurement",
+                                icon="mdi:water-percent"))
+        specs.append(EntitySpec("mold_risk_index", "Mould risk level", state_class="measurement",
+                                icon="mdi:biohazard", diagnostic=True, enabled_default=False))
     specs.append(EntitySpec("online", "Online", platform="binary_sensor", device_class="connectivity", diagnostic=True))
     if "battery" in keys or model.dynamic and model_key.startswith(("UC5", "UC11-N1", "UC11-T1")):
         specs.append(EntitySpec("battery_low", "Battery low", platform="binary_sensor", device_class="battery",

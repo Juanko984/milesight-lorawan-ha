@@ -2,6 +2,23 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.177.0
+- **Fixed: the booking now saves.** The Save button was submitting an empty form (it read a stale snapshot), which
+  the gateway then stored as "no booking". It now saves the guests and arrival / departure you typed, and shows them.
+- **Added a Guest name** field to the booking, shown on the Stay status card.
+- **Fixed: a WT thermostat now appears in the Short-stay Climate control** even if its purpose isn't in the card's
+  list — any thermostat sharing an area with your rental devices is shown. (So you don't have to reinstall the
+  dashboard after setting a new purpose.)
+
+## 0.176.0
+- **Built-in mould (mold) growth risk** on every device that reports both temperature and humidity — no more
+  external Template / Mould-Indicator helpers. Each gets:
+  - **Mould risk** — a 0–3 level with the familiar wording (No risk / after 8+ weeks / in 4–8 weeks / in <4 weeks),
+    from Viitanen's critical-time model, with the weeks-to-mould and critical-humidity as attributes.
+  - **Mould index** — 0–100 %, how far the air sits above the critical humidity for its temperature.
+  - A compact **mould-risk badge** now also shows on the Environment and Air-quality cards.
+  (Air-based estimate from indoor T/RH — colder surfaces need higher humidity before the risk kicks in.)
+
 ## 0.175.0
 - **New purpose: "Rental climate control (thermostat / HVAC)".** Set a WT thermostat to this and it shows in the
   Short-stay page's Climate control section (and gets the HVAC label / dashboard). The ambient "Rental climate
