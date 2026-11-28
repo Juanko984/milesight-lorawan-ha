@@ -39,24 +39,15 @@ views:
             default: packed
             grid_options: {columns: full}
             sections:
-              - heading: Properties
-                icon: mdi:home-group
-                # One compact card per property: stay state, party/smoking risk, guests (vs booking), CO₂, noise and a
-                # safety roll-up. Discovers every property by its short-stay purposes; hides until one is set up.
-                cards:
-                  - type: custom:milesight-property-card
-                    mode: overview
-                    title: false
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
               - heading: Stay status
                 icon: mdi:bell-ring-outline
-                # The stay-state machine per property: Vacant → Checked in → Occupied → Checked out → Turnover, with
-                # who's in and how long. Inferred from occupancy count / presence and the front-door contact.
+                # The stay-state machine for the whole rental: Vacant → Checked in → Occupied → Checked out →
+                # Turnover, with the combined guest count (all people counters) and the booking you enter here.
                 cards:
                   - type: custom:milesight-property-card
                     mode: detail
                     section: stay
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: At a glance
                 icon: mdi:view-grid-outline
                 # Occupancy (vs booking), front door, air (CO₂), climate, noise and a safety roll-up — each coloured.
@@ -64,7 +55,7 @@ views:
                   - type: custom:milesight-property-card
                     mode: detail
                     section: kpi
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Party & smoking watch
                 icon: mdi:party-popper
                 # The composite risk ring + bars: noise, CO₂ rise, people-vs-booking and the vape sensor in one signal.
@@ -72,7 +63,7 @@ views:
                   - type: custom:milesight-property-card
                     mode: detail
                     section: risk
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Guest activity
                 icon: mdi:timeline-clock-outline
                 # The last day: door opens, arrivals / departures and CO₂ peaks, newest first, with a live "now" row.
@@ -80,46 +71,47 @@ views:
                   - type: custom:milesight-property-card
                     mode: detail
                     section: timeline
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Occupancy
                 icon: mdi:account-group
                 # The VS people counter (inside now, in / out / net today, capacity) and any presence / PIR sensors.
                 cards:
                   - type: custom:milesight-people-counter-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
                   - type: custom:milesight-occupancy-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Air & comfort
                 icon: mdi:air-filter
                 # The AM air monitor (CO₂ / PM / TVOC / temp / humidity) and any EM300 temp/humidity/door/leak sensors.
                 cards:
                   - type: custom:milesight-air-quality-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
                   - type: custom:milesight-environment-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Climate control
                 icon: mdi:thermostat
                 # The WT thermostat: current temp, −/+ setpoint, mode and fan, valve opening and a temperature trend.
+                # Set the thermostat's purpose to "Rental climate control (thermostat / HVAC)" so it shows here.
                 # Pair with the "Short-stay auto-eco HVAC" blueprint for Comfort-while-occupied / Eco-when-vacant.
                 cards:
                   - type: custom:milesight-climate-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Noise
                 icon: mdi:volume-high
                 # The WS302 sound-level sensor: live dB with a learned baseline and 'left running' / nuisance detection.
                 cards:
                   - type: custom:milesight-sound-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
               - heading: Safety
                 icon: mdi:shield-home
                 # Gas leak (GS101 shut-off valve + relay), smoke / vape (GS601), water leak and the front-door contact.
                 cards:
                   - type: custom:milesight-gas-detector-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
                   - type: custom:milesight-gas-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
                   - type: custom:milesight-door-card
-                    purpose: guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety
+                    purpose: guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety
                     empty:
                       icon: mdi:door
                       title: No door / leak contact yet

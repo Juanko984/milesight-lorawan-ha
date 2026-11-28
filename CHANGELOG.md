@@ -2,6 +2,20 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.175.0
+- **New purpose: "Rental climate control (thermostat / HVAC)".** Set a WT thermostat to this and it shows in the
+  Short-stay page's Climate control section (and gets the HVAC label / dashboard). The ambient "Rental climate
+  (temp / humidity / air)" purpose still works for a thermostat too — both are in the Climate control card's scope.
+
+## 0.174.0
+- **The Short-stay page now treats the whole rental as one property.** Devices spread across several areas
+  (Kitchen, Lounge, Bedroom …) are combined into a single Stay status, a single At-a-glance strip and a single
+  Party & smoking widget — no more one block per area. (`combine: false` on a card restores per-area blocks for a
+  true multi-property site.)
+- **Stay status counts people from people-counting devices only, combined into one total** across all the rooms.
+- **Booking now saves and shows reliably.** It's stored once for the whole rental and every section updates live
+  when you save it (and an older per-area booking you'd entered is picked up automatically).
+
 ## 0.173.0
 - **Enter booking details on the Stay status card.** Add the number of guests the booking is for and the arrival /
   departure date-times, right on the card. The stay line then shows "Booking for N · checked in …", a live

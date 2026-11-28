@@ -1481,8 +1481,10 @@ def test_purposes_catalogue():
     assert "coop" in mdl.device_tags("AM307", {"purpose": "coop_climate"})
     assert "coop" not in mdl.device_tags("EM400-MUD", {"purpose": "water_tank"})
     # short-stay / Airbnb purposes: new hospitality sector, and any of them tags the site "rental" (installs the page)
-    assert set(prp.RENTAL_PURPOSES) == {"guest_door", "guest_occupancy", "rental_climate", "rental_air",
-                                        "rental_noise", "rental_safety"}
+    assert set(prp.RENTAL_PURPOSES) == {"guest_door", "guest_occupancy", "rental_climate", "rental_hvac",
+                                        "rental_air", "rental_noise", "rental_safety"}
+    assert prp.get("rental_hvac").group == "hvac" and prp.industry_of("rental_hvac") == "hospitality"
+    assert "rental" in mdl.device_tags("WT304", {"purpose": "rental_hvac"}) and "hvac" in mdl.device_tags("WT304", {"purpose": "rental_hvac"})
     assert "hospitality" in prp.INDUSTRIES and "hospitality" in prp.GROUPS
     for _k in prp.RENTAL_PURPOSES:
         assert prp.industry_of(_k) == "hospitality", _k

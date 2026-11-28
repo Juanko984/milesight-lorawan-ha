@@ -204,6 +204,8 @@ PURPOSES: dict[str, Purpose] = {p.key: p for p in (
        icon="mdi:account-group"),
     _p("rental_climate", "Rental climate (temp / humidity / air)", "comfort", "temperature air motion",
        icon="mdi:home-thermometer", temp_low=14, co2_limit=1500),
+    _p("rental_hvac", "Rental climate control (thermostat / HVAC)", "hvac", "temperature air motion",
+       icon="mdi:thermostat", temp_low=14),
     _p("rental_air", "Rental air quality", "comfort", "air", icon="mdi:air-filter", co2_limit=1200),
     _p("rental_noise", "Rental noise / nuisance", "facilities", "sound", "Noise", "mdi:volume-high"),
     _p("rental_safety", "Rental safety (gas / smoke / leak)", "security", "air leak contact",
@@ -216,7 +218,8 @@ COOP_PURPOSES = ("coop_drinker", "coop_feeder", "coop_door", "coop_climate", "co
 # retail: a staff / counter coverage zone (assigned to a people or occupancy sensor at the till)
 RETAIL_PURPOSES = ("counter_zone",)
 # short-stay / Airbnb purposes: any of these on a device tags the site "rental" (installs the Property monitor page)
-RENTAL_PURPOSES = ("guest_door", "guest_occupancy", "rental_climate", "rental_air", "rental_noise", "rental_safety")
+RENTAL_PURPOSES = ("guest_door", "guest_occupancy", "rental_climate", "rental_hvac", "rental_air", "rental_noise",
+                   "rental_safety")
 LOAD_ANALYTICS = ("fridge", "freezer", "air_compressor", "motor", "ac", "geyser", "lighting", "mains", "appliance",
                   "washer", "ev_charger", "generator", "inverter")
 
@@ -268,7 +271,8 @@ _PURPOSE_INDUSTRY = {
     "machine_noise": "industrial", "noise_level": "facilities",
     "water_pressure": "water", "steam_pressure": "industrial", "compressed_air": "industrial",
     "guest_door": "hospitality", "guest_occupancy": "hospitality", "rental_climate": "hospitality",
-    "rental_air": "hospitality", "rental_noise": "hospitality", "rental_safety": "hospitality",
+    "rental_hvac": "hospitality", "rental_air": "hospitality", "rental_noise": "hospitality",
+    "rental_safety": "hospitality",
 }
 
 

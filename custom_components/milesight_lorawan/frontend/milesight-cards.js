@@ -9894,32 +9894,38 @@
   }
 
   class PropertyCard extends Base {
-    static getStubConfig() { return { purpose: "guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety" }; }
+    static getStubConfig() { return { purpose: "guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety" }; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     setConfig(cfg) {
-      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._bookings = null; this._editArea = null; this._draft = null; this._render();
+      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._bookings = null; this._editKey = null; this._draft = null; this._render();
     }
     _watch() { return null; }                              // re-render on any state change (cheap)
     set hass(hass) {
       const first = !this._hass; this._hass = hass;
-      if (this._editArea) return;                          // don't blow away the open booking editor on a state tick
+      if (this._editKey) return;                          // don't blow away the open booking editor on a state tick
       const areas = this._areas();
       const key = areas.join("|");
       if (first || this._loadedFor !== key) { this._loadedFor = key; this._loadHistory(areas); }
       if (this._bookings === null) { this._bookings = {}; this._loadBookings(); }
       this._render();
     }
+    connectedCallback() {                                  // keep every section's bookings in sync when one saves
+      this._onSync = (e) => { if (!e || !e.detail) return; this._bookings = Object.assign({}, e.detail); if (!this._editKey) this._render(); };
+      window.addEventListener("ms-rental-booking", this._onSync);
+    }
+    disconnectedCallback() { if (this._onSync) window.removeEventListener("ms-rental-booking", this._onSync); }
     async _loadBookings() {
       try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/list" }); this._bookings = (r && r.bookings) || {}; }
       catch (e) { this._bookings = {}; }                   // bookings unavailable (old gateway): the card still works
       this._render();
     }
-    async _saveBooking(area, booking) {
+    async _saveBooking(key, booking) {
       this._bookings = this._bookings || {};
-      this._bookings[area] = booking || undefined;
-      this._editArea = null; this._draft = null;
-      try { await this._hass.callWS({ type: "milesight_lorawan/rental/set", area, booking: booking || {} }); } catch (e) { /* surfaced by HA */ }
+      if (booking) this._bookings[key] = booking; else delete this._bookings[key];
+      this._editKey = null; this._draft = null;
       this._render();
+      try { window.dispatchEvent(new CustomEvent("ms-rental-booking", { detail: Object.assign({}, this._bookings) })); } catch (e) { /* */ }
+      try { await this._hass.callWS({ type: "milesight_lorawan/rental/set", area: key, booking: booking || {} }); } catch (e) { /* surfaced by HA */ }
     }
     // distinct property areas in scope (detail = the one `area`; overview = every rental area discovered by purpose)
     _areas() {
@@ -9956,10 +9962,6 @@
         if (people == null) { const cnt = spaces.map((x) => num(x.attributes.people)).filter((v) => v != null); if (cnt.length) people = cnt.reduce((s, v) => s + v, 0); }
       }
       if (capacity == null) capacity = num((this._cfg || {}).capacity);
-      // booking the host entered for this property (guests + arrival / departure) overrides the capacity
-      const booking = (this._bookings && this._bookings[area]) || null;
-      const bookedGuests = booking ? num(booking.guests) : null;
-      if (bookedGuests != null) capacity = bookedGuests;
       // front door contact
       let door = null; for (const id in S) { const st = S[id]; if (id.startsWith("binary_sensor.") && st.attributes.ms_contact === "door" && inA(st)) { door = st; break; } }
       const doorA = door ? door.attributes : null;
@@ -9984,14 +9986,79 @@
       const co2Rise = this._co2Rise(area);
       const hour = new Date().getHours(); const afterHours = hour >= 22 || hour < 7;
       return {
-        area, people, occupied, occupiedS, emptyS, capacity,
+        area, people, occupied, occupiedS, emptyS, capacity, hasCounter: !!pc,
         door, doorOpen, doorSinceMin, doorA,
         comfort, ca, co2, temperature: num(ca.temperature), humidity: num(ca.humidity),
         sound, noiseDb: sound ? num(sound.attributes.level) : null, noiseThreshold: sound ? num(sound.attributes.threshold) : null,
         gm, vape, vapingIndex, hasVape, gasDet, leak, thermo, co2Rise, afterHours,
-        booking, bookedGuests,
+        booking: null, bookedGuests: null,
         over: !!(pc && pc.attributes.over) || (people != null && capacity && people > capacity),
       };
+    }
+    _hasSig(s) { return s && (s.people != null || s.hasCounter || s.doorA || s.co2 != null || s.comfort || s.sound || (s.gm && s.gm.length) || s.thermo || s.gasDet || s.leak); }
+    _bookingKey() { const cfg = this._cfg || {}; return cfg.area || cfg.booking_key || "__site__"; }
+    // the booking for a key, with a fallback to any single-area booking already stored (migration for bookings
+    // entered before the page combined properties)
+    _booking(key, areas) {
+      const B = this._bookings || {};
+      if (B[key]) return B[key];
+      for (const a of (areas || [])) if (B[a]) return B[a];
+      return null;
+    }
+    _applyBooking(sig, key, areas) {
+      const b = this._booking(key, areas);
+      sig.booking = b; const g = b ? num(b.guests) : null; sig.bookedGuests = g;
+      if (g != null) { sig.capacity = g; sig.over = sig.over || (sig.people != null && sig.people > g); }
+      return sig;
+    }
+    // one combined property from every rental device across all its areas (the Short-stay page is one rental)
+    _combinedSignals(areas) {
+      const S = (this._hass && this._hass.states) || {};
+      const parts = areas.map((a) => this._signals(a)).filter((s) => this._hasSig(s));
+      if (!parts.length) return null;
+      const inScope = (st) => st && areas.some((a) => areaEq(st.attributes.area, a));
+      const maxOf = (f) => { let m = null, src = null; for (const s of parts) { const v = f(s); if (v != null && (m == null || v > m)) { m = v; src = s; } } return { v: m, src }; };
+      const sumOf = (f) => { let any = false, t = 0; for (const s of parts) { const v = f(s); if (v != null) { any = true; t += v; } } return any ? t : null; };
+      // occupancy — ONLY people-counting devices, combined into one total
+      const counters = byRole(S, "people_counter").filter(inScope);
+      const hasCounter = counters.length > 0;
+      let people = null, capacity = null;
+      if (hasCounter) {
+        people = counters.reduce((t, c) => t + (num(c.attributes.inside) || 0), 0);
+        const caps = counters.map((c) => num(c.attributes.capacity)).filter((v) => v != null);
+        if (caps.length) capacity = caps.reduce((t, v) => t + v, 0);
+      } else { people = sumOf((s) => s.people); }
+      const occupied = (people != null && people > 0) || parts.some((s) => s.occupied);
+      const occupiedS = maxOf((s) => s.occupiedS).v;
+      let emptyS = null; for (const s of parts) { if (!s.occupied && s.emptyS != null) emptyS = emptyS == null ? s.emptyS : Math.min(emptyS, s.emptyS); }
+      // worst air, loudest noise, representative climate (prefer an area with a thermostat)
+      const co2 = maxOf((s) => s.co2).v, co2Rise = maxOf((s) => s.co2Rise).v;
+      const clim = parts.find((s) => s.thermo) || parts.find((s) => s.temperature != null) || parts[0];
+      const n = maxOf((s) => s.noiseDb);
+      // door roll-up (any open; opens today summed)
+      const doors = parts.filter((s) => s.doorA);
+      const doorOpen = doors.some((s) => s.doorOpen);
+      const openSrc = doors.find((s) => s.doorOpen) || doors[0];
+      const doorA = doors.length ? { active: doorOpen, since: openSrc && openSrc.doorA.since, status_text: openSrc && openSrc.doorA.status_text, count_today: sumOf((s) => s.doorA ? num(s.doorA.count_today) : null) } : null;
+      const doorSinceMin = (doorA && doorA.since) ? Math.max(0, (Date.now() - doorA.since * 1000) / 60000) : null;
+      // vape / safety
+      const hasVape = parts.some((s) => s.hasVape), vape = parts.some((s) => s.vape === true);
+      const gm = [].concat(...parts.map((s) => s.gm || []));
+      const gasDetList = parts.map((s) => s.gasDet).filter(Boolean);
+      const gasDet = gasDetList.length ? { attributes: { alarm: gasDetList.some((g) => g.attributes.alarm === true) } } : null;
+      const leakList = parts.map((s) => s.leak).filter(Boolean);
+      const leak = leakList.length ? { attributes: { active: leakList.some((l) => l.attributes.active === true) } } : null;
+      const thermo = parts.find((s) => s.thermo) ? parts.find((s) => s.thermo).thermo : null;
+      const sig = {
+        area: null, people, occupied, occupiedS, emptyS, capacity, hasCounter,
+        doorA, doorOpen, doorSinceMin,
+        comfort: parts.some((s) => s.comfort), co2, temperature: clim ? clim.temperature : null, humidity: clim ? clim.humidity : null,
+        sound: n.src ? n.src.sound : null, noiseDb: n.v, noiseThreshold: n.src ? n.src.noiseThreshold : null,
+        gm, vape, vapingIndex: maxOf((s) => s.vapingIndex).v, hasVape, gasDet, leak, thermo, co2Rise,
+        afterHours: parts[0].afterHours, over: parts.some((s) => s.over),
+        booking: null, bookedGuests: null, _areas: areas,
+      };
+      return this._applyBooking(sig, this._bookingKey(), areas);
     }
     // CO₂ rise (ppm/h) over the last ~2 h from the comfort/air history we fetched
     _co2Rise(area) {
@@ -10036,16 +10103,20 @@
       for (const id in S) { if (id.startsWith("sensor.") && areaEq(S[id].attributes.area, st.attributes.area) && pred(S[id].attributes)) return id; }
       return null;
     }
-    // build a short guest-activity timeline from today's door + occupancy + CO₂ history, plus a live "now" row
-    _timeline(area, sig) {
-      const H = this._hist[area] || {}, evs = [];
+    // build a short guest-activity timeline from today's door + occupancy + CO₂ history (merged across the
+    // property's areas), plus a live "now" row
+    _timeline(ctx, sig) {
+      const evs = [];
       const hhmm = (ts) => { try { const d = new Date(ts); return (Date.now() - ts > 86400000 ? d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " : "") + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
-      // door opens
-      if (H.door) { let prev = null; for (const [t, s] of H.door) { const on = s === "on" || s === "open" || s === "Open"; if (prev === false && on) evs.push({ t, cls: "", title: "Front door opened", sub: "entry / exit" }); prev = on; } }
-      // occupancy arrivals (people goes 0 → >0)
-      if (H.people) { let prev = null; for (const [t, v] of H.people) { if ((prev === 0 || prev == null) && v > 0) evs.push({ t, cls: "key", title: "Occupied · " + v + (v === 1 ? " person" : " people"), sub: "arrival" }); if (prev > 0 && v === 0) evs.push({ t, cls: "", title: "Property emptied", sub: "all guests out" }); prev = v; } }
-      // CO₂ peaks over 900
-      if (H.co2) { let flagged = false; for (const [t, v] of H.co2) { if (v > 900 && !flagged) { evs.push({ t, cls: "warnd", title: "CO₂ climbed to " + Math.round(v) + " ppm", sub: "cooking / full room" }); flagged = true; } if (v < 750) flagged = false; } }
+      for (const area of (ctx.areas || [])) {
+        const H = this._hist[area] || {};
+        // door opens
+        if (H.door) { let prev = null; for (const [t, s] of H.door) { const on = s === "on" || s === "open" || s === "Open"; if (prev === false && on) evs.push({ t, cls: "", title: "Front door opened", sub: "entry / exit" }); prev = on; } }
+        // occupancy arrivals (people goes 0 → >0)
+        if (H.people) { let prev = null; for (const [t, v] of H.people) { if ((prev === 0 || prev == null) && v > 0) evs.push({ t, cls: "key", title: "Occupied · " + v + (v === 1 ? " person" : " people"), sub: "arrival" }); if (prev > 0 && v === 0) evs.push({ t, cls: "", title: "Property emptied", sub: "all guests out" }); prev = v; } }
+        // CO₂ peaks over 900
+        if (H.co2) { let flagged = false; for (const [t, v] of H.co2) { if (v > 900 && !flagged) { evs.push({ t, cls: "warnd", title: "CO₂ climbed to " + Math.round(v) + " ppm", sub: "cooking / full room" }); flagged = true; } if (v < 750) flagged = false; } }
+      }
       evs.sort((a, b) => b.t - a.t);
       const top = evs.slice(0, 6).map((e) => ({ ...e, time: hhmm(e.t) }));
       // live "now" row at the head
@@ -10167,12 +10238,17 @@
       this._css = this._css_();
       const cfg = this._cfg || {}, areas = this._areas();
       const overview = !cfg.area && (cfg.mode === "overview" || !cfg.mode);
-      // ---------- overview (multi-property) ----------
+      // ---------- overview ----------
+      // By default the whole rental is one property, so the overview is one combined summary card; `combine: false`
+      // restores one card per area (a true multi-property site).
       if (overview) {
-        const cards = areas.map((a) => [a, this._signals(a)]).filter(([, s]) => s.people != null || s.doorA || s.co2 != null || s.comfort || s.sound);
+        const combineO = cfg.combine !== false;
+        let cards;
+        if (combineO) { const s = this._combinedSignals(areas); cards = s ? [["Property", s]] : []; }
+        else { cards = areas.map((a) => [a, this._applyBooking(this._signals(a), a, [a])]).filter(([, s]) => this._hasSig(s)); }
         if (!cards.length) {
           this._card(emptyState(emptyOpts(cfg.empty || { icon: "mdi:home-city", title: "No properties yet",
-            hint: "Set a device's purpose to a Short-stay purpose (or put it in the property's area) and each property shows here." }, "mdi:home-city")));
+            hint: "Set a device's purpose to a Short-stay purpose (or put it in the property's area) and the property shows here." }, "mdi:home-city")));
           return;
         }
         this.style.display = "";
@@ -10183,24 +10259,32 @@
         return;
       }
       // ---------- detail ----------
-      // One property when `area` is set; otherwise one labelled detail block per discovered rental area
-      // (so a single page becomes "one page per property"). `section` lets the dashboard place stay / kpi /
-      // risk / timeline in separate masonry sections.
+      // The Short-stay page is ONE rental: by default every scoped device, across all its areas, is combined into
+      // one property (one stay card, one at-a-glance, one risk widget). `combine: false` keeps the old one-block-
+      // per-area behaviour. `section` lets the dashboard place stay / kpi / risk / timeline in separate sections.
       const section = cfg.section || "all";               // all | stay | kpi | risk | timeline
-      const hasSig = (s) => s && (s.people != null || s.doorA || s.co2 != null || s.comfort || s.sound || s.gm.length);
-      const live = areas.map((a) => [a, this._signals(a)]).filter(([, s]) => hasSig(s));
-      if (!live.length) {
+      const combine = cfg.combine !== false && !cfg.area;
+      const emptyBlock = () => {
         if (cfg.area || cfg.purpose) { this.style.display = "none"; if (this.shadowRoot) this.shadowRoot.textContent = ""; return; }
         this._card(emptyState(emptyOpts(cfg.empty || { icon: "mdi:home-city", title: "No property sensors yet",
           hint: "Put the door, occupancy, air, noise and safety sensors in this property's area (or give them a Short-stay purpose)." }, "mdi:home-city")));
+      };
+      if (combine) {
+        const sig = this._combinedSignals(areas);
+        if (!sig) { emptyBlock(); return; }
+        this.style.display = "";
+        this._card(h("div", { class: "wrap" }, this._detailBlocks({ key: this._bookingKey(), areas }, sig, section)));
         return;
       }
+      // per-area (one block per property)
+      const live = areas.map((a) => [a, this._applyBooking(this._signals(a), a, [a])]).filter(([, s]) => this._hasSig(s));
+      if (!live.length) { emptyBlock(); return; }
       this.style.display = "";
       const multi = live.length > 1;
       const out = [];
       for (const [area, sig] of live) {
         if (multi) out.push(h("div", { class: "parea" }, [h("ha-icon", { icon: "mdi:map-marker-outline" }), esc(area)]));
-        for (const b of this._detailBlocks(area, sig, section)) out.push(b);
+        for (const b of this._detailBlocks({ key: area, areas: [area] }, sig, section)) out.push(b);
       }
       this._card(h("div", { class: "wrap" }, out));
     }
@@ -10220,9 +10304,9 @@
       return { txt: h < 48 ? "in " + Math.round(h) + " h" : "in " + Math.round(h / 24) + " d", late: false };
     }
     // the stay hero: state pill, who's in, the booking line, a check-out countdown and an Edit affordance (+ editor)
-    _stayHero(area, sig, st) {
-      const b = sig.booking || {};
-      const editing = this._editArea === area;
+    _stayHero(ctx, sig, st) {
+      const key = ctx.key, b = sig.booking || {};
+      const editing = this._editKey === key;
       // booking sub-line: "Booking for N · checked in <arrival>" when we have booking details
       let sub = st.sub;
       const parts = [];
@@ -10232,7 +10316,7 @@
       if (parts.length) sub = parts.join(" · ");
       const cd = this._countdown(b.departure);
       const chk = cd ? h("div", { class: "pchk" }, [h("b", { class: cd.late ? "late" : "" }, cd.txt), h("span", {}, "check-out")]) : null;
-      const editBtn = h("button", { class: "pedit", onclick: () => { this._editArea = area; this._draft = { guests: b.guests || "", arrival: b.arrival || "", departure: b.departure || "" }; this._render(); } },
+      const editBtn = h("button", { class: "pedit", onclick: () => { this._editKey = key; this._draft = { guests: b.guests || "", arrival: b.arrival || "", departure: b.departure || "" }; this._render(); } },
         [h("ha-icon", { icon: "mdi:calendar-edit" }), sig.bookedGuests != null || b.arrival ? "Edit booking" : "Add booking"]);
       const head = h("div", { class: "phero" }, [
         h("div", { class: "prow" }, [
@@ -10243,30 +10327,30 @@
         ]),
         h("div", { class: "pstates" }, st.states.map((k, i) => h("div", { class: "pst" + (i === st.index ? " on" : "") },
           ({ vacant: "Vacant", checkin: "Checked in", occupied: "Occupied", checkout: "Checked out", turnover: "Turnover" })[k]))),
-        editing ? this._bookingEditor(area) : null,
+        editing ? this._bookingEditor(key) : null,
       ]);
       return head;
     }
-    _bookingEditor(area) {
+    _bookingEditor(key) {
       const d = this._draft || {};
       const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); };
-      const field = (label, key, type) => h("label", { class: "pfl" }, [h("span", {}, label),
-        h("input", { class: "pfi", type, value: d[key] == null ? "" : String(d[key]), min: type === "number" ? "1" : undefined, step: type === "number" ? "1" : undefined, oninput: set(key) })]);
+      const field = (label, fkey, type) => h("label", { class: "pfl" }, [h("span", {}, label),
+        h("input", { class: "pfi", type, value: d[fkey] == null ? "" : String(d[fkey]), min: type === "number" ? "1" : undefined, step: type === "number" ? "1" : undefined, oninput: set(fkey) })]);
       return h("div", { class: "pform" }, [
         h("div", { class: "pfrow" }, [field("Guests", "guests", "number"), field("Arrival", "arrival", "datetime-local"), field("Departure", "departure", "datetime-local")]),
         h("div", { class: "pfbtns" }, [
-          h("button", { class: "pfb primary", onclick: () => this._saveBooking(area, { guests: parseInt(d.guests, 10) || undefined, arrival: d.arrival || undefined, departure: d.departure || undefined }) }, "Save"),
-          h("button", { class: "pfb", onclick: () => { this._editArea = null; this._draft = null; this._render(); } }, "Cancel"),
-          h("button", { class: "pfb danger", onclick: () => this._saveBooking(area, null) }, "Clear"),
+          h("button", { class: "pfb primary", onclick: () => this._saveBooking(key, { guests: parseInt(d.guests, 10) || undefined, arrival: d.arrival || undefined, departure: d.departure || undefined }) }, "Save"),
+          h("button", { class: "pfb", onclick: () => { this._editKey = null; this._draft = null; this._render(); } }, "Cancel"),
+          h("button", { class: "pfb danger", onclick: () => this._saveBooking(key, null) }, "Clear"),
         ]),
       ]);
     }
-    _detailBlocks(area, sig, section) {
+    _detailBlocks(ctx, sig, section) {
       const blocks = [];
       const st = msStayState(sig);
       const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex, hasVape: sig.hasVape });
       if (section === "all" || section === "stay") {
-        blocks.push(this._stayHero(area, sig, st));
+        blocks.push(this._stayHero(ctx, sig, st));
       }
       if (section === "all" || section === "kpi") {
         const tiles = this._kpis(sig);
@@ -10294,7 +10378,7 @@
         ]));
       }
       if (section === "all" || section === "timeline") {
-        const evs = this._timeline(area, sig);
+        const evs = this._timeline(ctx, sig);
         blocks.push(h("div", { class: "ptml" }, evs.map((e) => h("div", { class: "pev " + (e.cls || "") }, [
           e.time ? h("span", { class: "ptime" }, e.time) : null,
           h("div", { class: "pt" }, esc(e.title)), e.sub ? h("div", { class: "ps" }, esc(e.sub)) : null,
