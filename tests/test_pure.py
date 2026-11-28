@@ -1511,6 +1511,23 @@ def test_purposes_catalogue():
     assert devs[0]["purpose"] == "fridge" and "does not fit" in errs[0]
 
 
+def test_rental_bookings():
+    rt = _load("rental")
+    # valid booking: guests + arrival / departure kept, notes trimmed
+    b = rt.clean_booking({"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00",
+                          "notes": "  late check-in  "})
+    assert b == {"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00", "notes": "late check-in"}
+    # a date-only arrival is fine
+    assert rt.clean_booking({"arrival": "2026-12-01"}) == {"arrival": "2026-12-01"}
+    # rubbish values are dropped; out-of-range / non-int guests cleared
+    assert rt.clean_booking({"guests": 0}) is None and rt.clean_booking({"guests": 999}) is None
+    assert rt.clean_booking({"guests": True}) is None          # a bool is not a guest count
+    assert rt.clean_booking({"arrival": "not-a-date"}) is None
+    assert rt.clean_booking({}) is None and rt.clean_booking("nope") is None
+    # guests kept even if one date is bad
+    assert rt.clean_booking({"guests": 4, "departure": "bad"}) == {"guests": 4}
+
+
 def test_load_tracker():
     t0 = T("2026-10-14 00:00"); day = "2026-10-14"
     tr = usg.LoadTracker()

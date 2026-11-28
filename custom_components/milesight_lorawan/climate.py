@@ -164,6 +164,7 @@ class MilesightClimate(MilesightEntity, ClimateEntity):
         return {
             "milesight_role": "thermostat", "device": rt.entry.title, "model": rt.model.key,
             "area": rt.entry.data.get("area") or rt.entry.options.get("area"),
+            "purpose": rt._pkey,
             "battery": v.get("battery"), "valve": v.get("valve_opening"),
             "window_open": v.get("window_open"), "temp_entity_id": self._temp_eid or None,
             "step": self._attr_target_temperature_step, "last_seen": rt.meta.get("last_seen"),

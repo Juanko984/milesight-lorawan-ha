@@ -889,7 +889,7 @@ class DeviceRuntime:
         primary = next((m for m in metrics if m["key"] == "co2"), metrics[0])
         return {
             "milesight_role": "air_monitor", "device": self.entry.title,
-            "area": self._area(), "model": self.model.key,
+            "area": self._area(), "model": self.model.key, "purpose": self._pkey,
             "metrics": metrics, "primary": primary["key"], "air_quality": _co2_text(v.get("co2")),
             "last_seen": self.meta.get("last_seen"),
         }
@@ -1091,7 +1091,7 @@ class DeviceRuntime:
             return None
         resolve = self._entity_id_resolver()
         return {
-            "milesight_role": "gas_detector", "device": self.entry.title, "area": self._area(),
+            "milesight_role": "gas_detector", "device": self.entry.title, "area": self._area(), "purpose": self._pkey,
             "model": self.model.key, "alarm": v.get("gas_active"), "since": v.get("gas_since"),
             "status": v.get("gas_status"),
             "valve_open": v.get("valve_status"), "valve_entity_id": resolve("valve_status", "switch"),
@@ -1175,7 +1175,7 @@ class DeviceRuntime:
         occ_s, empty_s = self._occ_times(v, ts) if has_tracker else (None, None)
         counting = bool(has_tracker and self.model.counting)
         return {
-            "milesight_role": "space", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "milesight_role": "space", "device": self.entry.title, "area": self._area(), "model": self.model.key, "purpose": self._pkey,
             "occupied": occupied, "status": status, "motion_only": not has_tracker,
             "people": v.get("occ_people_count") if counting else None, "counting": counting, "since": since,
             "occupied_s": None if occ_s is None else round(occ_s), "empty_s": None if empty_s is None else round(empty_s),
@@ -1214,7 +1214,7 @@ class DeviceRuntime:
             return None
         primary = next((m for m in metrics if m["key"] == "temperature"), metrics[0])
         return {
-            "milesight_role": "workplace", "device": self.entry.title, "area": self._area(), "model": self.model.key,
+            "milesight_role": "workplace", "device": self.entry.title, "area": self._area(), "model": self.model.key, "purpose": self._pkey,
             "metrics": metrics, "primary": primary["key"],
             "occupied": v.get("occ_occupied"), "people": v.get("occ_people_count"),
             "since": v.get("occ_occupied_since"), "occupied_s": None if occ_s is None else round(occ_s),
@@ -1772,7 +1772,7 @@ class DeviceRuntime:
         dur = (ts - since) if since else 0
         alert = bool(since and dur >= minutes * 60)
         return {
-            "milesight_role": "sound_monitor", "device": self.entry.title, "area": self._area(),
+            "milesight_role": "sound_monitor", "device": self.entry.title, "area": self._area(), "purpose": self._pkey,
             "model": self.model.key, "level": now_db, "current": level, "laeq": laeq, "max": smax,
             "baseline": None if baseline is None else round(baseline, 1), "threshold": threshold,
             "margin": margin, "minutes": minutes, "manual_baseline": manual is not None,
@@ -1827,7 +1827,7 @@ class DeviceRuntime:
         resolve = self._entity_id_resolver()
         trend_key = "people_count_all" if v.get("people_count_all") is not None else "people_in_today"
         return {
-            "milesight_role": "people_counter", "device": self.entry.title, "area": self._area(),
+            "milesight_role": "people_counter", "device": self.entry.title, "area": self._area(), "purpose": self._pkey,
             "model": self.model.key, "inside": None if inside is None else int(inside),
             "in_today": None if inn is None else int(inn), "out_today": None if out is None else int(out),
             "net": None if (inn is None or out is None) else int(inn - out),
@@ -1853,7 +1853,7 @@ class DeviceRuntime:
         tone = "critical" if (state == "fall" or "motionless" in active or "breathing" in active) \
             else "warning" if (state == "out_of_bed" or active) else "ok"
         return {
-            "milesight_role": "fall_monitor", "device": self.entry.title, "area": self._area(),
+            "milesight_role": "fall_monitor", "device": self.entry.title, "area": self._area(), "purpose": self._pkey,
             "model": self.model.key, "state": state, "state_label": labels.get(state, str(state).replace("_", " ")),
             "tone": tone, "respiration": _nz(v.get("respiratory_rate")), "respiration_status": v.get("respiratory_status"),
             "dwell_s": _nz(v.get("dwell_time_max")) or _nz(v.get("dwell_time_avg")),

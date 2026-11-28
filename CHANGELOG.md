@@ -2,6 +2,26 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.173.0
+- **Enter booking details on the Stay status card.** Add the number of guests the booking is for and the arrival /
+  departure date-times, right on the card. The stay line then shows "Booking for N · checked in …", a live
+  **check-out countdown**, and over-capacity is judged against the **booked** count (not the sensor's capacity).
+  Bookings are stored on the gateway and shared by every viewer.
+- **The vaping bar only shows when a vape sensor (GS601) is fitted** to that property — the party & smoking score
+  renormalises over the signals that exist, and the caption drops the vaping mention when there's none.
+- **Fixed the AM308 (and other AM) air monitor not appearing** on the Short-stay page: the air-monitor role now
+  carries its Purpose, so a purpose-scoped Air & comfort card finds it.
+
+## 0.172.0
+- **Short-stay page is now one scrollable page** (not two tabs), and shows **every device's own widget** alongside
+  the stay status, party & smoking watch, guest activity and comfort: Occupancy (VS counter + presence), Air &
+  comfort (AM monitor + EM300 temp/humidity/leak), Climate control (WT thermostat), Noise (WS302) and Safety
+  (GS101 gas, GS601 vape, door/leak contacts).
+- **Short-stay widgets now scope to just your rental devices.** The people-counter, sound, occupancy, thermostat,
+  gas-detector and fall cards can be filtered by area / purpose, so a mixed site (retail counters, washroom sound,
+  coop sensors) no longer bleeds onto the Short-stay page. These device roles now also carry their Purpose.
+- Removed the per-area "insights" strip that could render empty (the per-property **At a glance** tiles replace it).
+
 ## 0.171.0
 - **New Short-stay / Airbnb property monitor.** A new ready-made dashboard for holiday-let and short-stay hosts,
   with a per-property detail page **and** a multi-property overview. Set each property's devices to one of the new

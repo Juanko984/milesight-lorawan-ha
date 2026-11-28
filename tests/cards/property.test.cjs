@@ -31,6 +31,8 @@ const { chromium } = require("playwright");
       overcap: risk({ noiseDb: 55, noiseThreshold: 70, co2: 900, people: 9, capacity: 2, vape: false }),
       loudLate: risk({ noiseDb: 82, noiseThreshold: 70, afterHours: true, co2: 1100, co2Rise: 260, people: 6, capacity: 4, vape: false }),
       empty: risk({}),
+      noVape: risk({ noiseDb: 38, noiseThreshold: 70, co2: 600, people: 2, capacity: 2, hasVape: false }),
+      withVape: risk({ noiseDb: 38, noiseThreshold: 70, co2: 600, people: 2, capacity: 2, hasVape: true, vape: false }),
     };
   });
 
@@ -48,6 +50,8 @@ const { chromium } = require("playwright");
   ok(T.overcap.score >= 62, "over-capacity lifts risk: " + JSON.stringify(T.overcap));
   ok(T.loudLate.label === "High", "loud + late + full = High: " + JSON.stringify(T.loudLate));
   ok(T.empty.score === 0 && T.empty.label === "Low", "no signals = 0 / Low: " + JSON.stringify(T.empty));
+  ok(T.noVape.bars === 3 && !T.noVape.bars.vaping, "no vape sensor -> 3 bars (no vaping bar): " + JSON.stringify(T.noVape));
+  ok(T.withVape.bars === 4, "vape sensor fitted -> 4 bars incl. vaping: " + JSON.stringify(T.withVape));
 
   await browser.close();
   if (fails.length) { console.error("PROPERTY CARD TEST FAILURES:\n  " + fails.join("\n  ")); process.exit(1); }

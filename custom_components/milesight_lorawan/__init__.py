@@ -82,6 +82,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                                         chat.on_mobile_action))
         except Exception:  # noqa: BLE001 - chat is a convenience, never block the gateway
             _LOGGER.warning("Could not set up team messaging", exc_info=True)
+        try:
+            from .rental import BookingStore
+            from .rental_ws import register as register_rental_ws
+            bookings = BookingStore(hass)
+            await bookings.async_load()
+            hub.bookings = bookings
+            if not domain_data.get("rental_ws"):          # websocket commands are global: register once
+                register_rental_ws(hass)
+                domain_data["rental_ws"] = True
+        except Exception:  # noqa: BLE001 - short-stay bookings are a convenience, never block the gateway
+            _LOGGER.warning("Could not set up short-stay bookings", exc_info=True)
         if not domain_data.get("resources_started"):
             domain_data["resources_started"] = True
             hass.async_create_task(_async_install_resources(hass))

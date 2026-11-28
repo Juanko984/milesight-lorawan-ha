@@ -3056,3 +3056,15 @@ _rt_w2.handle_uplink(decoders.Uplink(deveui="00000000000ews503d", raw=bytes.from
 _pan2 = _rt_w2._switch_panel(_rt_w2.values)
 assert _pan2 is not None and _pan2["metered"] is False and _pan2["voltage"] is None, _pan2
 print("ws558 metering panel ok")
+
+# ---- short-stay booking store: set / get / clear round-trip ----
+_rent = load("rental")
+_bs = _rent.BookingStore(hass)
+asyncio.run(_bs.async_load())
+assert _bs.all() == {} and _bs.get("The Cottage") is None
+_b = asyncio.run(_bs.async_set("The Cottage", {"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00"}))
+assert _b == {"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-16T10:00"}
+assert _bs.get("The Cottage") == _b and "The Cottage" in _bs.all()
+assert asyncio.run(_bs.async_set("The Cottage", {"guests": 999})) is None   # invalid -> cleared
+assert _bs.get("The Cottage") is None
+print("rental booking store ok")

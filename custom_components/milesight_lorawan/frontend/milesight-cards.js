@@ -6204,7 +6204,7 @@
       const S = this._hass.states, out = [];
       for (const id in S) {
         const st = S[id], a = st.attributes;
-        if (id.startsWith("climate.") && a && a.milesight_role === "thermostat") { if (!st.entity_id) st.entity_id = id; out.push(st); }
+        if (id.startsWith("climate.") && a && a.milesight_role === "thermostat" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); }
       }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
@@ -6451,7 +6451,7 @@
     _svc(service, data) { try { this._hass.callService("switch", service, data); } catch (e) { /* surfaced by HA */ } }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "gas_detector") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "gas_detector" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => (y.attributes.alarm === true) - (x.attributes.alarm === true) || String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _out(label, icon, on, note, entity, shut) {
@@ -6554,7 +6554,7 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "sound_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "sound_monitor" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _watch() { if (!this._hass) return null; const ids = []; for (const st of this._find()) ids.push(st.entity_id); return ids; }
@@ -6727,7 +6727,7 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "space") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "space" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _watch() { if (!this._hass) return null; return this._find().map((s) => s.entity_id); }
@@ -6782,7 +6782,7 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "people_counter") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "people_counter" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _watch() {
@@ -6876,7 +6876,7 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "fall_monitor") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "fall_monitor" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
@@ -6957,7 +6957,7 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "workplace") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "workplace" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _watch() {
@@ -7039,7 +7039,7 @@
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     _find() {
       const S = this._hass.states, out = [];
-      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "space") { if (!st.entity_id) st.entity_id = id; out.push(st); } }
+      for (const id in S) { const st = S[id], a = st.attributes; if (a && a.milesight_role === "space" && scopeMatch(this._cfg || {}, a)) { if (!st.entity_id) st.entity_id = id; out.push(st); } }
       return out.sort((x, y) => String(x.attributes.device).localeCompare(String(y.attributes.device)));
     }
     _watch() { return this._hass ? this._find().map((s) => s.entity_id) : null; }
@@ -9876,12 +9876,15 @@
     if (people != null && cap) { occPct = people / cap * 60; if (people > cap) occPct = 60 + (people - cap) / cap * 80; occTxt = people + " / " + cap; }
     else if (people != null) occPct = people * 12;
     occPct = push("Occupancy", occTxt, occPct);
-    // vaping / smoking
+    // vaping / smoking — only shown when a vape sensor (GS601) is actually fitted to this property
+    const hasVape = s.hasVape != null ? !!s.hasVape : (s.vape != null || s.vapingIndex != null);
     const vapeOn = s.vape === true, vi = num(s.vapingIndex);
-    const vapePct = push("Vaping index", vapeOn ? "Detected" : (vi != null ? String(Math.round(vi)) : "Clear"),
-      vapeOn ? 100 : (vi != null ? vi : 0));
-    let score = Math.round(0.33 * noisePct + 0.22 * co2pct + 0.20 * occPct + 0.25 * vapePct);
-    if (vapeOn) score = Math.max(score, 85);
+    let vapePct = 0;
+    if (hasVape) vapePct = push("Vaping index", vapeOn ? "Detected" : (vi != null ? String(Math.round(vi)) : "Clear"), vapeOn ? 100 : (vi != null ? vi : 0));
+    // weighted blend over the signals that exist (vape weight is dropped and the rest renormalised when no vape sensor)
+    const wN = 0.33, wC = 0.22, wO = 0.20, wV = hasVape ? 0.25 : 0, wSum = wN + wC + wO + wV;
+    let score = Math.round((wN * noisePct + wC * co2pct + wO * occPct + wV * vapePct) / wSum);
+    if (hasVape && vapeOn) score = Math.max(score, 85);
     if (people != null && cap && people > cap) score = Math.max(score, 62);
     if (s.afterHours && noisePct >= 60) score = Math.max(score, 68);
     score = clamp(score, 0, 100);
@@ -9894,14 +9897,28 @@
     static getStubConfig() { return { purpose: "guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety" }; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     setConfig(cfg) {
-      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._render();
+      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._bookings = null; this._editArea = null; this._draft = null; this._render();
     }
     _watch() { return null; }                              // re-render on any state change (cheap)
     set hass(hass) {
       const first = !this._hass; this._hass = hass;
+      if (this._editArea) return;                          // don't blow away the open booking editor on a state tick
       const areas = this._areas();
       const key = areas.join("|");
       if (first || this._loadedFor !== key) { this._loadedFor = key; this._loadHistory(areas); }
+      if (this._bookings === null) { this._bookings = {}; this._loadBookings(); }
+      this._render();
+    }
+    async _loadBookings() {
+      try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/list" }); this._bookings = (r && r.bookings) || {}; }
+      catch (e) { this._bookings = {}; }                   // bookings unavailable (old gateway): the card still works
+      this._render();
+    }
+    async _saveBooking(area, booking) {
+      this._bookings = this._bookings || {};
+      this._bookings[area] = booking || undefined;
+      this._editArea = null; this._draft = null;
+      try { await this._hass.callWS({ type: "milesight_lorawan/rental/set", area, booking: booking || {} }); } catch (e) { /* surfaced by HA */ }
       this._render();
     }
     // distinct property areas in scope (detail = the one `area`; overview = every rental area discovered by purpose)
@@ -9939,6 +9956,10 @@
         if (people == null) { const cnt = spaces.map((x) => num(x.attributes.people)).filter((v) => v != null); if (cnt.length) people = cnt.reduce((s, v) => s + v, 0); }
       }
       if (capacity == null) capacity = num((this._cfg || {}).capacity);
+      // booking the host entered for this property (guests + arrival / departure) overrides the capacity
+      const booking = (this._bookings && this._bookings[area]) || null;
+      const bookedGuests = booking ? num(booking.guests) : null;
+      if (bookedGuests != null) capacity = bookedGuests;
       // front door contact
       let door = null; for (const id in S) { const st = S[id]; if (id.startsWith("binary_sensor.") && st.attributes.ms_contact === "door" && inA(st)) { door = st; break; } }
       const doorA = door ? door.attributes : null;
@@ -9953,8 +9974,8 @@
       const sound = firstRole("sound_monitor");
       // vape (GS601 via gas_monitor role)
       const gm = byRole(S, "gas_monitor").filter(inA);
-      let vape = false, vapingIndex = null;
-      for (const g of gm) { const stx = (g.attributes.states || []).find((x) => x.key === "vape"); if (stx) vape = vape || (stx.tone === "critical"); const vm = (g.attributes.metrics || []).find((x) => x.key === "vaping_index"); if (vm && vm.value != null) vapingIndex = num(vm.value); }
+      let vape = false, vapingIndex = null, hasVape = false;
+      for (const g of gm) { const stx = (g.attributes.states || []).find((x) => x.key === "vape"); if (stx) { hasVape = true; vape = vape || (stx.tone === "critical"); } const vm = (g.attributes.metrics || []).find((x) => x.key === "vaping_index"); if (vm && vm.value != null) { hasVape = true; vapingIndex = num(vm.value); } }
       // gas leak (GS101) + leak contact
       const gasDet = firstRole("gas_detector");
       let leak = null; for (const id in S) { const st = S[id]; if (id.startsWith("binary_sensor.") && st.attributes.ms_contact === "leak" && inA(st)) { leak = st; break; } }
@@ -9967,7 +9988,8 @@
         door, doorOpen, doorSinceMin, doorA,
         comfort, ca, co2, temperature: num(ca.temperature), humidity: num(ca.humidity),
         sound, noiseDb: sound ? num(sound.attributes.level) : null, noiseThreshold: sound ? num(sound.attributes.threshold) : null,
-        gm, vape, vapingIndex, gasDet, leak, thermo, co2Rise, afterHours,
+        gm, vape, vapingIndex, hasVape, gasDet, leak, thermo, co2Rise, afterHours,
+        booking, bookedGuests,
         over: !!(pc && pc.attributes.over) || (people != null && capacity && people > capacity),
       };
     }
@@ -10062,6 +10084,20 @@
         .ppill.warn{background:color-mix(in srgb,var(--ms-warn) 16%,transparent);color:var(--ms-warn);border-color:transparent}
         .pbig{font-size:23px;font-weight:760;line-height:1}
         .psub{font-size:12px;color:var(--ms-ink2);margin-top:3px}
+        .pspacer{flex:1 1 auto}
+        .pchk{text-align:right;flex:0 0 auto}.pchk b{font-size:16px;font-weight:720;color:var(--ms-ink)}.pchk b.late{color:var(--ms-bad)}
+        .pchk span{display:block;font-size:9.5px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em}
+        .pedit{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12px;color:var(--ms-accent);background:none;border:1px solid var(--ms-line);border-radius:9px;padding:6px 11px;cursor:pointer}
+        .pedit:hover{border-color:var(--ms-accent)}.pedit ha-icon{--mdc-icon-size:15px}
+        .pform{border-top:1px solid var(--ms-line);margin-top:4px;padding-top:12px}
+        .pfrow{display:flex;gap:10px;flex-wrap:wrap}
+        .pfl{display:flex;flex-direction:column;gap:4px;flex:1 1 140px;min-width:120px}.pfl span{font-size:11px;color:var(--ms-ink2)}
+        .pfi{font:inherit;font-size:13px;color:var(--ms-ink);background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:8px;padding:8px 9px;color-scheme:dark light}
+        .pfi:focus{outline:none;border-color:var(--ms-accent)}
+        .pfbtns{display:flex;gap:8px;margin-top:11px}
+        .pfb{font:inherit;font-size:13px;color:var(--ms-ink);background:none;border:1px solid var(--ms-line);border-radius:8px;padding:7px 15px;cursor:pointer}
+        .pfb.primary{background:var(--ms-accent);border-color:var(--ms-accent);color:#fff;font-weight:600}
+        .pfb.danger{color:var(--ms-bad);margin-left:auto}.pfb:hover{border-color:var(--ms-accent)}
         .pstates{display:flex;gap:4px;margin-top:2px}
         .pst{flex:1;text-align:center;font-size:10px;color:var(--ms-ink2);padding:7px 2px;border:1px solid var(--ms-line);border-radius:8px}
         .pst.on{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);color:var(--ms-ink);font-weight:650}
@@ -10110,7 +10146,7 @@
     // one compact tile per property for the multi-property overview
     _overviewCard(area, sig) {
       const st = msStayState(sig);
-      const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex });
+      const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex, hasVape: sig.hasVape });
       const safeBad = (sig.gasDet && sig.gasDet.attributes.alarm === true) || (sig.leak && sig.leak.attributes.active === true) || sig.vape;
       return h("div", { class: "povc" }, [
         h("div", { class: "povh" }, [
@@ -10168,19 +10204,69 @@
       }
       this._card(h("div", { class: "wrap" }, out));
     }
+    // --- booking date helpers ---
+    _bdate(iso, withTime) {                                // "14 Nov" or "14 Nov 15:02"
+      if (!iso) return "";
+      const d = new Date(iso); if (isNaN(d)) return "";
+      const date = d.toLocaleDateString([], { day: "numeric", month: "short" });
+      return (withTime && /T\d/.test(iso)) ? date + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : date;
+    }
+    _countdown(iso) {                                      // "in 18h" / "in 2d" / "overdue"
+      if (!iso) return null;
+      const d = new Date(iso); if (isNaN(d)) return null;
+      const ms = d.getTime() - Date.now();
+      if (ms <= 0) return { txt: "overdue", late: true };
+      const h = ms / 3600000;
+      return { txt: h < 48 ? "in " + Math.round(h) + " h" : "in " + Math.round(h / 24) + " d", late: false };
+    }
+    // the stay hero: state pill, who's in, the booking line, a check-out countdown and an Edit affordance (+ editor)
+    _stayHero(area, sig, st) {
+      const b = sig.booking || {};
+      const editing = this._editArea === area;
+      // booking sub-line: "Booking for N · checked in <arrival>" when we have booking details
+      let sub = st.sub;
+      const parts = [];
+      if (sig.bookedGuests != null) parts.push("Booking for " + sig.bookedGuests);
+      if (b.arrival && (st.key === "occupied" || st.key === "checkin")) parts.push("checked in " + this._bdate(b.arrival, true));
+      else if (b.arrival && st.key === "vacant" && new Date(b.arrival) > new Date()) parts.push("arrives " + this._bdate(b.arrival, true));
+      if (parts.length) sub = parts.join(" · ");
+      const cd = this._countdown(b.departure);
+      const chk = cd ? h("div", { class: "pchk" }, [h("b", { class: cd.late ? "late" : "" }, cd.txt), h("span", {}, "check-out")]) : null;
+      const editBtn = h("button", { class: "pedit", onclick: () => { this._editArea = area; this._draft = { guests: b.guests || "", arrival: b.arrival || "", departure: b.departure || "" }; this._render(); } },
+        [h("ha-icon", { icon: "mdi:calendar-edit" }), sig.bookedGuests != null || b.arrival ? "Edit booking" : "Add booking"]);
+      const head = h("div", { class: "phero" }, [
+        h("div", { class: "prow" }, [
+          h("span", { class: "ppill " + st.tone }, st.label.toUpperCase()),
+          h("div", { style: { minWidth: "0" } }, [h("div", { class: "pbig" }, st.peopleTxt), h("div", { class: "psub" }, esc(sub))]),
+          h("div", { class: "pspacer" }),
+          chk, editing ? null : editBtn,
+        ]),
+        h("div", { class: "pstates" }, st.states.map((k, i) => h("div", { class: "pst" + (i === st.index ? " on" : "") },
+          ({ vacant: "Vacant", checkin: "Checked in", occupied: "Occupied", checkout: "Checked out", turnover: "Turnover" })[k]))),
+        editing ? this._bookingEditor(area) : null,
+      ]);
+      return head;
+    }
+    _bookingEditor(area) {
+      const d = this._draft || {};
+      const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); };
+      const field = (label, key, type) => h("label", { class: "pfl" }, [h("span", {}, label),
+        h("input", { class: "pfi", type, value: d[key] == null ? "" : String(d[key]), min: type === "number" ? "1" : undefined, step: type === "number" ? "1" : undefined, oninput: set(key) })]);
+      return h("div", { class: "pform" }, [
+        h("div", { class: "pfrow" }, [field("Guests", "guests", "number"), field("Arrival", "arrival", "datetime-local"), field("Departure", "departure", "datetime-local")]),
+        h("div", { class: "pfbtns" }, [
+          h("button", { class: "pfb primary", onclick: () => this._saveBooking(area, { guests: parseInt(d.guests, 10) || undefined, arrival: d.arrival || undefined, departure: d.departure || undefined }) }, "Save"),
+          h("button", { class: "pfb", onclick: () => { this._editArea = null; this._draft = null; this._render(); } }, "Cancel"),
+          h("button", { class: "pfb danger", onclick: () => this._saveBooking(area, null) }, "Clear"),
+        ]),
+      ]);
+    }
     _detailBlocks(area, sig, section) {
       const blocks = [];
       const st = msStayState(sig);
-      const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex });
+      const risk = msPartyRisk({ noiseDb: sig.noiseDb, noiseThreshold: sig.noiseThreshold, afterHours: sig.afterHours, co2: sig.co2, co2Rise: sig.co2Rise, people: sig.people, capacity: sig.capacity, vape: sig.vape, vapingIndex: sig.vapingIndex, hasVape: sig.hasVape });
       if (section === "all" || section === "stay") {
-        blocks.push(h("div", { class: "phero" }, [
-          h("div", { class: "prow" }, [
-            h("span", { class: "ppill " + st.tone }, st.label.toUpperCase()),
-            h("div", {}, [h("div", { class: "pbig" }, st.peopleTxt), h("div", { class: "psub" }, esc(st.sub))]),
-          ]),
-          h("div", { class: "pstates" }, st.states.map((k, i) => h("div", { class: "pst" + (i === st.index ? " on" : "") },
-            ({ vacant: "Vacant", checkin: "Checked in", occupied: "Occupied", checkout: "Checked out", turnover: "Turnover" })[k]))),
-        ]));
+        blocks.push(this._stayHero(area, sig, st));
       }
       if (section === "all" || section === "kpi") {
         const tiles = this._kpis(sig);
@@ -10200,8 +10286,10 @@
             ]))),
           ]),
           h("div", { class: "peco" }, [
-            "Blends sound, CO₂ trend, people count and the vape sensor into one host-friendly signal. ",
-            h("b", {}, "Flags"), " a sustained spike — loud after 22:00, people over the booking, or any vaping.",
+            sig.hasVape ? "Blends sound, CO₂ trend, people count and the vape sensor into one host-friendly signal. "
+              : "Blends sound, CO₂ trend and people count into one host-friendly signal. ",
+            h("b", {}, "Flags"), " a sustained spike — loud after 22:00, people over the booking"
+              + (sig.hasVape ? ", or any vaping." : "."),
           ]),
         ]));
       }
