@@ -104,7 +104,30 @@ async def ws_push_display(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": pushed > 0, "pushed": pushed, "errors": errors, "config": config})
 
 
-RENTAL_WS = (ws_list, ws_set, ws_config_set, ws_push_display)
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/ack_display",
+                                  vol.Required("area"): str})
+@websocket_api.async_response
+async def ws_ack_display(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Reset the 'guest pressed the button' flag on the DS3604(s) in this property's area."""
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+    area = msg["area"]
+    acked = 0
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
+            continue
+        rt = getattr(e, "runtime_data", None)
+        if rt is None or "ds3604" not in getattr(getattr(rt, "model", None), "features", frozenset()):
+            continue
+        try:
+            if rt._area() == area:
+                rt.ack_guest_call()
+                acked += 1
+        except Exception:  # noqa: BLE001
+            pass
+    connection.send_result(msg["id"], {"ok": True, "area": area, "acked": acked})
+
+
+RENTAL_WS = (ws_list, ws_set, ws_config_set, ws_push_display, ws_ack_display)
 
 
 def register(hass: HomeAssistant) -> None:

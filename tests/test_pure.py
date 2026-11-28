@@ -1587,19 +1587,23 @@ def test_rental_display():
     assert rd.wifi_qr(None, "x") is None
     cfg = rd.clean_display_config({"property_name": "The Cottage", "wifi_ssid": "Guest", "wifi_pass": "pw12345",
                                    "house_rules": "No smoking\nQuiet after 11pm\nBins out Tuesday\n4th rule",
-                                   "host_contact": "Sam 0401", "checkout_time": "10:00"})
+                                   "host_contact": "Sam 0401", "checkout_time": "10:00",
+                                   "guest_notify": "notify.mobile_app_host"})
     assert cfg["property_name"] == "The Cottage" and cfg["wifi_ssid"] == "Guest"
+    assert cfg["guest_notify"] == "notify.mobile_app_host"
     assert rd.clean_display_config({}) is None
     blk = rd.build_welcome_template({"name": "Juan", "departure": "2026-11-30T10:00"}, cfg)
+    # Mapping matches the device's real template: text_N == text element id N-1 (elements 0-7 only).
     assert blk["text_1"] == "Welcome, Juan!" and blk["text_2"] == "The Cottage"
     assert blk["text_3"] == "Wi-Fi: Guest" and blk["text_4"] == "Pass: pw12345"
-    assert blk["text_5"] == "Check-out 10:00" and blk["text_6"] == "Help: Sam 0401"
-    assert blk["text_8"] == "• No smoking" and blk["text_9"] == "• Quiet after 11pm" and blk["text_10"] == "• Bins out Tuesday"
-    assert "text_7" not in blk or blk["text_7"] == ""     # only 3 rules shown
+    assert blk["text_5"] == "Check-out" and blk["text_6"] == "Help: Sam 0401"   # banner label, time separate
+    assert blk["text_7"] == "No smoking\nQuiet after 11pm\nBins out Tuesday\n4th rule"  # el 6 tall box: up to 4 rules
+    assert blk["text_8"] == "10:00"                                             # el 7: the time
+    assert "text_9" not in blk and "text_10" not in blk                         # device has no such elements
     assert blk["qrcode"] == "WIFI:T:WPA;S:Guest;P:pw12345;;"
     # check-out time falls back to the booking's departure time when not set per-property
     blk2 = rd.build_welcome_template({"name": "Al", "departure": "2026-12-01T11:30"}, {"wifi_ssid": "N"})
-    assert blk2["text_1"] == "Welcome, Al!" and blk2["text_5"] == "Check-out 11:30"
+    assert blk2["text_1"] == "Welcome, Al!" and blk2["text_8"] == "11:30" and blk2["text_5"] == "Check-out"
     assert rd.build_welcome_template(None, None)["text_1"] == "Welcome, Guest!"
 
 

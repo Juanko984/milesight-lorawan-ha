@@ -9956,6 +9956,13 @@
       this._render();
       setTimeout(() => { this._pushMsg = null; this._render(); }, 6000);
     }
+    async _ackDisplay(areas) {
+      for (const a of areas) { try { await this._hass.callWS({ type: "milesight_lorawan/rental/ack_display", area: a }); } catch (e) { /* */ } }
+      // reflect immediately; the role refresh confirms it
+      const S = (this._hass && this._hass.states) || {};
+      for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "display" && areas.some((x) => areaEq(a.area, x))) a.guest_call_pending = false; }
+      this._render();
+    }
     async _saveConfig(areas, config) {
       this._editKey = null; this._draft = null;
       for (const a of areas) { try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/config_set", area: a, config }); if (r && r.config) { this._rcfg = this._rcfg || {}; this._rcfg[a] = r.config; } } catch (e) { /* */ } }
@@ -10026,6 +10033,8 @@
       // thermostat (climate entity)
       let thermo = null; for (const id in S) { const st = S[id]; if (id.startsWith("climate.") && st.attributes.milesight_role === "thermostat" && areaEq(st.attributes.area, area)) { thermo = st; break; } }
       const co2Rise = this._co2Rise(area);
+      // DS3604 e-ink display in this area (battery + guest-call button)
+      const disp = byRole(S, "display").filter(inA)[0] || null;
       const hour = new Date().getHours(); const afterHours = hour >= 22 || hour < 7;
       return {
         area, people, occupied, occupiedS, emptyS, capacity, hasCounter: !!pc,
@@ -10033,6 +10042,7 @@
         comfort, ca, co2, temperature: num(ca.temperature), humidity: num(ca.humidity),
         sound, noiseDb: sound ? num(sound.attributes.level) : null, noiseThreshold: sound ? num(sound.attributes.threshold) : null,
         gm, vape, vapingIndex, hasVape, gasDet, leak, thermo, co2Rise, afterHours,
+        display: disp ? disp.attributes : null,
         booking: null, bookedGuests: null,
         over: !!(pc && pc.attributes.over) || (people != null && capacity && people > capacity),
       };
@@ -10091,12 +10101,15 @@
       const leakList = parts.map((s) => s.leak).filter(Boolean);
       const leak = leakList.length ? { attributes: { active: leakList.some((l) => l.attributes.active === true) } } : null;
       const thermo = parts.find((s) => s.thermo) ? parts.find((s) => s.thermo).thermo : null;
+      // display: prefer one with an unanswered guest call, else any (for battery)
+      const display = parts.map((s) => s.display).filter(Boolean).sort((a, b) => (b.guest_call_pending ? 1 : 0) - (a.guest_call_pending ? 1 : 0))[0] || null;
       const sig = {
         area: null, people, occupied, occupiedS, emptyS, capacity, hasCounter,
         doorA, doorOpen, doorSinceMin,
         comfort: parts.some((s) => s.comfort), co2, temperature: clim ? clim.temperature : null, humidity: clim ? clim.humidity : null,
         sound: n.src ? n.src.sound : null, noiseDb: n.v, noiseThreshold: n.src ? n.src.noiseThreshold : null,
         gm, vape, vapingIndex: maxOf((s) => s.vapingIndex).v, hasVape, gasDet, leak, thermo, co2Rise,
+        display,
         afterHours: parts[0].afterHours, over: parts.some((s) => s.over),
         booking: null, bookedGuests: null, _areas: areas,
       };
@@ -10167,6 +10180,23 @@
       return top;
     }
     _fmt(v, d) { const n = num(v); if (n == null) return "—"; return Math.abs(n) >= 100 ? String(Math.round(n)) : (d != null ? +n.toFixed(d) : Math.round(n * 10) / 10).toString(); }
+    // DS3604 guest-call: a flashing red bar shown until the host hits Reset
+    _guestCallBanner(ctx, sig) {
+      const d = sig.display;
+      if (!d || !d.guest_call_pending || !d.guest_call_at) return null;
+      const when = this._bdate(new Date(d.guest_call_at * 1000).toISOString(), true) ||
+        new Date(d.guest_call_at * 1000).toLocaleString();
+      const areas = (ctx && ctx.areas) || [];
+      return h("div", { class: "pgcall" }, [
+        h("ha-icon", { icon: "mdi:bell-ring" }),
+        h("div", { style: { minWidth: "0", flex: "1 1 auto" } }, [
+          h("div", { class: "pgt" }, "Guest pressed the button"),
+          h("div", { class: "pgs" }, esc(when)),
+        ]),
+        h("button", { class: "pgreset", onclick: () => this._ackDisplay(areas) },
+          [h("ha-icon", { icon: "mdi:bell-check" }), "Reset"]),
+      ]);
+    }
     _kpis(sig) {
       const T = [];
       if (sig.people != null || sig.capacity) T.push({ ic: "mdi:account-group", label: "Occupancy", value: sig.people != null ? String(sig.people) : "—", unit: "", sub: sig.capacity ? ("of " + sig.capacity + " booked") : "guests in", cls: sig.over ? "bad" : "good", pill: sig.over ? "OVER" : "" });
@@ -10180,6 +10210,11 @@
         const leakAlarm = sig.leak && sig.leak.attributes.active === true;
         const bad = gasAlarm || leakAlarm || sig.vape;
         T.push({ ic: "mdi:shield-home", label: "Safety", value: bad ? "Alert" : "OK", unit: "", sub: bad ? (gasAlarm ? "gas leak" : leakAlarm ? "water leak" : "vaping") : "all clear", cls: bad ? "bad" : "good", pill: bad ? "CHECK" : "" });
+      }
+      // DS3604 display battery
+      if (sig.display && num(sig.display.battery) != null) {
+        const bat = num(sig.display.battery);
+        T.push({ ic: bat <= 20 ? "mdi:battery-alert-variant-outline" : "mdi:battery", label: "Display", value: String(Math.round(bat)), unit: "%", sub: "guest e-ink", cls: bat <= 15 ? "bad" : bat <= 30 ? "warn" : "good", pill: bat <= 15 ? "LOW" : "" });
       }
       return T;
     }
@@ -10212,6 +10247,14 @@
         .pfb.primary{background:var(--ms-accent);border-color:var(--ms-accent);color:#fff;font-weight:600}
         .pfb.danger{color:var(--ms-bad);margin-left:auto}.pfb:hover{border-color:var(--ms-accent)}
         .pushmsg{font-size:12px;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);border:1px solid color-mix(in srgb,var(--ms-accent) 30%,var(--ms-line));border-radius:8px;padding:6px 10px}
+        .pdstat{font-size:11.5px;color:var(--ms-ink2);margin-bottom:10px}
+        @keyframes msflash{0%,100%{background:color-mix(in srgb,var(--ms-bad) 22%,transparent);border-color:var(--ms-bad)}50%{background:color-mix(in srgb,var(--ms-bad) 6%,transparent);border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))}}
+        .pgcall{display:flex;align-items:center;gap:11px;border:1.5px solid var(--ms-bad);border-radius:12px;padding:11px 13px;margin-bottom:12px;animation:msflash 1.1s ease-in-out infinite}
+        .pgcall ha-icon{--mdc-icon-size:22px;color:var(--ms-bad);flex:0 0 auto}
+        .pgcall .pgt{font-size:14px;font-weight:720;color:var(--ms-ink)}
+        .pgcall .pgs{font-size:11.5px;color:var(--ms-ink2);margin-top:2px}
+        .pgreset{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;font-weight:600;color:#fff;background:var(--ms-bad);border:none;border-radius:9px;padding:8px 14px;cursor:pointer}
+        .pgreset ha-icon{--mdc-icon-size:16px;color:#fff}.pgreset:hover{filter:brightness(1.08)}
         .pstates{display:flex;gap:4px;margin-top:2px}
         .pst{flex:1;text-align:center;font-size:10px;color:var(--ms-ink2);padding:7px 2px;border:1px solid var(--ms-line);border-radius:8px}
         .pst.on{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);color:var(--ms-ink);font-weight:650}
@@ -10367,7 +10410,7 @@
       const dispKey = "display:" + key, dispEditing = this._editKey === dispKey;
       const dispBtn = dispAreas.length ? h("button", { class: "pedit", onclick: () => {
         const c = (this._rcfg && this._rcfg[dispAreas[0]]) || {};
-        this._editKey = dispKey; this._draft = { property_name: c.property_name || ctx.areas[0] || "", wifi_ssid: c.wifi_ssid || "", wifi_pass: c.wifi_pass || "", house_rules: c.house_rules || "", host_contact: c.host_contact || "", checkout_time: c.checkout_time || "" }; this._render();
+        this._editKey = dispKey; this._draft = { property_name: c.property_name || ctx.areas[0] || "", wifi_ssid: c.wifi_ssid || "", wifi_pass: c.wifi_pass || "", house_rules: c.house_rules || "", host_contact: c.host_contact || "", checkout_time: c.checkout_time || "", guest_notify: c.guest_notify || "" }; this._render();
       } }, [h("ha-icon", { icon: "mdi:monitor-share" }), "Guest display"]) : null;
       const head = h("div", { class: "phero" }, [
         h("div", { class: "prow" }, [
@@ -10389,12 +10432,27 @@
       const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); };
       const field = (label, fkey, type, flex) => h("label", { class: "pfl", style: flex ? { flex: flex } : null }, [h("span", {}, label),
         h("input", { class: "pfi", type: type || "text", value: d[fkey] == null ? "" : String(d[fkey]), oninput: set(fkey) })]);
-      const collect = () => { const dd = this._draft || {}; return { property_name: dd.property_name, wifi_ssid: dd.wifi_ssid, wifi_pass: dd.wifi_pass, house_rules: dd.house_rules, host_contact: dd.host_contact, checkout_time: dd.checkout_time }; };
+      const collect = () => { const dd = this._draft || {}; return { property_name: dd.property_name, wifi_ssid: dd.wifi_ssid, wifi_pass: dd.wifi_pass, house_rules: dd.house_rules, host_contact: dd.host_contact, checkout_time: dd.checkout_time, guest_notify: dd.guest_notify }; };
+      // notify services available in HA → the "who to alert" dropdown
+      const services = (this._hass && this._hass.services && this._hass.services.notify) || {};
+      const notifyOpts = ["", ...Object.keys(services).map((s) => "notify." + s).sort()];
+      const cur = d.guest_notify || "";
+      const notifySel = h("label", { class: "pfl", style: { flex: "1 1 220px" } }, [h("span", {}, "Alert on button press (notify service)"),
+        h("select", { class: "pfi", oninput: set("guest_notify") }, notifyOpts.map((o) =>
+          h("option", Object.assign({ value: o }, o === cur ? { selected: true } : {}), o || "Persistent notification only")))]);
+      // live display status (battery + last press) from the DS3604 role in these areas
+      const S = (this._hass && this._hass.states) || {};
+      let disp = null; for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "display" && areas.some((x) => areaEq(a.area, x))) { disp = a; break; } }
+      const statusBits = [];
+      if (disp && num(disp.battery) != null) statusBits.push("🔋 " + Math.round(num(disp.battery)) + "%");
+      if (disp && disp.guest_call_at) statusBits.push("Last press " + (this._bdate(new Date(disp.guest_call_at * 1000).toISOString(), true) || ""));
       return h("div", { class: "pform" }, [
         h("div", { class: "psub", style: { marginBottom: "8px" } }, "Guest welcome card for the DS3604 e-ink display — set once per property. The guest name & check-out come from the booking."),
+        statusBits.length ? h("div", { class: "pdstat" }, statusBits.join("  ·  ")) : null,
         h("div", { class: "pfrow" }, [field("Property name", "property_name", "text", "2 1 200px"), field("Check-out time", "checkout_time", "text", "0 1 110px")]),
         h("div", { class: "pfrow" }, [field("Wi-Fi name (SSID)", "wifi_ssid"), field("Wi-Fi password", "wifi_pass"), field("Host contact", "host_contact")]),
-        h("label", { class: "pfl", style: { flex: "1 1 100%" } }, [h("span", {}, "House rules (one per line, up to 3 shown)"),
+        h("div", { class: "pfrow" }, [notifySel]),
+        h("label", { class: "pfl", style: { flex: "1 1 100%" } }, [h("span", {}, "House rules (one per line, up to 4 shown)"),
           h("textarea", { class: "pfi", style: { minHeight: "66px", fontFamily: "inherit" }, oninput: set("house_rules") }, d.house_rules || "")]),
         h("div", { class: "pfbtns" }, [
           h("button", { class: "pfb primary", onclick: () => this._pushDisplay(areas, collect()) }, "📟 Push to display"),
@@ -10429,6 +10487,8 @@
         blocks.push(this._stayHero(ctx, sig, st));
       }
       if (section === "all" || section === "kpi") {
+        const gcb = this._guestCallBanner(ctx, sig);
+        if (gcb) blocks.push(gcb);
         const tiles = this._kpis(sig);
         if (tiles.length) blocks.push(h("div", { class: "pkpi" }, tiles.map((t) => h("div", { class: "ptile " + (t.cls || "") }, [
           h("div", { class: "ptl" }, [h("ha-icon", { icon: t.ic }), t.label, t.pill ? h("span", { class: "ppl " + (t.cls || "") }, t.pill) : null]),

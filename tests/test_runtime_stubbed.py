@@ -1259,8 +1259,15 @@ _ds.display = {"reported": {"1": {"text_1": "Meeting Room A", "text_2": "Booked"
 _dp = _ds._display({"current_template_id": 2})
 assert _dp["active"] == 2 and _dp["templates"]["1"]["blocks"][0]["text"] == "Meeting Room A"
 assert _dp["templates"]["2"]["blocks"][0]["text"] == "Free" and len(_dp["templates"]["1"]["blocks"]) == 10
+# guest-call button: a press flags a pending call on the display role; ack clears it
+assert _ds._display({})["guest_call_pending"] is False
+_ds._fire_button("button", "single_click")
+_dp2 = _ds._display({})
+assert _dp2["guest_call_pending"] is True and _dp2["guest_call_at"] and _dp2["guest_call_type"] == "single_click"
+_ds.ack_guest_call()
+assert _ds._display({})["guest_call_pending"] is False
 del entries.items[_wd_from:]
-print("ws scene / ds3604 display ok")
+print("ws scene / ds3604 display + guest call ok")
 
 # AT101 GNSS / Wi-Fi asset tracker → the Tracker card
 _at_from = len(entries.items)

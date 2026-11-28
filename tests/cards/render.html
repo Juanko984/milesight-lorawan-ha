@@ -453,6 +453,7 @@
      states: [ { key: "vape", label: "Vape", icon: "mdi:smoking-off", text: "Clear", tone: "ok", since: null } ] } },
    "sensor.cottage_gas": { state: "safe", attributes: { milesight_role: "gas_detector", device: "GS101 Kitchen", area: "The Vineyard Cottage", purpose: "rental_safety", model: "GS101", alarm: false, valve_open: true, relay_on: false, life_remain_days: 1800, last_seen: Date.now() / 1000 - 90 } },
    "climate.cottage_wt": { state: "heat", attributes: { milesight_role: "thermostat", device: "WT201 Lounge", area: "The Vineyard Cottage", model: "WT201", current_temperature: 21.5, temperature: 22.0, min_temp: 5, max_temp: 35, step: 0.5, hvac_modes: ["heat", "cool", "auto", "off"], valve: 60, last_seen: Date.now() / 1000 - 50 } },
+   "sensor.cottage_disp": { state: "1", attributes: { milesight_role: "display", device: "DS3604 Entry", area: "The Vineyard Cottage", model: "DS3604", active: 1, battery: 24, templates: { "1": { blocks: [], qr: "" }, "2": { blocks: [], qr: "" } }, guest_call_at: Date.now() / 1000 - 90, guest_call_type: "single_click", guest_call_pending: true, last_seen: Date.now() / 1000 - 15 } },
    "sensor.util1": { state: "on", attributes: { utilisation_today: 63, area: "Reception" } },
    "sensor.level1": { state: "62", last_changed: new Date().toISOString(), attributes: { milesight_role: "tank", device: "Water tank", fill: 62, capacity_l: 10000 } },
    "sensor.tltemp": { state: "9.2", last_changed: new Date().toISOString(), attributes: { friendly_name: "Fridge 1", ms_model: "TS301 · cold chain", unit_of_measurement: "°C", ms_limit_high: 8, ms_limit_low: 2, ms_trend: "cold_chain" } },
@@ -553,6 +554,9 @@
          tasks: [ { id: "t1", title: "Replace vaccine-fridge probe", vertical: "farm", site: "Cold room", priority: "high", status: "todo", due: "2026-12-01" },
                   { id: "t2", title: "Fix borehole 2 leak", vertical: "farm", priority: "med", status: "doing", source: "sensor" } ] });
      }
+     if (msg && msg.type === "milesight_lorawan/rental/list") { return Promise.resolve({ bookings: { __site__: { name: "Alex", guests: 2, arrival: "2026-11-27T15:00", departure: "2026-11-30T10:00" } }, config: { "The Vineyard Cottage": { property_name: "The Vineyard Cottage", wifi_ssid: "Cottage-Guest", wifi_pass: "welcome2026", checkout_time: "10:00", guest_notify: "notify.mobile_app_juan" } }, displays: { "The Vineyard Cottage": true } }); }
+     if (msg && (msg.type === "milesight_lorawan/rental/push_display" || msg.type === "milesight_lorawan/rental/config_set")) { return Promise.resolve({ ok: true, pushed: 1, config: {} }); }
+     if (msg && msg.type === "milesight_lorawan/rental/ack_display") { return Promise.resolve({ ok: true, acked: 1 }); }
      if (msg && msg.type === "milesight_lorawan/ops/ocr") { return Promise.resolve({ parsed: { payee: "Engen", date: "2026-11-28", total: 1346.5, vat: 175.63, category: "fuel" } }); }
      if (msg && (msg.type === "milesight_lorawan/ops/set" || msg.type === "milesight_lorawan/ops/delete")) { return Promise.resolve({ ok: true, all: { expenses: [], bills: [], tasks: [], summary: {}, by_vertical: {}, settings: { currency: "R" } } }); }
      return Promise.resolve({});

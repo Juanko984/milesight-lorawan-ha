@@ -1582,12 +1582,17 @@ class DeviceRuntime:
         for t in (1, 2):
             blocks = [{"n": n, "key": f"text_{n}", "text": self.display_text(t, f"text_{n}")} for n in range(1, 11)]
             templates[str(t)] = {"blocks": blocks, "qr": self.display_text(t, "qrcode")}
+        gc = self.meta.get("_guestcall") or {}
+        ack = self.meta.get("_guestcall_ack")
+        pending = bool(gc.get("at")) and (not ack or ack < gc["at"])
         return {
             "milesight_role": "display", "device": self.entry.title, "area": self._area(), "model": self.model.key,
             "templates": templates, "active": _nz(v.get("current_template_id")) or 1,
             "error": self.meta.get("display_error"),
             "template_entity_id": resolve("display_template", "select"),
             "battery": _nz(v.get("battery")), "last_seen": self.meta.get("last_seen"),
+            "guest_call_at": gc.get("at"), "guest_call_type": gc.get("type"),
+            "guest_call_pending": pending,
         }
 
     # ---------------------------------------------------------------- AT101 asset tracker
@@ -2531,6 +2536,62 @@ class DeviceRuntime:
             "deveui": self.deveui, "device": self.entry.title, "model": self.model.key,
             "button": key, "event_type": event_type,
         })
+        if "ds3604" in self.model.features:
+            self._guest_call(ts, event_type)
+
+    # --------------------------------------------------------- DS3604 guest call
+    def _guest_notify_target(self, area: str | None) -> str | None:
+        """The notify service the host picked for this property (stored with the display settings), if any."""
+        try:
+            for hub in (self.hass.data.get(DOMAIN, {}).get("hubs") or {}).values():
+                store = getattr(hub, "bookings", None)
+                if store is None:
+                    continue
+                cfg = store.get_config(area) or {}
+                t = cfg.get("guest_notify")
+                if t:
+                    return t.split(".", 1)[1] if t.startswith("notify.") else t
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    def _guest_call(self, ts: float, event_type: str) -> None:
+        """Guest pressed the DS3604 button: remember it (until the host resets), raise a persistent notification
+        and, if the host picked a notify target, send it there too."""
+        area = self._area() or self.entry.title
+        self.meta["_guestcall"] = {"at": ts, "type": event_type, "device": self.entry.title}
+        self.meta.pop("_guestcall_ack", None)
+        when = time.strftime("%d %b %H:%M", time.localtime(ts))
+        msg = f"Guest button pressed at {area} — {when}"
+        try:
+            from homeassistant.components import persistent_notification
+            persistent_notification.async_create(
+                self.hass, msg, title="Guest call",
+                notification_id=f"{DOMAIN}_guestcall_{self.deveui}")
+        except Exception:  # noqa: BLE001
+            pass
+        target = self._guest_notify_target(area)
+        if target:
+            try:
+                self.hass.async_create_task(self.hass.services.async_call(
+                    "notify", target, {"title": "Guest call", "message": msg}))
+            except Exception:  # noqa: BLE001
+                pass
+        self.hass.bus.async_fire(f"{DOMAIN}_guest_call", {
+            "deveui": self.deveui, "device": self.entry.title, "area": area,
+            "at": ts, "event_type": event_type})
+        self._publish(ts)
+
+    def ack_guest_call(self) -> None:
+        """Host reset the guest-call flag (dismisses the notification, clears the flashing banner)."""
+        if self.meta.get("_guestcall"):
+            self.meta["_guestcall_ack"] = time.time()
+        try:
+            from homeassistant.components import persistent_notification
+            persistent_notification.async_dismiss(self.hass, f"{DOMAIN}_guestcall_{self.deveui}")
+        except Exception:  # noqa: BLE001
+            pass
+        self._publish(time.time())
 
     # --------------------------------------------------------------- control
     async def async_set_switch(self, key: str, on: bool) -> None:

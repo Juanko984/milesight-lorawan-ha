@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.181.0
+- **Guest-card layout now matches the device's real template.** The welcome card's blocks are mapped to the
+  DS3604's actual text elements (ids 0–7) instead of the old 1–10 guess, so text lands in the right box instead
+  of being shuffled: house rules fill the tall rules box (up to 4, one wrapped block), the check-out time sits
+  under its banner, and nothing is sent to elements the device doesn't have.
+- **DS3604 battery** is shown on the Short-stay page — an "at a glance" tile (amber/red when low) and in the
+  Guest-display editor alongside the last button-press time.
+- **Guest-call button.** When a guest presses the DS3604's button, the host gets a **persistent notification**
+  ("Guest button pressed at <property> — <date time>") and, optionally, a push to a **notify service** picked
+  per property. The Short-stay page shows a **flashing red "Guest pressed the button" banner** with the time,
+  which stays until the host hits **Reset**.
+
 ## 0.180.0
 - **Guest welcome card on a DS3604 e-ink display.** When a DS3604 is in a short-stay property's area, the Stay
   status card gets a **"Guest display"** button: set the property's Wi-Fi, house rules, host contact and check-out
