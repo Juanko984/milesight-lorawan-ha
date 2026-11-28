@@ -1579,6 +1579,30 @@ def test_ops_calc():
     assert s["spend_month"] == 1346.5 and s["to_review"] == 1 and s["util_flags"] == 1 and s["open_tasks"] == 1 and s["overdue_tasks"] == 1
 
 
+def test_rental_display():
+    rd = _load("rental_display")
+    assert rd.wifi_qr("Cottage-Guest", "welcome2026") == "WIFI:T:WPA;S:Cottage-Guest;P:welcome2026;;"
+    assert rd.wifi_qr("Net", None) == "WIFI:T:nopass;S:Net;;"           # open network
+    assert rd.wifi_qr("a;b", "p,w") == "WIFI:T:WPA;S:a\\;b;P:p\\,w;;"    # special chars escaped
+    assert rd.wifi_qr(None, "x") is None
+    cfg = rd.clean_display_config({"property_name": "The Cottage", "wifi_ssid": "Guest", "wifi_pass": "pw12345",
+                                   "house_rules": "No smoking\nQuiet after 11pm\nBins out Tuesday\n4th rule",
+                                   "host_contact": "Sam 0401", "checkout_time": "10:00"})
+    assert cfg["property_name"] == "The Cottage" and cfg["wifi_ssid"] == "Guest"
+    assert rd.clean_display_config({}) is None
+    blk = rd.build_welcome_template({"name": "Juan", "departure": "2026-11-30T10:00"}, cfg)
+    assert blk["text_1"] == "Welcome, Juan!" and blk["text_2"] == "The Cottage"
+    assert blk["text_3"] == "Wi-Fi: Guest" and blk["text_4"] == "Pass: pw12345"
+    assert blk["text_5"] == "Check-out 10:00" and blk["text_6"] == "Help: Sam 0401"
+    assert blk["text_8"] == "• No smoking" and blk["text_9"] == "• Quiet after 11pm" and blk["text_10"] == "• Bins out Tuesday"
+    assert "text_7" not in blk or blk["text_7"] == ""     # only 3 rules shown
+    assert blk["qrcode"] == "WIFI:T:WPA;S:Guest;P:pw12345;;"
+    # check-out time falls back to the booking's departure time when not set per-property
+    blk2 = rd.build_welcome_template({"name": "Al", "departure": "2026-12-01T11:30"}, {"wifi_ssid": "N"})
+    assert blk2["text_1"] == "Welcome, Al!" and blk2["text_5"] == "Check-out 11:30"
+    assert rd.build_welcome_template(None, None)["text_1"] == "Welcome, Guest!"
+
+
 def test_load_tracker():
     t0 = T("2026-10-14 00:00"); day = "2026-10-14"
     tr = usg.LoadTracker()

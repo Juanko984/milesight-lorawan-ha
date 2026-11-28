@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.180.0
+- **Guest welcome card on a DS3604 e-ink display.** When a DS3604 is in a short-stay property's area, the Stay
+  status card gets a **"Guest display"** button: set the property's Wi-Fi, house rules, host contact and check-out
+  time once, and **Push to display** composes a welcome card (Welcome, <guest>! · house rules · check-out · a
+  **Wi-Fi QR** the guest scans to join) from the current booking and sends it to the e-ink over LoRaWAN (only the
+  changed blocks, so it's battery-friendly). New per-property guest-display settings are stored on the gateway.
+
+## 0.179.0
+- **Fixed for real: the WT thermostat now shows in the Short-stay Climate control.** The thermostat was the one
+  role that read only the integration's own `area` field, so assigning the device to a Home Assistant area (as you
+  did) left its area blank — which defeated both the purpose match and the area fallback. It now uses the same
+  area source as every other sensor, so a thermostat in your rental's area appears, no dashboard reinstall needed.
+
 ## 0.178.0
 - **New Ops Hub dashboard** — a lightweight management layer on top of your sites, meters and team, generic across
   all verticals (farm / facilities / retail / short-stay). First cut (thin slice of all three):

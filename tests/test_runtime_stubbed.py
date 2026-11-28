@@ -3067,6 +3067,10 @@ assert _b == {"guests": 2, "arrival": "2026-11-14T15:02", "departure": "2026-11-
 assert _bs.get("The Cottage") == _b and "The Cottage" in _bs.all()
 assert asyncio.run(_bs.async_set("The Cottage", {"guests": 999})) is None   # invalid -> cleared
 assert _bs.get("The Cottage") is None
+assert asyncio.run(_bs.async_set_config("The Cottage", {"wifi_ssid": "Guest", "wifi_pass": "pw", "house_rules": "No smoking"})) == {"wifi_ssid": "Guest", "wifi_pass": "pw", "house_rules": "No smoking"}
+assert _bs.get_config("The Cottage")["wifi_ssid"] == "Guest" and "The Cottage" in _bs.config_all()
+assert asyncio.run(_bs.async_set("The Cottage", {"guests": 2})) == {"guests": 2}   # booking + config coexist
+assert _bs.get("The Cottage") == {"guests": 2} and _bs.get_config("The Cottage")["wifi_ssid"] == "Guest"
 print("rental booking store ok")
 
 # ---- mould growth risk on a temp+humidity device ----

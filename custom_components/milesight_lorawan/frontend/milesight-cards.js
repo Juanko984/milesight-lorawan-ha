@@ -9922,7 +9922,7 @@
     static getStubConfig() { return { purpose: "guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety" }; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
     setConfig(cfg) {
-      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._bookings = null; this._editKey = null; this._draft = null; this._render();
+      this._cfg = cfg || {}; this._lastSig = null; this._hist = {}; this._loadedFor = null; this._bookings = null; this._rcfg = {}; this._displays = {}; this._pushMsg = null; this._editKey = null; this._draft = null; this._render();
     }
     _watch() { return null; }                              // re-render on any state change (cheap)
     set hass(hass) {
@@ -9940,8 +9940,25 @@
     }
     disconnectedCallback() { if (this._onSync) window.removeEventListener("ms-rental-booking", this._onSync); }
     async _loadBookings() {
-      try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/list" }); this._bookings = (r && r.bookings) || {}; }
-      catch (e) { this._bookings = {}; }                   // bookings unavailable (old gateway): the card still works
+      try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/list" }); this._bookings = (r && r.bookings) || {}; this._rcfg = (r && r.config) || {}; this._displays = (r && r.displays) || {}; }
+      catch (e) { this._bookings = {}; this._rcfg = {}; this._displays = {}; }   // unavailable (old gateway): card still works
+      this._render();
+    }
+    _displayAreas(areas) { const d = this._displays || {}; return (areas || []).filter((a) => d[a]); }
+    async _pushDisplay(areas, config) {
+      this._editKey = null; this._draft = null; this._pushMsg = "Sending to display…"; this._render();
+      let ok = 0, err = "";
+      for (const a of areas) {
+        try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/push_display", area: a, config }); if (r && r.pushed) ok += r.pushed; if (r && r.config) { this._rcfg = this._rcfg || {}; this._rcfg[a] = r.config; } }
+        catch (e) { err = (e && e.message) || "failed"; }
+      }
+      this._pushMsg = ok ? ("✓ Pushed to " + ok + " display" + (ok > 1 ? "s" : "")) : ("Could not push" + (err ? " — " + err : ""));
+      this._render();
+      setTimeout(() => { this._pushMsg = null; this._render(); }, 6000);
+    }
+    async _saveConfig(areas, config) {
+      this._editKey = null; this._draft = null;
+      for (const a of areas) { try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/config_set", area: a, config }); if (r && r.config) { this._rcfg = this._rcfg || {}; this._rcfg[a] = r.config; } } catch (e) { /* */ } }
       this._render();
     }
     async _saveBooking(key, booking) {
@@ -10194,6 +10211,7 @@
         .pfb{font:inherit;font-size:13px;color:var(--ms-ink);background:none;border:1px solid var(--ms-line);border-radius:8px;padding:7px 15px;cursor:pointer}
         .pfb.primary{background:var(--ms-accent);border-color:var(--ms-accent);color:#fff;font-weight:600}
         .pfb.danger{color:var(--ms-bad);margin-left:auto}.pfb:hover{border-color:var(--ms-accent)}
+        .pushmsg{font-size:12px;color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 10%,transparent);border:1px solid color-mix(in srgb,var(--ms-accent) 30%,var(--ms-line));border-radius:8px;padding:6px 10px}
         .pstates{display:flex;gap:4px;margin-top:2px}
         .pst{flex:1;text-align:center;font-size:10px;color:var(--ms-ink2);padding:7px 2px;border:1px solid var(--ms-line);border-radius:8px}
         .pst.on{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);color:var(--ms-ink);font-weight:650}
@@ -10344,18 +10362,46 @@
       const chk = cd ? h("div", { class: "pchk" }, [h("b", { class: cd.late ? "late" : "" }, cd.txt), h("span", {}, "check-out")]) : null;
       const editBtn = h("button", { class: "pedit", onclick: () => { this._editKey = key; this._draft = { name: b.name || "", guests: b.guests || "", arrival: b.arrival || "", departure: b.departure || "" }; this._render(); } },
         [h("ha-icon", { icon: "mdi:calendar-edit" }), sig.bookedGuests != null || b.arrival ? "Edit booking" : "Add booking"]);
+      // a DS3604 e-ink display in this property's area → a "Push to display" button (guest welcome card)
+      const dispAreas = this._displayAreas(ctx.areas);
+      const dispKey = "display:" + key, dispEditing = this._editKey === dispKey;
+      const dispBtn = dispAreas.length ? h("button", { class: "pedit", onclick: () => {
+        const c = (this._rcfg && this._rcfg[dispAreas[0]]) || {};
+        this._editKey = dispKey; this._draft = { property_name: c.property_name || ctx.areas[0] || "", wifi_ssid: c.wifi_ssid || "", wifi_pass: c.wifi_pass || "", house_rules: c.house_rules || "", host_contact: c.host_contact || "", checkout_time: c.checkout_time || "" }; this._render();
+      } }, [h("ha-icon", { icon: "mdi:monitor-share" }), "Guest display"]) : null;
       const head = h("div", { class: "phero" }, [
         h("div", { class: "prow" }, [
           h("span", { class: "ppill " + st.tone }, st.label.toUpperCase()),
           h("div", { style: { minWidth: "0" } }, [h("div", { class: "pbig" }, st.peopleTxt), h("div", { class: "psub" }, esc(sub))]),
           h("div", { class: "pspacer" }),
-          chk, editing ? null : editBtn,
+          chk, (editing || dispEditing) ? null : dispBtn, (editing || dispEditing) ? null : editBtn,
         ]),
+        this._pushMsg ? h("div", { class: "pushmsg" }, esc(this._pushMsg)) : null,
         h("div", { class: "pstates" }, st.states.map((k, i) => h("div", { class: "pst" + (i === st.index ? " on" : "") },
           ({ vacant: "Vacant", checkin: "Checked in", occupied: "Occupied", checkout: "Checked out", turnover: "Turnover" })[k]))),
         editing ? this._bookingEditor(key) : null,
+        dispEditing ? this._displayEditor(dispAreas) : null,
       ]);
       return head;
+    }
+    _displayEditor(areas) {
+      const d = this._draft || {};
+      const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); };
+      const field = (label, fkey, type, flex) => h("label", { class: "pfl", style: flex ? { flex: flex } : null }, [h("span", {}, label),
+        h("input", { class: "pfi", type: type || "text", value: d[fkey] == null ? "" : String(d[fkey]), oninput: set(fkey) })]);
+      const collect = () => { const dd = this._draft || {}; return { property_name: dd.property_name, wifi_ssid: dd.wifi_ssid, wifi_pass: dd.wifi_pass, house_rules: dd.house_rules, host_contact: dd.host_contact, checkout_time: dd.checkout_time }; };
+      return h("div", { class: "pform" }, [
+        h("div", { class: "psub", style: { marginBottom: "8px" } }, "Guest welcome card for the DS3604 e-ink display — set once per property. The guest name & check-out come from the booking."),
+        h("div", { class: "pfrow" }, [field("Property name", "property_name", "text", "2 1 200px"), field("Check-out time", "checkout_time", "text", "0 1 110px")]),
+        h("div", { class: "pfrow" }, [field("Wi-Fi name (SSID)", "wifi_ssid"), field("Wi-Fi password", "wifi_pass"), field("Host contact", "host_contact")]),
+        h("label", { class: "pfl", style: { flex: "1 1 100%" } }, [h("span", {}, "House rules (one per line, up to 3 shown)"),
+          h("textarea", { class: "pfi", style: { minHeight: "66px", fontFamily: "inherit" }, oninput: set("house_rules") }, d.house_rules || "")]),
+        h("div", { class: "pfbtns" }, [
+          h("button", { class: "pfb primary", onclick: () => this._pushDisplay(areas, collect()) }, "📟 Push to display"),
+          h("button", { class: "pfb", onclick: () => this._saveConfig(areas, collect()) }, "Save only"),
+          h("button", { class: "pfb", onclick: () => { this._editKey = null; this._draft = null; this._render(); } }, "Cancel"),
+        ]),
+      ]);
     }
     _bookingEditor(key) {
       const d = this._draft || {};

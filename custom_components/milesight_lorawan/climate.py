@@ -163,7 +163,7 @@ class MilesightClimate(MilesightEntity, ClimateEntity):
                 self._temp_eid = ""
         return {
             "milesight_role": "thermostat", "device": rt.entry.title, "model": rt.model.key,
-            "area": rt.entry.data.get("area") or rt.entry.options.get("area"),
+            "area": rt._area(),          # same source as every other role (incl. the device's Home Assistant area)
             "purpose": rt._pkey,
             "battery": v.get("battery"), "valve": v.get("valve_opening"),
             "window_open": v.get("window_open"), "temp_entity_id": self._temp_eid or None,

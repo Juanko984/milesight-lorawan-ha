@@ -51,24 +51,34 @@ def clean_booking(raw: Any) -> dict | None:
 
 
 class BookingStore:
-    """All properties' bookings in one hub store, keyed by area name."""
+    """All properties' bookings (and per-property guest-display settings) in one hub store, keyed by area name."""
 
     def __init__(self, hass) -> None:
         from homeassistant.helpers.storage import Store
         from .const import DOMAIN, STORAGE_VERSION
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.rentals")
-        self._data: dict[str, dict] = {}
+        self._bookings: dict[str, dict] = {}
+        self._config: dict[str, dict] = {}
         self._loaded = False
 
     async def async_load(self) -> None:
-        self._data = (await self._store.async_load()) or {}
+        data = (await self._store.async_load()) or {}
+        if "bookings" in data or "config" in data:            # current nested shape
+            self._bookings = data.get("bookings") or {}
+            self._config = data.get("config") or {}
+        else:                                                 # migrate the old flat {area: booking} shape
+            self._bookings = data
+            self._config = {}
         self._loaded = True
 
+    async def _save(self) -> None:
+        await self._store.async_save({"bookings": self._bookings, "config": self._config})
+
     def all(self) -> dict[str, dict]:
-        return dict(self._data)
+        return dict(self._bookings)
 
     def get(self, area: str) -> dict | None:
-        return self._data.get(area)
+        return self._bookings.get(area)
 
     async def async_set(self, area: str, raw: Any) -> dict | None:
         """Set (or clear, when the cleaned booking is empty) one property's booking. Returns the stored booking."""
@@ -77,8 +87,28 @@ class BookingStore:
             return None
         booking = clean_booking(raw)
         if booking is None:
-            self._data.pop(area, None)
+            self._bookings.pop(area, None)
         else:
-            self._data[area] = booking
-        await self._store.async_save(self._data)
+            self._bookings[area] = booking
+        await self._save()
         return booking
+
+    # ---------------------------------------------------- per-property guest-display settings (Wi-Fi, rules, …)
+    def config_all(self) -> dict[str, dict]:
+        return dict(self._config)
+
+    def get_config(self, area: str) -> dict | None:
+        return self._config.get(area)
+
+    async def async_set_config(self, area: str, raw: Any) -> dict | None:
+        from .rental_display import clean_display_config
+        area = (area or "").strip()
+        if not area:
+            return None
+        cfg = clean_display_config(raw)
+        if cfg is None:
+            self._config.pop(area, None)
+        else:
+            self._config[area] = cfg
+        await self._save()
+        return cfg

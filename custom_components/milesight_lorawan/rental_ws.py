@@ -19,11 +19,29 @@ def _store(hass: HomeAssistant):
     return None
 
 
+def _displays_by_area(hass: HomeAssistant) -> dict:
+    """Which property areas have a DS3604 e-ink display (so the card can show the 'Push to display' button)."""
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+    out: dict[str, bool] = {}
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
+            continue
+        rt = getattr(e, "runtime_data", None)
+        if rt is not None and "ds3604" in getattr(getattr(rt, "model", None), "features", frozenset()):
+            try:
+                out[rt._area()] = True
+            except Exception:  # noqa: BLE001
+                pass
+    return out
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/list"})
 @websocket_api.async_response
 async def ws_list(hass: HomeAssistant, connection, msg: dict) -> None:
     store = _store(hass)
-    connection.send_result(msg["id"], {"bookings": store.all() if store else {}})
+    connection.send_result(msg["id"], {"bookings": store.all() if store else {},
+                                       "config": store.config_all() if store else {},
+                                       "displays": _displays_by_area(hass)})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/set",
@@ -38,7 +56,55 @@ async def ws_set(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True, "area": msg["area"], "booking": booking})
 
 
-RENTAL_WS = (ws_list, ws_set)
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/config_set",
+                                  vol.Required("area"): str, vol.Optional("config"): dict})
+@websocket_api.async_response
+async def ws_config_set(hass: HomeAssistant, connection, msg: dict) -> None:
+    store = _store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_found", "No gateway is set up")
+        return
+    cfg = await store.async_set_config(msg["area"], msg.get("config") or {})
+    connection.send_result(msg["id"], {"ok": True, "area": msg["area"], "config": cfg})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/push_display",
+                                  vol.Required("area"): str, vol.Optional("config"): dict})
+@websocket_api.async_response
+async def ws_push_display(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Compose a guest-welcome card from the property's booking + display settings and push it to the DS3604(s)
+    in that area. Saves the settings too, so the same button re-pushes an updated card next booking."""
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+    from .rental_display import build_welcome_template
+    store = _store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_found", "No gateway is set up")
+        return
+    area = msg["area"]
+    config = await store.async_set_config(area, msg.get("config") or {}) if msg.get("config") else store.get_config(area)
+    booking = store.get(area)
+    blocks = build_welcome_template(booking, config)
+    pushed, errors = 0, []
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
+            continue
+        rt = getattr(e, "runtime_data", None)
+        if rt is None or "ds3604" not in getattr(getattr(rt, "model", None), "features", frozenset()):
+            continue
+        try:
+            if rt._area() != area:
+                continue
+            await rt.async_display(1, blocks, show=True, refresh=True, only_changed=True)
+            pushed += 1
+        except Exception as err:  # noqa: BLE001
+            errors.append(str(err))
+    if not pushed and not errors:
+        connection.send_error(msg["id"], "no_display", "No DS3604 e-ink display in this property's area")
+        return
+    connection.send_result(msg["id"], {"ok": pushed > 0, "pushed": pushed, "errors": errors, "config": config})
+
+
+RENTAL_WS = (ws_list, ws_set, ws_config_set, ws_push_display)
 
 
 def register(hass: HomeAssistant) -> None:
