@@ -19,6 +19,15 @@ def _store(hass: HomeAssistant):
     return None
 
 
+def _reconfigure_warnings(hass: HomeAssistant) -> None:
+    ctl = (hass.data.get(DOMAIN, {}) or {}).get("warn_ctl")
+    if ctl is not None:
+        try:
+            ctl.reconfigure()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _displays_by_area(hass: HomeAssistant) -> dict:
     """Which property areas have a DS3604 e-ink display (so the card can show the 'Push to display' button)."""
     from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
@@ -65,6 +74,7 @@ async def ws_config_set(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "not_found", "No gateway is set up")
         return
     cfg = await store.async_set_config(msg["area"], msg.get("config") or {})
+    _reconfigure_warnings(hass)
     connection.send_result(msg["id"], {"ok": True, "area": msg["area"], "config": cfg})
 
 
@@ -104,6 +114,42 @@ async def ws_push_display(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": pushed > 0, "pushed": pushed, "errors": errors, "config": config})
 
 
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/push_warning",
+                                  vol.Required("area"): str, vol.Optional("kind"): str,
+                                  vol.Optional("value"): vol.Any(int, float, None),
+                                  vol.Optional("limit"): vol.Any(int, float, None),
+                                  vol.Optional("beeps"): int})
+@websocket_api.async_response
+async def ws_push_warning(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Compose the template-2 warning (noise / occupancy over the limit) and show it on the DS3604(s) in this
+    area, with a triple beep."""
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE
+    from .rental_display import build_warning_template
+    store = _store(hass)
+    area = msg["area"]
+    config = (store.get_config(area) if store else {}) or {}
+    blocks = build_warning_template(msg.get("kind"), msg.get("value"), msg.get("limit"), config)
+    beeps = int(msg.get("beeps", 3) or 0)
+    pushed, errors = 0, []
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_DEVICE:
+            continue
+        rt = getattr(e, "runtime_data", None)
+        if rt is None or "ds3604" not in getattr(getattr(rt, "model", None), "features", frozenset()):
+            continue
+        try:
+            if rt._area() != area:
+                continue
+            await rt.async_display(2, blocks, show=True, refresh=True, beeps=beeps)
+            pushed += 1
+        except Exception as err:  # noqa: BLE001
+            errors.append(str(err))
+    if not pushed and not errors:
+        connection.send_error(msg["id"], "no_display", "No DS3604 e-ink display in this property's area")
+        return
+    connection.send_result(msg["id"], {"ok": pushed > 0, "pushed": pushed, "errors": errors})
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rental/ack_display",
                                   vol.Required("area"): str})
 @websocket_api.async_response
@@ -127,7 +173,7 @@ async def ws_ack_display(hass: HomeAssistant, connection, msg: dict) -> None:
     connection.send_result(msg["id"], {"ok": True, "area": area, "acked": acked})
 
 
-RENTAL_WS = (ws_list, ws_set, ws_config_set, ws_push_display, ws_ack_display)
+RENTAL_WS = (ws_list, ws_set, ws_config_set, ws_push_display, ws_push_warning, ws_ack_display)
 
 
 def register(hass: HomeAssistant) -> None:

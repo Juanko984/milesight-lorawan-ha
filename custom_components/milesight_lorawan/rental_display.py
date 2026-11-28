@@ -62,6 +62,15 @@ def _rules(raw: Any, limit: int = 4) -> list[str]:
     return out
 
 
+def _num(v: Any) -> float | None:
+    try:
+        if v is None or v == "":
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _time_of(iso: str | None) -> str | None:
     if not iso or "T" not in str(iso):
         return None
@@ -105,6 +114,51 @@ def build_welcome_template(booking: dict | None, config: dict | None) -> dict:
     return blocks
 
 
+def build_warning_template(kind: str | None, value: Any = None, limit: Any = None, config: dict | None = None) -> dict:
+    """Blocks for template 2 — the warning screen shown when noise / occupancy goes over the limit.
+
+    Device template-2 text elements (set these up once in the Milesight tool to match):
+      text_1  title banner        — "NOTICE" (white on red)
+      text_2  headline            — "TOO MUCH NOISE" / "TOO MANY GUESTS"
+      text_3  reading             — "82 dB  ·  limit 70"
+      text_4  message             — host's note (quiet hours, max guests, …)
+      text_5  help / host contact
+    """
+    c = config or {}
+    k = (kind or "custom").lower()
+    title = (c.get("warn_title") or "NOTICE").strip()[:18]
+    host = (c.get("host_contact") or "").strip()
+    msg = (c.get("warn_message") or "").strip()
+    if k == "noise":
+        headline = "TOO MUCH NOISE"
+        reading = (f"{round(float(value))} dB" if value is not None else "")
+        if limit is not None:
+            reading = (reading + f"  ·  limit {round(float(limit))}").strip("  ·  ")
+        if not msg:
+            msg = "Please keep it down — quiet hours apply."
+    elif k == "occupancy":
+        headline = "TOO MANY GUESTS"
+        reading = ""
+        if value is not None:
+            reading = f"{int(value)} inside"
+        if limit is not None:
+            reading = (reading + f"  ·  max {int(limit)}").strip("  ·  ")
+        if not msg:
+            msg = "This booking is over its guest limit."
+    else:
+        headline = (c.get("warn_headline") or "PLEASE TAKE NOTE").strip()[:24]
+        reading = ""
+    blocks = {k2: "" for k2 in ("text_1", "text_2", "text_3", "text_4", "text_5")}
+    blocks["text_1"] = title
+    blocks["text_2"] = headline[:24]
+    blocks["text_3"] = reading[:28]
+    if msg:
+        blocks["text_4"] = msg[:120]
+    if host:
+        blocks["text_5"] = f"Help: {host}"[:40]
+    return blocks
+
+
 def clean_display_config(raw: Any) -> dict | None:
     """Validate the per-property display settings the host enters."""
     if not isinstance(raw, dict):
@@ -121,5 +175,13 @@ def clean_display_config(raw: Any) -> dict | None:
         "checkout_time": s("checkout_time", 12),
         "guest_notify": s("guest_notify", 80),    # notify.<service> to alert when the guest presses the button
         "button_target": s("button_target", 80),  # entity to turn on when the button is pressed (relay/chime/script/scene)
+        # template 2 — the warning screen
+        "warn_title": s("warn_title", 18),
+        "warn_headline": s("warn_headline", 24),
+        "warn_message": s("warn_message", 120),
+        "noise_limit": _num(raw.get("noise_limit")),
+        "max_guests": _num(raw.get("max_guests")),
+        "noise_source": s("noise_source", 80),        # WS302 entity to watch for auto-switch (else any in the area)
+        "warn_auto": 1 if raw.get("warn_auto") else None,  # auto switch to Template 2 when loud, back when quiet
     }
     return {k: v for k, v in out.items() if v is not None} or None

@@ -657,6 +657,11 @@ asyncio.run(by_key["display_template"].async_select_option("2"))
 assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "ff7301" and by_key["display_template"].current_option == "2"
 asyncio.run(by_key["cmd_display_refresh"].async_press())
 assert base64.b64decode(PUBLISHED[-1][1]["data"]).hex() == "ff3d02"
+# warning push: template 2 + three beeps (ff3d01 x3)
+n1 = len(PUBLISHED)
+asyncio.run(rt.async_display(2, {"text_1": "NOTICE", "text_2": "TOO MUCH NOISE"}, show=True, refresh=True, beeps=3))
+wf = "".join(base64.b64decode(p[1]["data"]).hex() for p in PUBLISHED[n1:])
+assert wf.count("ff3d01") == 3 and "ff7301" in wf and "ff3d02" in wf, wf
 print("ds3604 ok")
 
 # Gateway health: per-gateway devices from traffic + status reports

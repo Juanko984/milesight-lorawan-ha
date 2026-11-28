@@ -1591,6 +1591,19 @@ def test_rental_display():
                                    "guest_notify": "notify.mobile_app_host", "button_target": "switch.doorbell_chime"})
     assert cfg["property_name"] == "The Cottage" and cfg["wifi_ssid"] == "Guest"
     assert cfg["guest_notify"] == "notify.mobile_app_host" and cfg["button_target"] == "switch.doorbell_chime"
+    # template-2 warning config + builder
+    cfg2 = rd.clean_display_config({"warn_title": "NOTICE", "warn_message": "Keep it down", "noise_limit": "70",
+                                    "max_guests": 2, "noise_source": "sensor.ws302_lounge", "warn_auto": True,
+                                    "host_contact": "Sam 0401"})
+    assert cfg2["noise_limit"] == 70.0 and cfg2["max_guests"] == 2.0
+    assert cfg2["noise_source"] == "sensor.ws302_lounge" and cfg2["warn_auto"] == 1
+    wn = rd.build_warning_template("noise", 82, 70, cfg2)
+    assert wn["text_1"] == "NOTICE" and wn["text_2"] == "TOO MUCH NOISE"
+    assert wn["text_3"] == "82 dB  ·  limit 70" and wn["text_4"] == "Keep it down" and wn["text_5"] == "Help: Sam 0401"
+    wo = rd.build_warning_template("occupancy", 4, 2, cfg2)
+    assert wo["text_2"] == "TOO MANY GUESTS" and wo["text_3"] == "4 inside  ·  max 2"
+    wc = rd.build_warning_template("custom", None, None, {"warn_headline": "QUIET PLEASE"})
+    assert wc["text_2"] == "QUIET PLEASE"
     assert rd.clean_display_config({}) is None
     blk = rd.build_welcome_template({"name": "Juan", "departure": "2026-11-30T10:00"}, cfg)
     # Mapping matches the device's real template: text_N == text element id N-1 (elements 0-7 only).

@@ -607,11 +607,13 @@ class DeviceRuntime:
         return None
 
     async def async_display(self, template: int = 1, blocks: dict[str, str] | None = None, *, show: bool = False,
-                            refresh: bool = False, beep: bool = False, only_changed: bool = False) -> int:
+                            refresh: bool = False, beep: bool = False, beeps: int = 0, only_changed: bool = False) -> int:
         """Send text / QR-code content to a DS3604 (packed into as few downlinks as fit). Returns downlinks sent.
-        only_changed: skip blocks that already show this text, and the template switch if it is already shown."""
+        only_changed: skip blocks that already show this text, and the template switch if it is already shown.
+        beeps: how many times to beep (e.g. 3 for a warning); `beep=True` is one beep."""
         if "ds3604" not in self.model.features:
             raise ValueError(f"{self.model.key} has no display")
+        nbeep = max(int(beeps or 0), 1 if beep else 0)
         blocks = {k: str(v) for k, v in (blocks or {}).items() if v is not None}
         unknown = set(blocks) - set(DS3604_BLOCKS)
         if unknown:
@@ -619,7 +621,7 @@ class DeviceRuntime:
         if only_changed:
             blocks = {k: v for k, v in blocks.items() if self.display_text(template, k) != v}
             show = show and self.raw.get("current_template_id") != template
-            if not blocks and not show and not refresh and not beep:
+            if not blocks and not show and not refresh and not nbeep:
                 return 0
         frames: list[tuple[bytes, list | None, str]] = []
         for b in DS3604_BLOCKS:
@@ -630,7 +632,7 @@ class DeviceRuntime:
             frames.append((encode_ds3604("template", template), None, "template"))
         if refresh:
             frames.append((encode_ds3604("refresh"), None, "refresh"))
-        if beep:
+        for _ in range(nbeep):
             frames.append((encode_ds3604("beep"), None, "beep"))
         if not frames:
             return 0
@@ -1593,6 +1595,7 @@ class DeviceRuntime:
             "battery": _nz(v.get("battery")), "last_seen": self.meta.get("last_seen"),
             "guest_call_at": gc.get("at"), "guest_call_type": gc.get("type"),
             "guest_call_pending": pending,
+            "warn_active": bool(self.meta.get("_warn_active")),
         }
 
     # ---------------------------------------------------------------- AT101 asset tracker

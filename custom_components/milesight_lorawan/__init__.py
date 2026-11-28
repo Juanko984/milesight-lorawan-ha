@@ -91,6 +91,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not domain_data.get("rental_ws"):          # websocket commands are global: register once
                 register_rental_ws(hass)
                 domain_data["rental_ws"] = True
+            # auto-switch the DS3604 to its warning template when a WS302 gets too loud (one controller, global)
+            try:
+                from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+                from .warning_ctl import WarningController
+                if not domain_data.get("warn_ctl"):
+                    ctl = WarningController(hass, bookings)
+                    domain_data["warn_ctl"] = ctl
+                    if hass.is_running:
+                        ctl.reconfigure()
+                    else:
+                        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, lambda _e: ctl.reconfigure())
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Could not start the DS3604 noise-warning controller", exc_info=True)
         except Exception:  # noqa: BLE001 - short-stay bookings are a convenience, never block the gateway
             _LOGGER.warning("Could not set up short-stay bookings", exc_info=True)
         try:

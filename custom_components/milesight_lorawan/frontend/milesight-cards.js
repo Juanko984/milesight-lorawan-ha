@@ -9919,6 +9919,28 @@
     return { score, label, tone, bars };
   }
 
+  // DS3604 template geometry (400×300). Matched to the device's real exported template so the dashboard preview
+  // is WYSIWYG. fg/bg: 0=white 1=black 2=red. align: 0=left 1=center 2=right. style set on the device template.
+  const DS3604_T1 = [
+    { key: "property", x: 16, y: 4, w: 368, h: 40, size: 26, fg: 2, align: 1 },
+    { key: "welcome", x: 16, y: 44, w: 376, h: 48, size: 30, fg: 1, align: 0 },
+    { key: "rules", x: 16, y: 102, w: 240, h: 116, size: 19, fg: 1, align: 0, multi: true },
+    { key: "wifi", x: 24, y: 218, w: 184, h: 32, size: 21, fg: 1, align: 0 },
+    { key: "pass", x: 24, y: 245, w: 272, h: 32, size: 21, fg: 1, align: 0 },
+    { key: "checkout", x: 280, y: 85, w: 104, h: 24, size: 17, fg: 0, bg: 2, align: 1 },
+    { key: "time", x: 288, y: 113, w: 104, h: 50, size: 24, fg: 1, align: 1, bold: true },
+    { key: "help", x: 224, y: 272, w: 160, h: 24, size: 14, fg: 1, align: 2 },
+    { key: "__qr", x: 280, y: 160, w: 100, h: 100 },
+  ];
+  const DS3604_T2 = [
+    { key: "title", x: 0, y: 0, w: 400, h: 50, size: 28, fg: 0, bg: 2, align: 1, bold: true },
+    { key: "headline", x: 12, y: 64, w: 376, h: 52, size: 30, fg: 2, align: 1, bold: true },
+    { key: "reading", x: 12, y: 126, w: 376, h: 40, size: 25, fg: 1, align: 1 },
+    { key: "message", x: 18, y: 174, w: 364, h: 74, size: 20, fg: 1, align: 1, multi: true },
+    { key: "help", x: 16, y: 268, w: 368, h: 26, size: 16, fg: 1, align: 1 },
+  ];
+  const DS3604_COL = { 0: "#ffffff", 1: "#171717", 2: "#c62828" };
+
   class PropertyCard extends Base {
     static getStubConfig() { return { purpose: "guest_door,guest_occupancy,rental_climate,rental_hvac,rental_air,rental_noise,rental_safety" }; }
     getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
@@ -10255,6 +10277,10 @@
         .pdpl{font-size:11px;color:var(--ms-ink2);margin-bottom:6px}
         .pvwrap{max-width:360px}
         .psubh{font-size:12px;font-weight:650;color:var(--ms-ink);margin:14px 0 2px;padding-top:12px;border-top:1px solid var(--ms-line)}
+        .pdtabs{display:flex;gap:6px;margin-bottom:10px}
+        .pdtab{font-size:12px;color:var(--ms-ink2);padding:7px 13px;border:1px solid var(--ms-line);border-radius:9px;cursor:pointer}
+        .pdtab.on{border-color:var(--ms-accent);background:color-mix(in srgb,var(--ms-accent) 12%,transparent);color:var(--ms-ink);font-weight:650}
+        .pdtab.live{box-shadow:inset 0 0 0 1px var(--ms-good)}
         @keyframes msflash{0%,100%{background:color-mix(in srgb,var(--ms-bad) 22%,transparent);border-color:var(--ms-bad)}50%{background:color-mix(in srgb,var(--ms-bad) 6%,transparent);border-color:color-mix(in srgb,var(--ms-bad) 45%,var(--ms-line))}}
         .pgcall{display:flex;align-items:center;gap:11px;border:1.5px solid var(--ms-bad);border-radius:12px;padding:11px 13px;margin-bottom:12px;animation:msflash 1.1s ease-in-out infinite}
         .pgcall ha-icon{--mdc-icon-size:22px;color:var(--ms-bad);flex:0 0 auto}
@@ -10417,7 +10443,8 @@
       const dispKey = "display:" + key, dispEditing = this._editKey === dispKey;
       const dispBtn = dispAreas.length ? h("button", { class: "pedit", onclick: () => {
         const c = (this._rcfg && this._rcfg[dispAreas[0]]) || {};
-        this._editKey = dispKey; this._draft = { property_name: c.property_name || ctx.areas[0] || "", wifi_ssid: c.wifi_ssid || "", wifi_pass: c.wifi_pass || "", house_rules: c.house_rules || "", host_contact: c.host_contact || "", checkout_time: c.checkout_time || "", guest_notify: c.guest_notify || "", button_target: c.button_target || "" }; this._render();
+        this._dispTab = this._dispTab || 1;
+        this._editKey = dispKey; this._draft = { property_name: c.property_name || ctx.areas[0] || "", wifi_ssid: c.wifi_ssid || "", wifi_pass: c.wifi_pass || "", house_rules: c.house_rules || "", host_contact: c.host_contact || "", checkout_time: c.checkout_time || "", guest_notify: c.guest_notify || "", button_target: c.button_target || "", warn_title: c.warn_title || "NOTICE", warn_headline: c.warn_headline || "", warn_message: c.warn_message || "", noise_limit: c.noise_limit == null ? "" : c.noise_limit, max_guests: c.max_guests == null ? "" : c.max_guests, noise_source: c.noise_source || "", warn_auto: !!c.warn_auto, warn_kind: "noise" }; this._render();
       } }, [h("ha-icon", { icon: "mdi:monitor-share" }), "Guest display"]) : null;
       const head = h("div", { class: "phero" }, [
         h("div", { class: "prow" }, [
@@ -10435,37 +10462,42 @@
       return head;
     }
     _timeOf(iso) { if (!iso || !/T\d/.test(String(iso))) return ""; const dt = new Date(iso); return isNaN(dt) ? "" : dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+    _collectConfig() { const dd = this._draft || {}; return { property_name: dd.property_name, wifi_ssid: dd.wifi_ssid, wifi_pass: dd.wifi_pass, house_rules: dd.house_rules, host_contact: dd.host_contact, checkout_time: dd.checkout_time, guest_notify: dd.guest_notify, button_target: dd.button_target, warn_title: dd.warn_title, warn_headline: dd.warn_headline, warn_message: dd.warn_message, noise_limit: dd.noise_limit, max_guests: dd.max_guests, noise_source: dd.noise_source, warn_auto: dd.warn_auto ? 1 : 0 }; }
     _displayEditor(areas) {
-      const d = this._draft || {};
-      const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); this._syncWelcomePreview(areas); };
+      const d = this._draft || {}, tab = this._dispTab || 1;
+      const S = (this._hass && this._hass.states) || {};
+      let disp = null; for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "display" && areas.some((x) => areaEq(a.area, x))) { disp = a; break; } }
+      const statusBits = [];
+      if (disp && num(disp.battery) != null) statusBits.push("🔋 " + Math.round(num(disp.battery)) + "%");
+      if (disp && num(disp.active) != null) statusBits.push("showing Template " + disp.active);
+      if (disp && disp.guest_call_at) statusBits.push("Last press " + (this._bdate(new Date(disp.guest_call_at * 1000).toISOString(), true) || ""));
+      const tabBtn = (n, label) => h("div", { class: "pdtab" + (tab === n ? " on" : "") + (disp && Number(disp.active) === n ? " live" : ""), onclick: () => { this._dispTab = n; this._render(); } }, label);
+      return h("div", { class: "pform" }, [
+        h("div", { class: "pdtabs" }, [tabBtn(1, "Template 1 · Welcome"), tabBtn(2, "Template 2 · Warning")]),
+        statusBits.length ? h("div", { class: "pdstat" }, statusBits.join("  ·  ")) : null,
+        tab === 1 ? this._welcomeTab(areas, d) : this._warningTab(areas, d),
+      ]);
+    }
+    _welcomeTab(areas, d) {
+      const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); this._syncDisplayPreview(areas); };
       const field = (label, fkey, type, flex) => h("label", { class: "pfl", style: flex ? { flex: flex } : null }, [h("span", {}, label),
         h("input", { class: "pfi", type: type || "text", value: d[fkey] == null ? "" : String(d[fkey]), oninput: set(fkey) })]);
-      const collect = () => { const dd = this._draft || {}; return { property_name: dd.property_name, wifi_ssid: dd.wifi_ssid, wifi_pass: dd.wifi_pass, house_rules: dd.house_rules, host_contact: dd.host_contact, checkout_time: dd.checkout_time, guest_notify: dd.guest_notify, button_target: dd.button_target }; };
       const S = (this._hass && this._hass.states) || {};
-      // notify services available in HA → the "who to alert" dropdown
       const services = (this._hass && this._hass.services && this._hass.services.notify) || {};
       const notifyOpts = ["", ...Object.keys(services).map((s) => "notify." + s).sort()];
       const cur = d.guest_notify || "";
       const notifySel = h("label", { class: "pfl", style: { flex: "1 1 220px" } }, [h("span", {}, "Alert a person on press (notify service)"),
-        h("select", { class: "pfi", oninput: set("guest_notify") }, notifyOpts.map((o) =>
-          h("option", Object.assign({ value: o }, o === cur ? { selected: true } : {}), o || "Persistent notification only")))]);
-      // trigger-an-entity datalist (relay / chime / script / scene)
+        h("select", { class: "pfi", oninput: set("guest_notify") }, notifyOpts.map((o) => h("option", Object.assign({ value: o }, o === cur ? { selected: true } : {}), o || "Persistent notification only")))]);
       const triggerable = Object.keys(S).filter((id) => /^(switch|light|script|scene|input_boolean|automation|button)\./.test(id)).sort();
       const dlId = "ms-trig-" + (areas[0] || "x").replace(/[^a-z0-9]/gi, "");
       const trigInput = h("input", { class: "pfi", type: "text", placeholder: "switch.doorbell_chime", value: d.button_target == null ? "" : String(d.button_target), oninput: set("button_target") });
-      trigInput.setAttribute("list", dlId);   // `list` is a read-only DOM prop, so set it as an attribute
+      trigInput.setAttribute("list", dlId);
       const triggerField = h("label", { class: "pfl", style: { flex: "1 1 240px" } }, [h("span", {}, "Trigger on press (relay / chime / script / scene)"),
         trigInput, h("datalist", { id: dlId }, triggerable.map((id) => h("option", { value: id })))]);
-      // live display status (battery + last press)
-      let disp = null; for (const id in S) { const a = S[id].attributes; if (a && a.milesight_role === "display" && areas.some((x) => areaEq(a.area, x))) { disp = a; break; } }
-      const statusBits = [];
-      if (disp && num(disp.battery) != null) statusBits.push("🔋 " + Math.round(num(disp.battery)) + "%");
-      if (disp && disp.guest_call_at) statusBits.push("Last press " + (this._bdate(new Date(disp.guest_call_at * 1000).toISOString(), true) || ""));
       const b = this._booking(this._bookingKey(), areas) || {};
       const co0 = d.checkout_time || this._timeOf(b.departure);
-      return h("div", { class: "pform" }, [
-        h("div", { class: "psub", style: { marginBottom: "8px" } }, "Guest welcome card for the DS3604 e-ink display — set once per property. The guest name & check-out come from the booking."),
-        statusBits.length ? h("div", { class: "pdstat" }, statusBits.join("  ·  ")) : null,
+      return h("div", {}, [
+        h("div", { class: "psub", style: { marginBottom: "8px" } }, "Welcome card — set once per property. The guest name & check-out come from the booking. Fonts, colours & positions are set in the Milesight template editor on the device; this fills the text."),
         h("div", { class: "pdgrid" }, [
           h("div", { class: "pdform" }, [
             h("div", { class: "pfrow" }, [field("Property name", "property_name", "text", "2 1 200px"), field("Check-out time", "checkout_time", "text", "0 1 110px")]),
@@ -10474,47 +10506,125 @@
             h("label", { class: "pfl", style: { flex: "1 1 100%" } }, [h("span", {}, "House rules (one per line, up to 4 shown)"),
               h("textarea", { class: "pfi", style: { minHeight: "60px", fontFamily: "inherit" }, oninput: set("house_rules") }, d.house_rules || "")]),
           ]),
-          h("div", { class: "pdprev" }, [
-            h("div", { class: "pdpl" }, "Live preview — what the e-ink shows"),
-            h("div", { class: "pvwrap" }, this._welcomePreview(d, b.name, co0)),
-          ]),
+          h("div", { class: "pdprev" }, [h("div", { class: "pdpl" }, "Template 1 — live preview"), h("div", { class: "pvwrap" }, this._welcomePreview(d, b.name, co0))]),
         ]),
         h("div", { class: "psubh" }, "When the guest presses the display's button"),
         h("div", { class: "pfrow" }, [notifySel, triggerField]),
         h("div", { class: "psub", style: { marginTop: "2px" } }, "A persistent notification is always raised. Add the flashing/buzzer wall card: type milesight-guest-call-card."),
         h("div", { class: "pfbtns" }, [
-          h("button", { class: "pfb primary", onclick: () => this._pushDisplay(areas, collect()) }, "📟 Push to display"),
-          h("button", { class: "pfb", onclick: () => this._saveConfig(areas, collect()) }, "Save only"),
+          h("button", { class: "pfb primary", onclick: () => this._pushDisplay(areas, this._collectConfig()) }, "📟 Push welcome"),
+          h("button", { class: "pfb", onclick: () => this._saveConfig(areas, this._collectConfig()) }, "Save only"),
           h("button", { class: "pfb", onclick: () => { this._editKey = null; this._draft = null; this._render(); } }, "Cancel"),
         ]),
       ]);
     }
-    _syncWelcomePreview(areas) {
+    _warningTab(areas, d) {
+      const set = (k) => (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); this._syncDisplayPreview(areas); };
+      const field = (label, fkey, type, flex) => h("label", { class: "pfl", style: flex ? { flex: flex } : null }, [h("span", {}, label),
+        h("input", { class: "pfi", type: type || "text", value: d[fkey] == null ? "" : String(d[fkey]), oninput: set(fkey) })]);
+      const kind = d.warn_kind || "noise";
+      const kindSel = h("label", { class: "pfl", style: { flex: "1 1 160px" } }, [h("span", {}, "Preview as"),
+        h("select", { class: "pfi", oninput: set("warn_kind") }, [["noise", "Noise too high"], ["occupancy", "Too many guests"], ["custom", "Custom notice"]].map(([v, l]) => h("option", Object.assign({ value: v }, v === kind ? { selected: true } : {}), l)))]);
+      const demoVal = kind === "noise" ? 82 : kind === "occupancy" ? (num(d.max_guests) ? num(d.max_guests) + 1 : 4) : null;
+      const demoLim = kind === "noise" ? (num(d.noise_limit) || 70) : kind === "occupancy" ? (num(d.max_guests) || 2) : null;
+      // WS302 sound sensors in this property's area → the auto-switch source
+      const S = (this._hass && this._hass.states) || {};
+      const sounds = Object.keys(S).filter((id) => { const a = S[id].attributes; return a && a.milesight_role === "sound_monitor" && areas.some((x) => areaEq(a.area, x)); }).sort();
+      const nsCur = d.noise_source || "";
+      const nsSel = h("label", { class: "pfl", style: { flex: "2 1 240px" } }, [h("span", {}, "Noise source (WS302) for auto-switch"),
+        h("select", { class: "pfi", oninput: set("noise_source") }, [["", sounds.length ? "Any WS302 in this area" : "No WS302 found in this area"]].concat(sounds.map((id) => [id, (S[id].attributes.device || id)])).map(([v, l]) => h("option", Object.assign({ value: v }, v === nsCur ? { selected: true } : {}), l)))]);
+      const autoToggle = h("label", { class: "pfl", style: { flex: "1 1 180px" } }, [h("span", {}, "Auto-switch on noise"),
+        h("select", { class: "pfi", oninput: (e) => { this._draft = Object.assign({}, this._draft, { warn_auto: e.target.value === "1" }); } }, [["0", "Off (manual only)"], ["1", "On — switch to Template 2 when loud, back when quiet"]].map(([v, l]) => h("option", Object.assign({ value: v }, (d.warn_auto ? "1" : "0") === v ? { selected: true } : {}), l)))]);
+      return h("div", {}, [
+        h("div", { class: "psub", style: { marginBottom: "8px" } }, "Template 2 — shown (with 3 beeps) when the noise or guest count goes over the limit. Set up a matching Template 2 on the device; this fills its text."),
+        h("div", { class: "pdgrid" }, [
+          h("div", { class: "pdform" }, [
+            h("div", { class: "pfrow" }, [field("Banner title", "warn_title", "text", "1 1 140px"), kindSel]),
+            h("div", { class: "pfrow" }, [field("Noise limit (dB)", "noise_limit", "number", "1 1 120px"), field("Max guests", "max_guests", "number", "1 1 120px")]),
+            h("div", { class: "pfrow" }, [nsSel, autoToggle]),
+            h("label", { class: "pfl", style: { flex: "1 1 100%" } }, [h("span", {}, "Message to the guest"),
+              h("textarea", { class: "pfi", style: { minHeight: "54px", fontFamily: "inherit" }, placeholder: "Please keep it down — quiet hours apply.", oninput: set("warn_message") }, d.warn_message || "")]),
+            h("label", { class: "pfl", style: { flex: "1 1 100%" } }, [h("span", {}, "Custom headline (for the 'Custom notice' kind)"),
+              h("input", { class: "pfi", type: "text", placeholder: "PLEASE TAKE NOTE", value: d.warn_headline == null ? "" : String(d.warn_headline), oninput: set("warn_headline") })]),
+          ]),
+          h("div", { class: "pdprev" }, [h("div", { class: "pdpl" }, "Template 2 — live preview"), h("div", { class: "pvwrap" }, this._warningPreview(d, kind, demoVal, demoLim))]),
+        ]),
+        h("div", { class: "pfbtns" }, [
+          h("button", { class: "pfb primary", onclick: () => this._pushWarning(areas, kind, demoVal, demoLim) }, "⚠ Show warning now (3 beeps)"),
+          h("button", { class: "pfb", onclick: () => this._saveConfig(areas, this._collectConfig()) }, "Save only"),
+          h("button", { class: "pfb", onclick: () => { this._editKey = null; this._draft = null; this._render(); } }, "Cancel"),
+        ]),
+      ]);
+    }
+    async _pushWarning(areas, kind, value, limit) {
+      this._pushMsg = "Showing warning…"; this._render();
+      let ok = 0, err = "";
+      await this._saveConfig(areas, this._collectConfig());
+      for (const a of areas) {
+        try { const r = await this._hass.callWS({ type: "milesight_lorawan/rental/push_warning", area: a, kind, value, limit, beeps: 3 }); if (r && r.pushed) ok += r.pushed; }
+        catch (e) { err = (e && e.message) || "failed"; }
+      }
+      this._pushMsg = ok ? ("⚠ Warning on " + ok + " display" + (ok > 1 ? "s" : "") + " · 3 beeps") : ("Could not show warning" + (err ? " — " + err : ""));
+      this._render(); setTimeout(() => { this._pushMsg = null; this._render(); }, 6000);
+    }
+    _syncDisplayPreview(areas) {
       const root = this.shadowRoot; if (!root) return;
       const box = root.querySelector(".pvwrap"); if (!box) return;
-      const b = this._booking(this._bookingKey(), areas) || {};
-      const d = this._draft || {};
-      box.replaceChildren(this._welcomePreview(d, b.name, d.checkout_time || this._timeOf(b.departure)));
+      const d = this._draft || {}, tab = this._dispTab || 1;
+      if (tab === 1) { const b = this._booking(this._bookingKey(), areas) || {}; box.replaceChildren(this._welcomePreview(d, b.name, d.checkout_time || this._timeOf(b.departure))); }
+      else { const kind = d.warn_kind || "noise"; const dv = kind === "noise" ? 82 : kind === "occupancy" ? (num(d.max_guests) ? num(d.max_guests) + 1 : 4) : null; const dl = kind === "noise" ? (num(d.noise_limit) || 70) : kind === "occupancy" ? (num(d.max_guests) || 2) : null; box.replaceChildren(this._warningPreview(d, kind, dv, dl)); }
     }
-    // a true-to-device preview of the welcome card, using the DS3604's real template-1 element geometry (400×300)
-    _welcomePreview(d, guestName, checkoutTime) {
-      const red = "#c62828", ink = "#161616", paper = "#f6f5f1", line = "#d9d7cf";
+    // Faithful DS3604 render: draws each element at its real template coordinates, colour, size, weight & alignment.
+    _tmplSVG(geo, vals, deco) {
       const e = (s) => esc(String(s == null ? "" : s));
+      const col = (c) => DS3604_COL[c] != null ? DS3604_COL[c] : "#171717";
       const FF = "font-family='Arial,Helvetica,sans-serif'";
-      const p = [`<rect x="0" y="0" width="400" height="300" fill="${paper}"/>`];
-      if (d.property_name) p.push(`<text x="200" y="30" text-anchor="middle" font-size="25" font-weight="700" fill="${red}" ${FF}>${e(String(d.property_name).slice(0, 22))}</text>`);
-      p.push(`<text x="18" y="78" font-size="29" font-weight="700" fill="${ink}" ${FF}>Welcome, ${e((guestName || "Guest")).slice(0, 18)}!</text>`);
-      p.push(`<line x1="18" y1="88" x2="150" y2="88" stroke="${red}" stroke-width="2"/>`);
-      const rules = String(d.house_rules || "").replace(/\r/g, "\n").split("\n").map((s) => s.trim().replace(/^[•\-*]\s*/, "")).filter(Boolean).slice(0, 4);
-      rules.forEach((r, i) => p.push(`<text x="18" y="${118 + i * 23}" font-size="16" fill="${ink}" ${FF}>${e(r.slice(0, 38))}</text>`));
-      if (d.wifi_ssid) p.push(`<text x="20" y="236" font-size="18" fill="${ink}" ${FF}>Wi-Fi: ${e(String(d.wifi_ssid).slice(0, 22))}</text>`);
-      if (d.wifi_pass) p.push(`<text x="20" y="261" font-size="18" fill="${ink}" ${FF}>Pass: ${e(String(d.wifi_pass).slice(0, 22))}</text>`);
-      p.push(`<rect x="280" y="86" width="104" height="26" fill="${red}"/>`);
-      p.push(`<text x="332" y="104" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" ${FF}>Check-out</text>`);
-      if (checkoutTime) p.push(`<text x="332" y="140" text-anchor="middle" font-size="22" font-weight="700" fill="${ink}" ${FF}>${e(String(checkoutTime).slice(0, 8))}</text>`);
-      if (d.host_contact) p.push(`<text x="384" y="289" text-anchor="end" font-size="12.5" fill="${ink}" ${FF}>Help: ${e(String(d.host_contact).slice(0, 26))}</text>`);
-      p.push(this._qrGlyph(282, 152, 100, String(d.wifi_ssid || "") + String(d.wifi_pass || "")));
-      return svgNS(`<svg viewBox="0 0 400 300" width="100%" style="display:block;border:1px solid ${line};border-radius:8px">${p.join("")}</svg>`);
+      const p = [`<rect x="0" y="0" width="400" height="300" fill="#f6f5f1"/>`];
+      if (deco) p.push(deco);
+      for (const el of geo) {
+        if (el.key === "__qr") { p.push(this._qrGlyph(el.x, el.y, el.w, String(vals.__qrseed || ""))); continue; }
+        if (el.bg != null) p.push(`<rect x="${el.x}" y="${el.y}" width="${el.w}" height="${el.h}" fill="${col(el.bg)}"/>`);
+        const txt = vals[el.key];
+        if (txt == null || txt === "") continue;
+        const anchor = el.align === 1 ? "middle" : el.align === 2 ? "end" : "start";
+        const tx = el.align === 1 ? el.x + el.w / 2 : el.align === 2 ? el.x + el.w - 2 : el.x + 2;
+        const fill = col(el.fg != null ? el.fg : 1), weight = el.bold ? "700" : "400";
+        if (el.multi) {
+          const lines = String(txt).replace(/\r/g, "\n").split("\n").map((s) => s.trim().replace(/^[•\-*]\s*/, "")).filter(Boolean);
+          const lh = el.size * 1.2; let y = el.y + el.size * 0.92;
+          for (const ln of lines) { if (y > el.y + el.h + 3) break; p.push(`<text x="${tx}" y="${y.toFixed(1)}" text-anchor="${anchor}" font-size="${el.size}" font-weight="${weight}" fill="${fill}" ${FF}>${e(ln).slice(0, 42)}</text>`); y += lh; }
+        } else {
+          const y = el.y + el.h / 2 + el.size * 0.35;
+          p.push(`<text x="${tx}" y="${y.toFixed(1)}" text-anchor="${anchor}" font-size="${el.size}" font-weight="${weight}" fill="${fill}" ${FF}>${e(String(txt)).slice(0, 44)}</text>`);
+        }
+      }
+      return svgNS(`<svg viewBox="0 0 400 300" width="100%" style="display:block;border:1px solid #d9d7cf;border-radius:8px">${p.join("")}</svg>`);
+    }
+    // Template 1 — the welcome card
+    _welcomePreview(d, guestName, checkoutTime) {
+      const rules = String(d.house_rules || "").replace(/\r/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 4).join("\n");
+      const vals = {
+        property: d.property_name || "", welcome: "Welcome, " + (guestName || "Guest") + "!",
+        rules, wifi: d.wifi_ssid ? "Wi-Fi: " + d.wifi_ssid : "", pass: d.wifi_pass ? "Pass: " + d.wifi_pass : "",
+        checkout: "Check-out", time: checkoutTime || "", help: d.host_contact ? "Help: " + d.host_contact : "",
+        __qrseed: String(d.wifi_ssid || "") + String(d.wifi_pass || ""),
+      };
+      const underline = `<line x1="18" y1="94" x2="150" y2="94" stroke="#c62828" stroke-width="2"/>`;
+      return this._tmplSVG(DS3604_T1, vals, underline);
+    }
+    // Template 2 — the warning screen (noise / occupancy over the limit)
+    _warningPreview(d, kind, value, limit) {
+      kind = kind || "noise";
+      let headline = "", reading = "";
+      if (kind === "noise") { headline = "TOO MUCH NOISE"; reading = (value != null ? Math.round(value) + " dB" : "") + (limit != null ? "  ·  limit " + Math.round(limit) : ""); }
+      else if (kind === "occupancy") { headline = "TOO MANY GUESTS"; reading = (value != null ? value + " inside" : "") + (limit != null ? "  ·  max " + limit : ""); }
+      else { headline = (d.warn_headline || "PLEASE TAKE NOTE"); reading = ""; }
+      const vals = {
+        title: (d.warn_title || "NOTICE"), headline, reading: reading.replace(/^\s*·\s*/, ""),
+        message: d.warn_message || (kind === "noise" ? "Please keep it down — quiet hours apply." : kind === "occupancy" ? "This booking is over its guest limit." : ""),
+        help: d.host_contact ? "Help: " + d.host_contact : "",
+      };
+      return this._tmplSVG(DS3604_T2, vals);
     }
     _qrGlyph(x, y, size, seed) {
       const n = 21, cell = size / n, dark = "#161616";

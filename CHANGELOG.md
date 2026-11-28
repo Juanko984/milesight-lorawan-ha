@@ -2,6 +2,19 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.183.0
+- **Preview now matches the device exactly.** The dashboard preview is drawn from the DS3604's real template
+  geometry — each element at its true position, size, colour (black/red/white), weight and alignment — so what
+  you see is what the e-ink shows. (Fonts, colours and positions are configured once in the Milesight template
+  editor on the device; the integration fills the text — it can't restyle elements over LoRaWAN.)
+- **Template 2 = a noise/occupancy warning screen.** The editor now has **Template 1 · Welcome** and
+  **Template 2 · Warning** tabs, both editable with live previews. Template 2 shows a red "NOTICE" banner,
+  "TOO MUCH NOISE" / "TOO MANY GUESTS", the reading vs the limit, and your message.
+- **Auto-switch on noise.** Pick a **WS302** (or any in the property's area) and a dB limit, turn on
+  **Auto-switch**, and the gateway flips the DS3604 to Template 2 (with **three beeps**) when it gets loud, then
+  back to the welcome card when it quiets down (5 dB hysteresis so it doesn't flap). A manual **"Show warning
+  now (3 beeps)"** button is there too.
+
 ## 0.182.0
 - **Better guest-display editor with a live, true-to-device preview.** Using the DS3604's real template
   geometry, the editor now shows a 400×300 preview of exactly what the e-ink will render — property name (red),
