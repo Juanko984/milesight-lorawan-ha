@@ -1588,9 +1588,9 @@ def test_rental_display():
     cfg = rd.clean_display_config({"property_name": "The Cottage", "wifi_ssid": "Guest", "wifi_pass": "pw12345",
                                    "house_rules": "No smoking\nQuiet after 11pm\nBins out Tuesday\n4th rule",
                                    "host_contact": "Sam 0401", "checkout_time": "10:00",
-                                   "guest_notify": "notify.mobile_app_host"})
+                                   "guest_notify": "notify.mobile_app_host", "button_target": "switch.doorbell_chime"})
     assert cfg["property_name"] == "The Cottage" and cfg["wifi_ssid"] == "Guest"
-    assert cfg["guest_notify"] == "notify.mobile_app_host"
+    assert cfg["guest_notify"] == "notify.mobile_app_host" and cfg["button_target"] == "switch.doorbell_chime"
     assert rd.clean_display_config({}) is None
     blk = rd.build_welcome_template({"name": "Juan", "departure": "2026-11-30T10:00"}, cfg)
     # Mapping matches the device's real template: text_N == text element id N-1 (elements 0-7 only).

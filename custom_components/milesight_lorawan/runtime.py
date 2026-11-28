@@ -2540,29 +2540,30 @@ class DeviceRuntime:
             self._guest_call(ts, event_type)
 
     # --------------------------------------------------------- DS3604 guest call
-    def _guest_notify_target(self, area: str | None) -> str | None:
-        """The notify service the host picked for this property (stored with the display settings), if any."""
+    def _guest_display_cfg(self, area: str | None) -> dict:
+        """The per-property guest-display settings the host saved (notify target, trigger entity, …)."""
         try:
             for hub in (self.hass.data.get(DOMAIN, {}).get("hubs") or {}).values():
                 store = getattr(hub, "bookings", None)
                 if store is None:
                     continue
-                cfg = store.get_config(area) or {}
-                t = cfg.get("guest_notify")
-                if t:
-                    return t.split(".", 1)[1] if t.startswith("notify.") else t
+                cfg = store.get_config(area)
+                if cfg:
+                    return cfg
         except Exception:  # noqa: BLE001
-            return None
-        return None
+            return {}
+        return {}
 
     def _guest_call(self, ts: float, event_type: str) -> None:
-        """Guest pressed the DS3604 button: remember it (until the host resets), raise a persistent notification
-        and, if the host picked a notify target, send it there too."""
+        """Guest pressed the DS3604 button. Remember it (until the host resets), raise a persistent notification,
+        and run the host's chosen actions: push to a notify service and/or turn on a relay / chime / script / scene."""
         area = self._area() or self.entry.title
+        cfg = self._guest_display_cfg(area)
         self.meta["_guestcall"] = {"at": ts, "type": event_type, "device": self.entry.title}
         self.meta.pop("_guestcall_ack", None)
         when = time.strftime("%d %b %H:%M", time.localtime(ts))
         msg = f"Guest button pressed at {area} — {when}"
+        # 1) persistent notification (always)
         try:
             from homeassistant.components import persistent_notification
             persistent_notification.async_create(
@@ -2570,11 +2571,21 @@ class DeviceRuntime:
                 notification_id=f"{DOMAIN}_guestcall_{self.deveui}")
         except Exception:  # noqa: BLE001
             pass
-        target = self._guest_notify_target(area)
+        # 2) notify a person (optional)
+        notify = cfg.get("guest_notify")
+        if notify:
+            service = notify.split(".", 1)[1] if notify.startswith("notify.") else notify
+            try:
+                self.hass.async_create_task(self.hass.services.async_call(
+                    "notify", service, {"title": "Guest call", "message": msg}))
+            except Exception:  # noqa: BLE001
+                pass
+        # 3) trigger a relay / chime / script / scene (optional) — homeassistant.turn_on works across domains
+        target = cfg.get("button_target")
         if target:
             try:
                 self.hass.async_create_task(self.hass.services.async_call(
-                    "notify", target, {"title": "Guest call", "message": msg}))
+                    "homeassistant", "turn_on", {"entity_id": target}))
             except Exception:  # noqa: BLE001
                 pass
         self.hass.bus.async_fire(f"{DOMAIN}_guest_call", {

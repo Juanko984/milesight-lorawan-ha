@@ -119,6 +119,7 @@ def clean_display_config(raw: Any) -> dict | None:
         "house_rules": s("house_rules", 400),
         "host_contact": s("host_contact", 60),
         "checkout_time": s("checkout_time", 12),
-        "guest_notify": s("guest_notify", 80),   # notify.<service> to alert when the guest presses the button
+        "guest_notify": s("guest_notify", 80),    # notify.<service> to alert when the guest presses the button
+        "button_target": s("button_target", 80),  # entity to turn on when the button is pressed (relay/chime/script/scene)
     }
     return {k: v for k, v in out.items() if v is not None} or None

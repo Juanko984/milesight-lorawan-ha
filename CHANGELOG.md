@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.182.0
+- **Better guest-display editor with a live, true-to-device preview.** Using the DS3604's real template
+  geometry, the editor now shows a 400×300 preview of exactly what the e-ink will render — property name (red),
+  welcome title, house rules, the Check-out banner + time, Wi-Fi lines and the Wi-Fi QR — updating live as you
+  type.
+- **Button actions.** A new "When the guest presses the display's button" section: raise a **persistent
+  notification** (always), **alert a person** via a chosen `notify.*` service, and **trigger an entity** — a
+  relay, chime, script or scene — picked from a dropdown of your switches/lights/scripts/scenes.
+- **New "Guest Call" wall card** (`milesight-guest-call-card`): a dashboard/tablet card that goes big and red
+  and **buzzes** (browser tone, with Enable-sound + mute) when a guest presses the button, until you hit
+  **Reset**. Scope it to one property's area or leave it unscoped for every property.
+
 ## 0.181.0
 - **Guest-card layout now matches the device's real template.** The welcome card's blocks are mapped to the
   DS3604's actual text elements (ids 0–7) instead of the old 1–10 guess, so text lands in the right box instead
