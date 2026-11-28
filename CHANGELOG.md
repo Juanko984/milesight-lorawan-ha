@@ -2,6 +2,18 @@
 
 All notable changes to this integration. Versions follow the GitHub releases / HACS updates.
 
+## 0.178.0
+- **New Ops Hub dashboard** — a lightweight management layer on top of your sites, meters and team, generic across
+  all verticals (farm / facilities / retail / short-stay). First cut (thin slice of all three):
+  - **Tasks** — one to-do board across verticals; click a card to advance To do → In progress → Done.
+  - **Expenses** — scan/paste a receipt, the built-in parser pre-fills vendor / date / total / VAT / fuel litres
+    and auto-categorises; review and post to the ledger against a site + vertical, with input-VAT tracked.
+  - **Utilities** — capture water / electricity bills and reconcile them against what your meters measured for the
+    period (over-billed → dispute · under-billed → estimate/arrears · matched); leave "measured" blank to read it
+    straight from a linked meter entity.
+  - Everything is stored on the gateway and shared by every viewer. Receipt OCR uses a pluggable backend — the
+    built-in text parser works out of the box; a cloud OCR API or a local engine can supply the text later.
+
 ## 0.177.0
 - **Fixed: the booking now saves.** The Save button was submitting an empty form (it read a stale snapshot), which
   the gateway then stored as "no booking". It now saves the guests and arrival / departure you typed, and shows them.

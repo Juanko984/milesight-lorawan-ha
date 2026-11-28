@@ -1,0 +1,49 @@
+# Milesight LoRaWAN – Ops Hub
+# A lightweight management layer that sits on top of your sites, meters and team:
+#   • Tasks — one to-do board across every vertical (farm, facilities, retail, short-stay).
+#   • Expenses — scan or paste a receipt, the built-in parser pre-fills vendor / date / total / VAT / line items,
+#     you review and post it to the ledger against a site + vertical cost centre (VAT tracked for reclaim).
+#   • Utilities — capture water / electricity bills and reconcile them against what your Milesight meters measured
+#     for the same period (over-billed → dispute, under-billed → estimate/arrears, measured spike → leak).
+# Everything is stored on the gateway and shared by every viewer. Receipt OCR uses a pluggable backend — the
+# built-in parser reads pasted text out of the box; a cloud OCR API or a local engine can supply the text later.
+title: Ops Hub
+views:
+  - title: Ops Hub
+    path: ops
+    icon: mdi:clipboard-text-clock-outline
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-page-header
+            grid_options: {columns: full}
+            title: Ops Hub
+            subtitle: Tasks · expenses · receipts · utility reconciliation — across every vertical
+            icon: mdi:clipboard-text-clock-outline
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:milesight-dynamic-layout
+            id: ops
+            default: rows
+            grid_options: {columns: full}
+            sections:
+              - heading: Overview
+                icon: mdi:view-dashboard-outline
+                cards:
+                  - type: custom:milesight-ops-summary-card
+              - heading: Tasks
+                icon: mdi:clipboard-check-outline
+                cards:
+                  - type: custom:milesight-ops-tasks-card
+              - heading: Receipts & expenses
+                icon: mdi:receipt-text-outline
+                cards:
+                  - type: custom:milesight-ops-ledger-card
+              - heading: Utilities — bills vs measured
+                icon: mdi:flash-outline
+                cards:
+                  - type: custom:milesight-ops-utilities-card

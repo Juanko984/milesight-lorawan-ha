@@ -1552,6 +1552,33 @@ def test_mold_risk():
     assert 0 < m["severity"] <= 100 and m["rh_critical"] == 80.0 and m["weeks"] is not None
 
 
+def test_ops_calc():
+    oc = _load("ops_calc")
+    assert oc.vat_split(1346.50) == {"net": 1170.87, "vat": 175.63, "total": 1346.5}
+    assert oc.reconcile(19.0, 28.0)["status"] == "over" and oc.reconcile(19.0, 28.0)["variance_pct"] == 47.4
+    assert oc.reconcile(4183, 4210)["status"] == "matched"
+    assert oc.reconcile(3920, 3610)["status"] == "under"
+    assert oc.reconcile(None, 10)["status"] == "nometer" and oc.reconcile(0, 10)["status"] == "nometer"
+    # receipt parser pulls payee / date / total / vat / vat no / litres / category out of raw text
+    p = oc.parse_receipt_text("ENGEN Stellenbosch\nVAT 4210199876\n2026-11-28 14:32\nDiesel 50ppm\n62.30 L\n"
+                              "Fuel R1,248.50\nVAT 15% R175.63\nTOTAL R1,346.50")
+    assert p["payee"].startswith("ENGEN") and p["date"] == "2026-11-28" and p["total"] == 1346.5
+    assert p["vat"] == 175.63 and p["vat_no"] == "4210199876" and p["litres"] == 62.3 and p["category"] == "fuel"
+    assert oc.parse_receipt_text("")["total"] is None
+    # validation
+    assert oc.clean_expense({"payee": "Makro", "amount": 230.0, "category": "supplies", "vertical": "retail"})["vat"] == 30.0
+    assert oc.clean_expense({}) is None
+    assert oc.clean_bill({"utility": "water", "billed_qty": 28, "measured": 19, "amount": 1192})["unit"] == "kL"
+    assert oc.clean_bill({"utility": "nonsense"}) is None
+    assert oc.clean_task({"title": "Fix leak", "vertical": "farm", "priority": "high"})["status"] == "todo"
+    assert oc.clean_task({"title": ""}) is None
+    assert oc.rollup([{"vertical": "farm", "amount": 10}, {"vertical": "farm", "amount": 5}], "vertical") == {"farm": 15.0}
+    s = oc.summary([{"date": "2026-11-28", "amount": 1346.5, "vat": 175.63, "source": "scan", "approved": False}],
+                   [{"utility": "water", "billed_qty": 28, "measured": 19}],
+                   [{"status": "todo", "due": "2000-01-01"}], month="2026-11")
+    assert s["spend_month"] == 1346.5 and s["to_review"] == 1 and s["util_flags"] == 1 and s["open_tasks"] == 1 and s["overdue_tasks"] == 1
+
+
 def test_load_tracker():
     t0 = T("2026-10-14 00:00"); day = "2026-10-14"
     tr = usg.LoadTracker()

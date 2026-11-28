@@ -1513,7 +1513,7 @@ assert len(out0["blueprints"]["written"]) == 14 and (bp / "leak.yaml").exists()
 assert (bp / "coop_lights.yaml").exists() and (bp / "coop_heater.yaml").exists()
 assert (bp / "rental_auto_eco.yaml").exists()
 dashes = hass4.data["lovelace"].dashboards
-assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-jobs", "milesight-team", "milesight-devices", "milesight-maintenance", "milesight-reports", "milesight-water", "milesight-analytics"}
+assert set(dashes) == {"milesight-alerts", "milesight-recipes", "milesight-jobs", "milesight-team", "milesight-devices", "milesight-maintenance", "milesight-reports", "milesight-ops", "milesight-water", "milesight-analytics"}
 assert dashes["milesight-water"].saved["title"] == "Water" and "milesight-water" in PANELS
 assert asyncio.run(res.async_install(hass4, "0.21.0")) == {}                 # same version: nothing to do
 SITE.pop()                                                                   # the tank sensor is removed …
@@ -3077,3 +3077,19 @@ assert _rt_mold.values["mold_index"] == 50 and _rt_mold.attrs["mold_risk"]["rh_c
 send("00000000000fmold", bytes.fromhex("017590" + "0367c800" + "046896"))   # 20.0 °C, 75 % RH -> no risk
 assert _rt_mold.values["mold_risk_index"] == 0 and _rt_mold.values["mold_risk"] == "No mold growth risk"
 print("mould risk ok")
+
+# ---- Ops Hub store: expense / bill / task round-trip + reconcile + summary ----
+_ops = load("ops").OpsStore(hass)
+asyncio.run(_ops.async_load())
+_e = asyncio.run(_ops.async_set("expenses", None, {"payee": "Engen", "amount": 1346.50, "category": "fuel", "vertical": "farm", "date": "2026-11-28", "source": "scan"}))
+assert _e["vat"] == 175.63 and _e["id"]
+_b = asyncio.run(_ops.async_set("bills", None, {"utility": "water", "billed_qty": 28, "measured": 19, "amount": 1192, "vertical": "shortstay"}))
+_t = asyncio.run(_ops.async_set("tasks", None, {"title": "Fix borehole leak", "vertical": "farm", "priority": "high"}))
+_all = _ops.all()
+assert len(_all["expenses"]) == 1 and len(_all["bills"]) == 1 and len(_all["tasks"]) == 1
+assert _all["bills"][0]["recon"]["status"] == "over"
+assert _all["summary"]["util_flags"] == 1 and _all["summary"]["open_tasks"] == 1
+assert _all["by_vertical"].get("farm") == 1346.50
+assert asyncio.run(_ops.async_delete("tasks", _t["id"])) and len(_ops.all()["tasks"]) == 0
+assert asyncio.run(_ops.async_set("expenses", None, {})) is None    # nothing to store
+print("ops store ok")

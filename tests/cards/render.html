@@ -542,6 +542,19 @@
          { name: "Piet", notify: "notify.mobile_app_piet", source: "notify" },
          { name: "Koos Louw", notify: null, source: "worker" } ] });
      }
+     if (msg && msg.type === "milesight_lorawan/ops/list") {
+       return Promise.resolve({ settings: { currency: "R", vat_rate: 0.15 },
+         summary: { spend_month: 284910, vat_total: 31740, to_review: 2, util_flags: 1, open_tasks: 3, overdue_tasks: 1, month: "2026-11" },
+         by_vertical: { farm: 128400, facilities: 74210, retail: 48900, shortstay: 33400 }, by_category: {},
+         expenses: [ { id: "e1", date: "2026-11-28", payee: "Engen", category: "fuel", vertical: "farm", amount: 1346.5, vat: 175.63, source: "scan" },
+                     { id: "e2", date: "2026-11-27", payee: "Eskom", category: "electricity", vertical: "facilities", amount: 12040, vat: 1570.43, source: "bill" } ],
+         bills: [ { id: "b1", utility: "water", unit: "kL", site: "City Loft", vertical: "shortstay", period_start: "2026-10-01", period_end: "2026-10-31", billed_qty: 28, measured: 19, amount: 1192, recon: { variance_pct: 47.4, status: "over" } },
+                  { id: "b2", utility: "electricity", unit: "kWh", site: "Facilities A", vertical: "facilities", period_start: "2026-10-01", period_end: "2026-10-31", billed_qty: 4210, measured: 4183, amount: 12040, recon: { variance_pct: -0.6, status: "matched" } } ],
+         tasks: [ { id: "t1", title: "Replace vaccine-fridge probe", vertical: "farm", site: "Cold room", priority: "high", status: "todo", due: "2026-12-01" },
+                  { id: "t2", title: "Fix borehole 2 leak", vertical: "farm", priority: "med", status: "doing", source: "sensor" } ] });
+     }
+     if (msg && msg.type === "milesight_lorawan/ops/ocr") { return Promise.resolve({ parsed: { payee: "Engen", date: "2026-11-28", total: 1346.5, vat: 175.63, category: "fuel" } }); }
+     if (msg && (msg.type === "milesight_lorawan/ops/set" || msg.type === "milesight_lorawan/ops/delete")) { return Promise.resolve({ ok: true, all: { expenses: [], bills: [], tasks: [], summary: {}, by_vertical: {}, settings: { currency: "R" } } }); }
      return Promise.resolve({});
    },
  };
@@ -628,6 +641,10 @@
    ["milesight-growth-card", {}],
    ["milesight-insights-card", { title: "At a glance" }],
    ["milesight-property-card", { area: "The Vineyard Cottage" }],
+   ["milesight-ops-summary-card", {}],
+   ["milesight-ops-ledger-card", {}],
+   ["milesight-ops-utilities-card", {}],
+   ["milesight-ops-tasks-card", {}],
    ["milesight-property-card", { mode: "overview", title: false, purpose: "guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety" }],
    ["milesight-property-card", { mode: "detail", section: "risk", purpose: "guest_door,guest_occupancy,rental_climate,rental_air,rental_noise,rental_safety" }],
    ["milesight-dynamic-layout", { sections: [

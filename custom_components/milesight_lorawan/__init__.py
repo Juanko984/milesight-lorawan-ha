@@ -93,6 +93,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 domain_data["rental_ws"] = True
         except Exception:  # noqa: BLE001 - short-stay bookings are a convenience, never block the gateway
             _LOGGER.warning("Could not set up short-stay bookings", exc_info=True)
+        try:
+            from .ops import OpsStore
+            from .ops_ws import register as register_ops_ws
+            ops = OpsStore(hass)
+            await ops.async_load()
+            hub.ops = ops
+            if not domain_data.get("ops_ws"):             # websocket commands are global: register once
+                register_ops_ws(hass)
+                domain_data["ops_ws"] = True
+        except Exception:  # noqa: BLE001 - Ops Hub is a convenience, never block the gateway
+            _LOGGER.warning("Could not set up Ops Hub", exc_info=True)
         if not domain_data.get("resources_started"):
             domain_data["resources_started"] = True
             hass.async_create_task(_async_install_resources(hass))

@@ -10418,6 +10418,265 @@
     }
   }
 
+  // ================================================================ Ops Hub (tasks · expenses · utilities)
+  const OPS_VCOL = { farm: "#3fb950", facilities: "#56d4dd", retail: "#a371f7", shortstay: "#4aa3ff", other: "#9aa3b2" };
+  const OPS_VLABEL = { farm: "Farm", facilities: "Facilities", retail: "Retail", shortstay: "Short-stay", other: "Other" };
+  const OPS_CAT = { fuel: "⛽ Fuel", electricity: "⚡ Electricity", water: "💧 Water", feed: "🌾 Feed & seed",
+    supplies: "🧰 Supplies", maintenance: "🔧 Maintenance", services: "🧽 Services", rates: "🏛 Rates & taxes", other: "• Other" };
+  const _opsToday = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+
+  class OpsBase extends Base {
+    setConfig(cfg) { this._cfg = cfg || {}; this._ops = null; this._edit = null; this._draft = null; this._render(); }
+    _watch() { return null; }
+    connectedCallback() { this._onSync = (e) => { if (e && e.detail) { this._ops = e.detail; if (!this._edit) this._render(); } }; window.addEventListener("ms-ops", this._onSync); }
+    disconnectedCallback() { if (this._onSync) window.removeEventListener("ms-ops", this._onSync); }
+    set hass(hass) { const first = !this._hass; this._hass = hass; if (this._edit) return; if (this._ops === null) { this._ops = {}; this._loadOps(); } else if (first) this._render(); }
+    async _loadOps() { try { const r = await this._hass.callWS({ type: "milesight_lorawan/ops/list" }); this._ops = r || {}; } catch (e) { this._ops = {}; } this._render(); }
+    async _set(coll, id, data) { this._edit = null; this._draft = null; try { const r = await this._hass.callWS({ type: "milesight_lorawan/ops/set", collection: coll, id: id || undefined, data }); if (r && r.all) { this._ops = r.all; this._bcast(); } } catch (e) { /* */ } this._render(); }
+    async _del(coll, id) { try { const r = await this._hass.callWS({ type: "milesight_lorawan/ops/delete", collection: coll, id }); if (r && r.all) { this._ops = r.all; this._bcast(); } } catch (e) { /* */ } this._render(); }
+    async _parse(text) { try { const r = await this._hass.callWS({ type: "milesight_lorawan/ops/ocr", text }); return (r && r.parsed) || {}; } catch (e) { return {}; } }
+    _bcast() { try { window.dispatchEvent(new CustomEvent("ms-ops", { detail: this._ops })); } catch (e) { /* */ } }
+    _cur() { return (this._ops && this._ops.settings && this._ops.settings.currency) || "R"; }
+    _money(v) { const n = num(v); return n == null ? "—" : this._cur() + " " + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    _dstr(iso) { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? esc(iso) : d.toLocaleDateString(undefined, { day: "numeric", month: "short" }); }
+    _setd(k) { return (e) => { this._draft = Object.assign({}, this._draft, { [k]: e.target.value }); }; }
+    _inp(label, k, type, extra) { const d = this._draft || {}; return h("label", { class: "ofl", style: extra && extra.flex ? { flex: extra.flex } : null }, [h("span", {}, label),
+      h("input", { class: "ofi", type: type || "text", value: d[k] == null ? "" : String(d[k]), step: type === "number" ? "0.01" : undefined, oninput: this._setd(k) })]); }
+    _self(label, k, opts) { const d = this._draft || {}; const s = h("select", { class: "ofi", onchange: this._setd(k) },
+      opts.map(([v, l]) => { const o = h("option", { value: v }, l); if (String(d[k] || "") === String(v)) o.selected = true; return o; }));
+      return h("label", { class: "ofl" }, [h("span", {}, label), s]); }
+    // fetch metered consumption for a meter entity over a period (last − first of a cumulative counter)
+    async _fetchMeasured(entityId, start, end) {
+      if (!entityId || !start) return null;
+      try {
+        const r = await this._hass.callWS({ type: "history/history_during_period", start_time: new Date(start).toISOString(),
+          end_time: end ? new Date(end).toISOString() : undefined, entity_ids: [entityId], minimal_response: true, no_attributes: true });
+        const ser = (r && r[entityId]) || []; const nums = ser.map((p) => num(p.s != null ? p.s : p.state)).filter((v) => v != null);
+        if (nums.length < 2) return null;
+        const d = nums[nums.length - 1] - nums[0]; return d >= 0 ? Math.round(d * 100) / 100 : null;
+      } catch (e) { return null; }
+    }
+    _css_ops() {
+      return `
+        .owrap{padding:14px 16px}
+        .ottl{font-size:14px;font-weight:700;margin:0 0 2px}.osub{font-size:12px;color:var(--ms-ink2);margin-bottom:12px}
+        .orow{display:flex;align-items:center;gap:8px}.ospacer{flex:1}
+        .obtn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;font-weight:600;border:1px solid var(--ms-line);background:none;color:var(--ms-ink);border-radius:9px;padding:7px 12px;cursor:pointer}
+        .obtn:hover{border-color:var(--ms-accent)}.obtn.primary{background:var(--ms-accent);border-color:var(--ms-accent);color:#fff}
+        .obtn.sm{padding:4px 9px;font-size:11.5px}.obtn.danger{color:var(--ms-bad);border:0;background:none;padding:4px 7px}
+        .okpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:11px}
+        .okpi{border:1px solid var(--ms-line);border-radius:12px;padding:12px 13px}
+        .okl{font-size:10.5px;color:var(--ms-ink2);text-transform:uppercase;letter-spacing:.03em}
+        .okv{font-size:22px;font-weight:770;margin-top:7px;line-height:1;font-variant-numeric:tabular-nums}.okv small{font-size:12px;color:var(--ms-ink2);font-weight:600}
+        .oks{font-size:11px;color:var(--ms-ink2);margin-top:6px}
+        .ovbar{display:flex;align-items:center;gap:10px;margin:9px 0}.ovn{width:96px;font-size:12px;display:flex;align-items:center;gap:6px}
+        .ovn i{width:9px;height:9px;border-radius:3px}.ovt{flex:1;height:18px;background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:6px;overflow:hidden}
+        .ovt i{display:block;height:100%}.ovv{width:96px;text-align:right;font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
+        .otab{width:100%;border-collapse:collapse;font-size:12.5px}
+        .otab th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--ms-ink2);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--ms-line)}
+        .otab td{padding:9px 10px;border-bottom:1px solid var(--ms-line);font-variant-numeric:tabular-nums}.otab tr:last-child td{border-bottom:0}
+        .otab .r{text-align:right}.vdot{width:8px;height:8px;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:6px}
+        .obadge{font-size:10px;font-weight:700;border-radius:6px;padding:2px 8px;display:inline-flex;gap:4px;align-items:center}
+        .obadge.ok{background:color-mix(in srgb,var(--ms-good) 15%,transparent);color:var(--ms-good)}
+        .obadge.over{background:color-mix(in srgb,var(--ms-bad) 15%,transparent);color:var(--ms-bad)}
+        .obadge.under{background:color-mix(in srgb,var(--ms-warn) 15%,transparent);color:var(--ms-warn)}
+        .obadge.none{background:var(--ms-surface);color:var(--ms-ink2);border:1px solid var(--ms-line)}
+        .osrc{font-size:10px;color:var(--ms-ink2);border:1px solid var(--ms-line);border-radius:5px;padding:1px 6px}
+        .oform{border:1px solid color-mix(in srgb,var(--ms-accent) 30%,var(--ms-line));border-radius:12px;padding:13px;margin-bottom:14px;background:color-mix(in srgb,var(--ms-accent) 5%,transparent)}
+        .ofrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+        .ofl{display:flex;flex-direction:column;gap:4px;flex:1 1 130px;min-width:110px}.ofl span{font-size:11px;color:var(--ms-ink2)}
+        .ofi{font:inherit;font-size:13px;color:var(--ms-ink);background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:8px;padding:8px 9px;color-scheme:dark light}
+        .ofi:focus{outline:none;border-color:var(--ms-accent)}
+        textarea.ofi{min-height:76px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+        .olanes{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+        .olane{background:var(--ms-surface);border:1px solid var(--ms-line);border-radius:11px;padding:10px}
+        .olh{font-size:11.5px;font-weight:700;margin-bottom:8px;display:flex;gap:6px}.olh .c{margin-left:auto;color:var(--ms-ink2)}
+        .otk{background:var(--ms-card,var(--card-background-color));border:1px solid var(--ms-line);border-radius:9px;padding:9px 10px;margin-bottom:8px;display:flex;gap:8px}
+        .otk .pr{width:4px;border-radius:3px;flex:0 0 auto}.otk .tt{font-size:12.5px;font-weight:600;line-height:1.3}
+        .otk .tm{font-size:10.5px;color:var(--ms-ink2);margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+        .ochip{font-size:9.5px;font-weight:700;border-radius:5px;padding:1px 6px}
+        .onote{font-size:11px;color:var(--ms-ink2);line-height:1.5;margin-top:10px}
+        .ott{display:flex;align-items:center;gap:8px;cursor:pointer}
+      `;
+    }
+  }
+
+  class OpsSummaryCard extends OpsBase {
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _render() {
+      if (!this._ops) return; this._css = this._css_ops();
+      const o = this._ops, s = o.summary || {}, bv = o.by_vertical || {};
+      const kpi = (l, v, sub, cls) => h("div", { class: "okpi" }, [h("div", { class: "okl" }, l), h("div", { class: "okv" + (cls ? " " + cls : "") }, v), sub ? h("div", { class: "oks" }, sub) : null]);
+      const tot = Object.values(bv).reduce((a, b) => a + (num(b) || 0), 0) || 1;
+      const bars = Object.keys(OPS_VLABEL).filter((k) => bv[k]).map((k) => h("div", { class: "ovbar" }, [
+        h("div", { class: "ovn" }, [h("i", { style: { background: OPS_VCOL[k] } }), OPS_VLABEL[k]]),
+        h("div", { class: "ovt" }, h("i", { style: { width: Math.max(2, (num(bv[k]) / tot * 100)) + "%", background: OPS_VCOL[k] } })),
+        h("div", { class: "ovv" }, this._money(bv[k])),
+      ]));
+      this._card(h("div", { class: "owrap" }, [
+        h("p", { class: "ottl" }, "Overview"),
+        h("div", { class: "okpis" }, [
+          kpi("Spend · this month", this._money(s.spend_month), (s.month || "") + " to date"),
+          kpi("Receipts to review", String(s.to_review || 0), s.to_review ? "tap Receipts to approve" : "all filed", s.to_review ? "wc" : ""),
+          kpi("Utility flags", String(s.util_flags || 0), s.util_flags ? "measured ≠ billed" : "all matched", s.util_flags ? "bc" : "okc"),
+          kpi("Open tasks", String(s.open_tasks || 0) + (s.overdue_tasks ? "" : ""), (s.overdue_tasks || 0) + " overdue", s.overdue_tasks ? "wc" : ""),
+          kpi("VAT (input)", this._money(s.vat_total), "reclaimable", "okc"),
+        ]),
+        bars.length ? h("div", { style: { marginTop: "16px" } }, [h("p", { class: "osub", style: { marginBottom: "4px" } }, "Spend by vertical"), ...bars]) : null,
+      ]));
+    }
+  }
+
+  class OpsLedgerCard extends OpsBase {
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _openScan() { this._edit = "scan"; this._draft = { source: "scan", vertical: "other", category: "other", date: _opsToday(), _text: "" }; this._render(); }
+    _openAdd() { this._edit = "manual"; this._draft = { source: "manual", vertical: "other", category: "other", date: _opsToday() }; this._render(); }
+    async _read() { const p = await this._parse((this._draft && this._draft._text) || ""); this._draft = Object.assign({}, this._draft,
+      { payee: p.payee || this._draft.payee, date: p.date || this._draft.date, amount: p.total != null ? p.total : this._draft.amount,
+        vat: p.vat != null ? p.vat : this._draft.vat, category: p.category || this._draft.category }); this._render(); }
+    _saveExp() { const d = this._draft || {}; this._set("expenses", d.id, { payee: d.payee, date: d.date, amount: d.amount,
+      vat: d.vat, category: d.category, vertical: d.vertical, site: d.site, source: d.source || "manual", approved: true }); }
+    _render() {
+      if (!this._ops) return; this._css = this._css_ops();
+      const exp = this._ops.expenses || [], body = [];
+      body.push(h("div", { class: "orow", style: { marginBottom: "12px" } }, [
+        h("div", {}, [h("p", { class: "ottl" }, "Expense ledger"), h("div", { class: "osub", style: { marginBottom: 0 } }, "Receipts, bills & manual entries")]),
+        h("div", { class: "ospacer" }), h("button", { class: "obtn", onclick: () => this._openAdd() }, "＋ Expense"),
+        h("button", { class: "obtn primary", onclick: () => this._openScan() }, "🧾 Scan / paste receipt"),
+      ]));
+      if (this._edit) {
+        const d = this._draft || {};
+        const form = [];
+        if (this._edit === "scan") form.push(h("div", { class: "ofrow" }, [
+          h("label", { class: "ofl", style: { flex: "1 1 100%" } }, [h("span", {}, "Paste receipt text (from your scanner / OCR app, or type it)"),
+            h("textarea", { class: "ofi", oninput: this._setd("_text") }, d._text || "")]),
+        ]), h("div", { class: "ofrow" }, [h("button", { class: "obtn sm", onclick: () => this._read() }, "↧ Read fields")]));
+        form.push(h("div", { class: "ofrow" }, [this._inp("Payee", "payee"), this._inp("Date", "date", "date"), this._inp("Total (incl VAT)", "amount", "number"), this._inp("VAT", "vat", "number")]));
+        form.push(h("div", { class: "ofrow" }, [
+          this._self("Category", "category", Object.keys(OPS_CAT).map((k) => [k, OPS_CAT[k]])),
+          this._self("Vertical", "vertical", Object.keys(OPS_VLABEL).map((k) => [k, OPS_VLABEL[k]])),
+          this._inp("Site (optional)", "site"),
+        ]));
+        form.push(h("div", { class: "ofrow", style: { marginBottom: 0 } }, [
+          h("button", { class: "obtn primary", onclick: () => this._saveExp() }, "✓ Post to ledger"),
+          h("button", { class: "obtn", onclick: () => { this._edit = null; this._draft = null; this._render(); } }, "Cancel"),
+        ]));
+        body.push(h("div", { class: "oform" }, form));
+      }
+      const rows = exp.slice(0, 40).map((e) => h("tr", {}, [
+        h("td", {}, this._dstr(e.date)), h("td", {}, esc(e.payee || "—")),
+        h("td", {}, esc(OPS_CAT[e.category] || e.category || "—")),
+        h("td", {}, [h("span", { class: "vdot", style: { background: OPS_VCOL[e.vertical] || OPS_VCOL.other } }), esc(e.site || OPS_VLABEL[e.vertical] || "")]),
+        h("td", { class: "r", style: { fontWeight: 650 } }, this._money(e.amount)),
+        h("td", {}, h("span", { class: "osrc" }, e.source === "scan" ? "🧾 scan" : e.source === "bill" ? "📄 bill" : "✎ manual")),
+        h("td", { class: "r" }, h("button", { class: "obtn danger", title: "Delete", onclick: () => this._del("expenses", e.id) }, "✕")),
+      ]));
+      body.push(h("table", { class: "otab" }, [
+        h("tr", {}, ["Date", "Payee", "Category", "Site", h("span", { class: "r" }, "Amount"), "Src", ""].map((t, i) => h("th", { class: i === 4 ? "r" : "" }, t))),
+        ...(rows.length ? rows : [h("tr", {}, h("td", { colspan: "7", style: { color: "var(--ms-ink2)", padding: "16px 10px" } }, "No expenses yet — scan a receipt or add one."))]),
+      ]));
+      const vat = exp.reduce((a, e) => a + (num(e.vat) || 0), 0);
+      body.push(h("div", { class: "onote" }, ["VAT on this ledger: ", h("b", { style: { color: "var(--ms-ink)" } }, this._money(vat)), " · export to CSV / your accountant from Reports."]));
+      this._card(h("div", { class: "owrap" }, body));
+    }
+  }
+
+  class OpsUtilitiesCard extends OpsBase {
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _openAdd() { this._edit = "bill"; this._draft = { utility: "electricity", vertical: "other" }; this._render(); }
+    async _saveBill() {
+      const d = this._draft || {};
+      let measured = d.measured;
+      if ((measured == null || measured === "") && d.meter_entity_id) { const m = await this._fetchMeasured(d.meter_entity_id, d.period_start, d.period_end); if (m != null) measured = m; }
+      this._set("bills", d.id, { utility: d.utility, account: d.account, site: d.site, vertical: d.vertical,
+        period_start: d.period_start, period_end: d.period_end, billed_qty: d.billed_qty, measured, amount: d.amount, meter_entity_id: d.meter_entity_id });
+    }
+    _render() {
+      if (!this._ops) return; this._css = this._css_ops();
+      const bills = this._ops.bills || [], body = [];
+      body.push(h("div", { class: "orow", style: { marginBottom: "12px" } }, [
+        h("div", {}, [h("p", { class: "ottl" }, "Utilities · bills vs measured"), h("div", { class: "osub", style: { marginBottom: 0 } }, "Reconciled against your meters")]),
+        h("div", { class: "ospacer" }), h("button", { class: "obtn primary", onclick: () => this._openAdd() }, "＋ Add bill"),
+      ]));
+      if (this._edit === "bill") {
+        body.push(h("div", { class: "oform" }, [
+          h("div", { class: "ofrow" }, [this._self("Utility", "utility", [["electricity", "⚡ Electricity (kWh)"], ["water", "💧 Water (kL)"]]),
+            this._inp("Account / site", "site"), this._self("Vertical", "vertical", Object.keys(OPS_VLABEL).map((k) => [k, OPS_VLABEL[k]]))]),
+          h("div", { class: "ofrow" }, [this._inp("Period start", "period_start", "date"), this._inp("Period end", "period_end", "date"),
+            this._inp("Billed qty", "billed_qty", "number"), this._inp("Amount (incl VAT)", "amount", "number")]),
+          h("div", { class: "ofrow" }, [this._inp("Measured (blank = read from meter)", "measured", "number"), this._inp("Meter entity id (optional)", "meter_entity_id")]),
+          h("div", { class: "ofrow", style: { marginBottom: 0 } }, [h("button", { class: "obtn primary", onclick: () => this._saveBill() }, "✓ Save & reconcile"),
+            h("button", { class: "obtn", onclick: () => { this._edit = null; this._draft = null; this._render(); } }, "Cancel")]),
+        ]));
+      }
+      const badge = (r, unit) => { const st = r.status; const map = { matched: ["ok", "✓ Matched"], over: ["over", "⚠ Over-billed"], under: ["under", "↩ Under / estimate"], nometer: ["none", "— no meter"] };
+        const [cls, lbl] = map[st] || map.nometer; return h("span", { class: "obadge " + cls }, lbl + (r.variance_pct != null ? " · " + (r.variance_pct > 0 ? "+" : "") + r.variance_pct + "%" : "")); };
+      const rows = bills.map((b) => h("tr", {}, [
+        h("td", {}, [h("span", { class: "vdot", style: { background: OPS_VCOL[b.vertical] || OPS_VCOL.other } }), esc(b.site || b.account || OPS_VLABEL[b.vertical] || "—")]),
+        h("td", {}, (b.utility === "water" ? "💧 Water" : "⚡ Electricity")),
+        h("td", {}, this._dstr(b.period_start) + "–" + this._dstr(b.period_end)),
+        h("td", { class: "r" }, b.measured != null ? b.measured + " " + b.unit : "—"),
+        h("td", { class: "r" }, b.billed_qty != null ? b.billed_qty + " " + b.unit : "—"),
+        h("td", { class: "r", style: { fontWeight: 650 } }, this._money(b.amount)),
+        h("td", {}, badge(b.recon || {}, b.unit)),
+        h("td", { class: "r" }, h("button", { class: "obtn danger", onclick: () => this._del("bills", b.id) }, "✕")),
+      ]));
+      body.push(h("table", { class: "otab" }, [
+        h("tr", {}, ["Site", "Utility", "Period", h("span", { class: "r" }, "Measured"), h("span", { class: "r" }, "Billed"), h("span", { class: "r" }, "Amount"), "Status", ""].map((t, i) => h("th", { class: (i === 3 || i === 4 || i === 5) ? "r" : "" }, t))),
+        ...(rows.length ? rows : [h("tr", {}, h("td", { colspan: "8", style: { color: "var(--ms-ink2)", padding: "16px 10px" } }, "No bills yet — add one and link a meter to reconcile."))]),
+      ]));
+      body.push(h("div", { class: "onote" }, "Set a meter entity id and leave Measured blank to read consumption straight from the meter for the period. Over-billed → dispute; Under → expect arrears (estimate); a measured spike with no activity is a likely leak."));
+      this._card(h("div", { class: "owrap" }, body));
+    }
+  }
+
+  class OpsTasksCard extends OpsBase {
+    getGridOptions() { return { columns: "full", rows: "auto", min_columns: 12 }; }
+    _openAdd() { this._edit = "task"; this._draft = { vertical: "other", priority: "med", status: "todo" }; this._render(); }
+    _saveTask() { const d = this._draft || {}; this._set("tasks", d.id, { title: d.title, vertical: d.vertical, site: d.site, assignee: d.assignee, due: d.due, priority: d.priority, status: d.status || "todo" }); }
+    _cycle(t) { const nx = { todo: "doing", doing: "done", done: "todo" }[t.status || "todo"]; this._set("tasks", t.id, Object.assign({}, t, { status: nx })); }
+    _render() {
+      if (!this._ops) return; this._css = this._css_ops();
+      const tasks = this._ops.tasks || [], body = [];
+      body.push(h("div", { class: "orow", style: { marginBottom: "12px" } }, [
+        h("div", {}, [h("p", { class: "ottl" }, "Tasks"), h("div", { class: "osub", style: { marginBottom: 0 } }, "One board across every vertical")]),
+        h("div", { class: "ospacer" }), h("button", { class: "obtn primary", onclick: () => this._openAdd() }, "＋ New task"),
+      ]));
+      if (this._edit === "task") {
+        body.push(h("div", { class: "oform" }, [
+          h("div", { class: "ofrow" }, [this._inp("Task", "title", "text", { flex: "2 1 220px" }), this._inp("Assignee", "assignee")]),
+          h("div", { class: "ofrow" }, [this._self("Vertical", "vertical", Object.keys(OPS_VLABEL).map((k) => [k, OPS_VLABEL[k]])),
+            this._inp("Site", "site"), this._inp("Due", "due", "date"), this._self("Priority", "priority", [["high", "High"], ["med", "Medium"], ["low", "Low"]])]),
+          h("div", { class: "ofrow", style: { marginBottom: 0 } }, [h("button", { class: "obtn primary", onclick: () => this._saveTask() }, "✓ Save"),
+            h("button", { class: "obtn", onclick: () => { this._edit = null; this._draft = null; this._render(); } }, "Cancel")]),
+        ]));
+      }
+      const lanes = [["todo", "To do"], ["doing", "In progress"], ["done", "Done"]];
+      const prc = { high: "var(--ms-bad)", med: "var(--ms-warn)", low: "var(--ms-accent)" };
+      body.push(h("div", { class: "olanes" }, lanes.map(([k, lbl]) => {
+        const items = tasks.filter((t) => (t.status || "todo") === k);
+        return h("div", { class: "olane" }, [
+          h("div", { class: "olh" }, [lbl, h("span", { class: "c" }, String(items.length))]),
+          ...items.map((t) => h("div", { class: "otk" }, [
+            h("div", { class: "pr", style: { background: prc[t.priority] || prc.med } }),
+            h("div", { style: { flex: 1 } }, [
+              h("div", { class: "ott", onclick: () => this._cycle(t), title: "Click to advance status" }, [h("div", { class: "tt" }, esc(t.title))]),
+              h("div", { class: "tm" }, [
+                h("span", { class: "ochip", style: { background: "color-mix(in srgb," + (OPS_VCOL[t.vertical] || OPS_VCOL.other) + " 18%,transparent)", color: OPS_VCOL[t.vertical] || OPS_VCOL.other } }, OPS_VLABEL[t.vertical] || "—"),
+                t.site ? esc(t.site) : null, t.due ? "· due " + this._dstr(t.due) : null, t.assignee ? "· " + esc(t.assignee) : null,
+                t.source === "sensor" ? h("span", { class: "osrc" }, "sensor") : null,
+                h("span", { class: "ospacer" }), h("button", { class: "obtn danger", onclick: () => this._del("tasks", t.id) }, "✕"),
+              ]),
+            ]),
+          ])),
+          items.length ? null : h("div", { style: { fontSize: "11px", color: "var(--ms-ink2)", padding: "4px 2px" } }, "—"),
+        ]);
+      })));
+      body.push(h("div", { class: "onote" }, "Click a task to advance it (To do → In progress → Done). Sensor alerts can open a task automatically and close it when the reading clears."));
+      this._card(h("div", { class: "owrap" }, body));
+    }
+  }
+
   // ================================================================ dynamic layout (packed ⇄ rows, with a toggle)
   // Wraps a page's sections (each a heading + its cards) and flows the heading+widget blocks into a responsive
   // masonry so equal-size widgets fill the width instead of each section taking a full-width row. A built-in toggle
@@ -10575,6 +10834,10 @@
         GROWTH_TAG = "milesight-growth-card",
         INSIGHTS_TAG = "milesight-insights-card",
         PROPERTY_TAG = "milesight-property-card",
+        OPSSUM_TAG = "milesight-ops-summary-card",
+        OPSLEDGER_TAG = "milesight-ops-ledger-card",
+        OPSUTIL_TAG = "milesight-ops-utilities-card",
+        OPSTASKS_TAG = "milesight-ops-tasks-card",
         LAYOUT_TAG = "milesight-dynamic-layout",
         TEMPPROBE_TAG = "milesight-temp-probe-card",
         SCENE_TAG = "milesight-scene-card",
@@ -10658,6 +10921,10 @@
     [GROWTH_TAG, GrowthCard, "Milesight Growth", "Overhead EM500-UDL / EM400-MUD over a crop or flock: height (mount − distance), recent + lifetime growth rate, a height trend and a target projection"],
     [INSIGHTS_TAG, InsightsCard, "Milesight Insights", "An 'At a glance' KPI strip for an area: comfort, temp (+min/max), humidity, CO₂, ammonia, light, water, feed, growth and door — each coloured and self-hiding"],
     [PROPERTY_TAG, PropertyCard, "Milesight Property Monitor", "Short-stay / Airbnb property: stay-state (vacant→checked in→occupied→checked out→turnover), a party & smoking risk score, at-a-glance KPIs, and a guest-activity timeline — by area; unscoped shows every property"],
+    [OPSSUM_TAG, OpsSummaryCard, "Milesight Ops · Overview", "Ops Hub overview: spend this month, receipts to review, utility flags, open tasks, input VAT, and spend by vertical"],
+    [OPSLEDGER_TAG, OpsLedgerCard, "Milesight Ops · Expenses", "Expense ledger with receipt scan/paste → parse → review, VAT and site/vertical cost centres"],
+    [OPSUTIL_TAG, OpsUtilitiesCard, "Milesight Ops · Utilities", "Water & electricity bills reconciled against measured meter consumption — over-billed / under-billed / matched"],
+    [OPSTASKS_TAG, OpsTasksCard, "Milesight Ops · Tasks", "A cross-vertical to-do board: add tasks, advance status, per vertical/site"],
     [LAYOUT_TAG, DynamicLayoutCard, "Milesight Dynamic Layout", "Flows a page's sections (heading + widget) into a space-filling masonry with a Packed ⇄ Rows toggle that persists per dashboard"],
     [TEMPPROBE_TAG, TempProbeCard, "Milesight Temperature Probe", "TS probe: temperature with alarm badge + threshold trend, humidity / door chips, dual probe for TS302, cold-chain tilt / light"],
     [SCENE_TAG, SceneCard, "Milesight Scene Buttons", "WS101 / WS136 / WS156 buttons: each button's last press (type + when) and today's count"],
